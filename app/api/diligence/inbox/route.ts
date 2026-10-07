@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { visibleVehicleIds } from '@/lib/access/scope'
 
 /**
  * Cross-deal Memo Inbox feed. Returns open partner-attention items aggregated
@@ -45,18 +47,23 @@ export async function GET(req: NextRequest) {
   // codebase pattern is two queries + a map — match it for consistency.)
   const dealIds = Array.from(new Set(((items as any[]) ?? []).map(r => r.deal_id))) as string[]
   let dealMap: Record<string, { name: string; deal_status: string; current_memo_stage: string }> = {}
+  // Only the caller's entities' diligence; items on any other drop below.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  const visibleIds = scope ? visibleVehicleIds(scope.access) : []
   if (dealIds.length > 0) {
-    const { data: deals } = await admin
+    let dealQuery = admin
       .from('diligence_deals')
       .select('id, name, deal_status, current_memo_stage')
       .in('id', dealIds)
       .eq('fund_id', fundId)
+    if (visibleIds !== null) dealQuery = dealQuery.in('vehicle_id' as any, visibleIds)
+    const { data: deals } = await dealQuery
     for (const d of (deals ?? []) as any[]) {
       dealMap[d.id] = { name: d.name, deal_status: d.deal_status, current_memo_stage: d.current_memo_stage }
     }
   }
 
-  const enriched = ((items as any[]) ?? []).map(r => ({
+  const enriched = ((items as any[]) ?? []).filter(r => visibleIds === null || dealMap[r.deal_id]).map(r => ({
     ...r,
     deal_name: dealMap[r.deal_id]?.name ?? 'Unknown deal',
     deal_status: dealMap[r.deal_id]?.deal_status ?? null,
@@ -72,7 +79,7 @@ export async function GET(req: NextRequest) {
     should_address: 0,
     fyi: 0,
   }
-  for (const r of (items as any[]) ?? []) {
+  for (const r of enriched) {
     if (r.status === 'open') counts.open++
     else if (r.status === 'ignore') counts.ignore++
     else if (r.status === 'done') counts.done++

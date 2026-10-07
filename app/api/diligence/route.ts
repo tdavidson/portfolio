@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { safeWebUrl } from '@/lib/deals/submission-validation'
 import { seedDealChecklistFromFundDefault } from '@/lib/diligence/seed-checklist'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { dealEntityProblem, visibleVehicleIds } from '@/lib/access/scope'
 
 const VALID_DEAL_STATUSES = ['active', 'passed', 'won', 'lost', 'on_hold'] as const
 type DealStatus = typeof VALID_DEAL_STATUSES[number]
@@ -33,6 +35,10 @@ export async function GET(req: NextRequest) {
     .eq('fund_id', (membership as any).fund_id)
     .order('updated_at', { ascending: false })
     .limit(limit)
+  // Only the caller's entities' diligence (admins: all, including unassigned).
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  const vehicleIds = scope ? visibleVehicleIds(scope.access) : []
+  if (vehicleIds !== null) query = query.in('vehicle_id' as any, vehicleIds)
 
   if (status) {
     const statuses = status.split(',').map(s => s.trim()).filter(s => VALID_DEAL_STATUSES.includes(s as DealStatus))
@@ -86,6 +92,14 @@ export async function POST(req: NextRequest) {
     }
     insert.drive_folder_url = safe
   }
+
+  // The entity this diligence is for. A member must choose one of theirs (an unassigned record is
+  // admin-only); an admin may leave it unassigned.
+  const createScope = await loadEntityScopeForUser(admin, user.id)
+  const entityId = typeof body?.vehicle_id === 'string' && body.vehicle_id ? body.vehicle_id : null
+  const entityProblem = createScope ? dealEntityProblem(createScope.access, entityId) : 'No fund found'
+  if (entityProblem) return NextResponse.json({ error: entityProblem }, { status: 403 })
+  if (entityId) insert.vehicle_id = entityId
 
   const { data, error } = await admin
     .from('diligence_deals')

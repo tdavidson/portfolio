@@ -1,6 +1,7 @@
 import type { ComponentProps } from 'react'
 import type { PageContext } from '@/lib/pages/context'
 import type { DealDetail } from './deal-detail'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 export type DiligenceDealPageData = Pick<
   ComponentProps<typeof DealDetail>,
@@ -17,6 +18,8 @@ export async function loadDiligenceDealPage({ admin, user, page }: PageContext, 
     .eq('fund_id', fundId)
     .maybeSingle()
   if (!deal) return null
+  // One of the viewer's entities' records (admins: all).
+  if (!canSeeVehicle(page.access, (deal as any).vehicle_id ?? null)) return null
 
   const [{ data: documents }, { data: latestDraft }] = await Promise.all([
     admin
