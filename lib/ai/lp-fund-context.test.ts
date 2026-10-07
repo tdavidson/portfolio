@@ -39,7 +39,7 @@ const admin = {} as any
 describe('buildLpContext', () => {
   it('returns nothing when the fund has no LP positions — no empty scaffolding in the prompt', async () => {
     generateLiveReport.mockResolvedValue({ asOf: null, rows: [], vehicles: [], entityNames: new Map() })
-    expect(await buildLpContext(admin, 'f1')).toBe('')
+    expect(await buildLpContext(admin, 'f1', null)).toBe('')
   })
 
   it('rolls one LP up across vehicles into a single line and withholds the combined IRR', async () => {
@@ -54,7 +54,7 @@ describe('buildLpContext', () => {
       entityNames: new Map([['e1', 'Cranmore Trust'], ['e2', 'Aldis Family Office']]),
     })
 
-    const block = await buildLpContext(admin, 'f1')
+    const block = await buildLpContext(admin, 'f1', null)
     const lines = block.split('\n')
     const cranmore = lines.find(l => l.includes('Cranmore Trust'))!
     const aldis = lines.find(l => l.includes('Aldis Family Office'))!
@@ -88,7 +88,7 @@ describe('buildLpContext', () => {
       entityNames: new Map([['e3', 'Partner A']]),
     })
 
-    expect(await buildLpContext(admin, 'f1')).toContain('in Fund IV (via GP LLC)')
+    expect(await buildLpContext(admin, 'f1', null)).toContain('in Fund IV (via GP LLC)')
   })
 
   it('falls back to an id fragment rather than dropping an LP whose name is missing', async () => {
@@ -99,6 +99,24 @@ describe('buildLpContext', () => {
       entityNames: new Map(),
     })
 
-    expect(await buildLpContext(admin, 'f1')).toContain('abcdef01:')
+    expect(await buildLpContext(admin, 'f1', null)).toContain('abcdef01:')
+  })
+
+  it('shows only the caller\'s entities — another entity\'s LPs and positions never reach the prompt', async () => {
+    generateLiveReport.mockResolvedValue({
+      asOf: '2026-06-30',
+      rows: [
+        row({ entity_id: 'e1', portfolio_group: 'Fund IV', commitment: 4_000_000 }),
+        row({ entity_id: 'e1', portfolio_group: 'SPV II', commitment: 1_000_000 }),
+        row({ entity_id: 'e2', portfolio_group: 'SPV II', commitment: 500_000 }),
+      ],
+      vehicles: [{ group: 'Fund IV', source: 'ledger', lps: 1 }, { group: 'SPV II', source: 'tracked', lps: 2 }],
+      entityNames: new Map([['e1', 'Cranmore Trust'], ['e2', 'Aldis Family Office']]),
+    })
+    const block = await buildLpContext(admin, 'f1', ['Fund IV'])
+    expect(block).toContain('Cranmore Trust')
+    expect(block).not.toContain('Aldis Family Office')
+    expect(block).not.toContain('SPV II')
+    expect(block).not.toContain('1000000')
   })
 })

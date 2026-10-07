@@ -15,6 +15,7 @@ import {
 } from '@/lib/parsing/extractAttachmentText'
 import { dbError } from '@/lib/api-error'
 import { rateLimit } from '@/lib/rate-limit'
+import { entityScopeFor } from '@/lib/access/entity-scope'
 
 // Verify the company belongs to the user's fund
 async function verifyCompanyAccess(supabase: Awaited<ReturnType<typeof createClient>>, admin: ReturnType<typeof createAdminClient>, userId: string, companyId: string) {
@@ -148,6 +149,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const ctxAccess = await loadAccessContext(admin, access.fundId, user.id, access.role)
   const ctx = await buildCompanyContext(admin, params.id, {
     includeTeamNotes: hasAccess(ctxAccess, 'relationships', 'read', 'notes'),
+    scope: await entityScopeFor(admin, ctxAccess),
   })
   if (!ctx) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 

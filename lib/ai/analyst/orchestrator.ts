@@ -20,6 +20,8 @@ import { buildLpContext, LP_ANALYST_GUIDE } from '@/lib/ai/lp-fund-context'
 import { buildDiligenceContext, DILIGENCE_ANALYST_GUIDE } from '@/lib/diligence/analyst-context'
 import { extractText } from '@/lib/memo-agent/extract-text'
 import { hasAccess } from '@/lib/access/effective'
+import { entityScopeFor } from '@/lib/access/entity-scope'
+import { canSeeVehicle, filterByCompany } from '@/lib/access/scope'
 import type { ToolExecutor } from '@/lib/ai/types'
 import type { AnalystProgressEvent } from './types'
 import {
@@ -119,12 +121,15 @@ export async function runAnalyst(
 
   const scopeInput = request.scope ?? {}
   const canReadPortfolio = hasAccess(principal.access, 'portfolio', 'read')
+  // The caller's entities: every context below reads only their companies and positions, and a
+  // company or deal outside them is "not found" — the model is never handed it.
+  const entityScope = await entityScopeFor(deps.admin as any, principal.access)
   const { data: allFundCompanies } = canReadPortfolio
-    ? await deps.admin
+    ? await filterByCompany(deps.admin
         .from('companies')
         .select('id, name, aliases')
         .eq('fund_id', principal.fundId)
-        .eq('holding_type', 'company')
+        .eq('holding_type', 'company'), entityScope.companyIds, { column: 'id' })
     : { data: null }
 
   const companyNameLookup = new Map<string, string>()
@@ -143,6 +148,7 @@ export async function runAnalyst(
 
   const contextOptions = {
     includeTeamNotes: hasAccess(principal.access, 'relationships', 'read', 'notes'),
+    scope: entityScope,
   }
   let systemPrompt: string
 
@@ -150,12 +156,15 @@ export async function runAnalyst(
     if (!hasAccess(principal.access, 'dealflow', 'read')) {
       throw new AnalystRequestError('Forbidden', 403, 'FORBIDDEN')
     }
+    // '*': vehicle_id exists only once the entity migration has run.
     const { data: dealCheck } = await deps.admin
       .from('inbound_deals')
-      .select('fund_id')
+      .select('*')
       .eq('id', scopeInput.dealId)
       .maybeSingle()
-    if (!dealCheck) throw new AnalystRequestError('Not found', 404, 'NOT_FOUND')
+    if (!dealCheck || !canSeeVehicle(principal.access, (dealCheck as any).vehicle_id ?? null)) {
+      throw new AnalystRequestError('Not found', 404, 'NOT_FOUND')
+    }
     if ((dealCheck as { fund_id: string }).fund_id !== principal.fundId) {
       throw new AnalystRequestError('Forbidden', 403, 'FORBIDDEN')
     }
@@ -175,7 +184,9 @@ export async function runAnalyst(
       .select('fund_id')
       .eq('id', scopeInput.companyId)
       .maybeSingle()
-    if (!companyCheck) throw new AnalystRequestError('Not found', 404, 'NOT_FOUND')
+    if (!companyCheck || (entityScope.companyIds !== null && !entityScope.companyIds.includes(scopeInput.companyId))) {
+      throw new AnalystRequestError('Not found', 404, 'NOT_FOUND')
+    }
     if (companyCheck.fund_id !== principal.fundId) {
       throw new AnalystRequestError('Forbidden', 403, 'FORBIDDEN')
     }
@@ -239,7 +250,7 @@ export async function runAnalyst(
       includeRelatedEntities: hasAccess(principal.access, 'gp_economics', 'read'),
     }
     try {
-      const group = await resolveVehicle(deps.admin, principal.fundId, scopeInput.vehicle)
+      const group = await resolveVehicle(deps.admin, principal.fundId, scopeInput.vehicle, { access: principal.access })
       const books = await buildAccountingContext(deps.admin, principal.fundId, group, options)
       systemPrompt += `\n\n=== ACCOUNTING: ${group} ===\n${accountingAnalystGuide(options)}\n\n${books}`
       if (documentBlock) {
@@ -264,7 +275,7 @@ export async function runAnalyst(
     })
     lpScoped = true
     try {
-      const block = await buildLpContext(deps.admin, principal.fundId)
+      const block = await buildLpContext(deps.admin, principal.fundId, entityScope.vehicleNames)
       if (block) systemPrompt += `\n\n=== LP CAPITAL ===\n${LP_ANALYST_GUIDE}\n\n${block}`
     } catch (error) {
       console.error('[analyst] LP context skipped:', error)
@@ -275,7 +286,7 @@ export async function runAnalyst(
   if (scopeInput.domain === 'diligence' && hasAccess(principal.access, 'diligence', 'read')) {
     diligenceScoped = true
     try {
-      const block = await buildDiligenceContext(deps.admin, principal.fundId)
+      const block = await buildDiligenceContext(deps.admin, principal.fundId, principal.access)
       if (block) systemPrompt += `\n\n=== DILIGENCE PIPELINE ===\n${DILIGENCE_ANALYST_GUIDE}\n\n${block}`
     } catch (error) {
       console.error('[analyst] diligence context skipped:', error)

@@ -5,6 +5,8 @@ import {
   type PostmarkPayload,
 } from '@/lib/parsing/extractAttachmentText'
 import { buildRecentUpdatesBlock } from '@/lib/company-updates/analyst'
+import type { EntityScope } from '@/lib/access/entity-scope'
+import { filterByCompany, scopeTransactions } from '@/lib/access/scope'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -23,6 +25,11 @@ export interface PortfolioContext {
  */
 export interface ContextOptions {
   includeTeamNotes: boolean
+  /**
+   * The caller's entities. Required: every company, transaction and note read below is trimmed to
+   * it, so a prompt never carries another entity's data. See lib/access/entity-scope.ts.
+   */
+  scope: Pick<EntityScope, 'vehicleNames' | 'companyIds'>
 }
 
 export async function buildPortfolioContext(
@@ -30,16 +37,19 @@ export async function buildPortfolioContext(
   fundId: string,
   options: ContextOptions
 ): Promise<PortfolioContext> {
-  const { data: allCompanies } = await admin
+  const { data: allCompanies } = await filterByCompany(admin
     .from('companies')
     .select('id, name, status, stage, industry')
     .eq('fund_id', fundId)
-    .eq('holding_type', 'company')   // fund holdings have their own surfaces
+    .eq('holding_type', 'company'),   // fund holdings have their own surfaces
+    options.scope.companyIds, { column: 'id' })
 
-  const { data: allTransactions } = await admin
+  const { data: fundTransactions } = await admin
     .from('investment_transactions')
-    .select('company_id, transaction_type, investment_cost, proceeds_received, proceeds_escrow, current_share_price, shares_acquired, unrealized_value_change')
+    .select('company_id, transaction_type, investment_cost, proceeds_received, proceeds_escrow, current_share_price, shares_acquired, unrealized_value_change, portfolio_group')
     .eq('fund_id', fundId)
+  // Only the caller's entities' positions (and company-wide price signals).
+  const allTransactions = fundTransactions ? scopeTransactions(fundTransactions, options.scope.vehicleNames) : null
 
   let portfolioBlock = ''
   if (allCompanies && allTransactions) {
@@ -86,10 +96,10 @@ export async function buildPortfolioContext(
   // entitled to them. Not fetched rather than fetched-and-dropped: the rule is that a request is
   // never GIVEN what it isn't entitled to.
   const { data: portfolioNotes } = options.includeTeamNotes
-    ? await admin
+    ? await filterByCompany(admin
         .from('company_notes')
         .select('content, user_id, company_id, created_at')
-        .eq('fund_id', fundId)
+        .eq('fund_id', fundId), options.scope.companyIds, { keepUnlinked: true })
         .order('created_at', { ascending: false })
         .limit(30) as { data: { content: string; user_id: string; company_id: string | null; created_at: string }[] | null }
     : { data: null }
@@ -214,24 +224,27 @@ export async function buildCompanyContext(
     .order('created_at', { ascending: false })
     .limit(3) as { data: { summary_text: string; period_label: string | null; created_at: string }[] | null }
 
-  // --- Investment transactions ---
-  const { data: transactions } = await admin
+  // --- Investment transactions --- (a shared company: only the caller's entities' side)
+  const { data: companyTransactions } = await admin
     .from('investment_transactions')
     .select('transaction_type, transaction_date, round_name, investment_cost, shares_acquired, share_price, proceeds_received, proceeds_escrow, current_share_price, unrealized_value_change, portfolio_group')
     .eq('company_id', companyId)
     .order('transaction_date', { ascending: true })
+  const transactions = companyTransactions ? scopeTransactions(companyTransactions, options.scope.vehicleNames) : null
 
-  // --- Portfolio-wide lightweight data ---
-  const { data: allCompanies } = await admin
+  // --- Portfolio-wide lightweight data --- (peers: the caller's companies only)
+  const { data: allCompanies } = await filterByCompany(admin
     .from('companies')
     .select('id, name, status')
     .eq('fund_id', company.fund_id)
-    .eq('holding_type', 'company')   // fund holdings have their own surfaces
+    .eq('holding_type', 'company'),   // fund holdings have their own surfaces
+    options.scope.companyIds, { column: 'id' })
 
-  const { data: allTransactions } = await admin
+  const { data: fundTransactions } = await admin
     .from('investment_transactions')
-    .select('company_id, transaction_type, investment_cost, proceeds_received, proceeds_escrow, current_share_price, shares_acquired, unrealized_value_change')
+    .select('company_id, transaction_type, investment_cost, proceeds_received, proceeds_escrow, current_share_price, shares_acquired, unrealized_value_change, portfolio_group')
     .eq('fund_id', company.fund_id)
+  const allTransactions = fundTransactions ? scopeTransactions(fundTransactions, options.scope.vehicleNames) : null
 
   // --- Team discussion notes --- (relationships domain; see ContextOptions)
   const { data: teamNotes } = options.includeTeamNotes

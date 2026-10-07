@@ -7,6 +7,8 @@
 // visible to. See plans/plan-unified-analyst.md.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type { AccessContext } from '@/lib/access/effective'
+import { visibleVehicleIds } from '@/lib/access/scope'
 
 /** Deals beyond this are old closed ones; active work sorts first, so the tail is what's cut. */
 const MAX_DEALS = 60
@@ -15,12 +17,20 @@ const MAX_NOTES_CHARS = 300
 /** Live work first — a passed deal from a year ago matters less than what's on the desk now. */
 const STATUS_ORDER: Record<string, number> = { active: 0, on_hold: 1, won: 2, lost: 3, passed: 4 }
 
-export async function buildDiligenceContext(admin: SupabaseClient, fundId: string): Promise<string> {
-  const { data } = await admin
+export async function buildDiligenceContext(
+  admin: SupabaseClient,
+  fundId: string,
+  /** The caller's access. Required: only records owned by their entities reach the prompt. */
+  access: Pick<AccessContext, 'vehicles'>,
+): Promise<string> {
+  let query = admin
     .from('diligence_deals' as any)
     .select('name, sector, stage_at_consideration, deal_status, current_memo_stage, notes_summary, created_at')
     .eq('fund_id', fundId)
-    .order('created_at', { ascending: false })
+  // Filtered only for a scoped caller: vehicle_id exists once the entity migration has run.
+  const vehicleIds = visibleVehicleIds(access)
+  if (vehicleIds !== null) query = query.in('vehicle_id', vehicleIds)
+  const { data } = await query.order('created_at', { ascending: false })
 
   const deals = (data as any[]) ?? []
   if (deals.length === 0) return ''

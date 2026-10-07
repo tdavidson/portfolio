@@ -9,6 +9,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { generateLiveReport } from '@/lib/accounting/live-report'
 import { lpRatios } from '@/lib/lp-metrics'
+import { scopeLiveReport } from '@/lib/access/lp-scope'
 
 /** A fund with more LPs than this is summarised by its largest positions — the tail is noise in a
  *  prompt, and the totals line still accounts for all of it. */
@@ -19,8 +20,13 @@ const add = (a: number | null, b: number | null): number | null => a == null || 
 const ratio = (r: number | null) => (r == null ? 'n/a' : `${r.toFixed(2)}x`)
 const pct = (r: number | null) => (r == null ? 'n/a' : `${(r * 100).toFixed(1)}%`)
 
-export async function buildLpContext(admin: SupabaseClient, fundId: string): Promise<string> {
-  const report = await generateLiveReport(admin, fundId)
+export async function buildLpContext(
+  admin: SupabaseClient,
+  fundId: string,
+  /** The caller's entity names (null = every entity). Required: the prompt carries only these. */
+  visibleNames: string[] | null,
+): Promise<string> {
+  const report = scopeLiveReport(await generateLiveReport(admin, fundId), visibleNames)
   if (report.rows.length === 0) return ''
 
   // One LP can hold across several vehicles — roll those rows up per LP, the way every other

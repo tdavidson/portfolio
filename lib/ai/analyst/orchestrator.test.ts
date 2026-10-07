@@ -8,6 +8,7 @@ const mocks = vi.hoisted(() => ({
   createChat: vi.fn(),
   logAIUsage: vi.fn(),
   buildPortfolioContext: vi.fn(),
+  buildCompanyContext: vi.fn(async () => null),
   conversationBelongsToPrincipal: vi.fn(),
   loadConversationMemory: vi.fn(),
   persistConversation: vi.fn(),
@@ -33,7 +34,7 @@ vi.mock('@/lib/ai/usage', () => ({ logAIUsage: mocks.logAIUsage }))
 vi.mock('@/lib/ai/topical-guard', () => ({ withTopicalGuardrail: (value: string) => value }))
 vi.mock('@/lib/ai/context-builder', () => ({
   buildPortfolioContext: mocks.buildPortfolioContext,
-  buildCompanyContext: async () => null,
+  buildCompanyContext: mocks.buildCompanyContext,
   buildDealContext: async () => null,
 }))
 vi.mock('@/lib/memo-agent/extract-text', () => ({ extractText: mocks.extractText }))
@@ -186,7 +187,39 @@ describe('runAnalyst', () => {
 
     expect(mocks.buildPortfolioContext).toHaveBeenCalledWith(admin, 'fund-1', {
       includeTeamNotes: false,
+      scope: expect.objectContaining({ vehicleNames: null, companyIds: null }),
     })
+  })
+
+  it('treats a company outside the caller\'s entities as not found, and scopes the portfolio context', async () => {
+    // A member granted one entity (v1), which holds c1 only.
+    const tables: Record<string, unknown> = {
+      company_vehicles: [{ company_id: 'c1' }],
+      fund_vehicles: [{ name: 'Fund I', aliases: [] }],
+    }
+    // companies: a list for name detection, one row for the company check.
+    const companies = () => {
+      const q = query([{ id: 'c1', name: 'Acme', aliases: [] }])
+      return new Proxy(q, { get: (t, k) => k === 'maybeSingle' ? async () => ({ data: { fund_id: 'fund-1' }, error: null }) : (k === 'then' ? t.then : () => companies()) })
+    }
+    const scopedAdmin = { from: (t: string) => t === 'companies' ? companies() : query(tables[t] ?? []) } as any
+    const member = {
+      ...principal,
+      access: { ...access, vehicles: { all: false, ids: ['v1'] }, grants: { portfolio: 'read' as const } },
+    }
+    await expect(runAnalyst(member, {
+      messages: [{ role: 'user', content: 'How is it doing?' }],
+      scope: { companyId: 'c2' },
+    }, { admin: scopedAdmin, isRateLimited: async () => false })).rejects.toMatchObject({ status: 404 })
+    // Refused before any of its data is read.
+    expect(mocks.buildCompanyContext).not.toHaveBeenCalledWith(scopedAdmin, 'c2', expect.anything())
+
+    mocks.buildPortfolioContext.mockResolvedValue({ systemPrompt: '', portfolioBlock: '', teamNotesBlock: '' })
+    await runAnalyst(member, { messages: [{ role: 'user', content: 'How is the portfolio?' }] },
+      { admin: scopedAdmin, isRateLimited: async () => false }).catch(() => {})
+    expect(mocks.buildPortfolioContext).toHaveBeenLastCalledWith(scopedAdmin, 'fund-1', expect.objectContaining({
+      scope: expect.objectContaining({ vehicleNames: ['Fund I'], companyIds: ['c1'] }),
+    }))
   })
 
   it('does not preload portfolio context for a principal without portfolio access', async () => {
