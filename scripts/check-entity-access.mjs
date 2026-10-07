@@ -23,6 +23,7 @@ const MIGRATIONS = (process.env.ENTITY_MIGRATIONS ?? [
   '20261007100200_entity_rls.sql',
   '20261007100300_entity_rls_lp.sql',
   '20261007100400_diligence_entity.sql',
+  '20261007100500_entity_storage.sql',
 ].join(',')).split(',')
 
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'pipe' })
@@ -80,6 +81,16 @@ create table lp_onboarding_items (id uuid primary key default gen_random_uuid(),
 create table diligence_deals (id uuid primary key default gen_random_uuid(), fund_id uuid not null, name text, promoted_company_id uuid);
 create table diligence_notes (id uuid primary key default gen_random_uuid(), fund_id uuid not null, deal_id uuid, body text);
 alter table inbound_deals add column promoted_diligence_id uuid;
+-- Supabase Storage, reduced to what the policies read.
+create schema storage;
+create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text not null, name text not null);
+create function storage.foldername(name text) returns text[] language sql immutable as
+  $$ select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1] $$;
+grant usage on schema storage to authenticated;
+grant select on storage.objects to authenticated;
+alter table storage.objects enable row level security;
+create policy "members" on storage.objects for select to authenticated using (true);
+create table inbound_emails (id uuid primary key default gen_random_uuid(), fund_id uuid not null, company_id uuid);
 -- The LP portal's own identity: an LP account sees its investor's rows.
 create table lp_account_links (user_id uuid, lp_investor_id uuid);
 create function get_my_lp_investor_ids() returns uuid[] language sql stable security definer set search_path = public as
@@ -311,6 +322,18 @@ try {
   psql(`insert into inbound_deals (fund_id, vehicle_id, promoted_diligence_id) values ('${F}', '${V2}', '${DD2}')`)
   check('promoting a deal to diligence carries the deal\'s entity',
     psql(`select v.name from diligence_deals d join fund_vehicles v on v.id = d.vehicle_id where d.id = '${DD2}'`), 'Fund II')
+
+  // ---- Storage: document files follow the same rule as their rows. ----
+  const EM = '00000000-0000-0000-0000-00000000ee01'
+  psql(`insert into inbound_emails (id, fund_id, company_id) values ('${EM}', '${F}', '${E}');
+        insert into storage.objects (bucket_id, name) values
+          ('company-documents', '${F}/${D}/beta.pdf'), ('company-documents', '${F}/${E}/gamma.pdf'),
+          ('lp-documents', '${F}/receipt.pdf'), ('email-attachments', '${EM}/deck.pdf'), ('avatars', 'me.png')`)
+  check('a member reads company documents only under companies their entities hold, and other buckets as before',
+    psql(`select string_agg(name, ',' order by name) from storage.objects`, { as: MEMBER }),
+    [`${F}/${D}/beta.pdf`, 'me.png'].sort().join(','))
+  check('an unscoped caller reads every document file',
+    psql(`select count(*) from storage.objects`, { as: ADMIN }), '5')
 
   // ---- Single-entity funds: unlinked companies are assigned to the one entity on push. ----
   check('a company in a one-entity fund is assigned to that entity, so no member loses it',
