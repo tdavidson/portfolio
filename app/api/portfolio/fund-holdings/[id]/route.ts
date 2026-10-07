@@ -6,7 +6,9 @@ import { resolveHoldingVehicle } from '@/lib/portfolio/fof-register'
 import { assertReadAccess, assertWriteAccess } from '@/lib/api-helpers'
 import { ACTUAL_BOOK } from '@/lib/accounting/books'
 import { loadAccessContext } from '@/lib/access/effective'
-import { canSeeVehicle, scopeCompanyRows, visibleVehicleIds } from '@/lib/access/scope'
+import { scopeCompanyRows, visibleVehicleIds } from '@/lib/access/scope'
+import { companyDeleteDenial } from '@/lib/access/company-delete'
+import { loadEntityScope } from '@/lib/access/entity-scope'
 
 // One fund holding and its terms.
 export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -130,14 +132,9 @@ export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: s
   if (gate instanceof NextResponse) return gate
 
   // Deleting removes the holding for every entity that commits to it, so a member may delete only
-  // a holding none of the other entities is linked to.
-  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
-  if (!access.vehicles.all) {
-    const { data: links } = await (admin as any).from('company_vehicles').select('vehicle_id').eq('company_id', params.id)
-    if (((links as any[]) ?? []).some(l => !canSeeVehicle(access, l.vehicle_id))) {
-      return NextResponse.json({ error: 'Another entity also holds this fund. Ask an admin to remove it.' }, { status: 403 })
-    }
-  }
+  // a holding wholly theirs.
+  const deleteDenied = await companyDeleteDenial(admin, await loadEntityScope(admin, gate), params.id)
+  if (deleteDenied) return NextResponse.json({ error: deleteDenied.replace('this company', 'this fund') }, { status: 403 })
 
   const { count } = await (admin as any)
     .from('fund_capital_events')

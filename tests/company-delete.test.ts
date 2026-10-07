@@ -61,7 +61,7 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => admin }))
 vi.mock('@/lib/api-helpers', () => ({ assertWriteAccess: mocks.assertWriteAccess }))
 vi.mock('@/lib/activity', () => ({ logActivity: mocks.logActivity }))
 vi.mock('@/lib/access/entity-scope', () => ({
-  loadEntityScope: async () => ({ access: { vehicles: mocks.vehicles }, vehicleNames: null, companyIds: null }),
+  loadEntityScope: async () => ({ access: { vehicles: mocks.vehicles }, vehicleNames: mocks.vehicles.all ? null : ['Fund I'], companyIds: null }),
   loadEntityScopeForUser: async () => ({ access: { vehicles: mocks.vehicles }, vehicleNames: null, companyIds: null }),
 }))
 

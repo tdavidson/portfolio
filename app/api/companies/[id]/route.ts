@@ -8,7 +8,8 @@ import { logActivity } from '@/lib/activity'
 import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
 import { LEDGER_BOOKS } from '@/lib/accounting/books'
 import { loadEntityScope, loadEntityScopeForUser } from '@/lib/access/entity-scope'
-import { canSeeVehicle, mergeGroupsForWrite, scopeGroups } from '@/lib/access/scope'
+import { mergeGroupsForWrite, scopeGroups } from '@/lib/access/scope'
+import { companyDeleteDenial } from '@/lib/access/company-delete'
 
 const VALID_STATUSES: CompanyStatus[] = ['active', 'exited', 'written-off']
 
@@ -144,15 +145,9 @@ export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: s
   if (companyError) return dbError(companyError, 'companies-id-delete-lookup')
   if (!company) return NextResponse.json({ error: 'Company not found' }, { status: 404 })
 
-  // Deleting removes it for every entity, so a member may delete only a company no entity they
-  // cannot see is linked to.
-  const deleteScope = await loadEntityScope(admin, writeCheck)
-  if (!deleteScope.access.vehicles.all) {
-    const { data: links } = await (admin as any).from('company_vehicles').select('vehicle_id').eq('company_id', company.id)
-    if (((links as any[]) ?? []).some(l => !canSeeVehicle(deleteScope.access, l.vehicle_id))) {
-      return NextResponse.json({ error: 'Another entity also holds this company. Ask an admin to remove it.' }, { status: 403 })
-    }
-  }
+  // Deleting removes it for every entity, so a member may delete only a company wholly theirs.
+  const deleteDenied = await companyDeleteDenial(admin, await loadEntityScope(admin, writeCheck), company.id)
+  if (deleteDenied) return NextResponse.json({ error: deleteDenied }, { status: 403 })
 
   // Each investment deletion retracts its mirrored journal entries and refuses closed periods.
   // Cascading the company row would bypass that accounting safeguard, so require the operator to
