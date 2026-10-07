@@ -18,7 +18,7 @@ function makeAdminStub(company: { id: string; name: string }) {
   return { from: query } as any
 }
 
-const deps = (admin: any) => ({ admin, fundId: 'f1', userId: 'u1', access: {} as any })
+const deps = (admin: any) => ({ admin, fundId: 'f1', userId: 'u1', access: { fundId: 'f1', vehicles: { all: true, ids: [] } } as any })
 
 describe('investment action preview', () => {
   it('summarizes company, type, and amount without writing', async () => {

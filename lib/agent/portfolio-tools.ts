@@ -12,6 +12,9 @@ import { lpRatios } from '@/lib/lp-metrics'
 import { draftEntryForTransaction } from '@/lib/accounting/from-portfolio'
 import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-tools'
 import { getUpdates } from '@/lib/company-updates/analyst'
+import type { AccessContext } from '@/lib/access/effective'
+import { entityScopeFor, type EntityScope } from '@/lib/access/entity-scope'
+import { groupWriteDenial, scopeCompanyRows, scopeGroups, scopeTransactions, visibleCompanyIds } from '@/lib/access/scope'
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 
@@ -20,16 +23,28 @@ const r2 = (n: number) => Math.round(n * 100) / 100
  * a name would make every tool unusable in practice — but a name that matches two
  * companies must not silently pick one.
  */
-export async function resolveCompany(admin: SupabaseClient, fundId: string, ref: string): Promise<any> {
+export async function resolveCompany(
+  admin: SupabaseClient,
+  fundId: string,
+  ref: string,
+  /** The caller's access: only companies linked to their entities resolve. Required. */
+  access: Pick<AccessContext, 'fundId' | 'vehicles'>,
+): Promise<any> {
   if (!ref) throw new Error('A company id or name is required')
+  const visible = await visibleCompanyIds(admin, access)
+  const mine = (c: any) => visible === null || visible.includes(c.id)
+  const found = await resolveAnyCompany(admin, fundId, ref, mine)
+  return found
+}
 
+async function resolveAnyCompany(admin: SupabaseClient, fundId: string, ref: string, mine: (c: any) => boolean): Promise<any> {
   const { data: byId } = await (admin as any)
     .from('companies').select('*').eq('fund_id', fundId).eq('id', ref).maybeSingle()
-  if (byId) return byId
+  if (byId && mine(byId)) return byId
 
   const { data: byName } = await (admin as any)
     .from('companies').select('*').eq('fund_id', fundId).ilike('name', ref)
-  const rows = (byName as any[]) ?? []
+  const rows = ((byName as any[]) ?? []).filter(mine)
   if (rows.length === 1) return rows[0]
   if (rows.length > 1) {
     throw new Error(`"${ref}" matches ${rows.length} companies — pass the company id instead.`)
@@ -37,7 +52,7 @@ export async function resolveCompany(admin: SupabaseClient, fundId: string, ref:
 
   const { data: fuzzy } = await (admin as any)
     .from('companies').select('id, name').eq('fund_id', fundId).ilike('name', `%${ref}%`).limit(5)
-  const near = ((fuzzy as any[]) ?? []).map(c => c.name)
+  const near = ((fuzzy as any[]) ?? []).filter(mine).map(c => c.name)
   throw new Error(
     near.length > 0
       ? `No company named "${ref}". Did you mean: ${near.join(', ')}?`
@@ -46,10 +61,11 @@ export async function resolveCompany(admin: SupabaseClient, fundId: string, ref:
 }
 
 /** A company's transactions, optionally narrowed to one vehicle. */
-async function txnsFor(admin: SupabaseClient, fundId: string, companyId: string, vehicle?: string): Promise<any[]> {
+async function txnsFor(admin: SupabaseClient, fundId: string, companyId: string, vehicle: string | undefined, scope: EntityScope): Promise<any[]> {
   const { data } = await (admin as any)
     .from('investment_transactions').select('*').eq('fund_id', fundId).eq('company_id', companyId)
-  let rows = ((data as any[]) ?? [])
+  // Only the caller's entities' rows (plus company-wide price signals).
+  let rows = scopeTransactions((data as any[]) ?? [], scope.vehicleNames)
   if (vehicle) {
     // Untagged pricing rows (a round the fund didn't join, a company-wide mark) re-price
     // the position in EVERY vehicle, so they must survive the filter.
@@ -59,9 +75,11 @@ async function txnsFor(admin: SupabaseClient, fundId: string, companyId: string,
 }
 
 /** Companies in the fund, optionally narrowed to a vehicle. `portfolio_group` is text[]. */
-async function companiesIn(admin: SupabaseClient, fundId: string, vehicle?: string): Promise<any[]> {
+async function companiesIn(admin: SupabaseClient, fundId: string, vehicle: string | undefined, scope: EntityScope): Promise<any[]> {
   const { data } = await (admin as any).from('companies').select('*').eq('fund_id', fundId).eq('holding_type', 'company')
-  const rows = ((data as any[]) ?? [])
+  // Only companies linked to the caller's entities, naming only those entities.
+  const rows = scopeCompanyRows((data as any[]) ?? [], scope.companyIds)
+    .map(c => ({ ...c, portfolio_group: scopeGroups(c.portfolio_group, scope.vehicleNames) }))
   if (!vehicle) return rows
   return rows.filter(c => Array.isArray(c.portfolio_group) && c.portfolio_group.includes(vehicle))
 }
@@ -69,20 +87,22 @@ async function companiesIn(admin: SupabaseClient, fundId: string, vehicle?: stri
 export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
   // Company Updates retrieval. Fund-scoped in SQL; the company reference resolves through the
   // same resolver as every other portfolio tool so a name never silently picks the wrong company.
-  get_updates: async ({ admin, fundId }: AgentToolContext, input: any) =>
+  get_updates: async ({ admin, fundId, access }: AgentToolContext, input: any) =>
     getUpdates(
-      { admin: admin as any, fundId, resolveCompanyId: async ref => (await resolveCompany(admin, fundId, ref)).id },
+      { admin: admin as any, fundId, resolveCompanyId: async ref => (await resolveCompany(admin, fundId, ref, access)).id },
       input ?? {},
     ),
 
-  list_vehicles: async ({ admin, fundId }: AgentToolContext) => {
+  list_vehicles: async ({ admin, fundId, access }: AgentToolContext) => {
     const { data } = await (admin as any)
       .from('fund_vehicles').select('name, kind, active').eq('fund_id', fundId).order('name')
-    return ((data as any[]) ?? []).map(v => ({ vehicle: v.name, kind: v.kind, active: v.active }))
+    const vScope = await entityScopeFor(admin, access)
+    return ((data as any[]) ?? []).filter(v => vScope.vehicleNames === null || vScope.vehicleNames.includes(v.name))
+      .map(v => ({ vehicle: v.name, kind: v.kind, active: v.active }))
   },
 
-  list_companies: async ({ admin, fundId }: AgentToolContext, input: any) => {
-    let rows = await companiesIn(admin, fundId, input?.vehicle)
+  list_companies: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
+    let rows = await companiesIn(admin, fundId, input?.vehicle, await entityScopeFor(admin, access))
     if (input?.status) rows = rows.filter(c => c.status === input.status)
     if (input?.q) {
       const q = String(input.q).toLowerCase()
@@ -101,9 +121,9 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
     }))
   },
 
-  company_detail: async ({ admin, fundId }: AgentToolContext, input: any) => {
-    const c = await resolveCompany(admin, fundId, input?.company)
-    const txns = await txnsFor(admin, fundId, c.id, input?.vehicle)
+  company_detail: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
+    const c = await resolveCompany(admin, fundId, input?.company, access)
+    const txns = await txnsFor(admin, fundId, c.id, input?.vehicle, await entityScopeFor(admin, access))
     const summary = computeSummary(txns as any, c.status)
     return {
       id: c.id,
@@ -119,24 +139,27 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
     }
   },
 
-  list_investments: async ({ admin, fundId }: AgentToolContext, input: any) => {
+  list_investments: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     if (input?.company) {
-      const c = await resolveCompany(admin, fundId, input.company)
-      return await txnsFor(admin, fundId, c.id, input?.vehicle)
+      const c = await resolveCompany(admin, fundId, input.company, access)
+      return await txnsFor(admin, fundId, c.id, input?.vehicle, await entityScopeFor(admin, access))
     }
+    const scope = await entityScopeFor(admin, access)
     let q = (admin as any).from('investment_transactions').select('*').eq('fund_id', fundId)
     if (input?.vehicle) q = q.eq('portfolio_group', input.vehicle)
     const { data } = await q.order('transaction_date', { ascending: true })
-    return ((data as any[]) ?? [])
+    // Only the caller's companies and entities.
+    return scopeTransactions(scopeCompanyRows((data as any[]) ?? [], scope.companyIds, 'company_id'), scope.vehicleNames)
   },
 
-  portfolio_summary: async ({ admin, fundId }: AgentToolContext, input: any) => {
+  portfolio_summary: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     const asOf = input?.as_of ? new Date(`${input.as_of}T00:00:00Z`) : new Date()
-    const companies = await companiesIn(admin, fundId, input?.vehicle)
+    const scope = await entityScopeFor(admin, access)
+    const companies = await companiesIn(admin, fundId, input?.vehicle, scope)
 
     const positions: any[] = []
     for (const c of companies) {
-      const txns = await txnsFor(admin, fundId, c.id, input?.vehicle)
+      const txns = await txnsFor(admin, fundId, c.id, input?.vehicle, scope)
       if (txns.length === 0) continue
       const s = computeSummary(txns as any, c.status, asOf)
       const exited = (s.rounds ?? []).reduce((sum: number, rd: any) => sum + Math.abs(rd.costBasisExited ?? 0), 0)
@@ -179,7 +202,7 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
     }
   },
 
-  fund_performance: async ({ admin, fundId }: AgentToolContext, input: any) => {
+  fund_performance: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     // Committed / called / distributed come from the LP register, which is the fund's
     // own record of what it asked for and paid out. NAV comes from the portfolio.
     const { data: lps } = await (admin as any)
@@ -188,7 +211,8 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
       .eq('fund_id', fundId)
 
     const byVehicle = new Map<string, { committed: number; called: number; distributed: number; nav: number }>()
-    for (const r of ((lps as any[]) ?? [])) {
+    const perfScope = await entityScopeFor(admin, access)
+    for (const r of scopeCompanyRows((lps as any[]) ?? [], perfScope.vehicleNames, 'portfolio_group')) {
       const v = r.portfolio_group ?? '—'
       if (input?.vehicle && v !== input.vehicle) continue
       const cur = byVehicle.get(v) ?? { committed: 0, called: 0, distributed: 0, nav: 0 }
@@ -220,8 +244,8 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
     return out.sort((a, b) => String(a.vehicle).localeCompare(String(b.vehicle)))
   },
 
-  company_metrics: async ({ admin, fundId }: AgentToolContext, input: any) => {
-    const c = await resolveCompany(admin, fundId, input?.company)
+  company_metrics: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
+    const c = await resolveCompany(admin, fundId, input?.company, access)
     const { data: metrics } = await (admin as any)
       .from('metrics').select('id, name, unit').eq('company_id', c.id)
     const ids = ((metrics as any[]) ?? []).map(m => m.id)
@@ -245,15 +269,16 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
     }
   },
 
-  list_lps: async ({ admin, fundId }: AgentToolContext, input: any) => {
+  list_lps: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     let q = (admin as any)
       .from('lp_investments')
       .select('portfolio_group, commitment, paid_in_capital, distributions, nav, dpi, rvpi, tvpi, irr, lp_entities ( entity_name )')
       .eq('fund_id', fundId)
     if (input?.vehicle) q = q.eq('portfolio_group', input.vehicle)
     const { data } = await q
+    const lpScope = await entityScopeFor(admin, access)
 
-    return ((data as any[]) ?? []).map(r => ({
+    return scopeCompanyRows((data as any[]) ?? [], lpScope.vehicleNames, 'portfolio_group').map(r => ({
       partner: r.lp_entities?.entity_name ?? '—',
       vehicle: r.portfolio_group,
       commitment: Number(r.commitment ?? 0),
@@ -267,8 +292,8 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
     }))
   },
 
-  record_investment: async ({ admin, fundId, userId }: AgentToolContext, input: any) =>
-    executeRecordInvestment({ admin, fundId, userId }, input),
+  record_investment: async ({ admin, fundId, userId, access }: AgentToolContext, input: any) =>
+    executeRecordInvestment({ admin, fundId, userId, access }, input),
 }
 
 export interface RecordInvestmentInput {
@@ -302,11 +327,14 @@ export interface RecordInvestmentInput {
  * credential contexts); it flows through to the draft's author field.
  */
 export async function executeRecordInvestment(
-  deps: { admin: SupabaseClient; fundId: string; userId: string | null },
+  deps: { admin: SupabaseClient; fundId: string; userId: string | null; access: AccessContext },
   input: RecordInvestmentInput,
 ): Promise<{ transaction: any; ledger: any }> {
-  const { admin, fundId, userId } = deps
-  const c = await resolveCompany(admin, fundId, input?.company)
+  const { admin, fundId, userId, access } = deps
+  const c = await resolveCompany(admin, fundId, input?.company, access)
+  // Only into one of the caller's entities (and no company-wide rows from a scoped caller).
+  const denied = groupWriteDenial((await entityScopeFor(admin, access)).vehicleNames, input?.vehicle ?? null)
+  if (denied) throw new Error(denied)
 
   const VALID = ['investment', 'unrealized_gain_change', 'proceeds', 'round_info']
   if (!VALID.includes(input?.transaction_type)) {

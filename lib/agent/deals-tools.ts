@@ -6,21 +6,25 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-tools'
+import type { AccessContext } from '@/lib/access/effective'
+import { canSeeVehicle, visibleVehicleIds } from '@/lib/access/scope'
 
 const LIST_COLUMNS =
   'id, company_name, company_url, company_domain, founder_name, founder_email, intro_source, referrer_name, ' +
   'thesis_fit_score, stage, industry, raise_amount, status, promoted_diligence_id, created_at'
 
-async function resolveInboundDeal(admin: SupabaseClient, fundId: string, ref: string): Promise<any> {
+async function resolveInboundDeal(admin: SupabaseClient, fundId: string, ref: string, access: AccessContext): Promise<any> {
   if (!ref) throw new Error('An inbound deal id or company name is required')
+  // Only deals owned by one of the caller's entities (unassigned ones: unscoped callers only).
+  const mine = (d: any) => canSeeVehicle(access, d.vehicle_id ?? null)
 
   const { data: byId } = await (admin as any)
     .from('inbound_deals').select('*').eq('fund_id', fundId).eq('id', ref).maybeSingle()
-  if (byId) return byId
+  if (byId && mine(byId)) return byId
 
   const { data } = await (admin as any)
     .from('inbound_deals').select('*').eq('fund_id', fundId).ilike('company_name', ref)
-  const rows = ((data as any[]) ?? [])
+  const rows = ((data as any[]) ?? []).filter(mine)
   if (rows.length === 1) return rows[0]
   if (rows.length > 1) {
     // Genuinely common here: the same company pitches twice. `prior_deal_id` chains them,
@@ -33,8 +37,8 @@ async function resolveInboundDeal(admin: SupabaseClient, fundId: string, ref: st
   }
 
   const { data: fuzzy } = await (admin as any)
-    .from('inbound_deals').select('company_name').eq('fund_id', fundId).ilike('company_name', `%${ref}%`).limit(5)
-  const near = ((fuzzy as any[]) ?? []).map(d => d.company_name)
+    .from('inbound_deals').select('*').eq('fund_id', fundId).ilike('company_name', `%${ref}%`).limit(25)
+  const near = ((fuzzy as any[]) ?? []).filter(mine).slice(0, 5).map(d => d.company_name)
   throw new Error(
     near.length > 0
       ? `No inbound deal for "${ref}". Did you mean: ${near.join(', ')}?`
@@ -43,7 +47,7 @@ async function resolveInboundDeal(admin: SupabaseClient, fundId: string, ref: st
 }
 
 export const DEALS_HANDLERS: Record<string, AgentToolHandler> = {
-  deals_list_inbound: async ({ admin, fundId }: AgentToolContext, input: any) => {
+  deals_list_inbound: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     const limit = Math.min(Number(input?.limit ?? 100), 500)
     let q = (admin as any)
       .from('inbound_deals')
@@ -52,6 +56,10 @@ export const DEALS_HANDLERS: Record<string, AgentToolHandler> = {
       .order('created_at', { ascending: false })
       .limit(limit)
 
+    // The caller's entities only. Filtered only for a scoped caller: vehicle_id exists once the
+    // entity migration has run, and before it every caller is unscoped.
+    const vehicleIds = visibleVehicleIds(access)
+    if (vehicleIds !== null) q = q.in('vehicle_id', vehicleIds)
     if (input?.status) q = q.eq('status', String(input.status))
     if (input?.fit_score) q = q.eq('thesis_fit_score', String(input.fit_score))
     if (input?.intro_source) q = q.eq('intro_source', String(input.intro_source))
@@ -84,8 +92,8 @@ export const DEALS_HANDLERS: Record<string, AgentToolHandler> = {
     }))
   },
 
-  deals_inbound_detail: async ({ admin, fundId }: AgentToolContext, input: any) => {
-    const deal = await resolveInboundDeal(admin, fundId, String(input?.deal ?? ''))
+  deals_inbound_detail: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
+    const deal = await resolveInboundDeal(admin, fundId, String(input?.deal ?? ''), access)
 
     const { data: email } = await (admin as any)
       .from('inbound_emails')

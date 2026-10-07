@@ -16,22 +16,26 @@ import {
   buildStages, countChecklist, countDocuments, assessedCount,
   checklistCoverage, countAttention,
 } from '@/lib/diligence/progress'
+import type { AccessContext } from '@/lib/access/effective'
+import { canSeeVehicle, visibleVehicleIds } from '@/lib/access/scope'
 
 /**
  * Resolve a deal by id, name, or alias. Agents are handed names, not UUIDs — failing on a
  * name would make every tool here unusable in practice. But a name matching two deals must
  * never silently pick one, so ambiguity is an error with the candidates listed.
  */
-async function resolveDeal(admin: SupabaseClient, fundId: string, ref: string): Promise<any> {
+async function resolveDeal(admin: SupabaseClient, fundId: string, ref: string, access: AccessContext): Promise<any> {
   if (!ref) throw new Error('A deal id or name is required')
+  // Only records owned by one of the caller's entities (unassigned ones: unscoped callers only).
+  const mine = (d: any) => canSeeVehicle(access, d.vehicle_id ?? null)
 
   const { data: byId } = await (admin as any)
     .from('diligence_deals').select('*').eq('fund_id', fundId).eq('id', ref).maybeSingle()
-  if (byId) return byId
+  if (byId && mine(byId)) return byId
 
   const { data: all } = await (admin as any)
     .from('diligence_deals').select('*').eq('fund_id', fundId)
-  const rows = ((all as any[]) ?? [])
+  const rows = ((all as any[]) ?? []).filter(mine)
   const needle = ref.trim().toLowerCase()
 
   // Exact on name, then on any alias — `aliases` is text[] and exists precisely so a deal
@@ -69,12 +73,15 @@ async function latestDraft(admin: SupabaseClient, fundId: string, dealId: string
 }
 
 export const DILIGENCE_HANDLERS: Record<string, AgentToolHandler> = {
-  diligence_list_deals: async ({ admin, fundId }: AgentToolContext, input: any) => {
+  diligence_list_deals: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     let q = (admin as any)
       .from('diligence_deals')
       .select('id, name, sector, stage_at_consideration, deal_status, current_memo_stage, created_at')
       .eq('fund_id', fundId)
       .order('created_at', { ascending: false })
+    // The caller's entities only (filtered for scoped callers; see deals-tools).
+    const vehicleIds = visibleVehicleIds(access)
+    if (vehicleIds !== null) q = q.in('vehicle_id', vehicleIds)
     if (input?.status) q = q.eq('deal_status', String(input.status))
 
     const { data } = await q
@@ -97,8 +104,8 @@ export const DILIGENCE_HANDLERS: Record<string, AgentToolHandler> = {
     }))
   },
 
-  diligence_deal_detail: async ({ admin, fundId }: AgentToolContext, input: any) => {
-    const deal = await resolveDeal(admin, fundId, String(input?.deal ?? ''))
+  diligence_deal_detail: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
+    const deal = await resolveDeal(admin, fundId, String(input?.deal ?? ''), access)
 
     const [{ data: docs }, { data: items }, { data: attn }, draft] = await Promise.all([
       (admin as any).from('diligence_documents').select('parse_status').eq('deal_id', deal.id).eq('fund_id', fundId),
@@ -162,8 +169,8 @@ export const DILIGENCE_HANDLERS: Record<string, AgentToolHandler> = {
     }
   },
 
-  diligence_ask: async ({ admin, fundId, userId }: AgentToolContext, input: any) => {
-    const deal = await resolveDeal(admin, fundId, String(input?.deal ?? ''))
+  diligence_ask: async ({ admin, fundId, userId, access }: AgentToolContext, input: any) => {
+    const deal = await resolveDeal(admin, fundId, String(input?.deal ?? ''), access)
     const question = String(input?.question ?? '').trim()
     if (!question) throw new Error('A question is required')
 
@@ -191,8 +198,8 @@ export const DILIGENCE_HANDLERS: Record<string, AgentToolHandler> = {
     }
   },
 
-  diligence_checklist: async ({ admin, fundId }: AgentToolContext, input: any) => {
-    const deal = await resolveDeal(admin, fundId, String(input?.deal ?? ''))
+  diligence_checklist: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
+    const deal = await resolveDeal(admin, fundId, String(input?.deal ?? ''), access)
     const { data } = await (admin as any)
       .from('diligence_checklist_items')
       .select('id, parent_id, kind, label, status, evidence, agent_notes, partner_notes, order_index')
@@ -228,8 +235,8 @@ export const DILIGENCE_HANDLERS: Record<string, AgentToolHandler> = {
     }
   },
 
-  diligence_list_documents: async ({ admin, fundId }: AgentToolContext, input: any) => {
-    const deal = await resolveDeal(admin, fundId, String(input?.deal ?? ''))
+  diligence_list_documents: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
+    const deal = await resolveDeal(admin, fundId, String(input?.deal ?? ''), access)
     const { data } = await (admin as any)
       .from('diligence_documents')
       .select('id, file_name, file_format, detected_type, type_confidence, parse_status, parse_notes, uploaded_at')
@@ -257,8 +264,8 @@ export const DILIGENCE_HANDLERS: Record<string, AgentToolHandler> = {
     }
   },
 
-  diligence_evidence: async ({ admin, fundId }: AgentToolContext, input: any) => {
-    const deal = await resolveDeal(admin, fundId, String(input?.deal ?? ''))
+  diligence_evidence: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
+    const deal = await resolveDeal(admin, fundId, String(input?.deal ?? ''), access)
     const draft = await latestDraft(admin, fundId, deal.id)
     if (!draft || !draft.ingestion_output) {
       return {
@@ -303,8 +310,8 @@ export const DILIGENCE_HANDLERS: Record<string, AgentToolHandler> = {
     return out
   },
 
-  diligence_memo: async ({ admin, fundId }: AgentToolContext, input: any) => {
-    const deal = await resolveDeal(admin, fundId, String(input?.deal ?? ''))
+  diligence_memo: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
+    const deal = await resolveDeal(admin, fundId, String(input?.deal ?? ''), access)
     const draft = await latestDraft(admin, fundId, deal.id)
     if (!draft || !draft.memo_draft_output) {
       return { deal: deal.name, memo: null, note: 'No memo has been drafted for this deal yet.' }

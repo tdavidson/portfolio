@@ -32,7 +32,7 @@ export function ledgerEffectText(input: RecordInvestmentInput): string {
  * write happens only when a human approves, via `executeRecordInvestment`.
  */
 export async function previewRecordInvestment(deps: ActionDeps, input: RecordInvestmentInput): Promise<PreviewResult> {
-  const c = await resolveCompany(deps.admin, deps.fundId, input.company)
+  const c = await resolveCompany(deps.admin, deps.fundId, input.company, deps.access)
   const amount =
     input.investment_cost ?? input.proceeds_received ?? input.unrealized_value_change ?? null
   const convertsFrom = input.converts_from_txn_id ?? null
