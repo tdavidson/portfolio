@@ -74,9 +74,9 @@ describe('construction service', () => {
     mocks.fundEconomics.mockResolvedValue([{ ...economics, fund: { ...economics.fund, distributions: 0 } }])
     const { admin } = adminFixture({})
     mocks.loadPostedLedger.mockResolvedValue({ accounts: [], postings: [], capitalPostings: [] })
-    const before = await getConstructionModel({ admin, fundId: 'fund-1' }, { vehicle: 'Fund II' })
+    const before = await getConstructionModel({ admin, fundId: 'fund-1', access: { vehicles: { all: true, ids: [] } } }, { vehicle: 'Fund II' })
     mocks.loadPostedLedger.mockResolvedValue({ accounts: [], postings: [{ accountId: 'unrelated', amount: 1 }], capitalPostings: [] })
-    const after = await getConstructionModel({ admin, fundId: 'fund-1' }, { vehicle: 'Fund II' })
+    const after = await getConstructionModel({ admin, fundId: 'fund-1', access: { vehicles: { all: true, ids: [] } } }, { vehicle: 'Fund II' })
     expect(before.actuals.capitalAvailable).toBe(true)
     expect(after.actuals.capitalAvailable).toBe(true)
     expect(after.actuals.nav).toBe(before.actuals.nav)
@@ -87,7 +87,7 @@ describe('construction service', () => {
     mocks.fundEconomics.mockResolvedValue([{ ...economics, fund: { ...economics.fund, distributions: 0, nav: null } }])
     mocks.loadPostedLedger.mockResolvedValue({ accounts: [], postings: [{ accountId: 'unrelated', amount: 1 }], capitalPostings: [] })
     const { admin } = adminFixture({})
-    const model = await getConstructionModel({ admin, fundId: 'fund-1' }, { vehicle: 'Fund II' })
+    const model = await getConstructionModel({ admin, fundId: 'fund-1', access: { vehicles: { all: true, ids: [] } } }, { vehicle: 'Fund II' })
     expect(model.actuals.capitalAvailable).toBe(false)
     expect(model.actuals.waterfall).toBeUndefined()
   })
@@ -106,7 +106,7 @@ describe('construction service', () => {
       companies: [{ id: held, name: 'Held Co', status: 'active', stage: 'Seed', industry: [], portfolio_group: ['Fund II'] }],
       transactions: [{ id: 't1', fund_id: 'fund-1', company_id: held, portfolio_group: 'Fund II', transaction_type: 'investment', transaction_date: '2024-01-01', investment_cost: 1_000_000, round_name: 'Seed', ownership_pct: 10, postmoney_valuation: 10_000_000 }],
     })
-    const model = await getConstructionModel({ admin, fundId: 'fund-1' }, { vehicle: 'Fund II' })
+    const model = await getConstructionModel({ admin, fundId: 'fund-1', access: { vehicles: { all: true, ids: [] } } }, { vehicle: 'Fund II' })
 
     expect(model.actuals.capitalAvailable).toBe(true)
     expect(model.actuals.waterfall).toBeDefined()
@@ -130,7 +130,7 @@ describe('construction service', () => {
     mocks.fundEconomics.mockResolvedValue([{ ...economics, fund: { ...economics.fund, distributions: 500_000 } }])
     mocks.loadPostedLedger.mockResolvedValue({ accounts: [], postings: [], capitalPostings: [] })
     const { admin } = adminFixture({})
-    const model = await getConstructionModel({ admin, fundId: 'fund-1' }, { vehicle: 'Fund II' })
+    const model = await getConstructionModel({ admin, fundId: 'fund-1', access: { vehicles: { all: true, ids: [] } } }, { vehicle: 'Fund II' })
     expect(model.timelineNetOfCarry).toBe(false)
     expect(model.grossTimeline).toBeNull()
     expect(model.timeline).not.toBeNull()
@@ -164,7 +164,7 @@ describe('construction service', () => {
   it('flags a vehicle with no ledger instead of presenting expense zeroes as known', async () => {
     mocks.loadPostedLedger.mockRejectedValue(new Error('not on accounting'))
     const { admin } = adminFixture({})
-    const model = await getConstructionModel({ admin, fundId: 'fund-1' }, { vehicle: ' fund ii ' })
+    const model = await getConstructionModel({ admin, fundId: 'fund-1', access: { vehicles: { all: true, ids: [] } } }, { vehicle: ' fund ii ' })
 
     expect(model.vehicle).toBe('Fund II')
     expect(model.ledgerAvailable).toBe(false)
@@ -201,7 +201,7 @@ describe('construction service', () => {
         { id: 't4', fund_id: 'fund-1', company_id: exitedId, portfolio_group: 'Fund II', transaction_type: 'proceeds', transaction_date: '2025-01-01', cost_basis_exited: 250_000, proceeds_received: 750_000 },
       ],
     })
-    const model = await getConstructionModel({ admin, fundId: 'fund-1' }, { vehicle: 'Fund II' })
+    const model = await getConstructionModel({ admin, fundId: 'fund-1', access: { vehicles: { all: true, ids: [] } } }, { vehicle: 'Fund II' })
 
     expect(model.actuals).toMatchObject({
       managementFeesIncurred: 100_000,
@@ -220,7 +220,7 @@ describe('construction service', () => {
     mocks.loadPostedLedger.mockRejectedValue(new Error('no ledger'))
     const { admin, upsert } = adminFixture({})
     await expect(updateConstructionAssumptions(
-      { admin, fundId: 'fund-1' },
+      { admin, fundId: 'fund-1', access: { vehicles: { all: true, ids: [] } } },
       { vehicle: 'Fund II', assumptions: { ...DEFAULT_ASSUMPTIONS, feeBasis: 'moon' as any } },
     )).rejects.toThrow(/feeBasis/)
     expect(upsert).not.toHaveBeenCalled()

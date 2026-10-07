@@ -23,10 +23,13 @@ import { applyLpWaterfall, constructionBaseline, forecastSchedule, type Forecast
 import { simulateFund, type SimulationResult } from './construction-simulation'
 import type { Account } from './types'
 import type { InvestmentTransaction } from '@/lib/types/database'
+import type { AccessContext } from '@/lib/access/effective'
 
 export interface ConstructionServiceContext {
   admin: SupabaseClient
   fundId: string
+  /** The caller's access: the vehicle must be one of their entities. Required. */
+  access: Pick<AccessContext, 'vehicles'>
 }
 
 export type ConstructionAssumptionsInput = ConstructionAssumptions
@@ -435,7 +438,7 @@ export async function getConstructionModel(
   ctx: ConstructionServiceContext,
   input: { vehicle: string },
 ): Promise<ConstructionModelResponse> {
-  const vehicle = await resolveVehicle(ctx.admin, ctx.fundId, input.vehicle)
+  const vehicle = await resolveVehicle(ctx.admin, ctx.fundId, input.vehicle, { access: ctx.access })
   const { actuals, vintageYear, vehicleId } = await loadConstructionActuals(ctx.admin, ctx.fundId, vehicle)
   const assumptions = await loadStoredAssumptions(ctx, vehicleId, vintageYear)
   return constructionResponse({ vehicle, vehicleId, vintageYear, actuals, assumptions })
@@ -445,7 +448,7 @@ export async function updateConstructionAssumptions(
   ctx: ConstructionServiceContext,
   input: { vehicle: string; assumptions: ConstructionAssumptionsInput },
 ): Promise<ConstructionModelResponse> {
-  const vehicle = await resolveVehicle(ctx.admin, ctx.fundId, input.vehicle)
+  const vehicle = await resolveVehicle(ctx.admin, ctx.fundId, input.vehicle, { access: ctx.access })
   const { actuals, vintageYear, vehicleId } = await loadConstructionActuals(ctx.admin, ctx.fundId, vehicle)
   if (!vehicleId) {
     throw new Error('This vehicle has no registry row, so a construction model cannot be stored for it.')

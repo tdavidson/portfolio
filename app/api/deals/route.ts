@@ -26,7 +26,8 @@ export async function GET(req: NextRequest) {
   const limit = Math.min(parseInt(req.nextUrl.searchParams.get('limit') || '100', 10), 500)
 
   const scope = await loadEntityScopeForUser(admin, user.id)
-  let query = admin
+  // Untyped: the column list is built at runtime, and typing it sends inference past its limit.
+  let query = (admin as any)
     .from('inbound_deals')
     // vehicle_id exists only once the entity-access migration has run; before it, asking fails.
     .select(`id, fund_id, ${scope?.access.vehicles.enforced ? 'vehicle_id, ' : ''}email_id, company_name, company_url, company_domain, founder_name, founder_email, intro_source, referrer_name, thesis_fit_score, stage, industry, raise_amount, status, prior_deal_id, created_at`)

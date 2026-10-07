@@ -29,7 +29,7 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
 
   // Name only the caller's entities on it: that another fund also holds it is not theirs to see.
   const scope = await loadEntityScopeForUser(createAdminClient(), user.id)
-  return NextResponse.json({ ...data, portfolio_group: scopeGroups((data as any).portfolio_group, scope ? scope.vehicleNames : []) })
+  return NextResponse.json({ ...(data as Record<string, unknown>), portfolio_group: scopeGroups((data as any).portfolio_group, scope ? scope.vehicleNames : []) })
 }
 
 export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {

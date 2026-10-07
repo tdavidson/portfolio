@@ -1,5 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { listVehicles, listMancoVehicles } from './load'
+import type { AccessContext } from '@/lib/access/effective'
 
 export class VehicleResolutionError extends Error {
   readonly code = 'INVALID_VEHICLE'
@@ -37,9 +38,24 @@ export async function resolveVehicle(
      * `management_company` grant — see `assertVehicleDomain`.
      */
     includeManagementCompanies?: boolean
+    /**
+     * The caller's access. Given, only their entities are candidates: a name they cannot see is
+     * "unknown" (and the error lists only theirs), and the single-entity default counts only theirs.
+     * Every caller acting for a user — agent tools, MCP, pending actions — passes it.
+     */
+    access?: Pick<AccessContext, 'vehicles'>
   },
 ): Promise<string> {
-  const vehicles = await listVehicles(admin, fundId)
+  let vehicles = await listVehicles(admin, fundId)
+  let visibleNames: string[] | null = null
+  if (opts?.access && !opts.access.vehicles.all) {
+    const ids = opts.access.vehicles.ids
+    const { data } = ids.length > 0
+      ? await (admin as any).from('fund_vehicles').select('id, name, aliases').eq('fund_id', fundId).in('id', ids)
+      : { data: [] }
+    visibleNames = ((data as any[]) ?? []).map(v => v.name as string)
+    vehicles = vehicles.filter(v => visibleNames!.includes(v))
+  }
 
   if (requested) {
     // A management company is only ever reachable by NAME. It is deliberately absent from the
@@ -47,7 +63,8 @@ export async function resolveVehicle(
     // not suddenly have two candidates and start getting "specify a vehicle" from every page that
     // used to resolve on its own.
     const candidates = opts?.includeManagementCompanies
-      ? vehicles.concat((await listMancoVehicles(admin, fundId)).map(m => m.name))
+      ? vehicles.concat((await listMancoVehicles(admin, fundId)).map(m => m.name)
+          .filter(n => visibleNames === null || visibleNames.includes(n)))
       : vehicles
     const match = candidates.find(vehicle => vehicle === requested)
       ?? candidates.find(vehicle => vehicle.trim().toLowerCase() === requested.trim().toLowerCase())

@@ -27,7 +27,7 @@ describe('portfolio_construction tool', () => {
     )
 
     expect(getConstructionModel).toHaveBeenCalledWith(
-      { admin, fundId: 'fund-1' },
+      { admin, fundId: 'fund-1', access: expect.anything() },
       { vehicle: 'Fund II' },
     )
     expect(result).toBe(canonical)

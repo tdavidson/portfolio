@@ -21,6 +21,7 @@ vi.mock('@/lib/api-helpers', () => ({
   assertWriteAccess: mocks.assertWriteAccess,
 }))
 vi.mock('@/lib/accounting/http-vehicle', () => ({ resolveGroupOr400: mocks.resolveGroupOr400 }))
+vi.mock('@/lib/access/effective', () => ({ loadAccessContext: async () => ({ vehicles: { all: true, ids: [] } }) }))
 vi.mock('@/lib/accounting/construction-service', () => ({
   getConstructionModel: mocks.getConstructionModel,
   updateConstructionAssumptions: mocks.updateConstructionAssumptions,
@@ -56,7 +57,7 @@ describe('legacy construction route', () => {
     const response = await GET(new NextRequest('https://reporting.test/api/accounting/construction?group=Fund%20II'))
 
     expect(mocks.getConstructionModel).toHaveBeenCalledWith(
-      { admin: mocks.admin, fundId: 'fund-1' },
+      { admin: mocks.admin, fundId: 'fund-1', access: expect.anything() },
       { vehicle: 'Fund II' },
     )
     expect(await response.json()).toEqual({
@@ -75,7 +76,7 @@ describe('legacy construction route', () => {
     ))
 
     expect(mocks.updateConstructionAssumptions).toHaveBeenCalledWith(
-      { admin: mocks.admin, fundId: 'fund-1' },
+      { admin: mocks.admin, fundId: 'fund-1', access: expect.anything() },
       { vehicle: 'Fund II', assumptions: body },
     )
     expect(await response.json()).toEqual({ assumptions: DEFAULT_ASSUMPTIONS })

@@ -15,22 +15,29 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
 import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-tools'
 import { listVehicles } from '@/lib/accounting/load'
+import { resolveVehicle as resolveSharedVehicle } from '@/lib/accounting/vehicle-resolver'
+import { entityScopeFor } from '@/lib/access/entity-scope'
+import { visibleLpEntityIds } from '@/lib/access/lp-scope'
 import { generateLiveReport, type LiveInvestmentRow } from '@/lib/accounting/live-report'
 import { lpCapitalSummary, lpStatement, listCapitalCalls } from '@/lib/accounting/capital-calls'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
-/** Validate a vehicle name against the registry — never pass a caller's string through raw. */
-async function resolveVehicle(admin: SupabaseClient, fundId: string, requested: string): Promise<string> {
-  const vehicles = await listVehicles(admin, fundId)
-  const match = vehicles.find(v => v === requested)
-    ?? vehicles.find(v => v.trim().toLowerCase() === requested.trim().toLowerCase())
-  if (match) return match
-  throw new Error(
-    vehicles.length > 0
-      ? `Unknown vehicle "${requested}". This fund has: ${vehicles.join(', ')}`
-      : `Unknown vehicle "${requested}" — this fund has no vehicles yet.`
-  )
+/**
+ * Validate a vehicle name against the registry — never pass a caller's string through raw — and
+ * against the caller's entities: a name they cannot see is unknown.
+ */
+async function resolveVehicle(admin: SupabaseClient, fundId: string, requested: string, access: AccessContext): Promise<string> {
+  return resolveSharedVehicle(admin, fundId, requested || undefined, { access })
+}
+
+/**
+ * The caller's entities, for tools that read across them: their names (rows are keyed by
+ * portfolio_group) and the LP entities visible through them. Null = every entity.
+ */
+async function lpToolScope(admin: SupabaseClient, access: AccessContext): Promise<{ names: string[] | null; entityIds: string[] | null }> {
+  const scope = await entityScopeFor(admin, access)
+  return { names: scope.vehicleNames, entityIds: await visibleLpEntityIds(admin, scope) }
 }
 
 interface EntityIdentity {
@@ -121,9 +128,10 @@ const metrics = (r: any) => ({
 /** Narrow a row set to one LP / one vehicle, when the caller asked for that. */
 function applyFilters<T extends { entity_id?: string; portfolio_group?: string }>(
   rows: T[],
-  opts: { entityIds?: Set<string>; vehicle?: string }
+  opts: { entityIds?: Set<string>; vehicle?: string; visibleNames: string[] | null }
 ): T[] {
-  let out = rows
+  // The caller's entities only, whatever else was asked.
+  let out = opts.visibleNames === null ? rows : rows.filter(r => !!r.portfolio_group && opts.visibleNames!.includes(r.portfolio_group))
   if (opts.entityIds) out = out.filter(r => r.entity_id && opts.entityIds!.has(r.entity_id))
   if (opts.vehicle) out = out.filter(r => r.portfolio_group === opts.vehicle)
   return out
@@ -137,7 +145,7 @@ function withoutCarry<T extends { carriedInterest?: number }>(rollForward: T, ac
 }
 
 export const LP_HANDLERS: Record<string, AgentToolHandler> = {
-  lp_list_snapshots: async ({ admin, fundId }: AgentToolContext) => {
+  lp_list_snapshots: async ({ admin, fundId, access }: AgentToolContext) => {
     const { data } = await (admin as any)
       .from('lp_snapshots').select('id, name, as_of_date, created_at').eq('fund_id', fundId)
     return ((data as any[]) ?? [])
@@ -146,7 +154,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
       .map(s => ({ id: s.id, name: s.name, as_of: s.as_of_date, created_at: s.created_at }))
   },
 
-  lp_list_investors: async ({ admin, fundId }: AgentToolContext) => {
+  lp_list_investors: async ({ admin, fundId, access }: AgentToolContext) => {
     const identities = await loadIdentities(admin, fundId)
     const byInvestor = new Map<string, { investor: string; entities: string[] }>()
     for (const i of Array.from(identities.values())) {
@@ -160,7 +168,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     }
   },
 
-  lp_snapshot: async ({ admin, fundId }: AgentToolContext, input: any) => {
+  lp_snapshot: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     const snapshot = await resolveSnapshot(admin, fundId, input?.snapshot ? String(input.snapshot) : undefined)
     const identities = await loadIdentities(admin, fundId)
 
@@ -171,8 +179,8 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     const entityIds = input?.lp
       ? new Set(resolveLp(identities, String(input.lp)).map(i => i.entityId))
       : undefined
-    const vehicle = input?.vehicle ? await resolveVehicle(admin, fundId, String(input.vehicle)) : undefined
-    rows = applyFilters(rows, { entityIds, vehicle })
+    const vehicle = input?.vehicle ? await resolveVehicle(admin, fundId, String(input.vehicle), access) : undefined
+    rows = applyFilters(rows, { entityIds, vehicle, visibleNames: (await lpToolScope(admin, access)).names })
 
     return {
       source: 'snapshot',
@@ -189,7 +197,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     }
   },
 
-  lp_live_report: async ({ admin, fundId }: AgentToolContext, input: any) => {
+  lp_live_report: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     const asOf = input?.as_of ? String(input.as_of) : undefined
     if (asOf && !ISO_DATE.test(asOf)) throw new Error('as_of must be an ISO date (YYYY-MM-DD)')
 
@@ -200,8 +208,8 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     const entityIds = input?.lp
       ? new Set(resolveLp(identities, String(input.lp)).map(i => i.entityId))
       : undefined
-    const vehicle = input?.vehicle ? await resolveVehicle(admin, fundId, String(input.vehicle)) : undefined
-    rows = applyFilters(rows, { entityIds, vehicle })
+    const vehicle = input?.vehicle ? await resolveVehicle(admin, fundId, String(input.vehicle), access) : undefined
+    rows = applyFilters(rows, { entityIds, vehicle, visibleNames: (await lpToolScope(admin, access)).names })
 
     return {
       source: 'live',
@@ -223,7 +231,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     }
   },
 
-  lp_reconcile_snapshot: async ({ admin, fundId }: AgentToolContext, input: any) => {
+  lp_reconcile_snapshot: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     const snapshot = await resolveSnapshot(admin, fundId, input?.snapshot ? String(input.snapshot) : undefined)
     const identities = await loadIdentities(admin, fundId)
 
@@ -293,8 +301,8 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     }
   },
 
-  lp_capital_summary: async ({ admin, fundId }: AgentToolContext, input: any) => {
-    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''))
+  lp_capital_summary: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
+    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
     const rows = await lpCapitalSummary(admin, fundId, vehicle)
     return {
       vehicle,
@@ -311,8 +319,8 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     }
   },
 
-  lp_capital_calls: async ({ admin, fundId }: AgentToolContext, input: any) => {
-    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''))
+  lp_capital_calls: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
+    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
     const calls = await listCapitalCalls(admin, fundId, vehicle)
     return {
       vehicle,
@@ -333,7 +341,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
   },
 
   lp_statement: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
-    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''))
+    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
     const identities = await loadIdentities(admin, fundId)
     const matches = resolveLp(identities, String(input?.lp ?? ''))
     if (matches.length > 1) {

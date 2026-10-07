@@ -84,7 +84,7 @@ export async function POST(req: NextRequest) {
 
   try {
     const input = body?.input ?? {}
-    const portfolioGroup = await resolveVehicleForTool(tool, admin, auth.fundId, input.vehicle)
+    const portfolioGroup = await resolveVehicleForTool(tool, admin, auth.fundId, input.vehicle, access)
     const result = await tool.handler({ admin, fundId: auth.fundId, portfolioGroup, userId: auth.userId, access }, input)
     return NextResponse.json({ ok: true, result })
   } catch (e) {

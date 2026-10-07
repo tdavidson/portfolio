@@ -17,7 +17,7 @@ export interface IssueCapitalCallInput {
  * posting anything. `proRataCall` and the ownership/name loads are all reads.
  */
 export async function previewIssueCapitalCall(deps: ActionDeps, input: IssueCapitalCallInput): Promise<PreviewResult> {
-  const group = await resolveVehicle(deps.admin, deps.fundId, input.vehicle)
+  const group = await resolveVehicle(deps.admin, deps.fundId, input.vehicle, { access: deps.access })
 
   const [lines, owners, names] = await Promise.all([
     proRataCall(deps.admin, deps.fundId, group, input.total),
@@ -44,7 +44,7 @@ export async function previewIssueCapitalCall(deps: ActionDeps, input: IssueCapi
  * uses. Posts the receivable/capital entry and records the call + lines.
  */
 export async function executeIssueCapitalCall(deps: ActionDeps, input: IssueCapitalCallInput): Promise<{ callId: string }> {
-  const group = await resolveVehicle(deps.admin, deps.fundId, input.vehicle)
+  const group = await resolveVehicle(deps.admin, deps.fundId, input.vehicle, { access: deps.access })
   const lines = await proRataCall(deps.admin, deps.fundId, group, input.total)
   const result = await issueCapitalCall(deps.admin, deps.fundId, group, deps.userId, {
     callDate: input.callDate,

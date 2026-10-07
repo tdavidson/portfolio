@@ -67,7 +67,7 @@ async function handle(rpc: RpcRequest, ctx: BaseCtx, auth: ResolvedKey, access: 
       const denied = authorizeToolUse(tool.scope, auth, access, accessDomainForCall(tool, args), accessFeatureFor(tool))
       if (denied) return ok(rpc.id, { content: [{ type: 'text', text: denied }], isError: true })
       try {
-        const portfolioGroup = await resolveVehicleForTool(tool, ctx.admin, ctx.fundId, args.vehicle)
+        const portfolioGroup = await resolveVehicleForTool(tool, ctx.admin, ctx.fundId, args.vehicle, access)
         const result = await tool.handler({ ...ctx, portfolioGroup }, args)
         return ok(rpc.id, { content: [{ type: 'text', text: JSON.stringify(result) }] })
       } catch (e) {

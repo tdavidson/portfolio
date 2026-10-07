@@ -8,6 +8,7 @@ import {
   updateConstructionAssumptions,
 } from '@/lib/accounting/construction-service'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
+import { loadAccessContext } from '@/lib/access/effective'
 
 // Legacy web transport. Authentication, authorization, and its existing response contract stay
 // here; all construction loading, mapping, calculation, validation, and persistence are shared.
@@ -25,7 +26,7 @@ export async function GET(req: NextRequest) {
 
   try {
     const model = await getConstructionModel(
-      { admin, fundId: gate.fundId },
+      { admin, fundId: gate.fundId, access: await loadAccessContext(admin, gate.fundId, gate.userId, gate.role) },
       { vehicle: group },
     )
     return NextResponse.json({
@@ -54,7 +55,7 @@ export async function PUT(req: NextRequest) {
   if (group instanceof NextResponse) return group
   try {
     const model = await updateConstructionAssumptions(
-      { admin, fundId: gate.fundId },
+      { admin, fundId: gate.fundId, access: await loadAccessContext(admin, gate.fundId, gate.userId, gate.role) },
       { vehicle: group, assumptions: body },
     )
     return NextResponse.json({ assumptions: model.assumptions })

@@ -117,7 +117,7 @@ export function buildAnalystTools(deps: AnalystToolDeps): { tools: ToolDefinitio
     }
     try {
       const vehicle = (call.input as { vehicle?: string })?.vehicle ?? deps.vehicle
-      const portfolioGroup = await resolveVehicleForTool(tool, deps.admin, deps.fundId, vehicle)
+      const portfolioGroup = await resolveVehicleForTool(tool, deps.admin, deps.fundId, vehicle, deps.access)
       const result = await tool.handler(
         { admin: deps.admin, fundId: deps.fundId, portfolioGroup, userId: deps.userId, access: deps.access },
         call.input,

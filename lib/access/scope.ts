@@ -174,7 +174,7 @@ export function filterByCompany<Q extends { in: Function; is: Function; or: Func
  */
 export function entityIdentityChangeDenial(
   access: Pick<AccessContext, 'vehicles'>,
-  change: { name?: unknown; aliases?: unknown; mergeIntoId?: unknown },
+  change: { name?: unknown; aliases?: unknown; mergeIntoId?: unknown; [field: string]: unknown },
 ): string | null {
   if (access.vehicles.all) return null
   if (change.name !== undefined || change.aliases !== undefined || change.mergeIntoId !== undefined) {

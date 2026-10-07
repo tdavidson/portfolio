@@ -132,7 +132,7 @@ export async function previewUpdatePortfolioConstruction(
 ): Promise<PreviewResult> {
   validatePatchEnvelope(input)
   const model = await getConstructionModel(
-    { admin: deps.admin, fundId: deps.fundId },
+    { admin: deps.admin, fundId: deps.fundId, access: deps.access },
     { vehicle: input.vehicle },
   )
   const after = applyPatch(
@@ -163,7 +163,7 @@ export async function executeUpdatePortfolioConstruction(
 ): Promise<Record<string, unknown>> {
   validatePatchEnvelope(input)
   const current = await getConstructionModel(
-    { admin: deps.admin, fundId: deps.fundId },
+    { admin: deps.admin, fundId: deps.fundId, access: deps.access },
     { vehicle: input.vehicle },
   )
   const assumptions = applyPatch(
@@ -173,7 +173,7 @@ export async function executeUpdatePortfolioConstruction(
     current.vintageYear,
   )
   const model = await updateConstructionAssumptions(
-    { admin: deps.admin, fundId: deps.fundId },
+    { admin: deps.admin, fundId: deps.fundId, access: deps.access },
     { vehicle: current.vehicle, assumptions },
   )
   return { model }

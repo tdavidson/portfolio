@@ -330,8 +330,10 @@ export async function resolveVehicleForTool(
   tool: AgentToolMeta,
   admin: _Sb,
   fundId: string,
-  requested?: string
+  requested: string | undefined,
+  /** The credential owner's access — required, so a tool can only reach their entities. */
+  access: Pick<AccessContext, 'vehicles'>,
 ): Promise<string> {
   if (!isLedgerTool(tool)) return ''
-  return resolveVehicle(admin, fundId, requested)
+  return resolveVehicle(admin, fundId, requested, { access })
 }
