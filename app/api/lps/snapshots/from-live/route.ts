@@ -7,6 +7,8 @@ import { dbError } from '@/lib/api-error'
 // grant for this route + method; this resolves identity and keeps the demo out of writes.
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { generateLiveReport } from '@/lib/accounting/live-report'
+import { loadAccessContext } from '@/lib/access/effective'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 // Freeze the LIVE LP report into a snapshot, so it can be SHARED with LPs.
 //
@@ -28,6 +30,12 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const asOf = (typeof body?.asOfDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(body.asOfDate)) ? body.asOfDate : undefined
 
+  // A snapshot is a fund-wide record every member reads, so freezing one needs sight of every
+  // entity: a member who sees only some would freeze a partial report as if it were the fund's.
+  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  if (!canSeeVehicle(access, null)) {
+    return NextResponse.json({ error: 'Only someone who can see every entity can freeze the fund\'s live report.' }, { status: 403 })
+  }
   const report = await generateLiveReport(admin, gate.fundId, asOf)
   const asOfDate = report.asOf ?? new Date().toISOString().slice(0, 10)
   const fingerprint = createHash('sha256').update(JSON.stringify(report.rows)).digest('hex').slice(0, 12)

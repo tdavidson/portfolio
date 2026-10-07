@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertReadAccess } from '@/lib/api-helpers'
 import { generateLiveReport } from '@/lib/accounting/live-report'
 import { lastDataDates } from '@/lib/accounting/lp-positions'
+import { loadEntityScope } from '@/lib/access/entity-scope'
+import { scopeLiveReport } from '@/lib/access/lp-scope'
 
 // Everything the LIVE report cards need, in one call: fund header, per-investor rows
 // (aggregated across vehicles), and the last-updated date PER VEHICLE.
@@ -29,13 +31,16 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'asOf must be YYYY-MM-DD' }, { status: 400 })
   }
 
-  const [report, { data: fund }, { data: settings }, { data: ents }] = await Promise.all([
+  // The report is built fund-wide, then cut to the caller's entities.
+  const scope = await loadEntityScope(admin, gate)
+  const [fullReport, { data: fund }, { data: settings }, { data: ents }] = await Promise.all([
     generateLiveReport(admin, gate.fundId, asOf),
     admin.from('funds' as any).select('name, logo_url, address').eq('id', gate.fundId).maybeSingle(),
     admin.from('fund_settings' as any).select('currency, lp_report_description, lp_report_footer').eq('fund_id', gate.fundId).maybeSingle(),
     admin.from('lp_entities' as any).select('id, entity_name, investor_id, lp_investors(id, name)').eq('fund_id', gate.fundId),
   ])
 
+  const report = scopeLiveReport(fullReport, scope.vehicleNames)
   const entInfo = new Map<string, { entityName: string; investorId: string; investorName: string }>()
   for (const e of ((ents as any[]) ?? [])) {
     const inv = Array.isArray(e.lp_investors) ? e.lp_investors[0] : e.lp_investors

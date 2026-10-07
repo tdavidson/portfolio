@@ -6,6 +6,7 @@ import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
 import { parseEntityProfile, parseInvestorContact } from '@/lib/lp-profile'
 import { logOnboardingEvent } from '@/lib/lp-onboarding-audit'
+import { loadLpScope, lpVisible } from '@/lib/access/lp-scope'
 
 /**
  * The investor record beyond a name.
@@ -33,6 +34,9 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
   const body = await req.json().catch(() => ({}))
   const entityId = typeof body.lp_entity_id === 'string' ? body.lp_entity_id : ''
   if (!entityId) return NextResponse.json({ error: 'lp_entity_id is required' }, { status: 400 })
+  // Only an LP with a position in one of the caller's entities.
+  const lp = await loadLpScope(admin, gate)
+  if (!lpVisible(lp.entityIds, entityId)) return NextResponse.json({ error: 'Entity not found in your fund' }, { status: 404 })
 
   const { data: entity } = await a.from('lp_entities').select('id, investor_id, onboarding_excluded').eq('id', entityId).eq('fund_id', fundId).maybeSingle()
   if (!entity) return NextResponse.json({ error: 'Entity not found in your fund' }, { status: 404 })

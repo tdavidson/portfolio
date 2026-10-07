@@ -5,6 +5,7 @@ import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
 import { extractFromBuffer } from '@/lib/parsing/extractAttachmentText'
 import { scanFile } from '@/lib/security/scan-file'
+import { loadLpScope, lpVisible } from '@/lib/access/lp-scope'
 
 /**
  * Admin-only LP document management (gap 2).
@@ -33,7 +34,13 @@ export async function GET() {
     .eq('fund_id', access.fundId)
     .order('uploaded_at', { ascending: false })
   if (error) return dbError(error, 'lps-documents')
-  return NextResponse.json({ documents: docs ?? [] })
+  // Fund-wide documents, and those shared with an investor the caller can see — naming only those
+  // investors. Same rule as the lp_documents policy (20261007100300).
+  const lp = await loadLpScope(admin, access)
+  const documents = ((docs as any[]) ?? [])
+    .map(d => ({ ...d, lp_document_shares: (d.lp_document_shares ?? []).filter((s: any) => lpVisible(lp.investorIds, s.lp_investor_id)) }))
+    .filter(d => lp.investorIds === null || d.scope === 'fund' || d.lp_document_shares.length > 0)
+  return NextResponse.json({ documents })
 }
 
 export async function POST(req: NextRequest) {

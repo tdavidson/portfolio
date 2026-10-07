@@ -10,6 +10,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertReadAccess } from '@/lib/api-helpers'
 import { generateLiveReport } from '@/lib/accounting/live-report'
+import { loadEntityScope } from '@/lib/access/entity-scope'
+import { scopeLiveReport } from '@/lib/access/lp-scope'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
@@ -32,7 +34,8 @@ export async function GET(req: NextRequest) {
 
   let live
   try {
-    live = await generateLiveReport(admin, fundId, asOf)
+    // Built fund-wide, then cut to the caller's entities.
+    live = scopeLiveReport(await generateLiveReport(admin, fundId, asOf), (await loadEntityScope(admin, gate)).vehicleNames)
   } catch (e) {
     console.error('[live-report]', e)
     return NextResponse.json({ error: 'Could not build the report.' }, { status: 500 })

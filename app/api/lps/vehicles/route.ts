@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertReadAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScope } from '@/lib/access/entity-scope'
 
 /**
  * Admin-only: the distinct investment vehicles (lp_investments.portfolio_group)
@@ -32,5 +33,7 @@ export async function GET() {
       .filter(Boolean))
   ).sort((a, b) => a.localeCompare(b))
 
-  return NextResponse.json({ vehicles })
+  // Only the caller's entities.
+  const scope = await loadEntityScope(admin, access)
+  return NextResponse.json({ vehicles: scope.vehicleNames === null ? vehicles : vehicles.filter(v => scope.vehicleNames!.includes(v)) })
 }

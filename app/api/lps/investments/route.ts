@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { scopeCompanyRows } from '@/lib/access/scope'
 
 // ---------------------------------------------------------------------------
 // GET — all investments for this fund, joined with entities + investors
@@ -47,7 +49,9 @@ export async function GET(req: NextRequest) {
 
   if (error) return dbError(error, 'lp-investments')
 
-  return NextResponse.json(data ?? [])
+  // Only the caller's entities' rows.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  return NextResponse.json(scopeCompanyRows(data ?? [], scope ? scope.vehicleNames : [], 'portfolio_group'))
 }
 
 // ---------------------------------------------------------------------------
