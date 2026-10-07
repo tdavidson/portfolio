@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 
 async function verifyOwnership(
   admin: ReturnType<typeof createAdminClient>,
@@ -11,11 +12,16 @@ async function verifyOwnership(
 ) {
   const { data: mv } = await admin
     .from('metric_values')
-    .select('id, fund_id')
+    .select('id, fund_id, company_id')
     .eq('id', valueId)
     .maybeSingle()
 
   if (!mv) return null
+
+  // Only a value for a company one of the caller's entities holds.
+  const scope = await loadEntityScopeForUser(admin, userId)
+  const visible = scope ? scope.companyIds : []
+  if (visible !== null && !visible.includes((mv as any).company_id)) return null
 
   const { data: membership } = await admin
     .from('fund_members')
