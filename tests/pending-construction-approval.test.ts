@@ -84,6 +84,7 @@ function access(level: 'read' | 'write') {
     features,
     grants: { accounting: level },
     defaults: {},
+    vehicles: { all: true, ids: [] },
   }
 }
 

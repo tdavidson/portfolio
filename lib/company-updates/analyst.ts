@@ -107,7 +107,15 @@ export interface GetUpdatesDeps {
   fundId: string
   /** Resolve a company id or name to an id (throws a helpful error); the portfolio handler's resolver. */
   resolveCompanyId?: (ref: string) => Promise<string>
+  /**
+   * The companies the caller may see (null = every company). Required: browsing and searching cover
+   * only these, and an update or attachment by id on any other company is "not found".
+   */
+  visibleCompanyIds: string[] | null
 }
+
+const visible = (deps: GetUpdatesDeps, companyId: string | null | undefined) =>
+  deps.visibleCompanyIds === null || (!!companyId && deps.visibleCompanyIds.includes(companyId))
 
 const NOTE_PARTIAL = 'Some source material could not be fully read (see extraction_status/warnings). Absence in returned text is not evidence of absence in the update.'
 
@@ -123,6 +131,12 @@ export async function getUpdates(deps: GetUpdatesDeps, input: GetUpdatesInput): 
   if (input.company) {
     const id = UUID.test(input.company) && !deps.resolveCompanyId ? input.company : await (deps.resolveCompanyId ?? passthrough)(input.company)
     companyIds = [id]
+  } else if (deps.visibleCompanyIds !== null) {
+    // No company named: only the caller's. None at all: nothing to search.
+    if (deps.visibleCompanyIds.length === 0) {
+      return { mode, exact_total: 0, returned: 0, has_more: false, next_cursor: null, budget_truncated: false, notes: [], results: [] }
+    }
+    companyIds = deps.visibleCompanyIds
   }
   const params = parseSearchParams(deps.fundId, {
     query: mode === 'list' ? null : input.query ?? null,
@@ -198,7 +212,8 @@ async function getByIds(deps: GetUpdatesDeps, ids: string[], budget: number): Pr
   const results: UpdateEvidence[] = []
   const notes: string[] = []
   for (const id of ids) {
-    const update = await getCompanyUpdate(deps.admin, { fundId: deps.fundId, updateId: id })
+    const found = await getCompanyUpdate(deps.admin, { fundId: deps.fundId, updateId: id })
+    const update = found && visible(deps, found.company_id) ? found : null
     if (!update) {
       notes.push(`Update ${id} was not found in this fund.`)
       continue
@@ -248,7 +263,12 @@ async function getByIds(deps: GetUpdatesDeps, ids: string[], budget: number): Pr
 async function getArtifactWindow(deps: GetUpdatesDeps, artifactId: string, offset: number, budget: number): Promise<GetUpdatesResult> {
   if (!UUID.test(artifactId)) throw new SearchParamsError('artifact.id must be a UUID')
   if (!Number.isInteger(offset) || offset < 0) throw new SearchParamsError('artifact.offset must be a non-negative integer')
-  const artifact = await getCompanyUpdateArtifact(deps.admin, { fundId: deps.fundId, artifactId })
+  const found = await getCompanyUpdateArtifact(deps.admin, { fundId: deps.fundId, artifactId })
+  // An attachment is its update's: visible only when the update's company is.
+  const parent = found && deps.visibleCompanyIds !== null
+    ? await getCompanyUpdate(deps.admin, { fundId: deps.fundId, updateId: found.update_id })
+    : null
+  const artifact = found && (deps.visibleCompanyIds === null || visible(deps, parent?.company_id)) ? found : null
   if (!artifact) throw new SearchParamsError(`Artifact ${artifactId} was not found in this fund.`)
   const w = window(artifact.extracted_text, offset, budget)
   const more = w.next_offset !== undefined

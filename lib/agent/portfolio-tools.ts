@@ -89,7 +89,7 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
   // same resolver as every other portfolio tool so a name never silently picks the wrong company.
   get_updates: async ({ admin, fundId, access }: AgentToolContext, input: any) =>
     getUpdates(
-      { admin: admin as any, fundId, resolveCompanyId: async ref => (await resolveCompany(admin, fundId, ref, access)).id },
+      { admin: admin as any, fundId, resolveCompanyId: async ref => (await resolveCompany(admin, fundId, ref, access)).id, visibleCompanyIds: await visibleCompanyIds(admin, access) },
       input ?? {},
     ),
 
@@ -123,7 +123,8 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
 
   company_detail: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     const c = await resolveCompany(admin, fundId, input?.company, access)
-    const txns = await txnsFor(admin, fundId, c.id, input?.vehicle, await entityScopeFor(admin, access))
+    const scope = await entityScopeFor(admin, access)
+    const txns = await txnsFor(admin, fundId, c.id, input?.vehicle, scope)
     const summary = computeSummary(txns as any, c.status)
     return {
       id: c.id,
@@ -131,7 +132,7 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
       stage: c.stage ?? null,
       industry: c.industry ?? [],
       status: c.status,
-      vehicles: c.portfolio_group ?? [],
+      vehicles: scopeGroups(c.portfolio_group, scope.vehicleNames),
       overview: c.overview ?? null,
       founders: c.founders ?? null,
       why_invested: c.why_invested ?? null,

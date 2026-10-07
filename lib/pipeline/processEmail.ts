@@ -194,8 +194,10 @@ export async function runPipeline(
   let companyIdentified = true
 
   if (companyId) {
-    // Company already assigned — skip identification
-    companyName = companies.find(c => c.id === companyId)?.name ?? ''
+    // Company already assigned (by a person, on reprocess) — skip identification. Its name comes from
+    // the whole fund: the forwarder's scope limits what the model may pick, not what a person assigned.
+    companyName = companies.find(c => c.id === companyId)?.name
+      ?? (await getCompanies(supabase, fundId)).find(c => c.id === companyId)?.name ?? ''
   } else {
     const identification = await identifyCompany(
       payload.Subject ?? '',
@@ -216,7 +218,7 @@ export async function runPipeline(
         context_snippet: identification.reasoning,
       })
       companyIdentified = false
-    } else if (!identification.company_id) {
+    } else if (!acceptedCompanyId(companies, identification.company_id)) {
       await createReview(supabase, {
         fund_id: fundId,
         email_id: emailId,
@@ -611,6 +613,15 @@ export async function companiesForSender(
   const scope = await loadEntityScopeForUser(supabase as any, fundMember.userId)
   if (!scope) return []
   return scopeCompanyRows(companies as any[], scope.companyIds) as CompanyRef[]
+}
+
+/**
+ * The model's pick, kept only when it is one of the companies it was offered. The email text can
+ * name any id, and a model can invent one; anything outside the list (for a forwarder, outside their
+ * entities) is treated as unidentified.
+ */
+export function acceptedCompanyId(offered: CompanyRef[], id: string | null | undefined): string | null {
+  return id && offered.some(c => c.id === id) ? id : null
 }
 
 export async function getMetrics(supabase: Supabase, companyId: string): Promise<MetricDef[]> {

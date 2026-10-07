@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest'
 const loadEntityScopeForUser = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScopeForUser }))
 
-import { companiesForSender } from './processEmail'
+import { companiesForSender, acceptedCompanyId } from './processEmail'
 
 const companies = [{ id: 'c1', name: 'Acme', aliases: [] }, { id: 'c2', name: 'Beta', aliases: [] }]
 const supabase = {
@@ -30,5 +30,16 @@ describe('companiesForSender — what an inbound email may attach to', () => {
     loadEntityScopeForUser.mockClear()
     expect((await companiesForSender(supabase, 'f1', null)).length).toBe(2)
     expect(loadEntityScopeForUser).not.toHaveBeenCalled()
+  })
+})
+
+describe('acceptedCompanyId — the model\'s pick must be one it was offered', () => {
+  const offered = [{ id: 'c1', name: 'Acme', aliases: [] }]
+  it('keeps an id from the offered list', () => {
+    expect(acceptedCompanyId(offered, 'c1')).toBe('c1')
+  })
+  it('drops an id it was not offered — steered by the email text, or invented', () => {
+    expect(acceptedCompanyId(offered, 'c2')).toBeNull()
+    expect(acceptedCompanyId(offered, null)).toBeNull()
   })
 })

@@ -1,4 +1,5 @@
 import type { ActionDeps, PreviewResult } from './types'
+import { visibleCompanyIds } from '@/lib/access/scope'
 
 export interface MetricValueInput {
   companyId: string
@@ -20,6 +21,9 @@ export interface MetricValueInput {
  * IS NULL, not `.eq(col, null)`, or a null quarter/month would never match.
  */
 async function loadContext(deps: ActionDeps, input: MetricValueInput) {
+  // Only a company linked to one of the caller's entities; any other is "not found".
+  const visible = await visibleCompanyIds(deps.admin, deps.access)
+  if (visible !== null && !visible.includes(input.companyId)) throw new Error('Metric not found in this fund')
   const { data: metric } = await deps.admin
     .from('metrics')
     .select('id, name, value_type, company_id, fund_id')

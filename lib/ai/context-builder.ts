@@ -6,7 +6,8 @@ import {
 } from '@/lib/parsing/extractAttachmentText'
 import { buildRecentUpdatesBlock } from '@/lib/company-updates/analyst'
 import type { EntityScope } from '@/lib/access/entity-scope'
-import { filterByCompany, scopeTransactions } from '@/lib/access/scope'
+import type { AccessContext } from '@/lib/access/effective'
+import { canSeeVehicle, filterByCompany, scopeTransactions } from '@/lib/access/scope'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -498,7 +499,12 @@ export interface DealContext {
   emailBlock: string
 }
 
-export async function buildDealContext(admin: Admin, dealId: string): Promise<DealContext | null> {
+export async function buildDealContext(
+  admin: Admin,
+  dealId: string,
+  /** The caller's access: a prior pitch is described only when its entity is theirs. Required. */
+  access: Pick<AccessContext, 'vehicles'>,
+): Promise<DealContext | null> {
   const { data: dealRow } = await admin
     .from('inbound_deals')
     .select('*')
@@ -524,7 +530,8 @@ export async function buildDealContext(admin: Admin, dealId: string): Promise<De
     deal.prior_deal_id
       ? admin
           .from('inbound_deals')
-          .select('id, company_name, thesis_fit_score, status, created_at')
+          // '*': vehicle_id exists only once the entity migration has run.
+          .select('*')
           .eq('id', deal.prior_deal_id)
           .maybeSingle()
       : Promise.resolve({ data: null } as { data: null }),
@@ -551,7 +558,7 @@ export async function buildDealContext(admin: Admin, dealId: string): Promise<De
     deal.status ? `Status: ${deal.status}` : null,
   ].filter(Boolean)
 
-  if (priorRow && (priorRow as any).id) {
+  if (priorRow && (priorRow as any).id && canSeeVehicle(access, (priorRow as any).vehicle_id ?? null)) {
     const p = priorRow as { company_name: string | null; thesis_fit_score: string | null; status: string | null; created_at: string | null }
     dealLines.push(`Prior pitch from same founder/company: ${p.company_name ?? 'unknown'} (status: ${p.status}, fit: ${p.thesis_fit_score}, ${p.created_at?.slice(0, 10) ?? '?'})`)
   }

@@ -143,6 +143,7 @@ describe('unified Analyst — accounting is access-scoped', () => {
     expect(system).toContain('DRAFTING ENTRIES')
     expect(buildAccountingContext).toHaveBeenCalledWith(expect.anything(), 'f1', 'Fund IV', {
       includeRelatedEntities: true,
+      access: expect.anything(),
     })
 
     // The draft is lifted out of the prose and returned for the user to review + apply.
@@ -191,6 +192,7 @@ describe('unified Analyst — accounting is access-scoped', () => {
     return post({ messages: msgs, vehicle: 'Fund IV' }).then(({ system }) => {
       expect(buildAccountingContext).toHaveBeenCalledWith(expect.anything(), 'f1', 'Fund IV', {
         includeRelatedEntities: false,
+        access: expect.anything(),
       })
       expect(system).toContain('explain capital accounts and capital calls')
       // The GP/associate books are still a real carve-out — carry is not part of this ledger.
@@ -205,6 +207,7 @@ describe('unified Analyst — accounting is access-scoped', () => {
 
     expect(buildAccountingContext).toHaveBeenCalledWith(expect.anything(), 'f1', 'Fund IV', {
       includeRelatedEntities: true,
+      access: expect.anything(),
     })
     expect(system).toContain('answer reconciliation questions')
     expect(system).not.toContain('You do NOT have')

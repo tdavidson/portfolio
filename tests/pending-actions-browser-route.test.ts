@@ -103,6 +103,7 @@ function principal(level: 'read' | 'write' | 'none') {
       features: { ...DEFAULT_FEATURE_VISIBILITY, accounting: 'everyone' } as FeatureVisibilityMap,
       grants: level === 'none' ? {} : { accounting: level },
       defaults: {},
+      vehicles: { all: true, ids: [] },
     },
   }
 }

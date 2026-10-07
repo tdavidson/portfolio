@@ -48,4 +48,7 @@ describe('membersWhoCanSeeCompany — who a company\'s notifications may go to',
   it('before the entity migration (no grants table): null — everyone, as before', async () => {
     expect(await membersWhoCanSeeCompany(admin({ ...base, fund_member_vehicles: { error: 'relation does not exist' } }), 'f1', 'c1')).toBeNull()
   })
+  it('fails closed when the entity list cannot be read: nobody, rather than everybody', async () => {
+    expect(await membersWhoCanSeeCompany(admin({ ...base, fund_vehicles: { error: 'timeout' } }), 'f1', 'c1')).toEqual(new Set())
+  })
 })

@@ -169,7 +169,7 @@ export async function runAnalyst(
       throw new AnalystRequestError('Forbidden', 403, 'FORBIDDEN')
     }
 
-    const context = await buildDealContext(deps.admin, scopeInput.dealId)
+    const context = await buildDealContext(deps.admin, scopeInput.dealId, principal.access)
     if (!context) throw new AnalystRequestError('Not found', 404, 'NOT_FOUND')
     systemPrompt = context.systemPrompt
     systemPrompt += `\n\n=== FUND THESIS ===\n${context.thesisBlock}`
@@ -248,6 +248,7 @@ export async function runAnalyst(
 
     const options = {
       includeRelatedEntities: hasAccess(principal.access, 'gp_economics', 'read'),
+      access: principal.access,
     }
     try {
       const group = await resolveVehicle(deps.admin, principal.fundId, scopeInput.vehicle, { access: principal.access })

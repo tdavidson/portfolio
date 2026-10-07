@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
-import { resolveCompany, executeRecordInvestment } from './portfolio-tools'
+import { resolveCompany, executeRecordInvestment, PORTFOLIO_HANDLERS } from './portfolio-tools'
 
 // companies: Acme (linked to v1), Beta (linked to v2). company_vehicles drives visibility.
-const companies = [{ id: 'c1', name: 'Acme', fund_id: 'f1' }, { id: 'c2', name: 'Beta', fund_id: 'f1' }]
+const companies = [{ id: 'c1', name: 'Acme', fund_id: 'f1', portfolio_group: ['Fund I', 'Fund II'] }, { id: 'c2', name: 'Beta', fund_id: 'f1' }]
 const links = [{ company_id: 'c1', vehicle_id: 'v1' }, { company_id: 'c2', vehicle_id: 'v2' }]
 const vehicles = [{ id: 'v1', name: 'Fund I', aliases: [] }, { id: 'v2', name: 'Fund II', aliases: [] }]
 
@@ -42,5 +42,9 @@ describe('portfolio agent tools — the caller\'s entities only', () => {
     await expect(executeRecordInvestment({ admin: admin(), fundId: 'f1', userId: 'u1', access: member },
       { company: 'Acme', vehicle: 'Fund II', transaction_type: 'investment', transaction_date: '2026-01-01' }))
       .rejects.toThrow(/entit/i)
+  })
+  it('company_detail names only their entities for a shared company', async () => {
+    const out: any = await PORTFOLIO_HANDLERS.company_detail({ admin: admin(), fundId: 'f1', portfolioGroup: '', userId: 'u1', access: member }, { company: 'Acme' })
+    expect(out.vehicles).toEqual(['Fund I'])
   })
 })

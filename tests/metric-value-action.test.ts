@@ -23,7 +23,7 @@ function makeAdminStub(opts: { existingValue: number | null; metricName: string;
   return { from: query } as any
 }
 
-const deps = (admin: any) => ({ admin, fundId: 'f1', userId: 'u1', access: {} as any })
+const deps = (admin: any) => ({ admin, fundId: 'f1', userId: 'u1', access: { vehicles: { all: true, ids: [] } } as any })
 
 describe('metric-value action', () => {
   it('preview reports update when a same-period row exists', async () => {
@@ -59,7 +59,7 @@ describe('metric-value action', () => {
   it('write refuses a metric that is not in the caller fund', async () => {
     const admin = makeAdminStub({ existingValue: null, metricName: 'ARR', valueType: 'number' })
     await expect(
-      writeMetricValue({ admin, fundId: 'other-fund', userId: 'u1', access: {} as any }, {
+      writeMetricValue({ admin, fundId: 'other-fund', userId: 'u1', access: { vehicles: { all: true, ids: [] } } as any }, {
         companyId: 'c1',
         metricId: 'm1',
         period_label: 'Q3 2026',

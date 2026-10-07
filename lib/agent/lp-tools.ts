@@ -17,7 +17,8 @@ import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-
 import { listVehicles } from '@/lib/accounting/load'
 import { resolveVehicle as resolveSharedVehicle } from '@/lib/accounting/vehicle-resolver'
 import { entityScopeFor } from '@/lib/access/entity-scope'
-import { visibleLpEntityIds } from '@/lib/access/lp-scope'
+import { scopeLiveReport, visibleLpEntityIds } from '@/lib/access/lp-scope'
+import { scopeCompanyRows } from '@/lib/access/scope'
 import { generateLiveReport, type LiveInvestmentRow } from '@/lib/accounting/live-report'
 import { lpCapitalSummary, lpStatement, listCapitalCalls } from '@/lib/accounting/capital-calls'
 
@@ -55,13 +56,19 @@ interface EntityIdentity {
  * investor level and compute the ratios AFTER summing; averaging per-entity DPI/TVPI is
  * wrong and is the convention every existing read path avoids.
  */
-async function loadIdentities(admin: SupabaseClient, fundId: string): Promise<Map<string, EntityIdentity>> {
+async function loadIdentities(
+  admin: SupabaseClient,
+  fundId: string,
+  /** The caller's visible LP entities (null = all): every name lookup and list starts here. */
+  visibleEntityIds: string[] | null,
+): Promise<Map<string, EntityIdentity>> {
   const { data } = await (admin as any)
     .from('lp_entities')
     .select('id, entity_name, investor_id, lp_investors(id, name)')
     .eq('fund_id', fundId)
   const out = new Map<string, EntityIdentity>()
   for (const e of ((data as any[]) ?? [])) {
+    if (visibleEntityIds !== null && !visibleEntityIds.includes(e.id)) continue
     const inv = Array.isArray(e.lp_investors) ? e.lp_investors[0] : e.lp_investors
     out.set(e.id, {
       entityId: e.id,
@@ -155,7 +162,8 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
   },
 
   lp_list_investors: async ({ admin, fundId, access }: AgentToolContext) => {
-    const identities = await loadIdentities(admin, fundId)
+    const lp = await lpToolScope(admin, access)
+    const identities = await loadIdentities(admin, fundId, lp.entityIds)
     const byInvestor = new Map<string, { investor: string; entities: string[] }>()
     for (const i of Array.from(identities.values())) {
       const key = i.investorName ?? i.entityName
@@ -170,7 +178,8 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
 
   lp_snapshot: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     const snapshot = await resolveSnapshot(admin, fundId, input?.snapshot ? String(input.snapshot) : undefined)
-    const identities = await loadIdentities(admin, fundId)
+    const lp = await lpToolScope(admin, access)
+    const identities = await loadIdentities(admin, fundId, lp.entityIds)
 
     const { data } = await (admin as any)
       .from('lp_investments').select('*').eq('fund_id', fundId).eq('snapshot_id', snapshot.id)
@@ -180,7 +189,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
       ? new Set(resolveLp(identities, String(input.lp)).map(i => i.entityId))
       : undefined
     const vehicle = input?.vehicle ? await resolveVehicle(admin, fundId, String(input.vehicle), access) : undefined
-    rows = applyFilters(rows, { entityIds, vehicle, visibleNames: (await lpToolScope(admin, access)).names })
+    rows = applyFilters(rows, { entityIds, vehicle, visibleNames: lp.names })
 
     return {
       source: 'snapshot',
@@ -201,15 +210,16 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     const asOf = input?.as_of ? String(input.as_of) : undefined
     if (asOf && !ISO_DATE.test(asOf)) throw new Error('as_of must be an ISO date (YYYY-MM-DD)')
 
-    const report = await generateLiveReport(admin, fundId, asOf)
-    const identities = await loadIdentities(admin, fundId)
+    const lp = await lpToolScope(admin, access)
+    const report = scopeLiveReport(await generateLiveReport(admin, fundId, asOf), lp.names)
+    const identities = await loadIdentities(admin, fundId, lp.entityIds)
 
     let rows: LiveInvestmentRow[] = report.rows
     const entityIds = input?.lp
       ? new Set(resolveLp(identities, String(input.lp)).map(i => i.entityId))
       : undefined
     const vehicle = input?.vehicle ? await resolveVehicle(admin, fundId, String(input.vehicle), access) : undefined
-    rows = applyFilters(rows, { entityIds, vehicle, visibleNames: (await lpToolScope(admin, access)).names })
+    rows = applyFilters(rows, { entityIds, vehicle, visibleNames: lp.names })
 
     return {
       source: 'live',
@@ -233,15 +243,19 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
 
   lp_reconcile_snapshot: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     const snapshot = await resolveSnapshot(admin, fundId, input?.snapshot ? String(input.snapshot) : undefined)
-    const identities = await loadIdentities(admin, fundId)
+    const lp = await lpToolScope(admin, access)
+    const identities = await loadIdentities(admin, fundId, lp.entityIds)
 
     // Derive the books as of the SNAPSHOT's date — comparing a dated snapshot against
     // today's ledger would report every entry booked since as a "break", which it isn't.
     const asOf = snapshot.as_of_date ? String(snapshot.as_of_date) : undefined
-    const [report, { data: stored }] = await Promise.all([
+    const [fullReport, { data: allStored }] = await Promise.all([
       generateLiveReport(admin, fundId, asOf),
       (admin as any).from('lp_investments').select('*').eq('fund_id', fundId).eq('snapshot_id', snapshot.id),
     ])
+    // Both sides cut to the caller's entities.
+    const report = scopeLiveReport(fullReport, lp.names)
+    const stored = scopeCompanyRows((allStored as any[]) ?? [], lp.names, 'portfolio_group')
 
     const key = (entityId: string, group: string) => `${entityId}::${group}`
     const liveBy = new Map(report.rows.map(r => [key(r.entity_id, r.portfolio_group), r]))
@@ -342,7 +356,8 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
 
   lp_statement: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
-    const identities = await loadIdentities(admin, fundId)
+    const lpScope = await lpToolScope(admin, access)
+    const identities = await loadIdentities(admin, fundId, lpScope.entityIds)
     const matches = resolveLp(identities, String(input?.lp ?? ''))
     if (matches.length > 1) {
       throw new Error(

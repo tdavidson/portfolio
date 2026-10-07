@@ -18,6 +18,8 @@ import { ENTRY_SOURCE_TYPES } from './source-types'
 import { loadVehicleGpLinks } from './gp-links'
 import type { JournalEntry, Posting } from './types'
 import { ACTUAL_BOOK } from './books'
+import type { AccessContext } from '@/lib/access/effective'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 export interface AssistantProposalPosting { accountCode: string; amount: number; lpEntity?: string | null }
 export interface AssistantProposal {
@@ -81,6 +83,38 @@ async function vehicleBooks(admin: SupabaseClient, fundId: string, group: string
  */
 export interface AccountingContextOptions {
   includeRelatedEntities: boolean
+  /** The caller's access. Required: related entities' books are included only for entities they were granted. */
+  access: Pick<AccessContext, 'vehicles'>
+}
+
+/**
+ * The entities whose books sit beside the primary vehicle's: GP/associate entities linked as its GP;
+ * if it is itself a GP, every vehicle it serves; before any links exist, every associate. Then only
+ * those the caller can see — a GP serving your fund is not thereby yours.
+ */
+export function relatedEntities<V extends { id: string; kind: string }>(
+  veh: V[],
+  links: Array<{ gpVehicleId: string; servedVehicleId: string }>,
+  vehicleId: string | null | undefined,
+  access: Pick<AccessContext, 'vehicles'>,
+): V[] {
+  const vehById = new Map(veh.map(v => [v.id, v]))
+  const current = vehicleId ? vehById.get(vehicleId) : undefined
+  const associates = veh.filter(v => v.kind === 'associate' && v.id !== vehicleId)
+  // Associate vehicles that are a GP OF the current vehicle.
+  const linked = links
+    .filter(l => l.servedVehicleId === vehicleId)
+    .map(l => vehById.get(l.gpVehicleId))
+    .filter((v): v is V => !!v && v.kind === 'associate' && v.id !== vehicleId)
+  // If the current vehicle is itself a GP/associate, every vehicle it serves.
+  const servedByCurrent = links
+    .filter(l => l.gpVehicleId === vehicleId)
+    .map(l => vehById.get(l.servedVehicleId))
+    .filter((v): v is V => !!v)
+  // Dedupe (a vehicle could in principle appear via both directions).
+  let related = Array.from(new Map([...linked, ...servedByCurrent].map(v => [v.id, v])).values())
+  if (related.length === 0 && current?.kind !== 'associate') related = associates
+  return related.filter(v => canSeeVehicle(access, v.id))
 }
 
 /** The full context: the primary vehicle (chart, balances, entries, partner capital) plus the
@@ -118,26 +152,7 @@ async function gatherContext(
   } catch {
     veh = []
   }
-  const vehById = new Map(veh.map(v => [v.id as string, v]))
-  const current = vehicleId ? vehById.get(vehicleId) : undefined
-  const associates = veh.filter(v => v.kind === 'associate' && v.id !== vehicleId)
-
-  const links = await loadVehicleGpLinks(admin, fundId)
-  // Associate vehicles that are a GP OF the current vehicle.
-  const linked = links
-    .filter(l => l.servedVehicleId === vehicleId)
-    .map(l => vehById.get(l.gpVehicleId))
-    .filter((v): v is any => !!v && v.kind === 'associate' && v.id !== vehicleId)
-  let related = linked
-  // If the current vehicle is itself a GP/associate, include every vehicle it serves.
-  const servedByCurrent = links
-    .filter(l => l.gpVehicleId === vehicleId)
-    .map(l => vehById.get(l.servedVehicleId))
-    .filter((v): v is any => !!v)
-  if (servedByCurrent.length > 0) related = [...related, ...servedByCurrent]
-  // Dedupe (a vehicle could in principle appear via both directions).
-  related = Array.from(new Map(related.map(v => [v.id, v])).values())
-  if (related.length === 0 && current?.kind !== 'associate') related = associates
+  const related = relatedEntities(veh, await loadVehicleGpLinks(admin, fundId), vehicleId, options.access)
 
   const relatedBlocks: string[] = []
   for (const r of related) {

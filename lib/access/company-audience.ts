@@ -20,7 +20,11 @@ export async function membersWhoCanSeeCompany(
     (admin as any).from('fund_member_vehicles').select('user_id, vehicle_id').eq('fund_id', fundId),
     (admin as any).from('company_vehicles').select('vehicle_id').eq('company_id', companyId),
   ])
+  // No grants table yet: the migration has not run, so everyone, as before.
   if (grants.error || links.error) return null
+  // Anything else unreadable fails CLOSED: an empty entity list would make every member look
+  // unscoped and send the note to all of them.
+  if (members.error || vehicles.error) return new Set()
 
   const allVehicles = new Set<string>(((vehicles.data as any[]) ?? []).map(v => v.id))
   const holding = new Set<string>(((links.data as any[]) ?? []).map(l => l.vehicle_id))

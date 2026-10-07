@@ -89,10 +89,13 @@ export async function listPendingActions(
   // Advance across the scoped database page even when every row in it is hidden. Returning a
   // short (or empty) page with a next cursor is preferable to skipping accessible rows later.
   const consumed = rows.slice(0, options.limit)
-  const visible = consumed.filter(row => {
+  const permitted = consumed.filter(row => {
     const action = getWriteAction(row.action_type)
     return !!action && hasAccess(principal.access, action.domain, 'read', action.accessFeature)
   })
+  // ...and about the caller's entities: a preview names LPs, amounts and companies.
+  const inScope = await Promise.all(permitted.map(row => visibleToCaller(admin, principal, row)))
+  const visible = permitted.filter((_, i) => inScope[i])
   return {
     actions: visible.map(actionDto),
     nextCursor: hasMore && consumed.length ? encodeCursor(consumed[consumed.length - 1]) : null,
@@ -108,6 +111,23 @@ async function loadAction(admin: SupabaseClient, fundId: string, id: string): Pr
     .maybeSingle()
   if (error) throw new Error(error.message)
   return (data as PendingActionRow | null) ?? null
+}
+
+/**
+ * Is this staged action about one of the caller's entities? Each action's preview resolves its
+ * company or vehicle through the caller's access and throws on anything outside it, so the preview
+ * IS the rule — re-run here rather than restated per action type. Unscoped callers see every action.
+ */
+async function visibleToCaller(admin: SupabaseClient, principal: AnalystPrincipal, row: PendingActionRow): Promise<boolean> {
+  if (principal.access.vehicles.all) return true
+  const action = getWriteAction(row.action_type)
+  if (!action) return false
+  try {
+    await action.preview({ admin, fundId: principal.fundId, userId: principal.userId, access: principal.access }, row.args)
+    return true
+  } catch {
+    return false
+  }
 }
 
 function authorizeDecision(principal: AnalystPrincipal, row: PendingActionRow) {
@@ -135,7 +155,10 @@ export async function approvePendingAction(
   id: string,
 ) {
   const existing = await loadAction(admin, principal.fundId, id)
-  if (!existing) throw new PendingActionServiceError('Pending action not found.', 404, 'NOT_FOUND')
+  // Another entity's action is not found — checked before anything is claimed or changed.
+  if (!existing || !(await visibleToCaller(admin, principal, existing))) {
+    throw new PendingActionServiceError('Pending action not found.', 404, 'NOT_FOUND')
+  }
   const action = authorizeDecision(principal, existing)
   if (existing.status === 'applied') {
     return { ok: true, replayed: true, result: existing.applied_result, action: actionDto(existing) }
@@ -202,7 +225,10 @@ export async function rejectPendingAction(
   id: string,
 ) {
   const existing = await loadAction(admin, principal.fundId, id)
-  if (!existing) throw new PendingActionServiceError('Pending action not found.', 404, 'NOT_FOUND')
+  // Another entity's action is not found — checked before anything is claimed or changed.
+  if (!existing || !(await visibleToCaller(admin, principal, existing))) {
+    throw new PendingActionServiceError('Pending action not found.', 404, 'NOT_FOUND')
+  }
   authorizeDecision(principal, existing)
   if (existing.status === 'rejected') return { ok: true, replayed: true, action: actionDto(existing) }
   if (existing.status !== 'pending') {
