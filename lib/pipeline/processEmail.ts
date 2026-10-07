@@ -23,6 +23,8 @@ import {
   updateCompanyUpdatePeriod,
 } from '@/lib/company-updates/capture'
 import type { Json, IssueType, ProcessingStatus } from '@/lib/types/database'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { scopeCompanyRows } from '@/lib/access/scope'
 
 type Supabase = ReturnType<typeof createAdminClient>
 
@@ -185,7 +187,7 @@ export async function runPipeline(
     .eq('id', emailId)
     .single()
 
-  const companies = await getCompanies(supabase, fundId)
+  const companies = await companiesForSender(supabase, fundId, fundMember)
   let companyId: string | null = (existingEmail as any)?.company_id ?? null
   let companyName = ''
 
@@ -590,6 +592,25 @@ export async function getCompanies(supabase: Supabase, fundId: string): Promise<
     .eq('status', 'active')
 
   return data ?? []
+}
+
+/**
+ * The companies an inbound email may be attached to. Forwarded by a fund member: only the companies
+ * of that member's entities — otherwise forwarding would let them write updates and metrics onto a
+ * company they cannot see. Sent by anyone else (a founder writing to the fund's inbox): every
+ * company, since the inbox is the fund's, and the email is visible only to members who can see the
+ * company it lands on.
+ */
+export async function companiesForSender(
+  supabase: Supabase,
+  fundId: string,
+  fundMember: { userId: string } | null | undefined,
+): Promise<CompanyRef[]> {
+  const companies = await getCompanies(supabase, fundId)
+  if (!fundMember) return companies
+  const scope = await loadEntityScopeForUser(supabase as any, fundMember.userId)
+  if (!scope) return []
+  return scopeCompanyRows(companies as any[], scope.companyIds) as CompanyRef[]
 }
 
 export async function getMetrics(supabase: Supabase, companyId: string): Promise<MetricDef[]> {
