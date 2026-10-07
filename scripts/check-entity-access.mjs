@@ -19,6 +19,7 @@ const DATA = join(WORK, 'data')
 const MIGRATIONS = (process.env.ENTITY_MIGRATIONS ?? [
   '20260716000009_access_context_rpc.sql',
   '20261007100000_entity_access_grants.sql',
+  '20261007100100_company_vehicles.sql',
 ].join(',')).split(',')
 
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'pipe' })
@@ -49,6 +50,16 @@ create table fund_domain_defaults (fund_id uuid, domain text, level text, primar
 create table fund_vehicles (id uuid primary key default gen_random_uuid(), fund_id uuid not null references funds(id) on delete cascade,
   name text not null, kind text not null default 'fund', aliases text[] not null default '{}', active boolean not null default true,
   unique (fund_id, name));
+create table companies (id uuid primary key default gen_random_uuid(), fund_id uuid not null references funds(id),
+  name text not null, holding_type text not null default 'company', portfolio_group text[]);
+create table investment_transactions (id uuid primary key default gen_random_uuid(), fund_id uuid not null,
+  company_id uuid not null references companies(id) on delete cascade, portfolio_group text, transaction_type text);
+create table chart_of_accounts (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid,
+  company_id uuid references companies(id) on delete set null, code text not null);
+create table fund_holding_terms (company_id uuid primary key references companies(id) on delete cascade, fund_id uuid not null, vehicle_id uuid);
+create table crypto_wallets (id uuid primary key default gen_random_uuid(), fund_id uuid not null,
+  company_id uuid not null references companies(id) on delete cascade, portfolio_group text, address text not null);
+create table inbound_deals (id uuid primary key default gen_random_uuid(), fund_id uuid not null references funds(id));
 grant select on all tables in schema public to authenticated;
 `
 
@@ -118,6 +129,52 @@ try {
   let anonRefused = false
   try { psql(`set role anon; select public.vehicle_ids_readable()`) } catch { anonRefused = true }
   check('anon cannot execute vehicle_ids_readable()', String(anonRefused), 'true')
+
+  // ---- company_vehicles: the one link between a company and its entities. ----
+  const C = '00000000-0000-0000-0000-0000000000c0', D = '00000000-0000-0000-0000-0000000000d0'
+  const E = '00000000-0000-0000-0000-0000000000e0', W = '00000000-0000-0000-0000-0000000000a0'
+  const links = co => psql(`select coalesce(string_agg(v.name || ':' || cv.relation, ',' order by v.name), '')
+    from company_vehicles cv join fund_vehicles v on v.id = cv.vehicle_id where cv.company_id = '${co}'`)
+  const groups = co => psql(`select coalesce(array_to_string(portfolio_group, ','), '') from companies where id = '${co}'`)
+
+  psql(`insert into companies (id, fund_id, name) values ('${C}', '${F}', 'Acme'), ('${D}', '${F}', 'Beta'),
+          ('${E}', '${F}', 'Gamma'), ('${W}', '${F}', 'Token')`)
+  psql(`insert into investment_transactions (fund_id, company_id, portfolio_group, transaction_type) values ('${F}', '${C}', 'Fund I', 'investment')`)
+  check('a transaction tagged to an entity makes the company a holding of it', links(C), 'Fund I:holding')
+  check('the derived portfolio_group follows', groups(C), 'Fund I')
+
+  psql(`insert into investment_transactions (fund_id, company_id, portfolio_group, transaction_type) values ('${F}', '${C}', null, 'round_info')`)
+  check('a company-wide price signal (no entity) adds nothing', links(C), 'Fund I:holding')
+
+  psql(`update fund_vehicles set aliases = '{"Fund 2"}' where id = '${V2}'`)
+  psql(`insert into chart_of_accounts (fund_id, vehicle_id, company_id, code) values ('${F}', '${V2}', '${C}', '1100-acme')`)
+  check('a per-company ledger account makes it a holding of that entity too', links(C), 'Fund I:holding,Fund II:holding')
+
+  psql(`insert into fund_holding_terms (company_id, fund_id, vehicle_id) values ('${D}', '${F}', '${V1}')`)
+  check('fund holding terms make a fund holding a holding of its entity', links(D), 'Fund I:holding')
+
+  psql(`insert into crypto_wallets (fund_id, company_id, portfolio_group, address) values ('${F}', '${W}', 'Fund 2', '0xabc')`)
+  check('a wallet makes a token a holding of its entity, by alias', links(W), 'Fund II:holding')
+
+  psql(`update companies set portfolio_group = '{"Fund II"}' where id = '${E}'`)
+  check('naming an entity on an un-held company assigns it', links(E), 'Fund II:assigned')
+  psql(`insert into investment_transactions (fund_id, company_id, portfolio_group, transaction_type) values ('${F}', '${E}', 'Fund II', 'investment')`)
+  check('investing upgrades the assignment to a holding', links(E), 'Fund II:holding')
+
+  psql(`delete from investment_transactions where company_id = '${C}' and portfolio_group = 'Fund I'`)
+  check('removing the only Fund I transaction leaves the company assigned to Fund I, held by Fund II',
+    links(C), 'Fund I:assigned,Fund II:holding')
+
+  psql(`update companies set portfolio_group = '{"Old Fund","Fund I"}' where id = '${D}'`)
+  check('a legacy entity name with no registry row is kept on the company, not dropped', groups(D), 'Fund I,Old Fund')
+  check('…and adds no link, since it names no entity', links(D), 'Fund I:holding')
+
+  // RLS: a member sees links only for their entities.
+  check('a member granted Fund I sees only Fund I links',
+    psql(`select count(*) from company_vehicles where vehicle_id <> '${V1}'`, { as: MEMBER }), '0')
+
+  check('a deal can carry an owning entity',
+    psql(`select count(*) from information_schema.columns where table_name = 'inbound_deals' and column_name = 'vehicle_id'`), '1')
 
   // ---- Re-runnable. ----
   for (const m of MIGRATIONS.slice(1)) applyFile(join('supabase/migrations', m))
