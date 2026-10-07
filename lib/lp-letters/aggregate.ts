@@ -84,6 +84,13 @@ export async function aggregatePortfolioData(
   portfolioGroup: string,
   isYearEnd: boolean
 ): Promise<PortfolioPreview> {
+  // The letter's entity: its notes are the only ones that belong in it (a note on a shared company
+  // written for another entity is that entity's).
+  const { data: letterVehicles } = await (admin as any)
+    .from('fund_vehicles').select('id, name, aliases').eq('fund_id', fundId)
+  const letterVehicleId: string | null = (((letterVehicles as any[]) ?? [])
+    .find(v => v.name === portfolioGroup || ((v.aliases as string[] | null) ?? []).includes(portfolioGroup))?.id) ?? null
+
   // Fund info
   const { data: fund } = await admin
     .from('funds')
@@ -362,12 +369,17 @@ export async function aggregatePortfolioData(
     })
 
     // Recent notes
-    const { data: notes } = await admin
+    // '*' and filtered here: vehicle_id exists once the notes migration has run (before it, no row
+    // carries the key and every note is kept, as before).
+    const { data: companyNotes } = await admin
       .from('company_notes')
-      .select('content')
+      .select('*')
       .eq('company_id', c.id)
       .order('created_at', { ascending: false })
-      .limit(5) as { data: { content: string }[] | null }
+      .limit(50) as { data: { content: string; vehicle_id?: string | null }[] | null }
+    const notes = (companyNotes ?? [])
+      .filter(n => !('vehicle_id' in n) || (!!letterVehicleId && n.vehicle_id === letterVehicleId))
+      .slice(0, 5)
 
     // Latest summary
     const { data: summary } = await admin

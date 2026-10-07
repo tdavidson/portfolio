@@ -4,6 +4,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
 import { parseMentions, parseCompanyMentions, parseGroupMentions } from '@/lib/notes/mentions'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { filterByCompany } from '@/lib/access/scope'
+import { resolveNoteEntity, scopeNotesQuery } from '@/lib/notes/entity'
 
 export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -22,20 +25,24 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
 
   if (!company) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // Fetch notes directly on this company OR mentioning it via @tag
-  const { data: directNotes, error: directError } = await supabase
+  // Fetch notes directly on this company OR mentioning it via @tag — either way only notes the
+  // caller may read (their entity's, and about a company of theirs): a note about ANOTHER company
+  // that @mentions this one is that note's entity's, not this page's.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  if (!scope) return NextResponse.json([])
+  const { data: directNotes, error: directError } = await scopeNotesQuery(admin
     .from('company_notes')
-    .select('id, content, user_id, company_id, mentioned_user_ids, created_at, updated_at')
-    .eq('company_id', params.id)
+    .select('*')
+    .eq('company_id', params.id), scope)
     .order('created_at', { ascending: true }) as { data: { id: string; content: string; user_id: string; company_id: string | null; mentioned_user_ids: string[] | null; created_at: string; updated_at: string }[] | null; error: { message: string } | null }
 
   if (directError) return dbError(directError, 'companies-id-notes')
 
-  const { data: taggedNotes } = await admin
+  const { data: taggedNotes } = await scopeNotesQuery(admin
     .from('company_notes')
-    .select('id, content, user_id, company_id, mentioned_user_ids, created_at, updated_at')
+    .select('*')
     .eq('fund_id', company.fund_id)
-    .contains('mentioned_company_ids' as any, [params.id])
+    .contains('mentioned_company_ids' as any, [params.id]), scope)
     .order('created_at', { ascending: true }) as { data: { id: string; content: string; user_id: string; company_id: string | null; mentioned_user_ids: string[] | null; created_at: string; updated_at: string }[] | null }
 
   // Merge and deduplicate
@@ -86,6 +93,7 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
       userName: nameMap[note.user_id] || null,
       userEmail: emailCache[note.user_id],
       mentionedUserIds: note.mentioned_user_ids ?? [],
+      vehicleId: (note as any).vehicle_id ?? null,
       isRead: note.user_id === user.id || readSet.has(note.id),
       createdAt: note.created_at,
       edited: note.updated_at !== note.created_at,
@@ -106,7 +114,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   if (writeCheck instanceof NextResponse) return writeCheck
 
   const body = await req.json()
-  const { content } = body
+  const { content, vehicleId: requestedVehicle } = body
 
   if (!content?.trim()) {
     return NextResponse.json({ error: 'Content is required' }, { status: 400 })
@@ -120,6 +128,12 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     .maybeSingle() as { data: { fund_id: string; name: string } | null }
 
   if (!company) return NextResponse.json({ error: 'Company not found' }, { status: 404 })
+
+  // Every note is for one of the writer's entities that holds this company.
+  const noteScope = await loadEntityScopeForUser(admin, user.id)
+  if (!noteScope) return NextResponse.json({ error: 'No fund found' }, { status: 403 })
+  const entity = await resolveNoteEntity(admin, noteScope, params.id, requestedVehicle)
+  if ('error' in entity) return NextResponse.json({ error: entity.error, code: 'ENTITY_REQUIRED' }, { status: entity.status })
 
   // Parse @mentions for people
   const { data: members } = await admin
@@ -138,11 +152,11 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
 
   const mentionedUserIds = parseMentions(content.trim(), membersWithFallback)
 
-  // Parse @mentions for companies
-  const { data: allCompanies } = await admin
+  // Parse @mentions for companies — only the writer's can be tagged.
+  const { data: allCompanies } = await filterByCompany(admin
     .from('companies')
     .select('id, name')
-    .eq('fund_id', company.fund_id) as { data: { id: string; name: string }[] | null }
+    .eq('fund_id', company.fund_id), noteScope.companyIds, { column: 'id' }) as { data: { id: string; name: string }[] | null }
 
   const mentionedCompanyIds = parseCompanyMentions(content.trim(), allCompanies ?? [])
 
@@ -150,6 +164,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     .from('company_notes')
     .insert({
       company_id: params.id,
+      vehicle_id: entity.vehicleId,
       fund_id: company.fund_id,
       user_id: user.id,
       content: content.trim(),
@@ -175,6 +190,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     content: note.content,
     companyId: params.id,
     companyName: company.name,
+    vehicleId: entity.vehicleId,
     authorName: membership?.display_name || user.email?.split('@')[0] || 'Someone',
     authorUserId: user.id,
     mentionedUserIds,
@@ -187,6 +203,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     userName: membership?.display_name || null,
     userEmail: user.email ?? 'Unknown',
     mentionedUserIds,
+    vehicleId: entity.vehicleId,
     isRead: true,
     createdAt: note.created_at,
     edited: false,

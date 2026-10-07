@@ -8,6 +8,7 @@ import { buildRecentUpdatesBlock } from '@/lib/company-updates/analyst'
 import type { EntityScope } from '@/lib/access/entity-scope'
 import type { AccessContext } from '@/lib/access/effective'
 import { canSeeVehicle, filterByCompany, scopeTransactions } from '@/lib/access/scope'
+import { scopeNotesQuery } from '@/lib/notes/entity'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -30,7 +31,7 @@ export interface ContextOptions {
    * The caller's entities. Required: every company, transaction and note read below is trimmed to
    * it, so a prompt never carries another entity's data. See lib/access/entity-scope.ts.
    */
-  scope: Pick<EntityScope, 'vehicleNames' | 'companyIds'>
+  scope: Pick<EntityScope, 'access' | 'vehicleNames' | 'companyIds'>
 }
 
 export async function buildPortfolioContext(
@@ -97,10 +98,10 @@ export async function buildPortfolioContext(
   // entitled to them. Not fetched rather than fetched-and-dropped: the rule is that a request is
   // never GIVEN what it isn't entitled to.
   const { data: portfolioNotes } = options.includeTeamNotes
-    ? await filterByCompany(admin
+    ? await scopeNotesQuery(admin
         .from('company_notes')
         .select('content, user_id, company_id, created_at')
-        .eq('fund_id', fundId), options.scope.companyIds, { keepUnlinked: true })
+        .eq('fund_id', fundId), options.scope)
         .order('created_at', { ascending: false })
         .limit(30) as { data: { content: string; user_id: string; company_id: string | null; created_at: string }[] | null }
     : { data: null }
@@ -249,10 +250,10 @@ export async function buildCompanyContext(
 
   // --- Team discussion notes --- (relationships domain; see ContextOptions)
   const { data: teamNotes } = options.includeTeamNotes
-    ? await admin
+    ? await scopeNotesQuery(admin
         .from('company_notes')
         .select('content, user_id, created_at')
-        .eq('company_id', companyId)
+        .eq('company_id', companyId), options.scope)
         .order('created_at', { ascending: false })
         .limit(20) as { data: { content: string; user_id: string; created_at: string }[] | null }
     : { data: null }

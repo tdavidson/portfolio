@@ -1,44 +1,77 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 
+// Who can see something — for fan-out (note notifications, digests), where the question is asked
+// about many people at once rather than about the caller. The same rule as `access_context` and the
+// RLS helpers: an admin, or a member granted every entity, sees everything; anyone else sees what
+// their granted entities reach.
+
+interface Audience {
+  members: Array<{ userId: string; unscoped: boolean; granted: Set<string> }>
+  /** The entities holding the company asked about (empty when none was asked). */
+  holding: Set<string>
+}
+
 /**
- * The fund members who can see a company — for fan-out (note notifications, digests), where the
- * question is asked about many people at once rather than about the caller. The same rule as
- * `access_context` and `company_ids_readable`: an admin, or a member granted every entity, sees
- * everything; anyone else sees a company linked to one of their granted entities.
- *
- * Null when the entity migration has not run (no grants table): every member, the behaviour
- * before entity access existed.
+ * Null when the entity migration has not run (no grants table): every member, as before. 'closed'
+ * when something else cannot be read — an empty entity list would make every member look unscoped.
  */
-export async function membersWhoCanSeeCompany(
-  admin: SupabaseClient,
-  fundId: string,
-  companyId: string,
-): Promise<Set<string> | null> {
+async function loadAudience(admin: SupabaseClient, fundId: string, companyId: string | null): Promise<Audience | null | 'closed'> {
   const [members, vehicles, grants, links] = await Promise.all([
     (admin as any).from('fund_members').select('user_id, role').eq('fund_id', fundId),
     (admin as any).from('fund_vehicles').select('id').eq('fund_id', fundId),
     (admin as any).from('fund_member_vehicles').select('user_id, vehicle_id').eq('fund_id', fundId),
-    (admin as any).from('company_vehicles').select('vehicle_id').eq('company_id', companyId),
+    companyId
+      ? (admin as any).from('company_vehicles').select('vehicle_id').eq('company_id', companyId)
+      : Promise.resolve({ data: [], error: null }),
   ])
-  // No grants table yet: the migration has not run, so everyone, as before.
   if (grants.error || links.error) return null
-  // Anything else unreadable fails CLOSED: an empty entity list would make every member look
-  // unscoped and send the note to all of them.
-  if (members.error || vehicles.error) return new Set()
+  if (members.error || vehicles.error) return 'closed'
 
-  const allVehicles = new Set<string>(((vehicles.data as any[]) ?? []).map(v => v.id))
-  const holding = new Set<string>(((links.data as any[]) ?? []).map(l => l.vehicle_id))
+  const allVehicles = ((vehicles.data as any[]) ?? []).map(v => v.id as string)
   const granted = new Map<string, Set<string>>()
   for (const g of (grants.data as any[]) ?? []) {
     if (!granted.has(g.user_id)) granted.set(g.user_id, new Set())
     granted.get(g.user_id)!.add(g.vehicle_id)
   }
-
-  const out = new Set<string>()
-  for (const m of (members.data as any[]) ?? []) {
-    const mine = granted.get(m.user_id) ?? new Set<string>()
-    const unscoped = m.role === 'admin' || Array.from(allVehicles).every(v => mine.has(v))
-    if (unscoped || Array.from(mine).some(v => holding.has(v))) out.add(m.user_id)
+  return {
+    members: ((members.data as any[]) ?? []).map(m => {
+      const mine = granted.get(m.user_id) ?? new Set<string>()
+      return { userId: m.user_id as string, unscoped: m.role === 'admin' || allVehicles.every(v => mine.has(v)), granted: mine }
+    }),
+    holding: new Set(((links.data as any[]) ?? []).map(l => l.vehicle_id as string)),
   }
-  return out
+}
+
+/** The fund members who can see a company. Null = everyone (before the entity migration). */
+export async function membersWhoCanSeeCompany(
+  admin: SupabaseClient,
+  fundId: string,
+  companyId: string,
+): Promise<Set<string> | null> {
+  const a = await loadAudience(admin, fundId, companyId)
+  if (a === null) return null
+  if (a === 'closed') return new Set()
+  return new Set(a.members
+    .filter(m => m.unscoped || Array.from(m.granted).some(v => a.holding.has(v)))
+    .map(m => m.userId))
+}
+
+/**
+ * The fund members who can read a note: those who see its entity and, for a note about a company,
+ * the company as well. A note with no entity (legacy, unattributed) reaches unscoped members only.
+ */
+export async function membersWhoCanSeeNote(
+  admin: SupabaseClient,
+  fundId: string,
+  note: { vehicleId: string | null; companyId: string | null },
+): Promise<Set<string> | null> {
+  const a = await loadAudience(admin, fundId, note.companyId)
+  if (a === null) return null
+  if (a === 'closed') return new Set()
+  return new Set(a.members
+    .filter(m => m.unscoped || (
+      !!note.vehicleId && m.granted.has(note.vehicleId)
+      && (!note.companyId || Array.from(m.granted).some(v => a.holding.has(v)))
+    ))
+    .map(m => m.userId))
 }

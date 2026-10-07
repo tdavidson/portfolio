@@ -18,6 +18,7 @@ interface Note {
   userName: string | null
   userEmail: string
   companyId: string | null
+  vehicleId?: string | null
   companyName: string | null
   mentionedUserIds: string[]
   mentionedCompanyIds?: string[]
@@ -150,6 +151,8 @@ export default function NotesPage() {
     try {
       const body: any = { content: replyContent.trim() }
       if (parentNote.companyId) body.companyId = parentNote.companyId
+      // A reply is for the same entity as the note it answers.
+      if (parentNote.vehicleId) body.vehicleId = parentNote.vehicleId
       const res = await fetch('/api/dashboard/notes', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

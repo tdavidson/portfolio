@@ -337,6 +337,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/interactions': { domain: 'relationships', feature: 'interactions' },
   'api/notes': { domain: 'relationships', feature: 'notes' },
   'api/notes/members': { domain: 'relationships', feature: 'notes' },
+  'api/notes/entities': { domain: 'relationships', feature: 'notes', level: 'read' },
   // Marking a note read is the reader's own state, not a note edit.
   'api/notes/mark-read': { domain: 'relationships', feature: 'notes', level: 'read' },
 

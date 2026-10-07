@@ -24,6 +24,7 @@ const MIGRATIONS = (process.env.ENTITY_MIGRATIONS ?? [
   '20261007100300_entity_rls_lp.sql',
   '20261007100400_diligence_entity.sql',
   '20261007100500_entity_storage.sql',
+  '20261007100600_notes_entity.sql',
 ].join(',')).split(',')
 
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'pipe' })
@@ -65,7 +66,7 @@ create table crypto_wallets (id uuid primary key default gen_random_uuid(), fund
   company_id uuid not null references companies(id) on delete cascade, portfolio_group text, address text not null);
 create table inbound_deals (id uuid primary key default gen_random_uuid(), fund_id uuid not null references funds(id));
 create table journal_entries (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, memo text);
-create table company_notes (id uuid primary key default gen_random_uuid(), fund_id uuid not null, company_id uuid, content text);
+create table company_notes (id uuid primary key default gen_random_uuid(), fund_id uuid not null, company_id uuid, content text, mentioned_groups text[] default '{}', created_at timestamptz not null default now());
 create table interactions (id uuid primary key default gen_random_uuid(), fund_id uuid not null, company_id uuid, subject text);
 create table lp_investors (id uuid primary key default gen_random_uuid(), fund_id uuid not null, name text);
 create table lp_entities (id uuid primary key default gen_random_uuid(), fund_id uuid not null, investor_id uuid, entity_name text);
@@ -164,6 +165,12 @@ try {
   const DD1 = '00000000-0000-0000-0000-00000000dd01', DD2 = '00000000-0000-0000-0000-00000000dd02', DD3 = '00000000-0000-0000-0000-00000000dd03'
   psql(`insert into diligence_deals (id, fund_id, name) values ('${DD1}', '${F}', 'From a Fund I deal'), ('${DD2}', '${F}', 'By hand'),
           ('${DD3}', '${OTHER_F}', 'One-entity fund')`)
+
+  // Notes written before entities: a general note in the two-entity fund (no single answer), one
+  // that names its entity (@Fund I), and one in the one-entity fund.
+  psql(`insert into company_notes (fund_id, company_id, content, mentioned_groups) values
+          ('${F}', null, 'legacy general', '{}'), ('${F}', null, 'legacy about Fund I', '{"Fund I"}'),
+          ('${OTHER_F}', null, 'legacy elsewhere', '{}')`)
 
   for (const m of MIGRATIONS) applyFile(join('supabase/migrations', m))
 
@@ -277,9 +284,23 @@ try {
   check('…and none of a company only Fund II holds',
     psql(`select count(*) from investment_transactions where company_id = '${E}'`, { as: MEMBER }), '0')
 
-  psql(`insert into company_notes (fund_id, company_id, content) values ('${F}', '${E}', 'gamma note'), ('${F}', null, 'general')`)
-  check('a member reads fund-wide notes, not notes about a company they cannot see',
-    psql(`select string_agg(content, ',' order by content) from company_notes`, { as: MEMBER }), 'general')
+  // Every note belongs to an entity.
+  check('notes: the backfill attributes a note that names one entity, and any note in a one-entity fund',
+    psql(`select string_agg(n.content || ':' || coalesce(v.name, 'none'), ',' order by n.content) from company_notes n left join fund_vehicles v on v.id = n.vehicle_id`),
+    'legacy about Fund I:Fund I,legacy elsewhere:Elsewhere,legacy general:none')
+  psql(`insert into company_notes (fund_id, company_id, vehicle_id, content) values
+          ('${F}', null, '${V1}', 'fund i'), ('${F}', '${C}', '${V1}', 'fund i on acme'),
+          ('${F}', '${C}', '${V2}', 'fund ii on acme'), ('${F}', '${E}', '${V1}', 'fund i on gamma')`)
+  check('notes: a member reads their entity\'s notes — not another entity\'s on a shared company, not one about a company they cannot see, not an unattributed one',
+    psql(`select string_agg(content, ',' order by content) from company_notes`, { as: MEMBER }), 'fund i,fund i on acme,legacy about Fund I')
+  check('notes: an admin reads them all, unattributed included',
+    psql(`select count(*) from company_notes where fund_id = '${F}'`, { as: ADMIN }), '6')
+  let unattributed = 'accepted'
+  try { psql(`insert into company_notes (fund_id, content) values ('${F}', 'no entity')`) } catch { unattributed = 'refused' }
+  check('notes: a new note with no entity is refused', unattributed, 'refused')
+  psql(`update company_notes set content = 'legacy general, edited' where content = 'legacy general'`)
+  check('notes: an unattributed legacy note can still be edited',
+    psql(`select count(*) from company_notes where content = 'legacy general, edited'`), '1')
 
   psql(`insert into interactions (fund_id, company_id, subject) values ('${F}', '${E}', 'gamma call'), ('${F}', '${C}', 'shared call')`)
   check('a member reads interactions about their companies, not about a company they cannot see',

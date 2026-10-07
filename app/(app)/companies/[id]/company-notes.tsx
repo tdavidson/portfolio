@@ -9,6 +9,7 @@ import { usePanelContext } from './company-panel-context'
 import { useAnalystContext } from '@/components/analyst-context'
 import { useFeatureVisibility } from '@/components/feature-visibility-context'
 import { MobileDrawerPanel } from '@/components/mobile-drawer-panel'
+import { NoteEntitySelect } from '@/components/note-entity-select'
 
 interface Note {
   id: string
@@ -136,21 +137,27 @@ function NotesPanel() {
     }
   }, [notes])
 
+  // Every note is for one of the writer's entities that holds this company (lib/notes/entity.ts).
+  const [noteEntity, setNoteEntity] = useState<string | null>(null)
+  const [postError, setPostError] = useState<string | null>(null)
+
   async function handlePost() {
     if (!content.trim() || posting) return
     setPosting(true)
+    setPostError(null)
     try {
       const res = await fetch(`/api/companies/${companyId}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ content: content.trim() }),
+        body: JSON.stringify({ content: content.trim(), vehicleId: noteEntity }),
       })
       if (res.ok) {
         const note = await res.json()
         setNotes(prev => [...prev, note])
         setContent('')
         setTimeout(() => inputRef.current?.focus(), 50)
-
+      } else {
+        setPostError((await res.json().catch(() => ({}))).error ?? 'Could not post the note.')
       }
     } finally {
       setPosting(false)
@@ -267,6 +274,10 @@ function NotesPanel() {
       </div>
 
       <div className="px-4 py-3">
+        <div className="mb-2 space-y-1">
+          <NoteEntitySelect companyId={companyId} value={noteEntity} onChange={setNoteEntity} />
+          {postError && <p className="text-sm text-destructive">{postError}</p>}
+        </div>
         <div className="flex gap-2">
           <MentionTextarea
             ref={inputRef}

@@ -1,12 +1,14 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getOutboundConfig, sendOutboundEmail } from '@/lib/email'
-import { membersWhoCanSeeCompany } from '@/lib/access/company-audience'
+import { membersWhoCanSeeNote } from '@/lib/access/company-audience'
 
 interface NoteInfo {
   id: string
   content: string
   companyId: string | null
   companyName: string | null
+  /** The entity the note is for — every note has one (null only for a legacy, unattributed note). */
+  vehicleId: string | null
   authorName: string
   authorUserId: string
   mentionedUserIds: string[]
@@ -106,14 +108,12 @@ export async function sendNoteNotifications(
       }
     }
 
-    // A company note goes only to members who can see the company — whatever their preference or
-    // mention: the email carries the note, so sending it would show them the company's data.
-    if (note.companyId) {
-      const audience = await membersWhoCanSeeCompany(admin, fundId, note.companyId)
-      if (audience) {
-        for (let i = recipientUserIds.length - 1; i >= 0; i--) {
-          if (!audience.has(recipientUserIds[i])) recipientUserIds.splice(i, 1)
-        }
+    // Only members who can read the note — its entity, and its company if it has one — whatever
+    // their preference or mention: the email carries the note itself.
+    const audience = await membersWhoCanSeeNote(admin, fundId, { vehicleId: note.vehicleId, companyId: note.companyId })
+    if (audience) {
+      for (let i = recipientUserIds.length - 1; i >= 0; i--) {
+        if (!audience.has(recipientUserIds[i])) recipientUserIds.splice(i, 1)
       }
     }
 

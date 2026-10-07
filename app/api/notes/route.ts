@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { dbError } from '@/lib/api-error'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
-import { filterByCompany } from '@/lib/access/scope'
+import { scopeNotesQuery } from '@/lib/notes/entity'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
@@ -23,15 +23,16 @@ export async function GET(req: NextRequest) {
 
   let query = admin
     .from('company_notes')
-    .select('id, content, user_id, company_id, mentioned_user_ids, mentioned_company_ids, mentioned_groups, created_at, updated_at, pinned_at, page_context')
+    .select('*')
     .eq('fund_id', membership.fund_id)
     .order('pinned_at', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
     .limit(200)
 
-  // Fund-wide notes, and notes about companies the caller can see.
+  // Notes for the caller's entities (and, about a company, a company of theirs). See lib/notes/entity.ts.
   const scope = await loadEntityScopeForUser(admin, user.id)
-  query = filterByCompany(query, scope ? scope.companyIds : [], { keepUnlinked: true })
+  if (!scope) return NextResponse.json([])
+  query = scopeNotesQuery(query, scope)
 
   if (filter === 'general') {
     query = query.is('company_id', null)
@@ -98,6 +99,7 @@ export async function GET(req: NextRequest) {
       userEmail: emailCache[note.user_id],
       companyId: note.company_id,
       companyName: note.company_id ? companyNameMap[note.company_id] ?? null : null,
+      vehicleId: (note as any).vehicle_id ?? null,
       mentionedUserIds: note.mentioned_user_ids ?? [],
       mentionedCompanyIds: (note as any).mentioned_company_ids ?? [],
       mentionedGroups: (note as any).mentioned_groups ?? [],

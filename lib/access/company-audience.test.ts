@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { membersWhoCanSeeCompany } from './company-audience'
+import { membersWhoCanSeeCompany, membersWhoCanSeeNote } from './company-audience'
 
 function admin(tables: Record<string, any[] | { error: string }>) {
   return {
@@ -50,5 +50,19 @@ describe('membersWhoCanSeeCompany — who a company\'s notifications may go to',
   })
   it('fails closed when the entity list cannot be read: nobody, rather than everybody', async () => {
     expect(await membersWhoCanSeeCompany(admin({ ...base, fund_vehicles: { error: 'timeout' } }), 'f1', 'c1')).toEqual(new Set())
+  })
+})
+
+describe('membersWhoCanSeeNote — who a note may be emailed to', () => {
+  it('a note for Fund II: unscoped members and those granted Fund II', async () => {
+    expect(Array.from((await membersWhoCanSeeNote(admin(base), 'f1', { vehicleId: 'v2', companyId: null }))!).sort()).toEqual(['admin', 'all', 'other'])
+  })
+  it('a Fund I note about a company: granted Fund I AND able to see the company', async () => {
+    const t = { ...base, company_vehicles: [{ company_id: 'c1', vehicle_id: 'v2' }] }
+    // 'mine' holds Fund I but c1 is Fund II's only — they see neither the company nor its note.
+    expect(Array.from((await membersWhoCanSeeNote(admin(t), 'f1', { vehicleId: 'v1', companyId: 'c1' }))!).sort()).toEqual(['admin', 'all'])
+  })
+  it('a note with no entity: unscoped members only', async () => {
+    expect(Array.from((await membersWhoCanSeeNote(admin(base), 'f1', { vehicleId: null, companyId: null }))!).sort()).toEqual(['admin', 'all'])
   })
 })

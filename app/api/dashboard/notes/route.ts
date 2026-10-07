@@ -7,7 +7,8 @@ import { dbError } from '@/lib/api-error'
 import { logActivity } from '@/lib/activity'
 import { parseMentions, parseCompanyMentions, parseGroupMentions } from '@/lib/notes/mentions'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
-import { scopeCompanyRows } from '@/lib/access/scope'
+import { filterByCompany } from '@/lib/access/scope'
+import { resolveNoteEntity, scopeNotesQuery } from '@/lib/notes/entity'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
@@ -27,10 +28,15 @@ export async function GET(req: NextRequest) {
   const pageContext = req.nextUrl.searchParams.get('page_context')
   const limitParam = req.nextUrl.searchParams.get('limit')
 
-  let query = admin
+  // Notes for the caller's entities (and, about a company, a company of theirs). See lib/notes/entity.ts.
+  // '*': vehicle_id exists once the notes migration has run.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  if (!scope) return NextResponse.json([])
+  const visibleCompanies = scope.companyIds
+  let query = scopeNotesQuery(admin
     .from('company_notes')
-    .select('id, content, user_id, company_id, mentioned_user_ids, mentioned_company_ids, mentioned_groups, created_at, updated_at, pinned_at, page_context')
-    .eq('fund_id', membership.fund_id)
+    .select('*')
+    .eq('fund_id', membership.fund_id), scope)
 
   if (pageContext) {
     query = query.eq('page_context', pageContext).is('company_id', null)
@@ -52,11 +58,7 @@ export async function GET(req: NextRequest) {
 
   if (error) return dbError(error, 'dashboard-notes')
 
-  // Notes about a company the caller cannot see are not theirs to read. Fund-wide notes (no company)
-  // stay visible; @mentions of an invisible company are dropped from the names map below.
-  const scope = await loadEntityScopeForUser(admin, user.id)
-  const visibleCompanies = (scope ? scope.companyIds : [])
-  notes = scopeCompanyRows(notes ?? [], visibleCompanies, 'company_id', { keepUnlinked: true })
+  // @mentions of a company the caller cannot see are dropped from the names map below.
 
   // Batch-load read status
   const noteIds = (notes ?? []).map(n => n.id)
@@ -112,6 +114,7 @@ export async function GET(req: NextRequest) {
       userEmail: emailCache[note.user_id],
       companyId: note.company_id,
       companyName: note.company_id ? companyNameMap[note.company_id] ?? null : null,
+      vehicleId: (note as any).vehicle_id ?? null,
       mentionedUserIds: note.mentioned_user_ids ?? [],
       mentionedCompanyIds: (note as any).mentioned_company_ids ?? [],
       mentionedGroups: (note as any).mentioned_groups ?? [],
@@ -147,7 +150,9 @@ export async function POST(req: NextRequest) {
   if (!membership) return NextResponse.json({ error: 'No fund found' }, { status: 403 })
 
   const body = await req.json()
-  const { content, companyId, pageContext } = body
+  const { content, companyId, pageContext, vehicleId: requestedVehicle } = body
+  const noteScope = await loadEntityScopeForUser(admin, user.id)
+  if (!noteScope) return NextResponse.json({ error: 'No fund found' }, { status: 403 })
 
   if (!content?.trim()) {
     return NextResponse.json({ error: 'Content is required' }, { status: 400 })
@@ -165,13 +170,16 @@ export async function POST(req: NextRequest) {
 
     // Only about a company the caller can see — a write here would otherwise also confirm that an
     // invisible company exists.
-    const noteScope = await loadEntityScopeForUser(admin, user.id)
-    const visible = noteScope ? noteScope.companyIds : []
+    const visible = noteScope.companyIds
     if (!company || (visible !== null && !visible.includes(company.id))) {
       return NextResponse.json({ error: 'Company not found' }, { status: 404 })
     }
     companyName = company.name
   }
+
+  // Every note is for one of the writer's entities (and, about a company, one that holds it).
+  const entity = await resolveNoteEntity(admin, noteScope, companyId || null, requestedVehicle)
+  if ('error' in entity) return NextResponse.json({ error: entity.error, code: 'ENTITY_REQUIRED' }, { status: entity.status })
 
   // Parse @mentions for people
   const { data: members } = await admin
@@ -191,12 +199,13 @@ export async function POST(req: NextRequest) {
   const mentionedUserIds = parseMentions(content.trim(), membersWithFallback)
 
   // Parse @mentions for companies
-  const { data: allCompanies } = await admin
+  // ...only the writer's companies and entities can be tagged.
+  const { data: allCompanies } = await filterByCompany(admin
     .from('companies')
-    .select('id, name')
+    .select('id, name, portfolio_group')
     .eq('fund_id', membership.fund_id)
     // fund holdings have their own surfaces
-    .eq('holding_type', 'company') as { data: { id: string; name: string }[] | null }
+    .eq('holding_type', 'company'), noteScope.companyIds, { column: 'id' }) as { data: { id: string; name: string }[] | null }
 
   const mentionedCompanyIds = parseCompanyMentions(content.trim(), allCompanies ?? [])
 
@@ -204,13 +213,14 @@ export async function POST(req: NextRequest) {
   const distinctGroups = Array.from(new Set(
     (allCompanies ?? [])
       .flatMap((c: any) => Array.isArray(c.portfolio_group) ? c.portfolio_group : c.portfolio_group ? [c.portfolio_group] : [])
-  ))
+  )).filter(g => noteScope.vehicleNames === null || noteScope.vehicleNames.includes(g))
   const mentionedGroups = parseGroupMentions(content.trim(), distinctGroups)
 
   const { data: note, error } = await admin
     .from('company_notes')
     .insert({
       company_id: companyId || null,
+      vehicle_id: entity.vehicleId,
       fund_id: membership.fund_id,
       user_id: user.id,
       content: content.trim(),
@@ -234,6 +244,7 @@ export async function POST(req: NextRequest) {
     content: note.content,
     companyId: companyId || null,
     companyName,
+    vehicleId: entity.vehicleId,
     authorName: membership.display_name || user.email?.split('@')[0] || 'Someone',
     authorUserId: user.id,
     mentionedUserIds,
@@ -247,6 +258,7 @@ export async function POST(req: NextRequest) {
     userEmail: user.email ?? 'Unknown',
     companyId: note.company_id,
     companyName,
+    vehicleId: entity.vehicleId,
     mentionedUserIds,
     mentionedCompanyIds,
     mentionedGroups,

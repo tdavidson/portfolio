@@ -9,6 +9,7 @@ import { useAnalystContext } from '@/components/analyst-context'
 import { useFeatureVisibility } from '@/components/feature-visibility-context'
 import Link from 'next/link'
 import { MobileDrawerPanel } from '@/components/mobile-drawer-panel'
+import { NoteEntitySelect } from '@/components/note-entity-select'
 
 interface Note {
   id: string
@@ -209,11 +210,16 @@ function NotesPanel({ toggle, pageContext }: { toggle: () => void; pageContext?:
     setTimeout(() => inputRef.current?.focus(), 50)
   }, [])
 
+  // Every note is for one of the writer's entities (lib/notes/entity.ts).
+  const [noteEntity, setNoteEntity] = useState<string | null>(null)
+  const [postError, setPostError] = useState<string | null>(null)
+
   async function handlePost() {
     if (!content.trim() || posting) return
     setPosting(true)
+    setPostError(null)
     try {
-      const body: any = { content: content.trim() }
+      const body: any = { content: content.trim(), vehicleId: noteEntity }
       if (pageContext) body.pageContext = pageContext
       const res = await fetch('/api/dashboard/notes', {
         method: 'POST',
@@ -225,6 +231,8 @@ function NotesPanel({ toggle, pageContext }: { toggle: () => void; pageContext?:
         setNotes(prev => [...prev, note])
         setContent('')
         setTimeout(() => inputRef.current?.focus(), 50)
+      } else {
+        setPostError((await res.json().catch(() => ({}))).error ?? 'Could not post the note.')
       }
     } finally {
       setPosting(false)
@@ -377,6 +385,10 @@ function NotesPanel({ toggle, pageContext }: { toggle: () => void; pageContext?:
       </div>
 
       <div className="px-4 py-3">
+        <div className="mb-2 space-y-1">
+          <NoteEntitySelect value={noteEntity} onChange={setNoteEntity} />
+          {postError && <p className="text-sm text-destructive">{postError}</p>}
+        </div>
         <div className="flex items-end gap-2">
           <MentionTextarea
             ref={inputRef}

@@ -75,6 +75,10 @@ export async function dealEntityDenial(
 const RLS_ROW_ROUTES: { prefix: string; table: string }[] = [
   { prefix: 'api/lp-letters/[id]', table: 'lp_letters' },
   { prefix: 'api/diligence/[id]', table: 'diligence_deals' },
+  // A note: its entity and its company (20261007100600). Before the company gate's route below, a
+  // note on a shared company that another entity wrote would pass on the company alone.
+  { prefix: 'api/companies/[id]/notes/[noteId]', table: 'company_notes' },
+  { prefix: 'api/dashboard/notes/[noteId]', table: 'company_notes' },
 ]
 
 export async function rlsRowDenial(
@@ -96,15 +100,14 @@ export async function rlsRowDenial(
 export const letterEntityDenial = rlsRowDenial
 
 /**
- * Routes about ONE row that belongs to a company: an inbound email, a metric, a parsing review, a
- * note. `nullVisible` says whether a row about no company is everyone's (a fund-wide note) or for
- * admins to triage (an email the pipeline matched to nothing).
+ * Routes about ONE row that belongs to a company: an inbound email, a metric, a parsing review.
+ * `nullVisible` says whether a row about no company is everyone's or for admins to triage (an email
+ * the pipeline matched to nothing). Notes are not here: they belong to an entity (rlsRowDenial).
  */
 const ROW_COMPANY_ROUTES: { prefix: string; table: string; nullVisible: boolean }[] = [
   { prefix: 'api/emails/[id]', table: 'inbound_emails', nullVisible: false },
   { prefix: 'api/metrics/[id]', table: 'metrics', nullVisible: false },
   { prefix: 'api/review/[id]', table: 'parsing_reviews', nullVisible: false },
-  { prefix: 'api/dashboard/notes/[noteId]', table: 'company_notes', nullVisible: true },
 ]
 
 /** 404 unless the row's company is linked to one of the caller's entities. */

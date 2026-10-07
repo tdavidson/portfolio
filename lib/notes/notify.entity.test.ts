@@ -2,7 +2,7 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 const m = vi.hoisted(() => ({ send: vi.fn(), audience: vi.fn() }))
 vi.mock('@/lib/email', () => ({ getOutboundConfig: async () => ({}), sendOutboundEmail: m.send }))
-vi.mock('@/lib/access/company-audience', () => ({ membersWhoCanSeeCompany: m.audience }))
+vi.mock('@/lib/access/company-audience', () => ({ membersWhoCanSeeNote: m.audience }))
 
 import { sendNoteNotifications } from './notify'
 
@@ -24,11 +24,11 @@ const admin = {
 } as any
 
 const note = (companyId: string | null) => ({
-  id: 'n1', content: 'Q3 numbers are soft', companyId, companyName: companyId ? 'Acme' : null,
+  id: 'n1', content: 'Q3 numbers are soft', companyId, companyName: companyId ? 'Acme' : null, vehicleId: 'v1',
   authorName: 'A', authorUserId: 'author', mentionedUserIds: ['other'],
 })
 
-describe('note notifications — only to members who can see the company', () => {
+describe('note notifications — only to members who can read the note', () => {
   beforeEach(() => { m.send.mockClear(); m.audience.mockReset() })
 
   it('a company note skips a member who cannot see the company, even when @mentioned', async () => {
@@ -41,9 +41,10 @@ describe('note notifications — only to members who can see the company', () =>
     await sendNoteNotifications(admin, 'f1', note('c1'))
     expect(m.send.mock.calls.map(c => c[1].to).sort()).toEqual(['mine@x.test', 'other@x.test'])
   })
-  it('a fund-wide note is not filtered by company', async () => {
+  it('a note about no company is filtered by its entity', async () => {
+    m.audience.mockResolvedValue(new Set(['author', 'other']))
     await sendNoteNotifications(admin, 'f1', note(null))
-    expect(m.audience).not.toHaveBeenCalled()
-    expect(m.send).toHaveBeenCalledTimes(2)
+    expect(m.audience).toHaveBeenCalledWith(admin, 'f1', { vehicleId: 'v1', companyId: null })
+    expect(m.send.mock.calls.map(c => c[1].to)).toEqual(['other@x.test'])
   })
 })
