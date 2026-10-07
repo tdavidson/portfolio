@@ -16,6 +16,9 @@ const mocks = vi.hoisted(() => ({
     holding_type: 'company',
   } as { id: string; name: string; fund_id: string; holding_type: string } | null,
   operations: [] as Array<{ table: string; operation: string }>,
+  /** The caller's entities, and the entities linked to the company. */
+  vehicles: { all: true, ids: [] as string[] },
+  links: [] as { vehicle_id: string }[],
 }))
 
 function query(table: string) {
@@ -27,6 +30,7 @@ function query(table: string) {
     if (table === 'investment_transactions') return { data: null, count: mocks.investmentCount, error: null }
     if (table === 'chart_of_accounts' && operation === 'select') return { data: [{ id: 'account-1' }], error: null }
     if (table === 'journal_postings') return { data: null, count: mocks.postingCount, error: null }
+    if (table === 'company_vehicles') return { data: mocks.links, error: null }
     if (table === 'company_documents') {
       return { data: [{ storage_path: 'fund-1/company-1/deck.pdf' }], error: null }
     }
@@ -56,6 +60,10 @@ vi.mock('@/lib/supabase/server', () => ({
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => admin }))
 vi.mock('@/lib/api-helpers', () => ({ assertWriteAccess: mocks.assertWriteAccess }))
 vi.mock('@/lib/activity', () => ({ logActivity: mocks.logActivity }))
+vi.mock('@/lib/access/entity-scope', () => ({
+  loadEntityScope: async () => ({ access: { vehicles: mocks.vehicles }, vehicleNames: null, companyIds: null }),
+  loadEntityScopeForUser: async () => ({ access: { vehicles: mocks.vehicles }, vehicleNames: null, companyIds: null }),
+}))
 
 import { DELETE } from '@/app/api/companies/[id]/route'
 
@@ -68,12 +76,29 @@ beforeEach(() => {
   mocks.investmentCount = 0
   mocks.postingCount = 0
   mocks.operations.length = 0
+  mocks.vehicles = { all: true, ids: [] }
+  mocks.links = []
   mocks.getUser.mockResolvedValue({ data: { user: { id: 'user-1' } } })
   mocks.assertWriteAccess.mockResolvedValue({ fundId: 'fund-1', role: 'member', userId: 'user-1', need: 'write' })
   mocks.removeStorage.mockResolvedValue({ error: null })
 })
 
 describe('DELETE /api/companies/[id]', () => {
+  it('refuses a member deleting a company another entity they cannot see also holds', async () => {
+    mocks.vehicles = { all: false, ids: ['v1'] }
+    mocks.links = [{ vehicle_id: 'v1' }, { vehicle_id: 'v2' }]
+    const res = await DELETE(request, props)
+    expect(res.status).toBe(403)
+    expect(mocks.operations.some(o => o.operation === 'delete')).toBe(false)
+  })
+
+  it('lets a member delete a company only their entities hold', async () => {
+    mocks.vehicles = { all: false, ids: ['v1'] }
+    mocks.links = [{ vehicle_id: 'v1' }]
+    const res = await DELETE(request, props)
+    expect(res.status).toBe(200)
+  })
+
   it('permanently deletes a company, its empty chart accounts, and uploaded objects', async () => {
     const response = await DELETE(request, props)
 

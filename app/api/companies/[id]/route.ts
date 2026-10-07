@@ -7,8 +7,8 @@ import { dbError } from '@/lib/api-error'
 import { logActivity } from '@/lib/activity'
 import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
 import { LEDGER_BOOKS } from '@/lib/accounting/books'
-import { loadEntityScope } from '@/lib/access/entity-scope'
-import { mergeGroupsForWrite } from '@/lib/access/scope'
+import { loadEntityScope, loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { canSeeVehicle, mergeGroupsForWrite, scopeGroups } from '@/lib/access/scope'
 
 const VALID_STATUSES: CompanyStatus[] = ['active', 'exited', 'written-off']
 
@@ -27,7 +27,9 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
   if (error) return dbError(error, 'companies-id')
   if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  return NextResponse.json(data)
+  // Name only the caller's entities on it: that another fund also holds it is not theirs to see.
+  const scope = await loadEntityScopeForUser(createAdminClient(), user.id)
+  return NextResponse.json({ ...data, portfolio_group: scopeGroups((data as any).portfolio_group, scope ? scope.vehicleNames : []) })
 }
 
 export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -141,6 +143,16 @@ export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: s
 
   if (companyError) return dbError(companyError, 'companies-id-delete-lookup')
   if (!company) return NextResponse.json({ error: 'Company not found' }, { status: 404 })
+
+  // Deleting removes it for every entity, so a member may delete only a company no entity they
+  // cannot see is linked to.
+  const deleteScope = await loadEntityScope(admin, writeCheck)
+  if (!deleteScope.access.vehicles.all) {
+    const { data: links } = await (admin as any).from('company_vehicles').select('vehicle_id').eq('company_id', company.id)
+    if (((links as any[]) ?? []).some(l => !canSeeVehicle(deleteScope.access, l.vehicle_id))) {
+      return NextResponse.json({ error: 'Another entity also holds this company. Ask an admin to remove it.' }, { status: 403 })
+    }
+  }
 
   // Each investment deletion retracts its mirrored journal entries and refuses closed periods.
   // Cascading the company row would bypass that accounting safeguard, so require the operator to

@@ -140,6 +140,11 @@ export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: s
     return dbError(error, 'settings-members')
   }
 
+  // Their entity grants go with the membership: someone re-added later starts with none, rather
+  // than quietly regaining entities an admin granted them before.
+  await (admin as any).from('fund_member_vehicles').delete()
+    .eq('fund_id', membership.fund_id).eq('user_id', target.user_id)
+
   expireTag('membership')
 
   return NextResponse.json({ ok: true })
