@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { STATUS_OPTIONS, DEFAULT_STATUSES, STATUS_ORDER } from '@/lib/deals/statuses'
+import { EntityPicker } from '@/components/entity-picker'
 
 interface Deal {
   id: string
@@ -568,6 +569,7 @@ function NewDealDialog({ open, onOpenChange, onCreated }: {
   const [referrerName, setReferrerName] = useState('')
   const [referrerEmail, setReferrerEmail] = useState('')
   const [pitch, setPitch] = useState('')
+  const [vehicleId, setVehicleId] = useState<string | null>(null)
   const [files, setFiles] = useState<File[]>([])
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -575,7 +577,7 @@ function NewDealDialog({ open, onOpenChange, onCreated }: {
   function reset() {
     setCompanyName(''); setCompanyUrl(''); setFounderName(''); setFounderEmail('')
     setIntroSource(''); setReferrerName(''); setReferrerEmail('')
-    setPitch(''); setFiles([]); setError(null)
+    setPitch(''); setVehicleId(null); setFiles([]); setError(null)
   }
 
   const canSubmit = !!companyName.trim() && !!founderName.trim() && !!founderEmail.trim() && !!pitch.trim() && !submitting
@@ -594,6 +596,7 @@ function NewDealDialog({ open, onOpenChange, onCreated }: {
       if (referrerName.trim()) form.append('referrer_name', referrerName.trim())
       if (referrerEmail.trim()) form.append('referrer_email', referrerEmail.trim())
       form.append('pitch', pitch.trim())
+      if (vehicleId) form.append('vehicle_id', vehicleId)
       for (const f of files) form.append('files', f)
 
       const res = await fetch('/api/deals/manual', { method: 'POST', body: form })
@@ -616,6 +619,10 @@ function NewDealDialog({ open, onOpenChange, onCreated }: {
           <DialogDescription>Enter pitch details directly. The same AI screener runs as on inbound emails: thesis fit, dedupe, prior-deal check.</DialogDescription>
         </DialogHeader>
         <div className="space-y-3 max-h-[60vh] overflow-y-auto pr-1">
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">For entity</label>
+            <EntityPicker value={vehicleId} onChange={setVehicleId} allowUnassigned />
+          </div>
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-xs font-medium text-muted-foreground mb-1">Company name *</label>

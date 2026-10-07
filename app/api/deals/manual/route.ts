@@ -6,6 +6,8 @@ import { getFeatureProvider } from '@/lib/ai/feature-provider'
 import { extractAttachmentText, type PostmarkPayload } from '@/lib/parsing/extractAttachmentText'
 import { processDeal } from '@/lib/pipeline/processDeal'
 import type { PostmarkPayload as PipelinePayload } from '@/lib/pipeline/processEmail'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { dealEntityProblem } from '@/lib/access/scope'
 import {
   MAX_NAME_LEN, MAX_EMAIL_LEN, MAX_URL_LEN, MAX_PITCH_LEN,
   EMAIL_RE, safeWebUrl, sanitizeFilename, validateAttachmentType,
@@ -51,6 +53,17 @@ export async function POST(req: NextRequest) {
     form = await req.formData()
   } catch {
     return NextResponse.json({ error: 'Expected multipart/form-data' }, { status: 400 })
+  }
+
+  // Which entity the deal is for. Required of a member (an unassigned deal is admins-only, so they
+  // would lose sight of their own submission); optional for an admin.
+  const vehicleId = String(form.get('vehicle_id') ?? '').trim() || null
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  const entityProblem = scope ? dealEntityProblem(scope.access, vehicleId) : 'No fund found'
+  if (entityProblem) return NextResponse.json({ error: entityProblem }, { status: 403 })
+  if (vehicleId) {
+    const { data: v } = await admin.from('fund_vehicles' as any).select('id').eq('fund_id', fundId).eq('id', vehicleId).maybeSingle()
+    if (!v) return NextResponse.json({ error: 'Entity not found' }, { status: 404 })
   }
 
   const companyName = String(form.get('company_name') ?? '').trim().slice(0, MAX_NAME_LEN)
@@ -205,6 +218,10 @@ export async function POST(req: NextRequest) {
       model,
     })
     dealId = (result as any)?.dealId ?? null
+    // Stamp the owning entity the submitter chose; the analyzer does not know it.
+    if (dealId && vehicleId) {
+      await admin.from('inbound_deals').update({ vehicle_id: vehicleId } as any).eq('id', dealId).eq('fund_id', fundId)
+    }
     await admin
       .from('inbound_emails')
       .update({ processing_status: 'success' })

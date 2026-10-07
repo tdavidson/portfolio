@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { visibleVehicleIds } from '@/lib/access/scope'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
@@ -25,10 +27,16 @@ export async function GET(req: NextRequest) {
 
   let query = admin
     .from('inbound_deals')
-    .select('id, fund_id, email_id, company_name, company_url, company_domain, founder_name, founder_email, intro_source, referrer_name, thesis_fit_score, stage, industry, raise_amount, status, prior_deal_id, created_at')
+    .select('id, fund_id, vehicle_id, email_id, company_name, company_url, company_domain, founder_name, founder_email, intro_source, referrer_name, thesis_fit_score, stage, industry, raise_amount, status, prior_deal_id, created_at')
     .eq('fund_id', membership.fund_id)
     .order('created_at', { ascending: false })
     .limit(limit)
+
+  // Only deals owned by the caller's entities. Unassigned deals (the email pipeline does not know
+  // which entity a pitch is for) are for admins to triage and assign.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  const vehicleIds = scope ? visibleVehicleIds(scope.access) : []
+  if (vehicleIds !== null) query = query.in('vehicle_id', vehicleIds)
 
   if (status) {
     const statuses = status.split(',').map(s => s.trim()).filter(Boolean)

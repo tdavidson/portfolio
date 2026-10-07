@@ -39,3 +39,30 @@ export async function companyEntityDenial(
   if (((data as any[]) ?? []).length > 0) return null
   return NextResponse.json({ error: 'Not found' }, { status: 404 })
 }
+
+/** The deal a request is about, or null. */
+export function dealIdForRoute(key: string, pathname: string): string | null {
+  if (key !== 'api/deals/[id]' && !key.startsWith('api/deals/[id]/')) return null
+  const parts = pathname.replace(/^\/+|\/+$/g, '').split('/')
+  return parts[2] ? decodeURIComponent(parts[2]) : null
+}
+
+/**
+ * 404 when the request is about a deal owned by none of the caller's entities — including a deal no
+ * entity owns yet (the email pipeline leaves it unassigned), which only admins see until assigned.
+ * Read with the caller's client: deal RLS already confines it to their fund.
+ */
+export async function dealEntityDenial(
+  supabase: SupabaseClient,
+  key: string,
+  pathname: string,
+  access: Pick<AccessContext, 'vehicles'>,
+): Promise<NextResponse | null> {
+  if (access.vehicles.all) return null
+  const dealId = dealIdForRoute(key, pathname)
+  if (!dealId) return null
+  const { data } = await (supabase as any).from('inbound_deals').select('vehicle_id').eq('id', dealId).maybeSingle()
+  const vehicleId = (data as { vehicle_id: string | null } | null)?.vehicle_id ?? null
+  if (vehicleId && access.vehicles.ids.includes(vehicleId)) return null
+  return NextResponse.json({ error: 'Not found' }, { status: 404 })
+}

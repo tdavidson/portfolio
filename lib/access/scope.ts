@@ -117,3 +117,14 @@ export function scopeCompanyRows<T extends Record<string, any>>(
   if (companyIds === null) return rows
   return rows.filter(r => r[key] == null ? !!opts.keepUnlinked : companyIds.includes(r[key]))
 }
+
+/**
+ * Why this caller may not set a deal's owning entity to `vehicleId`, or null when they may. A member
+ * must pick one of their own entities — leaving it unassigned would hide it from them, since an
+ * unassigned deal is visible to admins only.
+ */
+export function dealEntityProblem(access: Pick<AccessContext, 'vehicles'>, vehicleId: string | null): string | null {
+  if (access.vehicles.all) return null
+  if (!vehicleId) return 'Choose which of your entities this deal is for.'
+  return canSeeVehicle(access, vehicleId) ? null : "You don't have access to that entity."
+}

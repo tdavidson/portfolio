@@ -5,7 +5,7 @@ import { ROUTE_DOMAINS, UNGATED_ROUTES, requiredLevel } from '@/lib/access/route
 import { hasAccess, resolveAccessContext } from '@/lib/access/effective'
 import { DOMAIN_META } from '@/lib/access/domains'
 import { buildReportOnlyCsp, generateNonce, NONCE_HEADER, REPORT_ONLY_HEADER } from '@/lib/security/csp'
-import { companyEntityDenial } from '@/lib/access/entity-gate'
+import { companyEntityDenial, dealEntityDenial } from '@/lib/access/entity-gate'
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -278,7 +278,8 @@ async function gateApiRequest(
   // Domains say WHAT; entities say WHOSE. A route about one company also needs that company to be
   // linked to one of the caller's entities (lib/access/entity-gate.ts).
   if (hasAccess(access, entry.domain, level, entry.feature)) {
-    return companyEntityDenial(supabase as never, key, request.nextUrl.pathname, access)
+    return (await companyEntityDenial(supabase as never, key, request.nextUrl.pathname, access))
+      ?? dealEntityDenial(supabase as never, key, request.nextUrl.pathname, access)
   }
 
   if (access.role === 'viewer' && level === 'write') {

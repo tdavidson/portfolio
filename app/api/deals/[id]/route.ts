@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { dealEntityProblem } from '@/lib/access/scope'
 
 const VALID_STATUSES = ['new', 'reviewing', 'advancing', 'met', 'diligence', 'invested', 'passed'] as const
 type DealStatus = typeof VALID_STATUSES[number]
@@ -89,6 +91,20 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
     }
     updates.status = body.status
+  }
+
+  // The owning entity. The gate already confirmed the caller can see this deal; the new entity must
+  // be theirs too, and must belong to this fund.
+  if (typeof body.vehicle_id === 'string' || body.vehicle_id === null) {
+    const scope = await loadEntityScopeForUser(admin, user.id)
+    const problem = scope ? dealEntityProblem(scope.access, body.vehicle_id) : 'No fund found'
+    if (problem) return NextResponse.json({ error: problem }, { status: 403 })
+    if (body.vehicle_id) {
+      const { data: v } = await admin.from('fund_vehicles' as any).select('id')
+        .eq('fund_id', (membership as any).fund_id).eq('id', body.vehicle_id).maybeSingle()
+      if (!v) return NextResponse.json({ error: 'Entity not found' }, { status: 404 })
+    }
+    updates.vehicle_id = body.vehicle_id
   }
 
   if (typeof body.assigned_to === 'string' || body.assigned_to === null) {

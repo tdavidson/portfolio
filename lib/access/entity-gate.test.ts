@@ -49,3 +49,36 @@ describe('companyEntityDenial — the gate for every /api/companies/[id]/** rout
     expect(await companyEntityDenial(client([]), 'api/companies', '/api/companies', member)).toBeNull()
   })
 })
+
+import { dealIdForRoute, dealEntityDenial } from './entity-gate'
+
+describe('dealEntityDenial — the gate for every /api/deals/[id]/** route', () => {
+  const deals = (rows: { id: string; vehicle_id: string | null }[]) => {
+    const chain: any = {
+      select: () => chain,
+      eq: (_k: string, v: string) => { chain.id = v; return chain },
+      maybeSingle: async () => ({ data: rows.find(r => r.id === chain.id) ?? null, error: null }),
+    }
+    return { from: () => chain } as any
+  }
+  const member = { vehicles: { all: false, ids: ['v1'] } }
+
+  it('reads the deal from deal routes only', () => {
+    expect(dealIdForRoute('api/deals/[id]/research', '/api/deals/d1/research')).toBe('d1')
+    expect(dealIdForRoute('api/deals/manual', '/api/deals/manual')).toBeNull()
+  })
+
+  it('lets a member reach a deal owned by their entity', async () => {
+    expect(await dealEntityDenial(deals([{ id: 'd1', vehicle_id: 'v1' }]), 'api/deals/[id]', '/api/deals/d1', member)).toBeNull()
+  })
+
+  it('answers 404 for a deal of another entity, or one no entity owns yet', async () => {
+    expect((await dealEntityDenial(deals([{ id: 'd1', vehicle_id: 'v2' }]), 'api/deals/[id]', '/api/deals/d1', member))?.status).toBe(404)
+    expect((await dealEntityDenial(deals([{ id: 'd1', vehicle_id: null }]), 'api/deals/[id]', '/api/deals/d1', member))?.status).toBe(404)
+  })
+
+  it('lets a caller who sees everything through without a query', async () => {
+    const none = { from: () => { throw new Error('should not query') } } as any
+    expect(await dealEntityDenial(none, 'api/deals/[id]', '/api/deals/d1', { vehicles: { all: true, ids: [] } })).toBeNull()
+  })
+})

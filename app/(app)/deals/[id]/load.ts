@@ -1,6 +1,7 @@
 import type { ComponentProps } from 'react'
 import type { PageContext } from '@/lib/pages/context'
 import type { DealDetail } from './deal-detail'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 export type DealPageData = Pick<ComponentProps<typeof DealDetail>, 'deal' | 'email' | 'priorDeal'>
 
@@ -14,6 +15,8 @@ export async function loadDealPage({ admin, page }: PageContext, params: { id: s
     .eq('fund_id', page.fundId)
     .maybeSingle()
   if (!deal) return null
+  // A deal owned by none of the viewer's entities (or by none yet) is not theirs to open.
+  if (!canSeeVehicle(page.access, (deal as any).vehicle_id ?? null)) return null
 
   const { data: email } = await admin
     .from('inbound_emails')

@@ -12,6 +12,7 @@ import { AnalystPanel } from '@/components/analyst-panel'
 import { useAnalystContext } from '@/components/analyst-context'
 import { PortfolioNotesProvider, PortfolioNotesButton, PortfolioNotesPanel } from '@/components/portfolio-notes'
 import { DealResearchCard } from '@/components/deals/research-card'
+import { EntityPicker } from '@/components/entity-picker'
 
 type DealStatus = 'new' | 'reviewing' | 'advancing' | 'met' | 'diligence' | 'invested' | 'passed'
 
@@ -19,6 +20,8 @@ interface Deal {
   id: string
   email_id: string
   fund_id: string
+  /** The entity this deal is for. Unassigned deals are visible to admins only. */
+  vehicle_id?: string | null
   company_name: string | null
   company_url: string | null
   company_domain: string | null
@@ -124,6 +127,22 @@ export function DealDetail({ deal: initial, email, priorDeal }: { deal: Deal; em
     })
   }
 
+  const [entityError, setEntityError] = useState<string | null>(null)
+  async function updateEntity(vehicleId: string | null) {
+    const previous = deal.vehicle_id ?? null
+    setEntityError(null)
+    setDeal(d => ({ ...d, vehicle_id: vehicleId }))
+    const res = await fetch(`/api/deals/${deal.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vehicle_id: vehicleId }),
+    })
+    if (!res.ok) {
+      setDeal(d => ({ ...d, vehicle_id: previous }))
+      setEntityError((await res.json().catch(() => ({}))).error ?? 'Could not change the entity.')
+    }
+  }
+
   async function regenerate() {
     setRegenerating(true)
     const res = await fetch(`/api/deals/${deal.id}/regenerate`, { method: 'POST' })
@@ -206,6 +225,10 @@ export function DealDetail({ deal: initial, email, priorDeal }: { deal: Deal; em
           </span>
         )}
         <StatusDropdown value={deal.status} onPick={updateStatus} disabled={statusBusy} />
+        <div className="w-48" title="Which entity this deal is for">
+          <EntityPicker value={deal.vehicle_id ?? null} onChange={updateEntity} allowUnassigned />
+        </div>
+        {entityError && <span className="text-sm text-destructive">{entityError}</span>}
         <RerouteDropdown onPick={reroute} disabled={rerouting} />
         {deal.promoted_diligence_id && (
           <Button asChild variant="outline" size="sm">

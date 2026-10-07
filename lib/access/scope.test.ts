@@ -168,3 +168,20 @@ describe('scopeCompanyRows', () => {
     expect(scopeCompanyRows(rows, ['c1'], 'company_id', { keepUnlinked: true }).map(r => r.id)).toEqual(['c1', 'n0'])
   })
 })
+
+import { dealEntityProblem } from './scope'
+describe('dealEntityProblem — assigning a deal to an entity', () => {
+  const member = ctx('member', { all: false, ids: ['v1'] })
+  const admin = ctx('admin', { all: true, ids: [] })
+  it('lets a member assign to their own entity', () => {
+    expect(dealEntityProblem(member, 'v1')).toBeNull()
+  })
+  it('refuses a member another entity, or leaving it unassigned (they would lose sight of it)', () => {
+    expect(dealEntityProblem(member, 'v2')).toMatch(/access to that entity/)
+    expect(dealEntityProblem(member, null)).toMatch(/Choose/)
+  })
+  it('lets an admin assign anywhere, or leave it unassigned', () => {
+    expect(dealEntityProblem(admin, 'v9')).toBeNull()
+    expect(dealEntityProblem(admin, null)).toBeNull()
+  })
+})
