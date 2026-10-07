@@ -82,3 +82,28 @@ describe('dealEntityDenial — the gate for every /api/deals/[id]/** route', () 
     expect(await dealEntityDenial(none, 'api/deals/[id]', '/api/deals/d1', { vehicles: { all: true, ids: [] } })).toBeNull()
   })
 })
+
+import { letterEntityDenial } from './entity-gate'
+describe('letterEntityDenial — the gate for every /api/lp-letters/[id]/** route', () => {
+  // The caller's client: RLS on lp_letters returns only their entities' letters.
+  const client = (visible: string[]) => {
+    const chain: any = {
+      select: () => chain,
+      eq: (_k: string, v: string) => { chain.id = v; return chain },
+      maybeSingle: async () => ({ data: visible.includes(chain.id) ? { id: chain.id } : null, error: null }),
+    }
+    return { from: () => chain } as any
+  }
+  const member = { vehicles: { all: false, ids: ['v1'] } }
+
+  it('lets a member reach a letter their entity\'s', async () => {
+    expect(await letterEntityDenial(client(['l1']), 'api/lp-letters/[id]/generate', '/api/lp-letters/l1/generate', member)).toBeNull()
+  })
+  it('answers 404 for another entity\'s letter', async () => {
+    expect((await letterEntityDenial(client([]), 'api/lp-letters/[id]', '/api/lp-letters/l2', member))?.status).toBe(404)
+  })
+  it('ignores the list route and letter templates', async () => {
+    expect(await letterEntityDenial(client([]), 'api/lp-letters', '/api/lp-letters', member)).toBeNull()
+    expect(await letterEntityDenial(client([]), 'api/lp-letters/templates/[id]', '/api/lp-letters/templates/t1', member)).toBeNull()
+  })
+})

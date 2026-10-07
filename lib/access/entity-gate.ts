@@ -66,3 +66,22 @@ export async function dealEntityDenial(
   if (vehicleId && access.vehicles.ids.includes(vehicleId)) return null
   return NextResponse.json({ error: 'Not found' }, { status: 404 })
 }
+
+/**
+ * 404 when the request is about an LP letter of an entity the caller cannot see. A letter is one
+ * entity's (lp_letters.portfolio_group); RLS on lp_letters (20261007100300) already returns only the
+ * caller's, so reading it with their own client is the whole test.
+ */
+export async function letterEntityDenial(
+  supabase: SupabaseClient,
+  key: string,
+  pathname: string,
+  access: Pick<AccessContext, 'vehicles'>,
+): Promise<NextResponse | null> {
+  if (access.vehicles.all) return null
+  if (key !== 'api/lp-letters/[id]' && !key.startsWith('api/lp-letters/[id]/')) return null
+  const id = pathname.replace(/^\/+|\/+$/g, '').split('/')[2]
+  if (!id) return null
+  const { data } = await (supabase as any).from('lp_letters').select('id').eq('id', decodeURIComponent(id)).maybeSingle()
+  return data ? null : NextResponse.json({ error: 'Not found' }, { status: 404 })
+}

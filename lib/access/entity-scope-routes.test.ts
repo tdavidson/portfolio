@@ -40,11 +40,6 @@ const PENDING: Record<string, string> = {
   'api/inbound-email': 'exempt: a job or webhook acting for the fund, not a member request',
   'api/inbound-email/mailgun': 'exempt: a job or webhook acting for the fund, not a member request',
   'api/interactions': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/lp-letters': 'phase 2: LPs, K-1s and LP tax',
-  'api/lp-letters/[id]': 'phase 2: LPs, K-1s and LP tax',
-  'api/lp-letters/[id]/export': 'phase 2: LPs, K-1s and LP tax',
-  'api/lp-letters/[id]/generate': 'phase 2: LPs, K-1s and LP tax',
-  'api/lp-letters/[id]/generate/[companyId]': 'phase 2: LPs, K-1s and LP tax',
   'api/lps/onboarding': 'phase 2: LPs, K-1s and LP tax',
   'api/lps/onboarding/facts': 'phase 2: LPs, K-1s and LP tax',
   'api/lps/onboarding/request': 'phase 2: LPs, K-1s and LP tax',
@@ -93,7 +88,7 @@ const SCOPED = /resolveGroupOr400|resolveMancoGroupOr400|loadEntityScope|loadEnt
  * under these whose payload is PER ENTITY (a company's transactions, a fund holding's register)
  * must scope it in the handler; the fund-holding routes are therefore deliberately not here.
  */
-const GATED = [/^api\/companies\/\[id\]/, /^api\/deals\/\[id\]/]
+const GATED = [/^api\/companies\/\[id\]/, /^api\/deals\/\[id\]/, /^api\/lp-letters\/\[id\]/]
 
 /**
  * A file's handlers, separately: a GET that scopes says nothing about the POST beside it. A handler

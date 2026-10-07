@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { groupWriteDenial, scopeCompanyRows } from '@/lib/access/scope'
 
 export async function GET() {
   const supabase = await createClient()
@@ -26,7 +28,9 @@ export async function GET() {
     .order('period_quarter', { ascending: false })
 
   if (error) return dbError(error, 'lp-letters')
-  return NextResponse.json({ letters: data ?? [], role: membership.role })
+  // Only the caller's entities' letters — a letter is one entity's.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  return NextResponse.json({ letters: scopeCompanyRows(data ?? [], scope ? scope.vehicleNames : [], 'portfolio_group'), role: membership.role })
 }
 
 export async function POST(req: NextRequest) {
@@ -45,6 +49,9 @@ export async function POST(req: NextRequest) {
   if (!period_year || !period_quarter || !portfolio_group) {
     return NextResponse.json({ error: 'period_year, period_quarter, and portfolio_group are required' }, { status: 400 })
   }
+  const writeScope = await loadEntityScopeForUser(admin, user.id)
+  const denied = groupWriteDenial(writeScope ? writeScope.vehicleNames : [], portfolio_group)
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 })
 
   const periodLabel = is_year_end
     ? `Q${period_quarter} ${period_year} / Year End ${period_year}`
