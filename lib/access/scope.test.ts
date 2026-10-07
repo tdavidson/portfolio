@@ -202,3 +202,30 @@ describe('newCompanyGroupsProblem — creating a company', () => {
     expect(newCompanyGroupsProblem(['Fund I'], ['New Fund'])).toMatch(/access to that entity/)
   })
 })
+
+import { filterByCompany } from './scope'
+describe('filterByCompany — scoping a query to visible companies', () => {
+  const q = () => {
+    const calls: any[] = []
+    const chain: any = {
+      in: (...a: any[]) => { calls.push(['in', ...a]); return chain },
+      is: (...a: any[]) => { calls.push(['is', ...a]); return chain },
+      or: (...a: any[]) => { calls.push(['or', ...a]); return chain },
+      calls,
+    }
+    return chain
+  }
+  it('adds nothing for a caller who sees every entity', () => {
+    expect(filterByCompany(q(), null).calls).toEqual([])
+  })
+  it('keeps only visible companies — rows about no company drop', () => {
+    expect(filterByCompany(q(), ['c1', 'c2']).calls).toEqual([['in', 'company_id', ['c1', 'c2']]])
+  })
+  it('keeps rows about no company too, when asked', () => {
+    expect(filterByCompany(q(), ['c1'], { keepUnlinked: true }).calls).toEqual([['or', 'company_id.is.null,company_id.in.(c1)']])
+    expect(filterByCompany(q(), [], { keepUnlinked: true }).calls).toEqual([['is', 'company_id', null]])
+  })
+  it('matches nothing for a caller with no companies', () => {
+    expect(filterByCompany(q(), []).calls).toEqual([['in', 'company_id', []]])
+  })
+})

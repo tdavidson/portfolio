@@ -8,6 +8,8 @@ import { decrypt } from '@/lib/crypto'
 import { getAccessToken as getGoogleAccessToken, findOrCreateFolder as findOrCreateGoogleFolder, uploadFile as uploadGoogleFile } from '@/lib/google/drive'
 import { getGoogleCredentials } from '@/lib/google/credentials'
 import { hydrateAttachments } from '@/lib/parsing/extractAttachmentText'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { filterByCompany } from '@/lib/access/scope'
 
 // POST — save one or more emails to file storage (Google Drive)
 export async function POST(req: NextRequest) {
@@ -101,11 +103,13 @@ export async function POST(req: NextRequest) {
   }
 
   // Fetch the emails with their company info
-  const { data: emails, error: emailsError } = await admin
+  // Only emails about companies the caller can see.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  const { data: emails, error: emailsError } = await filterByCompany(admin
     .from('inbound_emails')
     .select('id, subject, company_id, raw_payload, received_at')
     .eq('fund_id', membership.fund_id)
-    .in('id', emailIds)
+    .in('id', emailIds), scope ? scope.companyIds : [])
 
   if (emailsError) {
     return dbError(emailsError, 'emails-save-to-drive')

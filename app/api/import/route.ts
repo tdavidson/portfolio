@@ -6,6 +6,7 @@ import { createFundAIProvider } from '@/lib/ai'
 import { logAIUsage } from '@/lib/ai/usage'
 import { logActivity } from '@/lib/activity'
 import { rateLimit } from '@/lib/rate-limit'
+import { loadEntityScope } from '@/lib/access/entity-scope'
 
 interface ParsedMetric {
   name: string
@@ -265,8 +266,14 @@ ${text}`,
     .eq('fund_id', fundId)
     .eq('holding_type', 'company')   // fund holdings have their own surfaces
 
+  // A member imports only into companies they can see: matching is among those, and a row naming
+  // any other company is reported, not created (a new company would be linked to no entity, so they
+  // would lose it — and matching an invisible one would write into another fund's company).
+  const importScope = await loadEntityScope(admin, writeCheck)
+  const visibleCompanies = importScope.companyIds
   const companyByName = new Map(
-    (existingCompanies ?? []).map(c => [c.name.toLowerCase(), c.id])
+    (existingCompanies ?? []).filter(c => visibleCompanies === null || visibleCompanies.includes(c.id))
+      .map(c => [c.name.toLowerCase(), c.id])
   )
 
   // Get existing senders for dedup
@@ -343,6 +350,9 @@ ${text}`,
           results.errors.push(`Failed to update company "${companyName}": ${updateError.message}`)
         }
       }
+    } else if (visibleCompanies !== null) {
+      results.errors.push(`"${companyName}" is not one of your companies — ask an admin to add it to an entity first.`)
+      continue
     } else {
       // Create company
       const sanitizedTags = Array.isArray(pc.tags)

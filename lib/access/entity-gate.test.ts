@@ -107,3 +107,38 @@ describe('letterEntityDenial — the gate for every /api/lp-letters/[id]/** rout
     expect(await letterEntityDenial(client([]), 'api/lp-letters/templates/[id]', '/api/lp-letters/templates/t1', member)).toBeNull()
   })
 })
+
+import { rowCompanyDenial } from './entity-gate'
+describe('rowCompanyDenial — routes about one email, metric, review or note', () => {
+  // The caller's client: `rows` answers the table lookup; `links` is company_vehicles under RLS.
+  const client = (rows: Record<string, { company_id: string | null } | null>, links: string[]) => {
+    const from = (t: string) => {
+      const chain: any = {
+        select: () => chain, limit: () => chain,
+        eq: (_k: string, v: string) => { chain.v = v; return chain },
+        maybeSingle: async () => ({ data: rows[chain.v] ?? null, error: null }),
+        then: (res: any) => res({ data: t === 'company_vehicles' && links.includes(chain.v) ? [{ company_id: chain.v }] : [], error: null }),
+      }
+      return chain
+    }
+    return { from } as any
+  }
+  const member = { vehicles: { all: false, ids: ['v1'] } }
+
+  it('lets a member reach an email about a company their entity holds', async () => {
+    expect(await rowCompanyDenial(client({ e1: { company_id: 'c1' } }, ['c1']), 'api/emails/[id]/reviews', '/api/emails/e1/reviews', member)).toBeNull()
+  })
+  it('answers 404 for an email about a company they cannot see', async () => {
+    expect((await rowCompanyDenial(client({ e1: { company_id: 'c2' } }, ['c1']), 'api/emails/[id]', '/api/emails/e1', member))?.status).toBe(404)
+  })
+  it('answers 404 for an email matched to no company — admins triage those', async () => {
+    expect((await rowCompanyDenial(client({ e1: { company_id: null } }, []), 'api/emails/[id]', '/api/emails/e1', member))?.status).toBe(404)
+  })
+  it('lets a member reach a fund-wide note (no company)', async () => {
+    expect(await rowCompanyDenial(client({ n1: { company_id: null } }, []), 'api/dashboard/notes/[noteId]', '/api/dashboard/notes/n1', member)).toBeNull()
+  })
+  it('lets a caller who sees every entity through without a query', async () => {
+    const none = { from: () => { throw new Error('should not query') } } as any
+    expect(await rowCompanyDenial(none, 'api/metrics/[id]', '/api/metrics/m1', { vehicles: { all: true, ids: [] } })).toBeNull()
+  })
+})

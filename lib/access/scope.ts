@@ -147,3 +147,18 @@ export function newCompanyGroupsProblem(visibleNames: string[] | null, groups: s
   if (named.length === 0) return 'Choose which of your entities this company belongs to.'
   return named.every(g => visibleNames.includes(g)) ? null : "You don't have access to that entity."
 }
+
+/**
+ * Scope a PostgREST query to the caller's visible companies. `companyIds` null = no filter.
+ * `keepUnlinked` also keeps rows about no company (a fund-wide note). Ids are uuids, so they are
+ * safe inside the `or` filter string.
+ */
+export function filterByCompany<Q extends { in: Function; is: Function; or: Function }>(
+  query: Q, companyIds: string[] | null, opts: { keepUnlinked?: boolean; column?: string } = {},
+): Q {
+  if (companyIds === null) return query
+  const col = opts.column ?? 'company_id'
+  if (!opts.keepUnlinked) return query.in(col, companyIds) as Q
+  if (companyIds.length === 0) return query.is(col, null) as Q
+  return query.or(`${col}.is.null,${col}.in.(${companyIds.join(',')})`) as Q
+}

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
@@ -77,7 +78,10 @@ export async function POST(req: NextRequest) {
       .select('fund_id')
       .eq('id', body.companyId)
       .maybeSingle()
-    if (!companyCheck || companyCheck.fund_id !== membership.fund_id) {
+    const scope = await loadEntityScopeForUser(admin, user.id)
+    const visible = scope ? scope.companyIds : []
+    if (!companyCheck || companyCheck.fund_id !== membership.fund_id
+      || (visible !== null && !visible.includes(body.companyId))) {
       return NextResponse.json({ error: 'Invalid company' }, { status: 403 })
     }
   }

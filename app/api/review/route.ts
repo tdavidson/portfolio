@@ -2,6 +2,9 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import type { ParsingReview, Company, Metric, InboundEmail } from '@/lib/types/database'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { filterByCompany } from '@/lib/access/scope'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 type ReviewRow = Pick<
   ParsingReview,
@@ -21,7 +24,11 @@ export async function GET() {
   } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data, error } = await supabase
+  // Only reviews and emails about companies the caller can see.
+  const scope = await loadEntityScopeForUser(createAdminClient(), user.id)
+  const visible = scope ? scope.companyIds : []
+
+  const { data, error } = await filterByCompany(supabase
     .from('parsing_reviews')
     .select(`
       id, issue_type, extracted_value, context_snippet, created_at,
@@ -29,7 +36,7 @@ export async function GET() {
       metrics ( id, name, unit, value_type ),
       inbound_emails ( id, subject, received_at, from_address, diligence_deal_id )
     `)
-    .is('resolution', null)
+    .is('resolution', null), visible)
     .order('created_at', { ascending: false })
 
   if (error) return dbError(error, 'review')
@@ -53,10 +60,10 @@ export async function GET() {
   }
 
   // Also fetch inbound emails with needs_review status
-  const { data: reviewEmails } = await supabase
+  const { data: reviewEmails } = await filterByCompany(supabase
     .from('inbound_emails')
     .select('id, from_address, subject, received_at, processing_status, company_id, attachments_count')
-    .eq('processing_status', 'needs_review')
+    .eq('processing_status', 'needs_review'), visible)
     .order('received_at', { ascending: false })
 
   // Get company names for those emails

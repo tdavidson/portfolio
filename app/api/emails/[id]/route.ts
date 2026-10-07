@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import type { InboundEmail, Metric, MetricValue, ParsingReview, Json } from '@/lib/types/database'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 
 type MetricValueRow = Pick<
   MetricValue,
@@ -160,8 +161,17 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
         .eq('id', companyId)
         .eq('fund_id', membership.fund_id)
         .maybeSingle()
-      if (!company) {
+      // …and to a company the caller can see.
+      const scope = await loadEntityScopeForUser(admin, user.id)
+      const visible = scope ? scope.companyIds : []
+      if (!company || (visible !== null && !visible.includes(companyId))) {
         return NextResponse.json({ error: 'Invalid company' }, { status: 400 })
+      }
+    } else {
+      // Unmatching an email makes it an admin-triage item; a member would lose it.
+      const scope = await loadEntityScopeForUser(admin, user.id)
+      if (!scope || scope.companyIds !== null) {
+        return NextResponse.json({ error: 'Choose a company you can see for this email.' }, { status: 403 })
       }
     }
     updates.company_id = companyId || null

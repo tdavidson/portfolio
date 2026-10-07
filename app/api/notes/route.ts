@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { filterByCompany } from '@/lib/access/scope'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
@@ -26,6 +28,10 @@ export async function GET(req: NextRequest) {
     .order('pinned_at', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })
     .limit(200)
+
+  // Fund-wide notes, and notes about companies the caller can see.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  query = filterByCompany(query, scope ? scope.companyIds : [], { keepUnlinked: true })
 
   if (filter === 'general') {
     query = query.is('company_id', null)

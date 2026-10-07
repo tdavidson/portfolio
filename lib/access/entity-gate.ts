@@ -85,3 +85,37 @@ export async function letterEntityDenial(
   const { data } = await (supabase as any).from('lp_letters').select('id').eq('id', decodeURIComponent(id)).maybeSingle()
   return data ? null : NextResponse.json({ error: 'Not found' }, { status: 404 })
 }
+
+/**
+ * Routes about ONE row that belongs to a company: an inbound email, a metric, a parsing review, a
+ * note. `nullVisible` says whether a row about no company is everyone's (a fund-wide note) or for
+ * admins to triage (an email the pipeline matched to nothing).
+ */
+const ROW_COMPANY_ROUTES: { prefix: string; table: string; nullVisible: boolean }[] = [
+  { prefix: 'api/emails/[id]', table: 'inbound_emails', nullVisible: false },
+  { prefix: 'api/metrics/[id]', table: 'metrics', nullVisible: false },
+  { prefix: 'api/review/[id]', table: 'parsing_reviews', nullVisible: false },
+  { prefix: 'api/dashboard/notes/[noteId]', table: 'company_notes', nullVisible: true },
+]
+
+/** 404 unless the row's company is linked to one of the caller's entities. */
+export async function rowCompanyDenial(
+  supabase: SupabaseClient,
+  key: string,
+  pathname: string,
+  access: Pick<AccessContext, 'vehicles'>,
+): Promise<NextResponse | null> {
+  if (access.vehicles.all) return null
+  const route = ROW_COMPANY_ROUTES.find(r => key === r.prefix || key.startsWith(`${r.prefix}/`))
+  if (!route) return null
+  const at = route.prefix.split('/').length - 1
+  const id = pathname.replace(/^\/+|\/+$/g, '').split('/')[at]
+  if (!id) return null
+  const notFound = NextResponse.json({ error: 'Not found' }, { status: 404 })
+  const { data: row } = await (supabase as any).from(route.table).select('company_id').eq('id', decodeURIComponent(id)).maybeSingle()
+  if (!row) return notFound
+  const companyId = (row as { company_id: string | null }).company_id
+  if (!companyId) return route.nullVisible ? null : notFound
+  const { data: links } = await (supabase as any).from('company_vehicles').select('company_id').eq('company_id', companyId).limit(1)
+  return ((links as any[]) ?? []).length > 0 ? null : notFound
+}

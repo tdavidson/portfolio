@@ -21,30 +21,12 @@ const PENDING: Record<string, string> = {
   'api/portal/snapshots/[id]/pdf': 'exempt: the LP portal — an LP’s own data, authenticated as that LP, not a fund member',
   'api/portal/snapshots': 'exempt: the LP portal — an LP’s own data, authenticated as that LP, not a fund member',
   'api/portal/statement/pdf': 'exempt: the LP portal — an LP’s own data, authenticated as that LP, not a fund member',
-  'api/accounting/fof-extract': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/analyst/conversations': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
   'api/cron/deal-research': 'exempt: a job or webhook acting for the fund, not a member request',
   'api/cron/deals-digest': 'exempt: a job or webhook acting for the fund, not a member request',
-  'api/dashboard/notes/[noteId]': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
   'api/diligence/[id]/email-intake': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/emails': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/emails/[id]': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/emails/[id]/accept-to-diligence': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/emails/[id]/attachment/[index]': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/emails/[id]/attachments': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/emails/[id]/reprocess': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/emails/[id]/reroute': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/emails/[id]/reviews': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/emails/save-to-drive': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/import': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/import/documents': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
   'api/inbound-email': 'exempt: a job or webhook acting for the fund, not a member request',
   'api/inbound-email/mailgun': 'exempt: a job or webhook acting for the fund, not a member request',
-  'api/interactions': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
   'api/lps/snapshots': 'exempt: GET lists fund-wide snapshot headers (name, date); their rows are lp_investments, scoped where read; writes are admin-only',
-  'api/metrics/[id]': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/notes': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/notes/mark-read': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
   'api/portal/access-history': 'exempt: the LP portal — an LP’s own documents, authenticated as that LP, not a fund member',
   'api/portal/documents': 'exempt: the LP portal — an LP’s own documents, authenticated as that LP, not a fund member',
   'api/portal/documents/[id]': 'exempt: the LP portal — an LP’s own documents, authenticated as that LP, not a fund member',
@@ -57,10 +39,7 @@ const PENDING: Record<string, string> = {
   'api/portal/overview': 'exempt: the LP portal — an LP’s own documents, authenticated as that LP, not a fund member',
   'api/portal/snapshots/[id]': 'exempt: the LP portal — an LP’s own documents, authenticated as that LP, not a fund member',
   'api/public/submit/[token]': 'exempt: a job or webhook acting for the fund, not a member request',
-  'api/requests': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/requests/responses': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/review': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/review/[id]/resolve': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
+  'api/requests': 'exempt: asks are fund-wide (email_requests has no company or entity); sending is admin-only',
   'api/settings/notifications': 'exempt: admin-only settings; admins see every entity',
 }
 /** The tables whose rows belong to an entity. RLS covers the first group (20261007100200). */
@@ -77,14 +56,15 @@ function entityTables(): string[] {
   return [...rls, ...lp]
 }
 
-const SCOPED = /resolveGroupOr400|resolveMancoGroupOr400|loadEntityScope|loadEntityScopeForUser|entityScopeFor|visibleVehicleIds|visibleVehicleNames|canSeeVehicle|assertVehicleVisible|resolveHoldingVehicle|loadLpScope|lpVisible|scopeLiveReport|assertK1PackageVisible|lpDocumentVisible|loadLpScopeForUser|assertAdminAccess|role !== 'admin'/
+const SCOPED = /resolveGroupOr400|resolveMancoGroupOr400|loadEntityScope|loadEntityScopeForUser|entityScopeFor|visibleVehicleIds|visibleVehicleNames|canSeeVehicle|assertVehicleVisible|resolveHoldingVehicle|loadLpScope|lpVisible|scopeLiveReport|assertK1PackageVisible|lpDocumentVisible|loadLpScopeForUser|filterByCompany|assertAdminAccess|role !== 'admin'/
 /**
  * Routes the API gate already confines to one visible company or deal (lib/access/entity-gate.ts),
  * whose payload is about that company or deal as a whole — its notes, documents, metrics. A route
  * under these whose payload is PER ENTITY (a company's transactions, a fund holding's register)
  * must scope it in the handler; the fund-holding routes are therefore deliberately not here.
  */
-const GATED = [/^api\/companies\/\[id\]/, /^api\/deals\/\[id\]/, /^api\/lp-letters\/\[id\]/]
+const GATED = [/^api\/companies\/\[id\]/, /^api\/deals\/\[id\]/, /^api\/lp-letters\/\[id\]/,
+  /^api\/emails\/\[id\]/, /^api\/metrics\/\[id\]/, /^api\/review\/\[id\]/, /^api\/dashboard\/notes\/\[noteId\]/]
 
 /**
  * A file's handlers, separately: a GET that scopes says nothing about the POST beside it. A handler

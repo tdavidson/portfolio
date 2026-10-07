@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { expireTag } from '@/lib/cache/tags'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { filterByCompany } from '@/lib/access/scope'
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -30,11 +32,13 @@ export async function POST(req: NextRequest) {
   if (!membership) return NextResponse.json({ error: 'No fund found' }, { status: 403 })
 
   // Validate note IDs belong to the user's fund
-  const { data: validNotes } = await admin
-    .from('company_notes' as any)
+  // …and to notes the caller can see.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  const { data: validNotes } = await filterByCompany((admin as any)
+    .from('company_notes')
     .select('id')
     .in('id', ids)
-    .eq('fund_id', membership.fund_id) as { data: { id: string }[] | null }
+    .eq('fund_id', membership.fund_id), scope ? scope.companyIds : [], { keepUnlinked: true }) as { data: { id: string }[] | null }
 
   const validIds = new Set((validNotes ?? []).map(n => n.id))
 

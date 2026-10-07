@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import type { InboundEmail, Company } from '@/lib/types/database'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { filterByCompany } from '@/lib/access/scope'
 
 const DEFAULT_PAGE_SIZE = 50
 const MAX_PAGE_SIZE = 1000
@@ -55,6 +57,9 @@ export async function GET(req: NextRequest) {
     .order('received_at', { ascending: false })
     .range((page - 1) * pageSize, page * pageSize - 1)
 
+  // Only emails about companies the caller can see; unmatched ones are for admins to triage.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  query = filterByCompany(query, scope ? scope.companyIds : [])
   if (status) query = query.eq('processing_status', status)
   if (companyId) query = query.eq('company_id', companyId)
   if (dateFrom) query = query.gte('received_at', dateFrom)

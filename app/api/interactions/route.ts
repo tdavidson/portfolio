@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { filterByCompany } from '@/lib/access/scope'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
@@ -27,6 +29,10 @@ export async function GET(req: NextRequest) {
     .eq('fund_id', membership.fund_id)
     .order('interaction_date', { ascending: false })
     .limit(limit)
+
+  // Interactions about companies the caller can see, and those about no company.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  query = filterByCompany(query, scope ? scope.companyIds : [], { keepUnlinked: true })
 
   if (tag) {
     query = query.contains('tags', [tag])

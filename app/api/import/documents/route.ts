@@ -5,6 +5,8 @@ import { assertWriteAccess } from '@/lib/api-helpers'
 import { createFundAIProvider } from '@/lib/ai'
 import { logAIUsage } from '@/lib/ai/usage'
 import { logActivity } from '@/lib/activity'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { filterByCompany } from '@/lib/access/scope'
 
 interface MatchResult {
   filename: string
@@ -47,12 +49,14 @@ export async function POST(req: NextRequest) {
   }
 
   // Fetch active companies
-  const { data: companies } = await admin
+  // Matched only against companies the caller can see.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  const { data: companies } = await filterByCompany(admin
     .from('companies')
     .select('id, name, aliases')
     .eq('fund_id', fundId)
     .eq('holding_type', 'company')   // fund holdings have their own surfaces
-    .eq('status', 'active')
+    .eq('status', 'active'), scope ? scope.companyIds : [], { column: 'id' })
 
   if (!companies || companies.length === 0) {
     return NextResponse.json({

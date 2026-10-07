@@ -8,6 +8,8 @@ import type { ContentBlock } from '@/lib/ai'
 import { extractText } from '@/lib/memo-agent/extract-text'
 import { validateExtraction, EXTRACTION_PROMPT, EXTRACTION_SCHEMA } from '@/lib/portfolio/fof-extract'
 import { matchHoldings } from '@/lib/portfolio/fof-paste'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { filterByCompany } from '@/lib/access/scope'
 
 /**
  * Read a manager's quarterly document into the same reviewable rows the paste grid produces.
@@ -87,9 +89,11 @@ export async function POST(req: NextRequest) {
 
   const { rows, warnings } = validateExtraction(parsed)
 
-  const { data: holdings } = await admin
+  // Matched only against fund holdings the caller can see.
+  const scope = await loadEntityScopeForUser(admin, gate.userId)
+  const { data: holdings } = await filterByCompany(admin
     .from('companies').select('id, name, aliases')
-    .eq('fund_id', gate.fundId).eq('holding_type', 'fund')
+    .eq('fund_id', gate.fundId).eq('holding_type', 'fund'), scope ? scope.companyIds : [], { column: 'id' })
 
   const matched = matchHoldings(rows, ((holdings as any[]) ?? []).map(h => ({
     id: h.id, name: h.name, aliases: h.aliases,

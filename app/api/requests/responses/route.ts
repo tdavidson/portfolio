@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
 import { metricQuarter, resolveResponseStatus, responseKey, RESPONSE_STATUSES } from '@/lib/requests/response-status'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { filterByCompany } from '@/lib/access/scope'
 
 function getRecentQuarters(now: Date) {
   const month = now.getMonth()
@@ -39,12 +41,14 @@ export async function GET() {
   if (!membership) return NextResponse.json({ error: 'No fund found' }, { status: 403 })
 
   // Get active companies
-  const { data: companies } = await admin
+  // Only companies the caller can see.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  const { data: companies } = await filterByCompany(admin
     .from('companies')
     .select('id, name')
     .eq('fund_id', membership.fund_id)
     .eq('holding_type', 'company')   // fund holdings have their own surfaces
-    .eq('status', 'active')
+    .eq('status', 'active'), scope ? scope.companyIds : [], { column: 'id' })
     .order('name')
 
   if (!companies || companies.length === 0) {
@@ -120,6 +124,9 @@ export async function PATCH(req: NextRequest) {
   if (!company_id || !quarter || !year || !status) {
     return NextResponse.json({ error: 'company_id, quarter, year, and status required' }, { status: 400 })
   }
+  const writeScope = await loadEntityScopeForUser(admin, user.id)
+  const visible = writeScope ? writeScope.companyIds : []
+  if (visible !== null && !visible.includes(company_id)) return NextResponse.json({ error: 'Company not found' }, { status: 404 })
 
   if (!(RESPONSE_STATUSES as string[]).includes(status)) {
     return NextResponse.json({ error: 'status must be yes, no, na, or waived' }, { status: 400 })
