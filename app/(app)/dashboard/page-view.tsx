@@ -5,6 +5,7 @@ import { DashboardNotesLayout, DashboardChatButton, DashboardNotesPanel } from '
 import { AnalystToggleButton } from '@/components/analyst-button'
 import { AnalystPanel } from '@/components/analyst-panel'
 import type { DashboardPageData } from './load'
+import { PortfolioSheetView } from '@/components/portfolio-sheet'
 
 export function DashboardPageView({ companies, allGroups, canAdd, isAdmin, userId }: DashboardPageData) {
   return (
@@ -24,6 +25,11 @@ export function DashboardPageView({ companies, allGroups, canAdd, isAdmin, userI
       <div className="flex flex-col lg:flex-row gap-6 items-start">
         <div className="flex-1 min-w-0 max-w-page w-full">
           <DashboardCompanies companies={companies} allGroups={allGroups} canAdd={canAdd} />
+          {/* Fund holdings and digital assets across the viewer's entities. Companies are the table
+              above, which carries their KPIs; the sheet adds the other two kinds of holding. */}
+          <div className="mt-8">
+            <PortfolioSheetView sections={['funds', 'crypto']} hideWhenEmpty />
+          </div>
         </div>
         <DashboardNotesPanel />
         <AnalystPanel />
