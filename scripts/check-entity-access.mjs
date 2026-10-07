@@ -66,6 +66,7 @@ create table crypto_wallets (id uuid primary key default gen_random_uuid(), fund
 create table inbound_deals (id uuid primary key default gen_random_uuid(), fund_id uuid not null references funds(id));
 create table journal_entries (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, memo text);
 create table company_notes (id uuid primary key default gen_random_uuid(), fund_id uuid not null, company_id uuid, content text);
+create table interactions (id uuid primary key default gen_random_uuid(), fund_id uuid not null, company_id uuid, subject text);
 create table lp_investors (id uuid primary key default gen_random_uuid(), fund_id uuid not null, name text);
 create table lp_entities (id uuid primary key default gen_random_uuid(), fund_id uuid not null, investor_id uuid, entity_name text);
 create table lp_investments (id uuid primary key default gen_random_uuid(), fund_id uuid not null, entity_id uuid, portfolio_group text not null);
@@ -105,7 +106,7 @@ grant select on all tables in schema public to authenticated;
 -- The existing domain policies, reduced to "any member of the fund": the entity rule must narrow
 -- them, so they have to exist and pass first.
 do $$ declare t text; begin
-  foreach t in array array['companies','investment_transactions','journal_entries','company_notes','fund_vehicles','inbound_deals','crypto_wallets','fund_holding_terms','chart_of_accounts',
+  foreach t in array array['companies','investment_transactions','journal_entries','company_notes','interactions','fund_vehicles','inbound_deals','crypto_wallets','fund_holding_terms','chart_of_accounts',
     'lp_investors','lp_entities','lp_investments','commitment_events','lp_letters','lp_documents','lp_document_shares',
     'diligence_deals','diligence_notes'] loop
     execute format('alter table %I enable row level security', t);
@@ -276,6 +277,10 @@ try {
   psql(`insert into company_notes (fund_id, company_id, content) values ('${F}', '${E}', 'gamma note'), ('${F}', null, 'general')`)
   check('a member reads fund-wide notes, not notes about a company they cannot see',
     psql(`select string_agg(content, ',' order by content) from company_notes`, { as: MEMBER }), 'general')
+
+  psql(`insert into interactions (fund_id, company_id, subject) values ('${F}', '${E}', 'gamma call'), ('${F}', '${C}', 'shared call')`)
+  check('a member reads interactions about their companies, not about a company they cannot see',
+    psql(`select string_agg(subject, ',' order by subject) from interactions`, { as: MEMBER }), 'shared call')
 
   check('a member sees only their entities in the entity list',
     psql(`select string_agg(name, ',' order by name) from fund_vehicles`, { as: MEMBER }), 'Fund I')

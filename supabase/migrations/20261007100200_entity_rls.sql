@@ -98,6 +98,8 @@ declare
     'allocation_runs', 'allocation_results', 'vehicle_accounting_settings', 'qb_account_mappings',
     'qb_import_runs', 'fund_construction_models', 'crypto_wallets', 'price_feeds',
     'close_allocation_rounding', 'journal_entry_allocations',
+    -- relationships: an interaction about a company is that company's
+    'interactions',
     -- the entities themselves, and deals
     'fund_vehicles', 'inbound_deals'
   ];
