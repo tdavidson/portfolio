@@ -43,14 +43,18 @@ export interface FirmOverview {
 export async function loadFirmOverview(
   admin: SupabaseClient,
   fundId: string,
-  opts: { includeManco: boolean },
+  opts: {
+    includeManco: boolean
+    /** Which entities the caller may see (entity access). Omitted = all — a server-side caller. */
+    visible?: (vehicleId: string | null) => boolean
+  },
 ): Promise<FirmOverview> {
   const vehicles = await listVehiclesWithId(admin, fundId)
   const mancos = opts.includeManco ? await listMancoVehicles(admin, fundId) : []
   const all: { id: string | null; name: string; kind: string | null }[] = [
     ...vehicles,
     ...mancos.map(m => ({ id: m.id, name: m.name, kind: MANCO_KIND as string })),
-  ]
+  ].filter(v => !opts.visible || opts.visible(v.id))
 
   const rows = await Promise.all(all.map(async v => {
     const ledger = await loadPostedLedger(admin, fundId, v.name)

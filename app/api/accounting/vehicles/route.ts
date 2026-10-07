@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertReadAccess } from '@/lib/api-helpers'
 import { listVehicles } from '@/lib/accounting/load'
+import { visibleVehicleNames } from '@/lib/accounting/vehicle-visibility'
 
 // GET — the fund's active vehicle names, for the Accounting picker. Vehicle
 // creation/management lives at the fund level (/api/vehicles), since vehicles
@@ -15,5 +16,8 @@ export async function GET() {
   const gate = await assertReadAccess(admin, user.id)
   if (gate instanceof NextResponse) return gate
 
-  return NextResponse.json(await listVehicles(admin, gate.fundId))
+  // Only the caller's entities, keeping the string[] shape API keys and MCP configs rely on.
+  const visible = await visibleVehicleNames(admin, gate)
+  const all = await listVehicles(admin, gate.fundId)
+  return NextResponse.json(visible === null ? all : all.filter(v => visible.includes(v)))
 }

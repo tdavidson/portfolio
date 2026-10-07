@@ -8,6 +8,8 @@ import { dbError } from '@/lib/api-error'
 import { logActivity } from '@/lib/activity'
 import { syncFundQuotes } from '@/lib/portfolio/quote-sync'
 import { PROVIDER_NAMES, HAS_FETCHING_PROVIDER } from '@/lib/portfolio/quote-providers'
+import { loadEntityScope } from '@/lib/access/entity-scope'
+import { scopeCompanyRows } from '@/lib/access/scope'
 
 /**
  * Price feeds — the link between a holding and an observable price — and the quotes stored
@@ -42,8 +44,10 @@ export async function GET(_req: NextRequest) {
     if (!latest.has(o.feed_id)) latest.set(o.feed_id, o)
   }
 
+  // Only feeds on companies the caller can see.
+  const scope = await loadEntityScope(admin, gate)
   return NextResponse.json({
-    feeds: ((feeds as any[]) ?? []).map(f => ({ ...f, latestQuote: latest.get(f.id) ?? null })),
+    feeds: scopeCompanyRows((feeds as any[]) ?? [], scope.companyIds, 'company_id').map(f => ({ ...f, latestQuote: latest.get(f.id) ?? null })),
     providers: PROVIDER_NAMES,
     // False until a vendor adapter is registered. The UI uses it to hide a sync control that
     // could only ever report "nothing to fetch" — prices are entered by hand today.
@@ -84,8 +88,10 @@ export async function POST(req: NextRequest) {
     // never from the body — the cross-tenant rule this repo enforces everywhere — so a feedId
     // from another fund has to be rejected here rather than silently scoped away.
     const { data: feed } = await (admin as any)
-      .from('price_feeds').select('id, fund_id, symbol').eq('id', feedId).maybeSingle()
-    if (!feed || feed.fund_id !== gate.fundId) {
+      .from('price_feeds').select('id, fund_id, symbol, company_id').eq('id', feedId).maybeSingle()
+    const feedScope = await loadEntityScope(admin, gate)
+    if (!feed || feed.fund_id !== gate.fundId
+      || (feedScope.companyIds !== null && !feedScope.companyIds.includes(feed.company_id))) {
       return NextResponse.json({ error: 'Feed not found.' }, { status: 404 })
     }
 
@@ -136,7 +142,9 @@ export async function POST(req: NextRequest) {
 
   const { data: company } = await admin
     .from('companies').select('id, fund_id, name').eq('id', companyId).maybeSingle()
-  if (!company || (company as any).fund_id !== gate.fundId) {
+  const companyScope = await loadEntityScope(admin, gate)
+  if (!company || (company as any).fund_id !== gate.fundId
+    || (companyScope.companyIds !== null && !companyScope.companyIds.includes(companyId))) {
     return NextResponse.json({ error: 'Company not found.' }, { status: 404 })
   }
 
@@ -207,9 +215,12 @@ export async function DELETE(req: NextRequest) {
   const id = req.nextUrl.searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'id is required.' }, { status: 400 })
 
-  // Scoped to the caller's fund in the filter itself, so a foreign id deletes nothing.
-  const { error } = await (admin as any)
-    .from('price_feeds').delete().eq('id', id).eq('fund_id', gate.fundId)
+  // Scoped to the caller's fund in the filter itself, so a foreign id deletes nothing — and to the
+  // companies they can see.
+  const deleteScope = await loadEntityScope(admin, gate)
+  let del = (admin as any).from('price_feeds').delete().eq('id', id).eq('fund_id', gate.fundId)
+  if (deleteScope.companyIds !== null) del = del.in('company_id', deleteScope.companyIds)
+  const { error } = await del
   if (error) return dbError(error, 'price-feeds-delete')
 
   logActivity(admin, gate.fundId, user.id, 'price_feed.delete', { feedId: id })

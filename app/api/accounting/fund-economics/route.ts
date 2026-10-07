@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertReadAccess } from '@/lib/api-helpers'
 import { hasAccess, loadAccessContext } from '@/lib/access/effective'
 import { fundEconomics } from '@/lib/accounting/fund-economics'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 // Fund-level performance per vehicle, derived from the ledger.
 //
@@ -26,7 +27,8 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    const vehicles = await fundEconomics(admin, gate.fundId, asOf)
+    // Only the caller's entities.
+    const vehicles = (await fundEconomics(admin, gate.fundId, asOf)).filter(v => canSeeVehicle(access, v.id))
 
     // `carryAccrued` and the GP-class block are gp_economics. The fund overview is otherwise
     // ordinary accounting, and the `lp` metrics are already net-to-LP with the carry removed —

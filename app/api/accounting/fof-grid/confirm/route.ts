@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // accounting domain (lib/access/route-domains.ts).
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { confirmFundCapitalEvent } from '@/lib/portfolio/fof-register'
+import { loadAccessContext } from '@/lib/access/effective'
+import { visibleVehicleIds } from '@/lib/access/scope'
 
 /**
  * Confirm every draft register row up to a period end.
@@ -26,13 +28,17 @@ export async function POST(req: NextRequest) {
     ? body.periodEnd
     : new Date().toISOString().slice(0, 10)
 
-  const { data: drafts } = await (admin as any)
+  // Only the caller's entities' events.
+  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  const vehicleIds = visibleVehicleIds(access)
+  let draftQuery = (admin as any)
     .from('fund_capital_events')
     .select('id')
     .eq('fund_id', gate.fundId)
     .eq('status', 'draft')
     .lte('event_date', periodEnd)
-    .order('event_date')
+  if (vehicleIds !== null) draftQuery = draftQuery.in('vehicle_id', vehicleIds)
+  const { data: drafts } = await draftQuery.order('event_date')
 
   const ids = ((drafts as any[]) ?? []).map(d => d.id)
 
