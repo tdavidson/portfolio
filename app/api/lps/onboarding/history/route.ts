@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertReadAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
 import { ONBOARDING_KIND_LABEL, isOnboardingKind } from '@/lib/lp-onboarding'
+import { loadLpScope, lpVisible } from '@/lib/access/lp-scope'
 
 /**
  * The audit trail for one entity's onboarding: every upload, verification, send-back, waiver and
@@ -24,6 +25,8 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   const entityId = req.nextUrl.searchParams.get('lp_entity_id') ?? ''
   if (!entityId) return NextResponse.json({ error: 'lp_entity_id is required' }, { status: 400 })
+  const lp = await loadLpScope(admin, gate)
+  if (!lpVisible(lp.entityIds, entityId)) return NextResponse.json({ error: 'Entity not found' }, { status: 404 })
 
   const { data, error } = await a
     .from('lp_onboarding_events')

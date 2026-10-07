@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { DEFAULT_FEATURE_VISIBILITY, isFeatureVisible } from '@/lib/types/features'
 import type { FeatureVisibilityMap } from '@/lib/types/features'
+import { loadLpScopeForUser, lpVisible } from '@/lib/access/lp-scope'
 
 // Cap how many events we return in one payload. The client filters/searches
 // over this set in memory; if a fund exceeds it in the window we flag truncation
@@ -81,7 +82,10 @@ export async function GET(req: NextRequest) {
   }
 
   const truncated = (rawEvents?.length ?? 0) > MAX_EVENTS
+  // Only activity by investors the caller can see.
+  const lp = await loadLpScopeForUser(admin, user.id)
   const events = (rawEvents ?? []).slice(0, MAX_EVENTS)
+    .filter(e => lpVisible(lp ? lp.investorIds : [], e.lp_investor_id))
 
   // Resolve acting-person and investor names in bulk.
   const accountIds = Array.from(new Set(events.map(e => e.lp_account_id).filter(Boolean))) as string[]

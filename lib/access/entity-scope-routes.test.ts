@@ -14,6 +14,13 @@ import { join } from 'node:path'
  * behind the list's back. Restricted members must not be invited until no `phase` line remains.
  */
 const PENDING: Record<string, string> = {
+  'api/portal/contact': 'exempt: the LP portal — an LP’s own data, authenticated as that LP, not a fund member',
+  'api/portal/letters/[id]/pdf': 'exempt: the LP portal — an LP’s own data, authenticated as that LP, not a fund member',
+  'api/portal/letters': 'exempt: the LP portal — an LP’s own data, authenticated as that LP, not a fund member',
+  'api/portal/messages': 'exempt: the LP portal — an LP’s own data, authenticated as that LP, not a fund member',
+  'api/portal/snapshots/[id]/pdf': 'exempt: the LP portal — an LP’s own data, authenticated as that LP, not a fund member',
+  'api/portal/snapshots': 'exempt: the LP portal — an LP’s own data, authenticated as that LP, not a fund member',
+  'api/portal/statement/pdf': 'exempt: the LP portal — an LP’s own data, authenticated as that LP, not a fund member',
   'api/accounting/fof-extract': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
   'api/analyst/conversations': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
   'api/cron/deal-research': 'exempt: a job or webhook acting for the fund, not a member request',
@@ -63,11 +70,14 @@ function entityTables(): string[] {
   const rls = Array.from(sql.slice(start, sql.indexOf('];', start)).matchAll(/'([a-z_0-9]+)'/g)).map(m => m[1])
   const lp = ['lp_investments', 'lp_entities', 'lp_positions', 'lp_capital_events', 'commitment_events', 'capital_calls',
     'capital_call_lines', 'distributions', 'distribution_lines', 'lp_letters', 'lp_documents', 'lp_snapshots',
-    'k1_packages', 'k1_lines', 'k1_partners', 'received_k1s']
+    'k1_packages', 'k1_lines', 'k1_partners', 'received_k1s',
+    'lp_messages', 'lp_access_events', 'lp_deliveries', 'lp_onboarding_items', 'lp_onboarding_events',
+    'lp_tax_forms', 'k1_deliveries', 'k1_delivery_consents', 'vehicle_closings', 'vehicle_closing_members',
+    'lp_document_shares', 'lp_snapshot_shares', 'lp_letter_shares', 'lp_live_report_shares']
   return [...rls, ...lp]
 }
 
-const SCOPED = /resolveGroupOr400|resolveMancoGroupOr400|loadEntityScope|loadEntityScopeForUser|entityScopeFor|visibleVehicleIds|visibleVehicleNames|canSeeVehicle|assertVehicleVisible|resolveHoldingVehicle|loadLpScope|lpVisible|scopeLiveReport|assertK1PackageVisible|lpDocumentVisible|assertAdminAccess|role !== 'admin'/
+const SCOPED = /resolveGroupOr400|resolveMancoGroupOr400|loadEntityScope|loadEntityScopeForUser|entityScopeFor|visibleVehicleIds|visibleVehicleNames|canSeeVehicle|assertVehicleVisible|resolveHoldingVehicle|loadLpScope|lpVisible|scopeLiveReport|assertK1PackageVisible|lpDocumentVisible|loadLpScopeForUser|assertAdminAccess|role !== 'admin'/
 /**
  * Routes the API gate already confines to one visible company or deal (lib/access/entity-gate.ts),
  * whose payload is about that company or deal as a whole — its notes, documents, metrics. A route

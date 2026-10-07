@@ -104,3 +104,10 @@ export async function lpDocumentVisible(admin: SupabaseClient, fundId: string, d
   const { data: shares } = await (admin as any).from('lp_document_shares').select('lp_investor_id').eq('document_id', documentId)
   return ((shares as any[]) ?? []).some(s => lp.investorIds!.includes(s.lp_investor_id))
 }
+
+/** The same, from just a user id — for routes that look up `fund_members` themselves. */
+export async function loadLpScopeForUser(admin: SupabaseClient, userId: string): Promise<LpScope | null> {
+  const { data: m } = await (admin as any).from('fund_members').select('fund_id, role').eq('user_id', userId).maybeSingle()
+  if (!m) return null
+  return loadLpScope(admin, { fundId: m.fund_id, userId, role: m.role })
+}

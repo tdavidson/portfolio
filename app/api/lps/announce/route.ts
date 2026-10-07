@@ -9,6 +9,7 @@ import { resolveLpRecipients } from '@/lib/lp-recipients'
 import { buildLpEmailHtml, siteUrl } from '@/lib/lp-email'
 import { logDelivery } from '@/lib/lp-deliveries'
 import { runPool } from '@/lib/lp-report-pdf'
+import { loadLpScope, lpVisible } from '@/lib/access/lp-scope'
 
 // An announcement: a message to chosen LPs (or all of them) with nothing attached to it.
 //
@@ -45,6 +46,9 @@ export async function POST(req: NextRequest) {
   } else {
     return NextResponse.json({ error: 'lp_investor_ids must be a list or "all"' }, { status: 400 })
   }
+  // Only investors the caller can see — "all" means all of theirs.
+  const lp = await loadLpScope(admin, access)
+  investorIds = investorIds.filter(id => lpVisible(lp.investorIds, id))
   if (investorIds.length === 0) return NextResponse.json({ error: 'No investors selected' }, { status: 400 })
 
   const groups = await resolveLpRecipients(admin, fundId, investorIds)

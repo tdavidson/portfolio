@@ -8,6 +8,7 @@ import { getOutboundConfig, sendOutboundEmail } from '@/lib/email'
 import { resolveLpRecipients } from '@/lib/lp-recipients'
 import { buildLpEmailHtml, siteUrl } from '@/lib/lp-email'
 import { logDelivery } from '@/lib/lp-deliveries'
+import { loadLpScope, lpVisible } from '@/lib/access/lp-scope'
 
 // The GP's LP message inbox — threads started by LPs from their portal's Contact form, and the
 // fund's replies to them.
@@ -30,7 +31,9 @@ export async function GET() {
     .eq('fund_id', access.fundId)
     .order('created_at', { ascending: false })
     .limit(500)
-  const rows = ((data ?? []) as any[])
+  // Only messages from or to investors the caller can see.
+  const lp = await loadLpScope(admin, access)
+  const rows = ((data ?? []) as any[]).filter(r => lpVisible(lp.investorIds, r.lp_investor_id))
   const repliesByParent = new Map<string, any[]>()
   for (const r of rows) {
     if (r.direction === 'outbound' && r.parent_id) {
@@ -83,7 +86,8 @@ export async function POST(req: NextRequest) {
   const { data: original } = await admin
     .from('lp_messages').select('id, fund_id, subject, from_email, lp_investor_id, lp_account_id, direction')
     .eq('id', replyTo).eq('fund_id', fundId).maybeSingle()
-  if (!original) return NextResponse.json({ error: 'Message not found' }, { status: 404 })
+  const replyScope = await loadLpScope(admin, access)
+  if (!original || !lpVisible(replyScope.investorIds, (original as any).lp_investor_id)) return NextResponse.json({ error: 'Message not found' }, { status: 404 })
   if (original.direction === 'outbound') return NextResponse.json({ error: 'Reply to the LP’s message, not to a reply' }, { status: 400 })
 
   // Who to email: the investor's portal account (and its authorized users), falling back to the
@@ -146,6 +150,10 @@ export async function PATCH(req: NextRequest) {
   const id = typeof body.id === 'string' ? body.id : ''
   const status = body.status === 'resolved' ? 'resolved' : 'open'
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
+  // Only a message from or to an investor the caller can see.
+  const statusScope = await loadLpScope(admin, access)
+  const { data: msg } = await admin.from('lp_messages').select('lp_investor_id').eq('id', id).eq('fund_id', access.fundId).maybeSingle()
+  if (!msg || !lpVisible(statusScope.investorIds, (msg as any).lp_investor_id)) return NextResponse.json({ error: 'Message not found' }, { status: 404 })
   const { error } = await admin.from('lp_messages').update({ status }).eq('id', id).eq('fund_id', access.fundId)
   if (error) return dbError(error, 'lps-messages')
   return NextResponse.json({ ok: true })
