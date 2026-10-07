@@ -15,21 +15,26 @@ const EXEMPT: Record<string, string> = {
   vendors: 'fund-wide vendor directory, no entity data',
   crypto_wallet_balances: 'keyed by wallet — readable only through crypto_wallets (phase 3 tightens the join)',
   price_observations: 'keyed by feed — public market prices, not position data',
+  lp_snapshots: 'fund-wide snapshot headers (name, date); their rows are lp_investments, which carry the rule',
+  lp_letter_templates: 'fund-wide letter templates, no entity data',
+  lp_onboarding_item_documents: 'keyed by onboarding item — readable through lp_onboarding_items, which carries the rule',
   intercompany_transactions: 'management-company domain; phase 2 with the LP and manco surfaces',
 }
 
 function rlsTables(): string[] {
-  const sql = readFileSync('supabase/migrations/20261007100200_entity_rls.sql', 'utf8')
-  const start = sql.indexOf('tables text[] := array[')
-  const block = sql.slice(start, sql.indexOf('];', start))
-  return Array.from(block.matchAll(/'([a-z_0-9]+)'/g)).map(m => m[1])
+  return ['20261007100200_entity_rls.sql', '20261007100300_entity_rls_lp.sql'].flatMap(file => {
+    const sql = readFileSync(`supabase/migrations/${file}`, 'utf8')
+    const start = sql.indexOf('tables text[] := array[')
+    const block = sql.slice(start, sql.indexOf('];', start))
+    return Array.from(block.matchAll(/'([a-z_0-9]+)'/g)).map(m => m[1])
+  })
 }
 
 describe('entity RLS coverage', () => {
   it('covers or exempts every portfolio and accounting table', () => {
     const covered = new Set(rlsTables())
     const domainTables = Object.entries(TABLE_RULES)
-      .filter(([, rule]) => 'domain' in rule && ['portfolio', 'accounting', 'management_company'].includes((rule as any).domain))
+      .filter(([, rule]) => 'domain' in rule && ['portfolio', 'accounting', 'management_company', 'lp_capital', 'lp_relations', 'gp_economics'].includes((rule as any).domain))
       .map(([t]) => t)
     const missing = domainTables.filter(t => !covered.has(t) && !(t in EXEMPT))
     expect(missing, `add these to 20261007100200's list (or a later migration) or exempt them with a reason`).toEqual([])

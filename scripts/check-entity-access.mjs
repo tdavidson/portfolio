@@ -21,6 +21,7 @@ const MIGRATIONS = (process.env.ENTITY_MIGRATIONS ?? [
   '20261007100000_entity_access_grants.sql',
   '20261007100100_company_vehicles.sql',
   '20261007100200_entity_rls.sql',
+  '20261007100300_entity_rls_lp.sql',
 ].join(',')).split(',')
 
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'pipe' })
@@ -63,15 +64,35 @@ create table crypto_wallets (id uuid primary key default gen_random_uuid(), fund
 create table inbound_deals (id uuid primary key default gen_random_uuid(), fund_id uuid not null references funds(id));
 create table journal_entries (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, memo text);
 create table company_notes (id uuid primary key default gen_random_uuid(), fund_id uuid not null, company_id uuid, content text);
+create table lp_investors (id uuid primary key default gen_random_uuid(), fund_id uuid not null, name text);
+create table lp_entities (id uuid primary key default gen_random_uuid(), fund_id uuid not null, investor_id uuid, entity_name text);
+create table lp_investments (id uuid primary key default gen_random_uuid(), fund_id uuid not null, entity_id uuid, portfolio_group text not null);
+create table commitment_events (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, lp_entity_id uuid);
+create table lp_positions (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, lp_entity_id uuid);
+create table lp_capital_events (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, lp_entity_id uuid);
+create table capital_call_lines (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, lp_entity_id uuid);
+create table distribution_lines (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, lp_entity_id uuid);
+create table lp_letters (id uuid primary key default gen_random_uuid(), fund_id uuid not null, portfolio_group text not null, title text);
+create table lp_documents (id uuid primary key default gen_random_uuid(), fund_id uuid not null, scope text not null, title text);
+create table lp_document_shares (id uuid primary key default gen_random_uuid(), fund_id uuid not null, document_id uuid, lp_investor_id uuid);
+create table lp_onboarding_items (id uuid primary key default gen_random_uuid(), fund_id uuid not null, lp_entity_id uuid);
+-- The LP portal's own identity: an LP account sees its investor's rows.
+create table lp_account_links (user_id uuid, lp_investor_id uuid);
+create function get_my_lp_investor_ids() returns uuid[] language sql stable security definer set search_path = public as
+  $$ select coalesce(array_agg(lp_investor_id), '{}') from lp_account_links where user_id = auth.uid() $$;
+grant execute on function get_my_lp_investor_ids() to authenticated;
 grant select on all tables in schema public to authenticated;
 -- The existing domain policies, reduced to "any member of the fund": the entity rule must narrow
 -- them, so they have to exist and pass first.
 do $$ declare t text; begin
-  foreach t in array array['companies','investment_transactions','journal_entries','company_notes','fund_vehicles','inbound_deals','crypto_wallets','fund_holding_terms','chart_of_accounts'] loop
+  foreach t in array array['companies','investment_transactions','journal_entries','company_notes','fund_vehicles','inbound_deals','crypto_wallets','fund_holding_terms','chart_of_accounts',
+    'lp_investors','lp_entities','lp_investments','commitment_events','lp_letters','lp_documents','lp_document_shares'] loop
     execute format('alter table %I enable row level security', t);
     execute format('create policy "members" on %I for select to authenticated using (fund_id in (select fund_id from fund_members where user_id = auth.uid()))', t);
   end loop;
 end $$;
+-- The LP portal's own policy on investors: an LP reads its own investor row (not a fund member).
+create policy "lp self" on lp_investors for select to authenticated using (id = any(get_my_lp_investor_ids()));
 alter table fund_members enable row level security;
 create policy "self" on fund_members for select to authenticated using (true);
 `
@@ -230,6 +251,35 @@ try {
     `set role authenticated; select set_config('request.jwt.claim.sub', '${MEMBER}', false); explain select * from companies`],
     { stdio: 'pipe' }).toString()
   check('the companies policy evaluates its helpers once per query', String(/InitPlan/.test(plan)), 'true')
+
+  // ---- LPs: visible when they have a position in one of the caller's entities. ----
+  const I1 = '00000000-0000-0000-0000-00000000a001', I2 = '00000000-0000-0000-0000-00000000a002', I3 = '00000000-0000-0000-0000-00000000a003'
+  const L1 = '00000000-0000-0000-0000-00000000b001', L2 = '00000000-0000-0000-0000-00000000b002', L3 = '00000000-0000-0000-0000-00000000b003'
+  const LP_USER = '00000000-0000-0000-0000-0000000000e9'
+  psql(`insert into auth.users values ('${LP_USER}');
+        insert into lp_investors (id, fund_id, name) values ('${I1}', '${F}', 'Ann'), ('${I2}', '${F}', 'Bob'), ('${I3}', '${F}', 'Cy');
+        insert into lp_entities (id, fund_id, investor_id, entity_name) values ('${L1}', '${F}', '${I1}', 'Ann LLC'), ('${L2}', '${F}', '${I2}', 'Bob Trust'), ('${L3}', '${F}', '${I3}', 'Cy LP');
+        insert into lp_investments (fund_id, entity_id, portfolio_group) values ('${F}', '${L1}', 'Fund I'), ('${F}', '${L2}', 'Fund II');
+        insert into commitment_events (fund_id, vehicle_id, lp_entity_id) values ('${F}', '${V1}', '${L3}'), ('${F}', '${V2}', '${L2}');
+        insert into lp_letters (fund_id, portfolio_group, title) values ('${F}', 'Fund I', 'Q3 Fund I'), ('${F}', 'Fund II', 'Q3 Fund II');
+        insert into lp_documents (id, fund_id, scope, title) values ('${I1.replace('a001','d001')}', '${F}', 'fund', 'Everyone'),
+          ('${I1.replace('a001','d002')}', '${F}', 'investor', 'For Bob');
+        insert into lp_document_shares (fund_id, document_id, lp_investor_id) values ('${F}', '${I1.replace('a001','d002')}', '${I2}');
+        insert into lp_account_links values ('${LP_USER}', '${I2}');`)
+  check('a member sees LPs with a position in their entity — by legacy group or by commitment',
+    psql(`select string_agg(entity_name, ',' order by entity_name) from lp_entities`, { as: MEMBER }), 'Ann LLC,Cy LP')
+  check('…and the investors behind them only',
+    psql(`select string_agg(name, ',' order by name) from lp_investors`, { as: MEMBER }), 'Ann,Cy')
+  check('a member sees only their entity\'s commitment rows',
+    psql(`select count(*) from commitment_events`, { as: MEMBER }), '1')
+  check('…their entity\'s letters',
+    psql(`select string_agg(title, ',') from lp_letters`, { as: MEMBER }), 'Q3 Fund I')
+  check('…fund-wide documents, not documents shared only with an investor they cannot see',
+    psql(`select string_agg(title, ',') from lp_documents`, { as: MEMBER }), 'Everyone')
+  check('an admin sees every LP',
+    psql(`select count(*) from lp_entities`, { as: ADMIN }), '3')
+  check('an LP portal user (not a fund member) still reads their own investor row',
+    psql(`select string_agg(name, ',') from lp_investors`, { as: LP_USER }), 'Bob')
 
   // ---- Single-entity funds: unlinked companies are assigned to the one entity on push. ----
   check('a company in a one-entity fund is assigned to that entity, so no member loses it',
