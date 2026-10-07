@@ -9,7 +9,8 @@
 -- Each table gets the predicate its columns call for, decided below from information_schema so a
 -- table this install does not have is skipped rather than failing the migration:
 --
---   companies              the company is linked (company_vehicles) to one of the caller's entities
+--   companies              the company is linked (company_vehicles) to one of the caller's entities,
+--                          or the caller is the fund's admin (who also sees unassigned companies)
 --   vehicle_id             the row's entity is one of theirs; a row with no entity is admin-only
 --   portfolio_group (text) the entity that name (or alias) denotes is one of theirs; a row with no
 --                          entity is visible with its company when it has one (a company-wide price
@@ -19,52 +20,56 @@
 -- See plans/spec-entity-access-and-portfolio.md and lib/access/scope.ts (the same rules in code).
 
 -- ---------------------------------------------------------------------------
--- Helpers. Security definer so policies can call them without recursing through RLS.
+-- Helpers. Argument-free and security definer, so a policy wraps each as `(select f())` — an
+-- initplan Postgres evaluates ONCE per query, not once per row — and calls them without recursing
+-- through RLS. A helper taking row arguments would run its subqueries for every row scanned, admins
+-- included.
 -- ---------------------------------------------------------------------------
-create or replace function public.is_fund_admin(p_fund uuid)
-returns boolean
+create or replace function public.admin_fund_ids()
+returns uuid[]
 language sql
 stable
 security definer
 set search_path = public
 as $$
-  select exists (select 1 from fund_members m where m.fund_id = p_fund and m.user_id = auth.uid() and m.role = 'admin');
+  select coalesce(array_agg(m.fund_id), '{}'::uuid[]) from fund_members m
+   where m.user_id = auth.uid() and m.role = 'admin';
 $$;
 
-revoke execute on function public.is_fund_admin(uuid) from public, anon;
-grant execute on function public.is_fund_admin(uuid) to authenticated, service_role;
+revoke execute on function public.admin_fund_ids() from public, anon;
+grant execute on function public.admin_fund_ids() to authenticated, service_role;
 
-create or replace function public.can_see_company(p_fund uuid, p_company uuid)
-returns boolean
+create or replace function public.company_ids_readable()
+returns uuid[]
 language sql
 stable
 security definer
 set search_path = public
 as $$
-  select public.is_fund_admin(p_fund)
-      or exists (select 1 from company_vehicles cv
-                  where cv.company_id = p_company
-                    and cv.vehicle_id = any(public.vehicle_ids_readable()));
+  select coalesce(array_agg(distinct cv.company_id), '{}'::uuid[]) from company_vehicles cv
+   where cv.vehicle_id = any(public.vehicle_ids_readable());
 $$;
 
-revoke execute on function public.can_see_company(uuid, uuid) from public, anon;
-grant execute on function public.can_see_company(uuid, uuid) to authenticated, service_role;
+revoke execute on function public.company_ids_readable() from public, anon;
+grant execute on function public.company_ids_readable() to authenticated, service_role;
 
-create or replace function public.can_see_group(p_fund uuid, p_group text)
-returns boolean
+-- Names AND aliases: portfolio_group strings may carry either.
+create or replace function public.group_names_readable()
+returns text[]
 language sql
 stable
 security definer
 set search_path = public
 as $$
-  select public.is_fund_admin(p_fund)
-      or (p_group is not null and public.vehicle_id_for_name(p_fund, p_group) = any(public.vehicle_ids_readable()));
+  select coalesce(array_agg(distinct n), '{}'::text[])
+    from fund_vehicles v, unnest(array[v.name] || v.aliases) n
+   where v.id = any(public.vehicle_ids_readable());
 $$;
 
-revoke execute on function public.can_see_group(uuid, text) from public, anon;
-grant execute on function public.can_see_group(uuid, text) to authenticated, service_role;
+revoke execute on function public.group_names_readable() from public, anon;
+grant execute on function public.group_names_readable() to authenticated, service_role;
 
--- vehicle_id_for_name is called from the definer helper above; keep it off the public API surface.
+-- vehicle_id_for_name is used by the company_vehicles triggers; keep it off the public API surface.
 revoke execute on function public.vehicle_id_for_name(uuid, text) from public, anon;
 grant execute on function public.vehicle_id_for_name(uuid, text) to authenticated, service_role;
 
@@ -79,7 +84,7 @@ declare
   tables text[] := array[
     -- portfolio
     'companies', 'company_documents', 'company_summaries', 'company_updates', 'company_update_artifacts',
-    'company_update_chunks', 'metrics', 'parsing_reviews', 'investment_transactions', 'inbound_emails',
+    'company_update_chunks', 'metrics', 'metric_values', 'parsing_reviews', 'investment_transactions', 'inbound_emails',
     'email_requests', 'fund_group_config', 'fund_cash_flows', 'fund_capital_events', 'fund_holding_terms',
     'fund_nav_statements', 'company_notes',
     -- accounting
@@ -110,17 +115,19 @@ begin
       when t = 'fund_vehicles' then
         'id = any((select public.vehicle_ids_readable())::uuid[])'
       when t = 'companies' then
-        'public.can_see_company(fund_id, id)'
+        'fund_id = any((select public.admin_fund_ids())::uuid[]) or id = any((select public.company_ids_readable())::uuid[])'
       when t = 'inbound_deals' then
-        'public.is_fund_admin(fund_id) or vehicle_id = any((select public.vehicle_ids_readable())::uuid[])'
+        'fund_id = any((select public.admin_fund_ids())::uuid[]) or vehicle_id = any((select public.vehicle_ids_readable())::uuid[])'
       when 'vehicle_id' = any(cols) then
-        'vehicle_id = any((select public.vehicle_ids_readable())::uuid[]) or (vehicle_id is null and public.is_fund_admin(fund_id))'
+        'vehicle_id = any((select public.vehicle_ids_readable())::uuid[]) or (vehicle_id is null and fund_id = any((select public.admin_fund_ids())::uuid[]))'
       when 'portfolio_group' = any(cols) and 'company_id' = any(cols) then
-        'case when portfolio_group is null then public.can_see_company(fund_id, company_id) else public.can_see_group(fund_id, portfolio_group) end'
+        'fund_id = any((select public.admin_fund_ids())::uuid[]) or case when portfolio_group is null '
+        || 'then company_id = any((select public.company_ids_readable())::uuid[]) '
+        || 'else portfolio_group = any((select public.group_names_readable())::text[]) end'
       when 'portfolio_group' = any(cols) then
-        'public.can_see_group(fund_id, portfolio_group)'
+        'fund_id = any((select public.admin_fund_ids())::uuid[]) or portfolio_group = any((select public.group_names_readable())::text[])'
       when 'company_id' = any(cols) then
-        'company_id is null or public.can_see_company(fund_id, company_id)'
+        'company_id is null or fund_id = any((select public.admin_fund_ids())::uuid[]) or company_id = any((select public.company_ids_readable())::uuid[])'
       else null
     end;
 

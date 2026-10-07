@@ -9,7 +9,6 @@ import { TABLE_RULES } from './table-domains'
  * decides which — the same shape as the domain registry's own test.
  */
 const EXEMPT: Record<string, string> = {
-  metric_values: 'keyed by metric — readable only through metrics, which carries the rule',
   default_metrics: 'fund-wide metric templates, no entity data',
   default_metric_exclusions: 'fund-wide metric template settings, no entity data',
   ask_response_overrides: 'fund-wide AI answer overrides, no entity data',

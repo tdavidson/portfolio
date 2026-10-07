@@ -108,6 +108,11 @@ try {
         insert into fund_vehicles (id, fund_id, name) values ('${V1}', '${F}', 'Fund I'), ('${V2}', '${F}', 'Fund II'),
           ('${VX}', '${OTHER_F}', 'Elsewhere');`)
 
+  // Before the migrations: a fund with ONE entity and a company never tagged to it, and a company
+  // in the two-entity fund tagged to nothing. Pushing must not hide the first from members.
+  const ORPHAN = '00000000-0000-0000-0000-0000000000f1', LOOSE = '00000000-0000-0000-0000-0000000000f2'
+  psql(`insert into companies (id, fund_id, name) values ('${ORPHAN}', '${OTHER_F}', 'Orphan'), ('${LOOSE}', '${F}', 'Loose')`)
+
   for (const m of MIGRATIONS) applyFile(join('supabase/migrations', m))
 
   // ---- Backfill: nobody loses access on deploy. ----
@@ -203,7 +208,7 @@ try {
   check('a member sees companies linked to their entities only',
     psql(`select string_agg(name, ',' order by name) from companies`, { as: MEMBER }), 'Acme,Beta')
   check('an admin sees every company',
-    psql(`select count(*) from companies`, { as: ADMIN }), '4')
+    psql(`select count(*) from companies`, { as: ADMIN }), '5')
 
   psql(`insert into investment_transactions (fund_id, company_id, portfolio_group, transaction_type) values
           ('${F}', '${C}', 'Fund II', 'investment')`)
@@ -219,6 +224,31 @@ try {
 
   check('a member sees only their entities in the entity list',
     psql(`select string_agg(name, ',' order by name) from fund_vehicles`, { as: MEMBER }), 'Fund I')
+
+  // The entity helpers are evaluated once per query (an InitPlan), not once per row.
+  const plan = execFileSync('psql', ['-h', WORK, '-p', PORT, '-U', 'postgres', '-d', 'postgres', '-qtA', '-c',
+    `set role authenticated; select set_config('request.jwt.claim.sub', '${MEMBER}', false); explain select * from companies`],
+    { stdio: 'pipe' }).toString()
+  check('the companies policy evaluates its helpers once per query', String(/InitPlan/.test(plan)), 'true')
+
+  // ---- Single-entity funds: unlinked companies are assigned to the one entity on push. ----
+  check('a company in a one-entity fund is assigned to that entity, so no member loses it',
+    psql(`select v.name || ':' || cv.relation from company_vehicles cv join fund_vehicles v on v.id = cv.vehicle_id where cv.company_id = '${ORPHAN}'`),
+    'Elsewhere:assigned')
+  check('a company in a several-entity fund stays unassigned — there is no single right answer',
+    psql(`select count(*) from company_vehicles where company_id = '${LOOSE}'`), '0')
+
+  // ---- Renaming an entity keeps its companies linked. ----
+  // The app retags portfolio_group strings to the new name FIRST, then renames the row keeping the
+  // old name as an alias (lib/vehicles.ts). Between the two, the new name matches no entity.
+  const before = links(C)  // Acme: assigned to Fund I by name only
+  psql(`update investment_transactions set portfolio_group = 'Fund One' where portfolio_group = 'Fund I'`)
+  psql(`update companies set portfolio_group = array_replace(portfolio_group, 'Fund I', 'Fund One')`)
+  psql(`update fund_vehicles set name = 'Fund One', aliases = aliases || '{"Fund I"}' where id = '${V1}'`)
+  check('renaming an entity relinks its companies under the new name', links(C), before.replace('Fund I:', 'Fund One:').split(',').sort().join(','))
+  psql(`update fund_vehicles set name = 'Fund I', aliases = '{}' where id = '${V1}'`)
+  psql(`update investment_transactions set portfolio_group = 'Fund I' where portfolio_group = 'Fund One'`)
+  psql(`update companies set portfolio_group = array_replace(portfolio_group, 'Fund One', 'Fund I')`)
 
   // ---- Re-runnable. ----
   for (const m of MIGRATIONS.slice(1)) applyFile(join('supabase/migrations', m))

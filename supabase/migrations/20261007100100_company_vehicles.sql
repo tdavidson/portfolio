@@ -36,7 +36,7 @@ alter table public.company_vehicles enable row level security;
 drop policy if exists "Members read links for their entities" on public.company_vehicles;
 create policy "Members read links for their entities"
   on public.company_vehicles for select to authenticated
-  using (vehicle_id = any(public.vehicle_ids_readable()));
+  using (vehicle_id = any((select public.vehicle_ids_readable())::uuid[]));
 
 -- ---------------------------------------------------------------------------
 -- The entity a portfolio_group string names, by name or alias, within a fund.
@@ -191,6 +191,33 @@ create trigger company_vehicles_from_company
   after insert or update of portfolio_group on public.companies
   for each row execute function public.company_vehicles_from_company();
 
+-- An entity's name or aliases changing — a rename, an alias added, an entity created that an existing
+-- portfolio_group string already names — changes which companies its name links. Renaming retags the
+-- strings to the new name BEFORE renaming the row (lib/vehicles.ts), so for a moment the new name
+-- matches nothing and those links drop; this puts them back once the row says the new name.
+create or replace function public.company_vehicles_from_vehicle()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+declare
+  c record;
+begin
+  for c in select id from companies where fund_id = new.fund_id loop
+    perform refresh_company_vehicles(c.id);
+  end loop;
+  return null;
+end;
+$$;
+
+revoke execute on function public.company_vehicles_from_vehicle() from public, anon, authenticated;
+
+drop trigger if exists company_vehicles_from_vehicle on public.fund_vehicles;
+create trigger company_vehicles_from_vehicle
+  after insert or update of name, aliases on public.fund_vehicles
+  for each row execute function public.company_vehicles_from_vehicle();
+
 -- ---------------------------------------------------------------------------
 -- Backfill every company once (re-runnable: refresh is idempotent).
 -- ---------------------------------------------------------------------------
@@ -202,6 +229,20 @@ begin
     perform public.refresh_company_vehicles(c.id);
   end loop;
 end $$;
+
+-- A fund with ONE entity has only one possible answer for a company tagged to none: that entity.
+-- Assigning it means pushing this does not hide the fund's untagged companies from its members (a
+-- company linked to no entity is admin-only). A fund with several entities has no single right
+-- answer, so its untagged companies stay unassigned for an admin to place — list them with
+-- scripts/check-unlinked-companies.sql before pushing. Writing portfolio_group fires the companies
+-- trigger, which records the assignment.
+update public.companies c
+   set portfolio_group = array[v.name]
+  from public.fund_vehicles v
+ where v.fund_id = c.fund_id
+   and v.active and v.kind <> 'manco'
+   and (select count(*) from public.fund_vehicles o where o.fund_id = c.fund_id and o.active and o.kind <> 'manco') = 1
+   and not exists (select 1 from public.company_vehicles cv where cv.company_id = c.id);
 
 -- ---------------------------------------------------------------------------
 -- Deals carry their owning entity from the start; visibility follows it.
