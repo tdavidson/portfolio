@@ -20,6 +20,7 @@ const MIGRATIONS = (process.env.ENTITY_MIGRATIONS ?? [
   '20260716000009_access_context_rpc.sql',
   '20261007100000_entity_access_grants.sql',
   '20261007100100_company_vehicles.sql',
+  '20261007100200_entity_rls.sql',
 ].join(',')).split(',')
 
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'pipe' })
@@ -60,7 +61,19 @@ create table fund_holding_terms (company_id uuid primary key references companie
 create table crypto_wallets (id uuid primary key default gen_random_uuid(), fund_id uuid not null,
   company_id uuid not null references companies(id) on delete cascade, portfolio_group text, address text not null);
 create table inbound_deals (id uuid primary key default gen_random_uuid(), fund_id uuid not null references funds(id));
+create table journal_entries (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, memo text);
+create table company_notes (id uuid primary key default gen_random_uuid(), fund_id uuid not null, company_id uuid, content text);
 grant select on all tables in schema public to authenticated;
+-- The existing domain policies, reduced to "any member of the fund": the entity rule must narrow
+-- them, so they have to exist and pass first.
+do $$ declare t text; begin
+  foreach t in array array['companies','investment_transactions','journal_entries','company_notes','fund_vehicles','inbound_deals','crypto_wallets','fund_holding_terms','chart_of_accounts'] loop
+    execute format('alter table %I enable row level security', t);
+    execute format('create policy "members" on %I for select to authenticated using (fund_id in (select fund_id from fund_members where user_id = auth.uid()))', t);
+  end loop;
+end $$;
+alter table fund_members enable row level security;
+create policy "self" on fund_members for select to authenticated using (true);
 `
 
 const F = '00000000-0000-0000-0000-00000000000f'
@@ -175,6 +188,37 @@ try {
 
   check('a deal can carry an owning entity',
     psql(`select count(*) from information_schema.columns where table_name = 'inbound_deals' and column_name = 'vehicle_id'`), '1')
+
+  // ---- RLS: the browser's Data API path sees only the caller's entities. ----
+  const J1 = '00000000-0000-0000-0000-0000000001a1', J2 = '00000000-0000-0000-0000-0000000001a2', J0 = '00000000-0000-0000-0000-0000000001a0'
+  psql(`insert into journal_entries (id, fund_id, vehicle_id, memo) values ('${J1}', '${F}', '${V1}', 'one'), ('${J2}', '${F}', '${V2}', 'two'),
+          ('${J0}', '${F}', null, 'legacy')`)
+  check('a member granted Fund I reads only Fund I\'s journal entries',
+    psql(`select string_agg(memo, ',' order by memo) from journal_entries`, { as: MEMBER }), 'one')
+  check('an admin reads every entity\'s, and legacy rows with no entity',
+    psql(`select string_agg(memo, ',' order by memo) from journal_entries`, { as: ADMIN }), 'legacy,one,two')
+
+  // Companies: Acme is held by Fund II (ledger) and assigned to Fund I; Beta held by Fund I; Gamma and
+  // Token by Fund II only.
+  check('a member sees companies linked to their entities only',
+    psql(`select string_agg(name, ',' order by name) from companies`, { as: MEMBER }), 'Acme,Beta')
+  check('an admin sees every company',
+    psql(`select count(*) from companies`, { as: ADMIN }), '4')
+
+  psql(`insert into investment_transactions (fund_id, company_id, portfolio_group, transaction_type) values
+          ('${F}', '${C}', 'Fund II', 'investment')`)
+  check('a member reads a shared company\'s Fund I rows and its company-wide price signals, not Fund II\'s',
+    psql(`select string_agg(coalesce(portfolio_group, 'company-wide'), ',' order by portfolio_group nulls first)
+            from investment_transactions where company_id = '${C}'`, { as: MEMBER }), 'company-wide')
+  check('…and none of a company only Fund II holds',
+    psql(`select count(*) from investment_transactions where company_id = '${E}'`, { as: MEMBER }), '0')
+
+  psql(`insert into company_notes (fund_id, company_id, content) values ('${F}', '${E}', 'gamma note'), ('${F}', null, 'general')`)
+  check('a member reads fund-wide notes, not notes about a company they cannot see',
+    psql(`select string_agg(content, ',' order by content) from company_notes`, { as: MEMBER }), 'general')
+
+  check('a member sees only their entities in the entity list',
+    psql(`select string_agg(name, ',' order by name) from fund_vehicles`, { as: MEMBER }), 'Fund I')
 
   // ---- Re-runnable. ----
   for (const m of MIGRATIONS.slice(1)) applyFile(join('supabase/migrations', m))
