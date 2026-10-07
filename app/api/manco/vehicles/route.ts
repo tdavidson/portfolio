@@ -8,6 +8,8 @@ import { dbError } from '@/lib/api-error'
 import { listMancoVehicles } from '@/lib/accounting/load'
 import { chartForVehicleKind } from '@/lib/accounting/chart'
 import { MANCO_KIND } from '@/lib/vehicle-kinds'
+import { loadAccessContext } from '@/lib/access/effective'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 // GET — the fund's management companies, with enough state for the section's landing page to
 // distinguish "not set up yet" from "set up and empty".
@@ -19,7 +21,9 @@ export async function GET() {
   const gate = await assertReadAccess(admin, user.id)
   if (gate instanceof NextResponse) return gate
 
-  const vehicles = await listMancoVehicles(admin, gate.fundId)
+  // Only the caller's entities.
+  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  const vehicles = (await listMancoVehicles(admin, gate.fundId)).filter(v => canSeeVehicle(access, v.id))
   if (vehicles.length === 0) return NextResponse.json([])
 
   // WHICH MANCO ACCOUNTS ARE MISSING, not merely whether a chart exists.
