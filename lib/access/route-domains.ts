@@ -293,6 +293,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // Fund-of-funds holdings and their register. Portfolio, not accounting: an underlying fund
   // is a holding, and confirming a register row posts through the same investments path.
   'api/portfolio/sheet': { domain: 'portfolio' },
+  'api/entities': { domain: 'portfolio', level: 'any' },
   'api/portfolio/fund-holdings': { domain: 'portfolio', feature: 'investments' },
   'api/portfolio/fund-holdings/[id]': { domain: 'portfolio', feature: 'investments' },
   'api/portfolio/fund-holdings/[id]/events': { domain: 'portfolio', feature: 'investments' },

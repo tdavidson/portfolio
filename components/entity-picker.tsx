@@ -6,7 +6,7 @@ interface Entity { id: string; name: string; kind: string; active: boolean }
 
 /**
  * Pick one of the viewer's entities (funds, SPVs — not the management company, which makes no
- * investments). `/api/vehicles` lists only the entities the viewer can see, so this can never offer
+ * investments). `/api/entities` lists only the entities the viewer can see, and needs no accounting grant, so this can never offer
  * one they cannot.
  */
 export function EntityPicker({ value, onChange, allowUnassigned = false, disabled = false, id }: {
@@ -20,7 +20,7 @@ export function EntityPicker({ value, onChange, allowUnassigned = false, disable
   const [entities, setEntities] = useState<Entity[] | null>(null)
 
   useEffect(() => {
-    fetch('/api/vehicles')
+    fetch('/api/entities')
       .then(r => (r.ok ? r.json() : []))
       .then((rows: Entity[]) => setEntities((rows ?? []).filter(e => e.active && e.kind !== 'manco')))
       .catch(() => setEntities([]))

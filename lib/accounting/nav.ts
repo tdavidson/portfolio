@@ -105,13 +105,6 @@ export const ACCOUNTING_SECTIONS: AccountingSection[] = [
   // KPI update — so it is recorded on that holding, next to the NAV it reports and the mark it
   // implies. A quarter-wide sheet made it a separate ritual and a second place to look.
   {
-    href: '/funds/portfolio',
-    label: 'Portfolio',
-    icon: Layers,
-    desc: 'Every holding — companies, funds and digital assets — with its cost, value and latest news.',
-    hideFor: ['associate', 'manco'],
-  },
-  {
     href: '/funds/schedule-of-investments',
     label: 'Schedule of investments',
     icon: Layers,

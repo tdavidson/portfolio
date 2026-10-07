@@ -7,6 +7,6 @@
  *  "Attempted to call has() from the server but has is on the client". */
 export const FUND_SUBPAGE_SLUGS = new Set([
   'status', 'bank', 'journal', 'ledger', 'text', 'tax', 'periods', 'statements', 'capital-accounts', 'construction',
-  'schedule-of-investments', 'portfolio', 'allocation-terms', 'opening-balances', 'lp-events',
+  'schedule-of-investments', 'allocation-terms', 'opening-balances', 'lp-events',
   'migrate',
 ])
