@@ -22,7 +22,7 @@ export function EntityPicker({ value, onChange, allowUnassigned = false, disable
   useEffect(() => {
     fetch('/api/entities')
       .then(r => (r.ok ? r.json() : []))
-      .then((rows: Entity[]) => setEntities((rows ?? []).filter(e => e.active && e.kind !== 'manco')))
+      .then((rows: Entity[]) => setEntities((rows ?? []).filter(e => e.kind !== 'manco')))
       .catch(() => setEntities([]))
   }, [])
 
@@ -35,7 +35,11 @@ export function EntityPicker({ value, onChange, allowUnassigned = false, disable
       className="w-full rounded-lg border border-input bg-transparent px-2 py-1.5 text-sm"
     >
       <option value="" disabled={!allowUnassigned}>{entities === null ? 'Loading…' : allowUnassigned ? 'Unassigned' : 'Choose an entity'}</option>
-      {(entities ?? []).map(e => <option key={e.id} value={e.id}>{e.name}</option>)}
+      {/* Active entities to choose from — plus the current one if it has since been wound down, so a
+          deal on an inactive entity still shows where it sits instead of a blank. */}
+      {(entities ?? []).filter(e => e.active || e.id === value).map(e => (
+        <option key={e.id} value={e.id}>{e.active ? e.name : `${e.name} (inactive)`}</option>
+      ))}
     </select>
   )
 }

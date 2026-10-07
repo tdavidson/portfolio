@@ -11,6 +11,7 @@ function admin() {
     from(table: string) {
       const filters: Array<(r: any) => boolean> = []
       let single = false
+      let lim = Infinity
       const rows = () => (table === 'companies' ? companies : table === 'company_vehicles' ? links : table === 'fund_vehicles' ? vehicles : [])
         .filter(r => filters.every(f => f(r)))
       const chain: any = {
@@ -18,9 +19,9 @@ function admin() {
         eq: (k: string, v: any) => { if (k !== 'fund_id') filters.push(r => r[k] === v); return chain },
         in: (k: string, v: any[]) => { filters.push(r => v.includes(r[k])); return chain },
         ilike: (k: string, p: string) => { const re = new RegExp('^' + p.replace(/%/g, '.*') + '$', 'i'); filters.push(r => re.test(r[k])); return chain },
-        limit: () => chain,
+        limit: (n: number) => { lim = n; return chain },
         maybeSingle: () => { single = true; return chain },
-        then: (res: any) => res({ data: single ? rows()[0] ?? null : rows(), error: null }),
+        then: (res: any) => res({ data: single ? rows()[0] ?? null : rows().slice(0, lim), error: null }),
       }
       return chain
     },
@@ -46,5 +47,14 @@ describe('portfolio agent tools — the caller\'s entities only', () => {
   it('company_detail names only their entities for a shared company', async () => {
     const out: any = await PORTFOLIO_HANDLERS.company_detail({ admin: admin(), fundId: 'f1', portfolioGroup: '', userId: 'u1', access: member }, { company: 'Acme' })
     expect(out.vehicles).toEqual(['Fund I'])
+  })
+  it('suggestions are drawn from their companies, not cut short by others\' near-misses', async () => {
+    const extra = Array.from({ length: 6 }, (_, i) => ({ id: `x${i}`, name: `Acmeworks ${i}`, fund_id: 'f1' }))
+    companies.unshift(...extra)
+    try {
+      await expect(resolveCompany(admin(), 'f1', 'acm', member)).rejects.toThrow(/Did you mean: Acme\?/)
+    } finally {
+      companies.splice(0, extra.length)
+    }
   })
 })

@@ -14,7 +14,7 @@ import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-
 import { getUpdates } from '@/lib/company-updates/analyst'
 import type { AccessContext } from '@/lib/access/effective'
 import { entityScopeFor, type EntityScope } from '@/lib/access/entity-scope'
-import { groupWriteDenial, scopeCompanyRows, scopeGroups, scopeTransactions, visibleCompanyIds } from '@/lib/access/scope'
+import { filterByCompany, groupWriteDenial, scopeCompanyRows, scopeGroups, scopeTransactions, visibleCompanyIds } from '@/lib/access/scope'
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 
@@ -33,11 +33,12 @@ export async function resolveCompany(
   if (!ref) throw new Error('A company id or name is required')
   const visible = await visibleCompanyIds(admin, access)
   const mine = (c: any) => visible === null || visible.includes(c.id)
-  const found = await resolveAnyCompany(admin, fundId, ref, mine)
-  return found
+  return resolveAnyCompany(admin, fundId, ref, mine, visible)
 }
 
-async function resolveAnyCompany(admin: SupabaseClient, fundId: string, ref: string, mine: (c: any) => boolean): Promise<any> {
+async function resolveAnyCompany(
+  admin: SupabaseClient, fundId: string, ref: string, mine: (c: any) => boolean, visible: string[] | null,
+): Promise<any> {
   const { data: byId } = await (admin as any)
     .from('companies').select('*').eq('fund_id', fundId).eq('id', ref).maybeSingle()
   if (byId && mine(byId)) return byId
@@ -50,8 +51,9 @@ async function resolveAnyCompany(admin: SupabaseClient, fundId: string, ref: str
     throw new Error(`"${ref}" matches ${rows.length} companies — pass the company id instead.`)
   }
 
-  const { data: fuzzy } = await (admin as any)
-    .from('companies').select('id, name').eq('fund_id', fundId).ilike('name', `%${ref}%`).limit(5)
+  // Scoped in the query, so a scoped caller still gets five suggestions of their own.
+  const { data: fuzzy } = await filterByCompany((admin as any)
+    .from('companies').select('id, name').eq('fund_id', fundId).ilike('name', `%${ref}%`), visible, { column: 'id' }).limit(5)
   const near = ((fuzzy as any[]) ?? []).filter(mine).map(c => c.name)
   throw new Error(
     near.length > 0

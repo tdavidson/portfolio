@@ -20,7 +20,7 @@ export async function GET() {
 
   const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
   const { data } = await (admin as any).from('fund_vehicles')
-    .select('id, name, kind, active').eq('fund_id', gate.fundId).eq('active', true).order('name')
+    .select('id, name, kind, active').eq('fund_id', gate.fundId).order('name')
   // A management company is listed only to a caller with that domain, like every other entity list.
   const mancos = hasAccess(access, 'management_company', 'read')
   return NextResponse.json(((data as any[]) ?? [])
