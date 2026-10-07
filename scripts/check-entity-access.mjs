@@ -155,6 +155,8 @@ try {
   // in the two-entity fund tagged to nothing. Pushing must not hide the first from members.
   const ORPHAN = '00000000-0000-0000-0000-0000000000f1', LOOSE = '00000000-0000-0000-0000-0000000000f2'
   psql(`insert into companies (id, fund_id, name) values ('${ORPHAN}', '${OTHER_F}', 'Orphan'), ('${LOOSE}', '${F}', 'Loose')`)
+  const TAGGED = '00000000-0000-0000-0000-0000000000f3'
+  psql(`insert into companies (id, fund_id, name, portfolio_group) values ('${TAGGED}', '${OTHER_F}', 'Tagged', '{"Old SPV"}')`)
   const DD1 = '00000000-0000-0000-0000-00000000dd01', DD2 = '00000000-0000-0000-0000-00000000dd02', DD3 = '00000000-0000-0000-0000-00000000dd03'
   psql(`insert into diligence_deals (id, fund_id, name) values ('${DD1}', '${F}', 'From a Fund I deal'), ('${DD2}', '${F}', 'By hand'),
           ('${DD3}', '${OTHER_F}', 'One-entity fund')`)
@@ -357,6 +359,8 @@ try {
   check('a company in a one-entity fund is assigned to that entity, so no member loses it',
     psql(`select v.name || ':' || cv.relation from company_vehicles cv join fund_vehicles v on v.id = cv.vehicle_id where cv.company_id = '${ORPHAN}'`),
     'Elsewhere:assigned')
+  check('assigning it keeps a legacy tag it already had',
+    psql(`select array_to_string(portfolio_group, ',') from companies where id = '${TAGGED}'`), 'Elsewhere,Old SPV')
   check('a company in a several-entity fund stays unassigned — there is no single right answer',
     psql(`select count(*) from company_vehicles where company_id = '${LOOSE}'`), '0')
 

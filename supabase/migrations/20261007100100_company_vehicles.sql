@@ -237,7 +237,7 @@ end $$;
 -- scripts/check-unlinked-companies.sql before pushing. Writing portfolio_group fires the companies
 -- trigger, which records the assignment.
 update public.companies c
-   set portfolio_group = array[v.name]
+   set portfolio_group = coalesce(c.portfolio_group, '{}') || array[v.name]  -- keep any legacy tag
   from public.fund_vehicles v
  where v.fund_id = c.fund_id
    and v.active and v.kind <> 'manco'
