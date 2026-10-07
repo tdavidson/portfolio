@@ -28,9 +28,57 @@ $$;
 revoke execute on function public.is_fund_member() from public, anon;
 grant execute on function public.is_fund_member() to authenticated, service_role;
 
--- LP entities with a position in one of the caller's entities: a commitment, a position, capital
--- events, call or distribution lines (all keyed by vehicle_id), or a legacy lp_investments row
--- tagged to one of their entities' names.
+-- LP entities with a position in the given entities: a commitment, a position, capital events, call
+-- or distribution lines, allocation terms, ownership or carry (all keyed by vehicle_id), membership
+-- of one of the entities' closings (an LP admitted before any commitment is recorded), or a legacy
+-- lp_investments row tagged with one of the given names in the same funds. Distinct ids, computed in
+-- the database: the app calls this as an RPC rather than reading the position tables itself, which
+-- would hit PostgREST's row cap and silently drop LPs.
+create or replace function public.lp_entity_ids_for(p_vehicle_ids uuid[], p_names text[])
+returns uuid[]
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with v as (select unnest(coalesce(p_vehicle_ids, '{}'::uuid[])) as id),
+  funds as (select distinct fund_id from fund_vehicles where id in (select id from v))
+  select coalesce(array_agg(distinct e), '{}'::uuid[]) from (
+    select lp_entity_id as e from commitment_events where vehicle_id in (select id from v)
+    union select lp_entity_id from lp_positions where vehicle_id in (select id from v)
+    union select lp_entity_id from lp_capital_events where vehicle_id in (select id from v)
+    union select lp_entity_id from capital_call_lines where vehicle_id in (select id from v)
+    union select lp_entity_id from distribution_lines where vehicle_id in (select id from v)
+    union select lp_entity_id from partner_allocation_terms where vehicle_id in (select id from v)
+    union select lp_entity_id from vehicle_partner_ownership where vehicle_id in (select id from v)
+    union select lp_entity_id from carry_payments where vehicle_id in (select id from v)
+    union select m.lp_entity_id from vehicle_closing_members m
+            join vehicle_closings c on c.id = m.closing_id where c.vehicle_id in (select id from v)
+    union select entity_id from lp_investments
+           where portfolio_group = any(coalesce(p_names, '{}'::text[])) and fund_id in (select fund_id from funds)
+  ) s
+  where e is not null;
+$$;
+
+revoke execute on function public.lp_entity_ids_for(uuid[], text[]) from public, anon, authenticated;
+grant execute on function public.lp_entity_ids_for(uuid[], text[]) to service_role;
+
+-- The investors behind given LP entities — also an RPC, for the same reason.
+create or replace function public.lp_investor_ids_for(p_entity_ids uuid[])
+returns uuid[]
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(array_agg(distinct investor_id), '{}'::uuid[]) from lp_entities
+   where id = any(coalesce(p_entity_ids, '{}'::uuid[])) and investor_id is not null;
+$$;
+
+revoke execute on function public.lp_investor_ids_for(uuid[]) from public, anon, authenticated;
+grant execute on function public.lp_investor_ids_for(uuid[]) to service_role;
+
+-- The caller's own: the same rule over their entities, for RLS.
 create or replace function public.lp_entity_ids_readable()
 returns uuid[]
 language sql
@@ -38,17 +86,7 @@ stable
 security definer
 set search_path = public
 as $$
-  with v as (select unnest(public.vehicle_ids_readable()) as id),
-  g as (select unnest(public.group_names_readable()) as name)
-  select coalesce(array_agg(distinct e), '{}'::uuid[]) from (
-    select lp_entity_id as e from commitment_events where vehicle_id in (select id from v)
-    union select lp_entity_id from lp_positions where vehicle_id in (select id from v)
-    union select lp_entity_id from lp_capital_events where vehicle_id in (select id from v)
-    union select lp_entity_id from capital_call_lines where vehicle_id in (select id from v)
-    union select lp_entity_id from distribution_lines where vehicle_id in (select id from v)
-    union select entity_id from lp_investments where portfolio_group in (select name from g)
-  ) s
-  where e is not null;
+  select public.lp_entity_ids_for(public.vehicle_ids_readable(), public.group_names_readable());
 $$;
 
 revoke execute on function public.lp_entity_ids_readable() from public, anon;

@@ -11,35 +11,30 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { EntityScope } from './entity-scope'
 import { visibleVehicleIds } from './scope'
 
-const POSITION_TABLES = ['commitment_events', 'lp_positions', 'lp_capital_events', 'capital_call_lines', 'distribution_lines']
+/** Distinct LP entity ids with a position in these entities (or tagged with these names). An error
+ *  yields none — fail closed. */
+async function lpEntityIdsFor(admin: SupabaseClient, vehicleIds: string[], names: string[]): Promise<string[]> {
+  const { data, error } = await (admin as any).rpc('lp_entity_ids_for', { p_vehicle_ids: vehicleIds, p_names: names })
+  return error ? [] : ((data as string[] | null) ?? [])
+}
+
+async function lpInvestorIdsFor(admin: SupabaseClient, entityIds: string[]): Promise<string[]> {
+  if (entityIds.length === 0) return []
+  const { data, error } = await (admin as any).rpc('lp_investor_ids_for', { p_entity_ids: entityIds })
+  return error ? [] : ((data as string[] | null) ?? [])
+}
 
 export async function visibleLpEntityIds(admin: SupabaseClient, scope: Pick<EntityScope, 'access' | 'vehicleNames'>): Promise<string[] | null> {
   const ids = visibleVehicleIds(scope.access)
   if (ids === null) return null
   if (ids.length === 0) return []
-  const fundId = scope.access.fundId
-  const reads = POSITION_TABLES.map(t =>
-    (admin as any).from(t).select('lp_entity_id').eq('fund_id', fundId).in('vehicle_id', ids))
-  if (scope.vehicleNames && scope.vehicleNames.length > 0) {
-    reads.push((admin as any).from('lp_investments').select('entity_id').eq('fund_id', fundId).in('portfolio_group', scope.vehicleNames))
-  }
-  const results = await Promise.all(reads)
-  const out = new Set<string>()
-  for (const { data } of results) {
-    for (const r of (data as any[]) ?? []) {
-      const id = r.lp_entity_id ?? r.entity_id
-      if (id) out.add(id)
-    }
-  }
-  return Array.from(out)
+  return lpEntityIdsFor(admin, ids, scope.vehicleNames === null ? [] : scope.vehicleNames)
 }
 
 export async function visibleLpInvestorIds(admin: SupabaseClient, scope: Pick<EntityScope, 'access' | 'vehicleNames'>): Promise<string[] | null> {
   const entities = await visibleLpEntityIds(admin, scope)
   if (entities === null) return null
-  if (entities.length === 0) return []
-  const { data } = await (admin as any).from('lp_entities').select('id, investor_id').eq('fund_id', scope.access.fundId).in('id', entities)
-  return Array.from(new Set(((data as any[]) ?? []).map(e => e.investor_id).filter(Boolean)))
+  return lpInvestorIdsFor(admin, entities)
 }
 
 /**
@@ -60,12 +55,8 @@ export async function loadLpScope(
   const { loadEntityScope } = await import('./entity-scope')
   const scope = await loadEntityScope(admin, who)
   if (visibleVehicleIds(scope.access) === null) return { scope, entityIds: null, investorIds: null }
-  const entityIds = await visibleLpEntityIds(admin, scope)
-  const investorIds = entityIds && entityIds.length > 0
-    ? Array.from(new Set((((await (admin as any).from('lp_entities').select('investor_id')
-        .eq('fund_id', who.fundId).in('id', entityIds)).data as any[]) ?? []).map(e => e.investor_id).filter(Boolean)))
-    : []
-  return { scope, entityIds, investorIds }
+  const entityIds = (await visibleLpEntityIds(admin, scope)) ?? []
+  return { scope, entityIds, investorIds: await lpInvestorIdsFor(admin, entityIds) }
 }
 
 /** Keep `id` when `visible` is null (no filter) or lists it. */

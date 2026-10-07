@@ -74,6 +74,11 @@ create table lp_positions (id uuid primary key default gen_random_uuid(), fund_i
 create table lp_capital_events (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, lp_entity_id uuid);
 create table capital_call_lines (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, lp_entity_id uuid);
 create table distribution_lines (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, lp_entity_id uuid);
+create table vehicle_closings (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, name text);
+create table vehicle_closing_members (id uuid primary key default gen_random_uuid(), fund_id uuid not null, closing_id uuid, lp_entity_id uuid);
+create table partner_allocation_terms (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, lp_entity_id uuid);
+create table vehicle_partner_ownership (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, lp_entity_id uuid);
+create table carry_payments (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, lp_entity_id uuid);
 create table lp_letters (id uuid primary key default gen_random_uuid(), fund_id uuid not null, portfolio_group text not null, title text);
 create table lp_documents (id uuid primary key default gen_random_uuid(), fund_id uuid not null, scope text not null, title text, vehicle text);
 create table lp_document_shares (id uuid primary key default gen_random_uuid(), fund_id uuid not null, document_id uuid, lp_investor_id uuid);
@@ -306,8 +311,18 @@ try {
     psql(`select string_agg(title, ',') from lp_letters`, { as: MEMBER }), 'Q3 Fund I')
   check('…fund-wide documents and their entity\'s documents for visible LPs — not another entity\'s, even for a shared LP',
     psql(`select string_agg(title, ',' order by title) from lp_documents`, { as: MEMBER }), 'Ann Fund I receipt,Everyone')
+  // An LP admitted to a Fund I closing, before any commitment is recorded — visible to Fund I.
+  const L4 = '00000000-0000-0000-0000-00000000b004', CL = '00000000-0000-0000-0000-00000000c10e'
+  psql(`insert into lp_entities (id, fund_id, entity_name) values ('${L4}', '${F}', 'Dee Closing');
+        insert into vehicle_closings (id, fund_id, vehicle_id, name) values ('${CL}', '${F}', '${V1}', 'First close');
+        insert into vehicle_closing_members (fund_id, closing_id, lp_entity_id) values ('${F}', '${CL}', '${L4}')`)
+  check('an LP admitted to one of the member\'s entities\' closings is visible before any commitment',
+    psql(`select count(*) from lp_entities where id = '${L4}'`, { as: MEMBER }), '1')
+  check('the service-side lookup returns the same LPs, distinct, for given entities and names',
+    psql(`select string_agg(x::text, ',' order by x::text) from unnest(public.lp_entity_ids_for(array['${V1}']::uuid[], array['Fund I'])) x`),
+    [L1, L3, L4].sort().join(','))
   check('an admin sees every LP',
-    psql(`select count(*) from lp_entities`, { as: ADMIN }), '3')
+    psql(`select count(*) from lp_entities`, { as: ADMIN }), '4')
   check('an LP portal user (not a fund member) still reads their own investor row',
     psql(`select string_agg(name, ',') from lp_investors`, { as: LP_USER }), 'Bob')
 

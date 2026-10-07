@@ -1,25 +1,30 @@
 import { describe, it, expect } from 'vitest'
 import { visibleLpEntityIds, visibleLpInvestorIds } from './lp-scope'
 
-/** Answers `.from(t).select().eq().in()` from fixed rows, honouring eq/in filters. */
+/**
+ * The database answers through two RPCs (20261007100300): lp_entity_ids_for(vehicle ids, names) and
+ * lp_investor_ids_for(entity ids). This fake applies the same rule to fixed rows, and records calls.
+ */
 function admin(tables: Record<string, any[]>) {
-  const from = (t: string) => {
-    const preds: ((r: any) => boolean)[] = []
-    const chain: any = {
-      select: () => chain,
-      eq: (k: string, v: any) => { preds.push(r => r[k] === v); return chain },
-      in: (k: string, v: any[]) => { preds.push(r => v.includes(r[k])); return chain },
-      not: () => chain,
-      then: (res: any) => res({ data: (tables[t] ?? []).filter(r => preds.every(p => p(r))), error: null }),
+  const calls: any[] = []
+  const rpc = async (fn: string, args: any) => {
+    calls.push([fn, args])
+    if (fn === 'lp_entity_ids_for') {
+      const ids = new Set<string>()
+      for (const r of tables.commitment_events ?? []) if (args.p_vehicle_ids.includes(r.vehicle_id)) ids.add(r.lp_entity_id)
+      for (const r of tables.lp_investments ?? []) if (args.p_names.includes(r.portfolio_group)) ids.add(r.entity_id)
+      return { data: Array.from(ids), error: null }
     }
-    return chain
+    if (fn === 'lp_investor_ids_for') {
+      return { data: Array.from(new Set((tables.lp_entities ?? []).filter(e => args.p_entity_ids.includes(e.id)).map(e => e.investor_id))), error: null }
+    }
+    return { data: null, error: { message: 'unknown rpc' } }
   }
-  return { from } as any
+  return { rpc, calls } as any
 }
 
 const world = () => admin({
   commitment_events: [{ fund_id: 'f1', vehicle_id: 'v1', lp_entity_id: 'L3' }, { fund_id: 'f1', vehicle_id: 'v2', lp_entity_id: 'L2' }],
-  lp_positions: [], lp_capital_events: [], capital_call_lines: [], distribution_lines: [],
   lp_investments: [{ fund_id: 'f1', entity_id: 'L1', portfolio_group: 'Fund I' }, { fund_id: 'f1', entity_id: 'L2', portfolio_group: 'Fund II' }],
   lp_entities: [{ fund_id: 'f1', id: 'L1', investor_id: 'I1' }, { fund_id: 'f1', id: 'L2', investor_id: 'I2' }, { fund_id: 'f1', id: 'L3', investor_id: 'I3' }],
 })
@@ -35,6 +40,17 @@ describe('visibleLpEntityIds — the same rule as lp_entity_ids_readable()', () 
 
   it('finds LPs by a position keyed to the entity, or a legacy row tagged with its name', async () => {
     expect((await visibleLpEntityIds(world(), scope(['v1'], ['Fund I'])))!.sort()).toEqual(['L1', 'L3'])
+  })
+
+  it('asks the database in one call, so no row cap can silently drop an LP', async () => {
+    const a = world()
+    await visibleLpEntityIds(a, scope(['v1'], ['Fund I']))
+    expect(a.calls).toEqual([['lp_entity_ids_for', { p_vehicle_ids: ['v1'], p_names: ['Fund I'] }]])
+  })
+
+  it('fails closed — no LPs — when the lookup errors', async () => {
+    const broken = { rpc: async () => ({ data: null, error: { message: 'boom' } }) } as any
+    expect(await visibleLpEntityIds(broken, scope(['v1'], ['Fund I']))).toEqual([])
   })
 
   it('is empty for a caller with no entities', async () => {
