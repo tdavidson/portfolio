@@ -5,6 +5,7 @@ import { assertAdminAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
 import { expireTag } from '@/lib/cache/tags'
 import { DOMAINS, DOMAIN_META, type Domain } from '@/lib/access/domains'
+import { entityGrantProblem } from '@/lib/access/entity-grants'
 
 // Per-user, per-domain access grants, and the fund's per-domain default for new members.
 //
@@ -31,11 +32,14 @@ export async function GET() {
   const gate = await assertAdminAccess(admin, user.id)
   if (gate instanceof NextResponse) return gate
 
-  const [{ data: members, error }, { data: grants }, { data: defaults }] = await Promise.all([
+  const [{ data: members, error }, { data: grants }, { data: defaults }, { data: vehicles }, { data: entityGrants }] = await Promise.all([
     admin.from('fund_members').select('user_id, role').eq('fund_id', gate.fundId),
     admin.from('fund_member_access' as any).select('user_id, domain, level').eq('fund_id', gate.fundId),
     admin.from('fund_domain_defaults' as any).select('domain, level').eq('fund_id', gate.fundId),
+    admin.from('fund_vehicles' as any).select('id, name, kind, active').eq('fund_id', gate.fundId).order('name'),
+    admin.from('fund_member_vehicles' as any).select('user_id, vehicle_id').eq('fund_id', gate.fundId),
   ])
+  const entityRows = ((entityGrants ?? []) as unknown) as { user_id: string; vehicle_id: string }[]
   if (error) return dbError(error, 'settings-access')
 
   const grantRows = ((grants ?? []) as unknown) as { user_id: string; domain: string; level: string }[]
@@ -50,6 +54,8 @@ export async function GET() {
         grants: Object.fromEntries(
           grantRows.filter(g => g.user_id === m.user_id).map(g => [g.domain, g.level]),
         ),
+        // The entities this member may see. Admins see every entity, so theirs is not listed.
+        entities: entityRows.filter(g => g.user_id === m.user_id).map(g => g.vehicle_id),
       }
     }),
   )
@@ -65,6 +71,7 @@ export async function GET() {
       description: DOMAIN_META[d].description,
     })),
     members: withEmail,
+    entities: ((vehicles ?? []) as any[]).map(v => ({ id: v.id, name: v.name, kind: v.kind, active: v.active })),
     defaults: Object.fromEntries(
       (((defaults ?? []) as unknown) as { domain: string; level: string }[]).map(d => [d.domain, d.level]),
     ),
@@ -124,6 +131,28 @@ export async function PATCH(req: NextRequest) {
     if (error) return dbError(error, 'settings-access-role')
 
     expireTag('membership')
+    return NextResponse.json({ ok: true })
+  }
+
+  // --- Grant or revoke an entity (fund_member_vehicles) ---
+  if (body?.vehicleId !== undefined) {
+    const targetId = String(body.userId ?? '')
+    const [{ data: target }, { data: vehicle }] = await Promise.all([
+      admin.from('fund_members').select('user_id, role').eq('fund_id', gate.fundId).eq('user_id', targetId).maybeSingle(),
+      admin.from('fund_vehicles' as any).select('id, fund_id').eq('id', String(body.vehicleId)).maybeSingle(),
+    ])
+    const problem = entityGrantProblem({ fundId: gate.fundId, target: target as any, vehicle: vehicle as any, granted: body.granted })
+    if (problem) return NextResponse.json({ error: problem.error }, { status: problem.status })
+
+    const { error } = body.granted
+      ? await admin.from('fund_member_vehicles' as any).upsert(
+          { fund_id: gate.fundId, user_id: targetId, vehicle_id: String(body.vehicleId), granted_by: user.id },
+          { onConflict: 'fund_id,user_id,vehicle_id', ignoreDuplicates: true },
+        )
+      : await admin.from('fund_member_vehicles' as any).delete()
+          .eq('fund_id', gate.fundId).eq('user_id', targetId).eq('vehicle_id', String(body.vehicleId))
+    if (error) return dbError(error, 'settings-access-entity')
+    expireTag('domain-grants')
     return NextResponse.json({ ok: true })
   }
 

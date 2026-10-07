@@ -7,6 +7,8 @@ import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { retagPortfolioGroup } from '@/lib/vehicles'
 import { dbError } from '@/lib/api-error'
 import { VEHICLE_KINDS } from '@/lib/vehicle-kinds'
+import { loadAccessContext } from '@/lib/access/effective'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 // Fund-wide investment-vehicle registry (fund_vehicles). Vehicles are used across
 // LP snapshots, portfolio, compliance, and accounting — so management lives here,
@@ -40,7 +42,9 @@ export async function GET() {
       .order('name')
   }
   if (rows.error) return dbError(rows.error, 'vehicles')
-  return NextResponse.json(rows.data ?? [])
+  // Only the caller's entities.
+  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  return NextResponse.json(((rows.data ?? []) as { id: string }[]).filter(v => canSeeVehicle(access, v.id)))
 }
 
 // POST — create a vehicle. { name, kind? }
@@ -66,6 +70,12 @@ export async function POST(req: NextRequest) {
     if ((error as any).code === '23505') return NextResponse.json({ error: 'A vehicle with that name already exists' }, { status: 409 })
     return dbError(error, 'vehicles')
   }
+  // A member who creates an entity can see it; admins see every entity anyway.
+  if (gate.role !== 'admin') {
+    await (admin as any).from('fund_member_vehicles')
+      .upsert({ fund_id: gate.fundId, user_id: gate.userId, vehicle_id: data.id, granted_by: gate.userId },
+        { onConflict: 'fund_id,user_id,vehicle_id', ignoreDuplicates: true })
+  }
   return NextResponse.json(data)
 }
 
@@ -82,6 +92,11 @@ export async function PATCH(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}))
   if (!body.id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
+  // Renaming, merging or deactivating an entity needs it (and a merge target) to be the caller's.
+  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  if (!canSeeVehicle(access, String(body.id)) || (body.mergeIntoId && !canSeeVehicle(access, String(body.mergeIntoId)))) {
+    return NextResponse.json({ error: 'Vehicle not found' }, { status: 404 })
+  }
 
   // Merge: collapse this vehicle into another (e.g. a backfilled "<X> SPV" duplicate of the
   // real "<X> SPV LP"). Distinct from a rename — the source row is deleted, not renamed, and

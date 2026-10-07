@@ -18,7 +18,8 @@ import type { FeatureVisibilityMap } from '@/lib/types/features'
 type Level = 'none' | 'read' | 'write'
 
 interface DomainInfo { key: Domain; label: string; description: string }
-interface MemberAccess { userId: string; email: string; role: string; grants: Record<string, Level> }
+interface MemberAccess { userId: string; email: string; role: string; grants: Record<string, Level>; entities?: string[] }
+interface EntityInfo { id: string; name: string; kind: string; active: boolean }
 
 /**
  * The fund-level switches (as named in Feature visibility) that govern a domain.
@@ -52,6 +53,7 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
   const [domains, setDomains] = useState<DomainInfo[]>([])
   const [members, setMembers] = useState<MemberAccess[]>([])
   const [defaults, setDefaults] = useState<Record<string, Level>>({})
+  const [entities, setEntities] = useState<EntityInfo[]>([])
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<number | null>(null)
@@ -64,6 +66,7 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
       setDomains(data.domains)
       setMembers(data.members)
       setDefaults(data.defaults ?? {})
+      setEntities(data.entities ?? [])
     } else {
       setError('Could not load access settings.')
     }
@@ -99,6 +102,15 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
   function setDefault(domain: string, level: Level) {
     setDefaults(prev => ({ ...prev, [domain]: level }))
     save({ domain, level }, `default:${domain}`)
+  }
+
+  // Entities: which of the fund's funds, SPVs and management companies this member sees at all.
+  // Domains above say what kind of data; this says whose.
+  function setEntity(userId: string, vehicleId: string, granted: boolean) {
+    setMembers(prev => prev.map(m => (m.userId === userId
+      ? { ...m, entities: granted ? [...(m.entities ?? []), vehicleId] : (m.entities ?? []).filter(id => id !== vehicleId) }
+      : m)))
+    save({ userId, vehicleId, granted }, `${userId}:entity:${vehicleId}`)
   }
 
   function setRole(userId: string, role: string) {
@@ -145,6 +157,12 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
                   )}
                 </th>
               ))}
+              <th className="px-2 py-2 text-left font-medium align-top">
+                <span className="whitespace-nowrap">Entities</span>
+                <span className="mt-0.5 block max-w-[180px] text-[9px] font-normal leading-tight text-muted-foreground">
+                  Whose data they see. A new member sees none until granted.
+                </span>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -206,6 +224,30 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
                     )}
                   </td>
                 ))}
+                <td className="px-2 py-2 align-top">
+                  {m.role === 'admin' || m.role === 'viewer' ? (
+                    <span className={`${STATIC_CELL} gap-1`}><Shield className="h-2.5 w-2.5" />All</span>
+                  ) : (
+                    <div className="flex max-w-[260px] flex-wrap gap-1">
+                      {entities.map(e => {
+                        const on = (m.entities ?? []).includes(e.id)
+                        return (
+                          <button
+                            key={e.id}
+                            type="button"
+                            aria-pressed={on}
+                            disabled={saving === `${m.userId}:entity:${e.id}`}
+                            onClick={() => setEntity(m.userId, e.id, !on)}
+                            className={`rounded border px-1.5 py-0.5 text-[11px] ${on ? 'border-primary/40 bg-primary/10 text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
+                          >
+                            {e.name}
+                          </button>
+                        )
+                      })}
+                      {entities.length === 0 && <span className={STATIC_CELL}>No entities yet</span>}
+                    </div>
+                  )}
+                </td>
               </tr>
             ))}
           </tbody>
