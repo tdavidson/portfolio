@@ -83,6 +83,9 @@ create table carry_payments (id uuid primary key default gen_random_uuid(), fund
 create table lp_letters (id uuid primary key default gen_random_uuid(), fund_id uuid not null, portfolio_group text not null, title text);
 create table lp_documents (id uuid primary key default gen_random_uuid(), fund_id uuid not null, scope text not null, title text, vehicle text);
 create table lp_document_shares (id uuid primary key default gen_random_uuid(), fund_id uuid not null, document_id uuid, lp_investor_id uuid);
+create table lp_letter_shares (id uuid primary key default gen_random_uuid(), fund_id uuid not null, letter_id uuid, lp_investor_id uuid);
+create table lp_access_events (id uuid primary key default gen_random_uuid(), fund_id uuid not null, lp_investor_id uuid, target_type text, target_id uuid, target_title text);
+create table lp_deliveries (id uuid primary key default gen_random_uuid(), fund_id uuid not null, kind text, item_id uuid, lp_investor_id uuid, lp_entity_id uuid);
 create table lp_onboarding_items (id uuid primary key default gen_random_uuid(), fund_id uuid not null, lp_entity_id uuid);
 create table diligence_deals (id uuid primary key default gen_random_uuid(), fund_id uuid not null, name text, promoted_company_id uuid);
 create table diligence_notes (id uuid primary key default gen_random_uuid(), fund_id uuid not null, deal_id uuid, body text);
@@ -107,7 +110,7 @@ grant select on all tables in schema public to authenticated;
 -- them, so they have to exist and pass first.
 do $$ declare t text; begin
   foreach t in array array['companies','investment_transactions','journal_entries','company_notes','interactions','fund_vehicles','inbound_deals','crypto_wallets','fund_holding_terms','chart_of_accounts',
-    'lp_investors','lp_entities','lp_investments','commitment_events','lp_letters','lp_documents','lp_document_shares',
+    'lp_investors','lp_entities','lp_investments','commitment_events','lp_letters','lp_documents','lp_document_shares','lp_letter_shares','lp_access_events','lp_deliveries','vehicle_closings','vehicle_closing_members',
     'diligence_deals','diligence_notes'] loop
     execute format('alter table %I enable row level security', t);
     execute format('create policy "members" on %I for select to authenticated using (fund_id in (select fund_id from fund_members where user_id = auth.uid()))', t);
@@ -325,6 +328,31 @@ try {
         insert into vehicle_closing_members (fund_id, closing_id, lp_entity_id) values ('${F}', '${CL}', '${L4}')`)
   check('an LP admitted to one of the member\'s entities\' closings is visible before any commitment',
     psql(`select count(*) from lp_entities where id = '${L4}'`, { as: MEMBER }), '1')
+  // Rows that belong to another entity's item stay hidden even when the LP is shared (Ann is in both).
+  const LT1 = '00000000-0000-0000-0000-00000000e001', LT2 = '00000000-0000-0000-0000-00000000e002', CL2 = '00000000-0000-0000-0000-00000000c20e'
+  const D3 = I1.replace('a001','d003'), D4 = I1.replace('a001','d004')
+  psql(`insert into lp_letters (id, fund_id, portfolio_group, title) values ('${LT1}', '${F}', 'Fund I', 'Ann I'), ('${LT2}', '${F}', 'Fund II', 'Ann II');
+        insert into lp_letter_shares (fund_id, letter_id, lp_investor_id) values ('${F}', '${LT1}', '${I1}'), ('${F}', '${LT2}', '${I1}');
+        insert into vehicle_closings (id, fund_id, vehicle_id, name) values ('${CL2}', '${F}', '${V2}', 'Fund II close');
+        insert into vehicle_closing_members (fund_id, closing_id, lp_entity_id) values ('${F}', '${CL2}', '${L1}');
+        insert into lp_access_events (fund_id, lp_investor_id, target_type, target_id, target_title) values
+          ('${F}', '${I1}', 'document', '${D3}', 'Ann Fund II receipt'), ('${F}', '${I1}', 'document', '${D4}', 'Ann Fund I receipt'),
+          ('${F}', '${I1}', 'letter', '${LT2}', 'Ann II'), ('${F}', '${I1}', 'portal', null, 'Portal');
+        insert into lp_deliveries (fund_id, kind, item_id, lp_investor_id) values
+          ('${F}', 'letter', '${LT1}', '${I1}'), ('${F}', 'letter', '${LT2}', '${I1}'), ('${F}', 'document', '${D3}', '${I1}')`)
+  check('document shares: only for documents the member can see, not a shared LP\'s other-entity document',
+    psql(`select count(*) from lp_document_shares where lp_investor_id = '${I1}'`, { as: MEMBER }), '1')
+  check('letter shares: only for their entity\'s letters',
+    psql(`select count(*) from lp_letter_shares`, { as: MEMBER }), '1')
+  check('closing members: only of their entity\'s closings, though the LP is visible',
+    psql(`select string_agg(closing_id::text, ',') from vehicle_closing_members`, { as: MEMBER }), CL)
+  check('LP activity: events about another entity\'s document or letter are hidden; the rest stay',
+    psql(`select string_agg(target_title, ',' order by target_title) from lp_access_events`, { as: MEMBER }), 'Ann Fund I receipt,Portal')
+  check('deliveries: only of their entity\'s letters and documents',
+    psql(`select count(*) from lp_deliveries`, { as: MEMBER }), '1')
+  check('an admin sees every share, member, event and delivery',
+    psql(`select (select count(*) from lp_letter_shares) || ',' || (select count(*) from vehicle_closing_members) || ',' || (select count(*) from lp_access_events) || ',' || (select count(*) from lp_deliveries)`, { as: ADMIN }), '2,2,4,3')
+
   check('the service-side lookup returns the same LPs, distinct, for given entities and names',
     psql(`select string_agg(x::text, ',' order by x::text) from unnest(public.lp_entity_ids_for(array['${V1}']::uuid[], array['Fund I'])) x`),
     [L1, L3, L4].sort().join(','))

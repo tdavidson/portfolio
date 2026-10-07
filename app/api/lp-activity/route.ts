@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { DEFAULT_FEATURE_VISIBILITY, isFeatureVisible } from '@/lib/types/features'
 import type { FeatureVisibilityMap } from '@/lib/types/features'
-import { loadLpScopeForUser, lpVisible } from '@/lib/access/lp-scope'
+import { loadLpScopeForUser, lpVisible, visibleLpItems } from '@/lib/access/lp-scope'
 
 // Cap how many events we return in one payload. The client filters/searches
 // over this set in memory; if a fund exceeds it in the window we flag truncation
@@ -84,8 +84,17 @@ export async function GET(req: NextRequest) {
   const truncated = (rawEvents?.length ?? 0) > MAX_EVENTS
   // Only activity by investors the caller can see.
   const lp = await loadLpScopeForUser(admin, user.id)
-  const events = (rawEvents ?? []).slice(0, MAX_EVENTS)
+  const byInvestor = (rawEvents ?? []).slice(0, MAX_EVENTS)
     .filter(e => lpVisible(lp ? lp.investorIds : [], e.lp_investor_id))
+  // ...and a visit to a document or letter only when the caller can see that item: a shared LP's
+  // visit to another entity's document is that entity's activity.
+  const items = lp && await visibleLpItems(admin, fundId, lp, {
+    documents: byInvestor.filter(e => e.target_type === 'document' && e.target_id).map(e => e.target_id!),
+    letters: byInvestor.filter(e => e.target_type === 'letter' && e.target_id).map(e => e.target_id!),
+  })
+  const events = byInvestor.filter(e => !items || !e.target_id
+    || (e.target_type === 'document' ? items.documents.has(e.target_id)
+      : e.target_type === 'letter' ? items.letters.has(e.target_id) : true))
 
   // Resolve acting-person and investor names in bulk.
   const accountIds = Array.from(new Set(events.map(e => e.lp_account_id).filter(Boolean))) as string[]

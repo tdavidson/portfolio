@@ -106,6 +106,46 @@ $$;
 revoke execute on function public.lp_investor_ids_readable() from public, anon;
 grant execute on function public.lp_investor_ids_readable() to authenticated, service_role;
 
+-- The LP documents the caller may see: fund-wide ones; and an investor document tagged to one of
+-- their entities (or to none), shared with an investor they can see. A document tagged to another
+-- entity is that entity's, even when shared with an LP the caller also sees.
+create or replace function public.lp_document_ids_readable()
+returns uuid[]
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  with inv as (select public.lp_investor_ids_readable() as ids),
+       nm as (select public.group_names_readable() as names),
+       mine as (select public.member_fund_ids() as ids)
+  select coalesce(array_agg(d.id), '{}'::uuid[]) from lp_documents d, inv, nm, mine
+   where d.fund_id = any(mine.ids)
+     and (d.scope = 'fund'
+          or ((d.vehicle is null or d.vehicle = any(nm.names))
+              and exists (select 1 from lp_document_shares s
+                           where s.document_id = d.id and s.lp_investor_id = any(inv.ids))));
+$$;
+
+revoke execute on function public.lp_document_ids_readable() from public, anon;
+grant execute on function public.lp_document_ids_readable() to authenticated, service_role;
+
+-- The LP letters the caller may see: those of their entities.
+create or replace function public.lp_letter_ids_readable()
+returns uuid[]
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(array_agg(l.id), '{}'::uuid[]) from lp_letters l
+   where l.fund_id = any(public.member_fund_ids())
+     and l.portfolio_group = any(public.group_names_readable());
+$$;
+
+revoke execute on function public.lp_letter_ids_readable() from public, anon;
+grant execute on function public.lp_letter_ids_readable() to authenticated, service_role;
+
 -- ---------------------------------------------------------------------------
 -- The policies.
 -- ---------------------------------------------------------------------------
@@ -154,17 +194,34 @@ begin
         'gp_vehicle_id = any((select public.vehicle_ids_readable())::uuid[]) '
         || 'or served_vehicle_id = any((select public.vehicle_ids_readable())::uuid[])'
       when t = 'lp_documents' then
-        -- Fund-wide documents go to every LP, so every member may see them; an investor-scoped one
-        -- only when it is shared with an investor the member can see.
-        -- A document tagged to an entity (lp_documents.vehicle) is that entity's: shared with an LP
-        -- the member can see is not enough when the LP is also in another entity.
-        'scope = ''fund'' or ((vehicle is null or vehicle = any((select public.group_names_readable())::text[])) '
-        || 'and exists (select 1 from lp_document_shares s where s.document_id = lp_documents.id '
-        || 'and s.lp_investor_id = any((select public.lp_investor_ids_readable())::uuid[])))'
+        -- See lp_document_ids_readable: fund-wide, or their entity's and shared with an LP they see.
+        'id = any((select public.lp_document_ids_readable())::uuid[])'
+      -- Rows about ONE item follow that item, not just the LP: a shared LP's share of, delivery of,
+      -- or visit to another entity's document or letter is that entity's.
+      when t = 'lp_document_shares' then
+        'document_id = any((select public.lp_document_ids_readable())::uuid[]) '
+        || 'and lp_investor_id = any((select public.lp_investor_ids_readable())::uuid[])'
+      when t = 'lp_letter_shares' then
+        'letter_id = any((select public.lp_letter_ids_readable())::uuid[]) '
+        || 'and lp_investor_id = any((select public.lp_investor_ids_readable())::uuid[])'
+      when t = 'vehicle_closing_members' then
+        'closing_id in (select c.id from vehicle_closings c where c.vehicle_id = any((select public.vehicle_ids_readable())::uuid[])) '
+        || 'and lp_entity_id = any((select public.lp_entity_ids_readable())::uuid[])'
+      when t = 'lp_access_events' then
+        'lp_investor_id = any((select public.lp_investor_ids_readable())::uuid[]) and case target_type '
+        || 'when ''document'' then target_id = any((select public.lp_document_ids_readable())::uuid[]) '
+        || 'when ''letter'' then target_id = any((select public.lp_letter_ids_readable())::uuid[]) '
+        || 'else true end'
+      when t = 'lp_deliveries' then
+        '(lp_investor_id = any((select public.lp_investor_ids_readable())::uuid[]) '
+        || 'or lp_entity_id = any((select public.lp_entity_ids_readable())::uuid[])) and case kind '
+        || 'when ''document'' then item_id = any((select public.lp_document_ids_readable())::uuid[]) '
+        || 'when ''letter'' then item_id = any((select public.lp_letter_ids_readable())::uuid[]) '
+        || 'else true end'
       when 'vehicle_id' = any(cols) then
         'vehicle_id = any((select public.vehicle_ids_readable())::uuid[])'
       when 'portfolio_group' = any(cols) then
-        'portfolio_group = any((select public.group_names_readable())::text[])'
+        'fund_id = any((select public.member_fund_ids())::uuid[]) and portfolio_group = any((select public.group_names_readable())::text[])'
       when 'lp_entity_id' = any(cols) then
         'lp_entity_id = any((select public.lp_entity_ids_readable())::uuid[])'
       when 'entity_id' = any(cols) then

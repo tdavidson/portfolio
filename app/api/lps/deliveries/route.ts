@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // lp_relations domain (lib/access/route-domains.ts) — who was emailed what is a relationship fact.
 import { assertReadAccess } from '@/lib/api-helpers'
 import { listDeliveries, type DeliveryKind } from '@/lib/lp-deliveries'
-import { loadLpScope, lpVisible } from '@/lib/access/lp-scope'
+import { loadLpScope, lpVisible, visibleLpItems } from '@/lib/access/lp-scope'
 
 const KINDS: DeliveryKind[] = ['notice', 'receipt', 'statement', 'letter', 'snapshot', 'document', 'announcement', 'reply']
 
@@ -30,6 +30,13 @@ export async function GET(req: NextRequest) {
   // Only deliveries to investors the caller can see (listDeliveries reads with the service role, so
   // the route filters — the registry test cannot follow a lib helper, so this is checked here).
   const lp = await loadLpScope(admin, gate)
-  const deliveries = (await listDeliveries(admin, gate.fundId, kind, ids)).filter(d => lpVisible(lp.investorIds, d.lpInvestorId))
+  // ...and of a document or letter only when the caller can see that item (a shared LP's copy of
+  // another entity's letter is that entity's).
+  const items = kind === 'document' || kind === 'letter'
+    ? await visibleLpItems(admin, gate.fundId, lp, { documents: kind === 'document' ? ids : [], letters: kind === 'letter' ? ids : [] })
+    : null
+  const deliveries = (await listDeliveries(admin, gate.fundId, kind, ids))
+    .filter(d => lpVisible(lp.investorIds, d.lpInvestorId))
+    .filter(d => !items || (!!d.itemId && (kind === 'document' ? items.documents : items.letters).has(d.itemId)))
   return NextResponse.json({ deliveries })
 }

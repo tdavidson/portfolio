@@ -100,6 +100,41 @@ export async function lpDocumentVisible(admin: SupabaseClient, fundId: string, d
   return ((shares as any[]) ?? []).some(s => lp.investorIds!.includes(s.lp_investor_id))
 }
 
+/**
+ * Which of these LP documents and letters the caller may see — the batch form of the document rule
+ * above, plus letters (their entity's only). For rows ABOUT an item — a delivery of it, an LP's
+ * visit to it — which belong to the item's entity, not just to the LP. Null = everything (unscoped).
+ */
+export async function visibleLpItems(
+  admin: SupabaseClient,
+  fundId: string,
+  lp: LpScope,
+  ids: { documents: string[]; letters: string[] },
+): Promise<{ documents: Set<string>; letters: Set<string> } | null> {
+  if (lp.investorIds === null) return null
+  const names = lp.scope ? lp.scope.vehicleNames : []
+  const [{ data: docs }, { data: shares }, { data: letters }] = await Promise.all([
+    ids.documents.length
+      ? (admin as any).from('lp_documents').select('id, scope, vehicle').eq('fund_id', fundId).in('id', ids.documents)
+      : { data: [] },
+    ids.documents.length
+      ? (admin as any).from('lp_document_shares').select('document_id, lp_investor_id').in('document_id', ids.documents)
+      : { data: [] },
+    ids.letters.length
+      ? (admin as any).from('lp_letters').select('id, portfolio_group').eq('fund_id', fundId).in('id', ids.letters)
+      : { data: [] },
+  ])
+  const sharedWithMine = new Set(((shares as any[]) ?? [])
+    .filter(s => lp.investorIds!.includes(s.lp_investor_id)).map(s => s.document_id as string))
+  const documents = new Set(((docs as any[]) ?? []).filter(d =>
+    d.scope === 'fund'
+    || ((!d.vehicle || names === null || names.includes(d.vehicle)) && sharedWithMine.has(d.id)),
+  ).map(d => d.id as string))
+  const letterSet = new Set(((letters as any[]) ?? [])
+    .filter(l => names === null || names.includes(l.portfolio_group)).map(l => l.id as string))
+  return { documents, letters: letterSet }
+}
+
 /** The same, from just a user id — for routes that look up `fund_members` themselves. */
 export async function loadLpScopeForUser(admin: SupabaseClient, userId: string): Promise<LpScope | null> {
   const { data: m } = await (admin as any).from('fund_members').select('fund_id, role').eq('user_id', userId).maybeSingle()

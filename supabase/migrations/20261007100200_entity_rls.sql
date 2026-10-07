@@ -75,6 +75,22 @@ $$;
 revoke execute on function public.group_names_readable() from public, anon;
 grant execute on function public.group_names_readable() to authenticated, service_role;
 
+-- The funds the caller is a member of. Name-based predicates pair with it: a group NAME is only text,
+-- so "Fund I" in another tenant must not match — the permissive domain policies already bind the
+-- fund, and this keeps the entity layer correct on its own rather than leaning on them.
+create or replace function public.member_fund_ids()
+returns uuid[]
+language sql
+stable
+security definer
+set search_path = public
+as $$
+  select coalesce(array_agg(m.fund_id), '{}'::uuid[]) from fund_members m where m.user_id = auth.uid();
+$$;
+
+revoke execute on function public.member_fund_ids() from public, anon;
+grant execute on function public.member_fund_ids() to authenticated, service_role;
+
 -- vehicle_id_for_name is used by the company_vehicles triggers; keep it off the public API surface.
 revoke execute on function public.vehicle_id_for_name(uuid, text) from public, anon;
 grant execute on function public.vehicle_id_for_name(uuid, text) to authenticated, service_role;
@@ -131,9 +147,10 @@ begin
       when 'portfolio_group' = any(cols) and 'company_id' = any(cols) then
         'fund_id = any((select public.unscoped_fund_ids())::uuid[]) or case when portfolio_group is null '
         || 'then company_id = any((select public.company_ids_readable())::uuid[]) '
-        || 'else portfolio_group = any((select public.group_names_readable())::text[]) end'
+        || 'else (fund_id = any((select public.member_fund_ids())::uuid[]) and portfolio_group = any((select public.group_names_readable())::text[])) end'
       when 'portfolio_group' = any(cols) then
-        'fund_id = any((select public.unscoped_fund_ids())::uuid[]) or portfolio_group = any((select public.group_names_readable())::text[])'
+        'fund_id = any((select public.unscoped_fund_ids())::uuid[]) or (fund_id = any((select public.member_fund_ids())::uuid[]) '
+        || 'and portfolio_group = any((select public.group_names_readable())::text[]))'
       when 'company_id' = any(cols) then
         'company_id is null or fund_id = any((select public.unscoped_fund_ids())::uuid[]) or company_id = any((select public.company_ids_readable())::uuid[])'
       else null
