@@ -31,6 +31,7 @@ const ALLOWLIST = new Map<string, string>([
   ['app/(app)/emails/[id]/load.ts', 'resolves one holding by the email\'s company_id'],
   ['app/api/analyst/conversations/route.ts', 'resolves fund_id from one holding id'],
   ['app/api/emails/[id]/route.ts', 'resolves one holding by the email\'s company_id'],
+  ['lib/access/company-delete.ts', 'single holding by id — the delete guard serves company and fund-holding delete alike'],
   // Name resolution for a set of ids already gathered elsewhere. The ids came from rows that
   // reference a holding, so re-filtering by type would blank the name rather than exclude it.
   ['app/(app)/interactions/load.ts', 'resolves names for an id set already gathered from interactions'],
