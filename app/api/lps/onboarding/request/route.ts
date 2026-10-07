@@ -46,9 +46,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
   if (!fs?.lp_portal_enabled) return NextResponse.json({ error: 'Turn on the LP portal before requesting documents — LPs upload through it.' }, { status: 400 })
 
   const kinds = fs?.lp_onboarding_kinds == null ? DEFAULT_ONBOARDING_KINDS : normalizeKinds(fs.lp_onboarding_kinds)
-  const closings = await loadClosingsByEntity(admin, ((entities ?? []) as any[]).map(e => e.id))
   // Only LPs with a position in one of the caller's entities.
   const lp = await loadLpScope(admin, access)
+  const closings = await loadClosingsByEntity(admin, ((entities ?? []) as any[]).map(e => e.id), lp.scope.vehicleNames)
   let list: OnboardingEntity[] = ((entities ?? []) as any[]).filter(e => lpVisible(lp.entityIds, e.id)).map(e => ({
     id: e.id, name: e.entity_name, investorId: e.investor_id, investorName: e.lp_investors?.name ?? '',
     closing: closings.get(e.id) ?? null,

@@ -24,7 +24,7 @@ import { POST } from '@/app/api/lps/onboarding/sort/confirm/route'
 const lpScope = vi.hoisted(() => ({ entityIds: null as string[] | null, investorIds: null as string[] | null }))
 vi.mock('@/lib/access/lp-scope', async (orig) => ({
   ...(await orig<typeof import('@/lib/access/lp-scope')>()),
-  loadLpScope: async () => ({ scope: {} as any, entityIds: lpScope.entityIds, investorIds: lpScope.investorIds }),
+  loadLpScope: async () => ({ scope: { vehicleNames: null } as any, entityIds: lpScope.entityIds, investorIds: lpScope.investorIds }),
 }))
 
 

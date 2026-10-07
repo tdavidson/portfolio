@@ -262,7 +262,13 @@ export const ONBOARDING_ALLOWED_MIME = new Set([
  * each; the earliest is the one the checklist is due by. Reads through whatever client is given
  * (the routes pass the service-role client and scope by entity id).
  */
-export async function loadClosingsByEntity(admin: any, entityIds: string[]): Promise<Map<string, ClosingRef>> {
+export async function loadClosingsByEntity(
+  admin: any,
+  entityIds: string[],
+  /** The caller's entities' names, or null for all. An LP in two entities must not show a fund
+   *  member the OTHER entity's closing. The LP portal (the LP's own view) passes null. */
+  visibleNames: string[] | null = null,
+): Promise<Map<string, ClosingRef>> {
   const out = new Map<string, ClosingRef>()
   if (entityIds.length === 0) return out
   const { data } = await admin
@@ -272,6 +278,8 @@ export async function loadClosingsByEntity(admin: any, entityIds: string[]): Pro
   for (const m of (data ?? []) as any[]) {
     const c = Array.isArray(m.vehicle_closings) ? m.vehicle_closings[0] : m.vehicle_closings
     if (!c) continue
+    const vehName = (Array.isArray(c.fund_vehicles) ? c.fund_vehicles[0] : c.fund_vehicles)?.name ?? ''
+    if (visibleNames !== null && !visibleNames.includes(vehName)) continue
     const veh = Array.isArray(c.fund_vehicles) ? c.fund_vehicles[0] : c.fund_vehicles
     const ref: ClosingRef = { id: c.id, name: c.name, closeDate: c.close_date, vehicle: veh?.name ?? '' }
     const prev = out.get(m.lp_entity_id)

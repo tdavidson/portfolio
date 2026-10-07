@@ -91,3 +91,20 @@ describe('lpDocumentVisible — the lp_documents rule, in code', () => {
     expect(await lpDocumentVisible(adminWith({ id: 'd', scope: 'investor' }, []), 'f1', 'd', lp(null))).toBe(true)
   })
 })
+
+describe('lpDocumentVisible — a document tagged to another entity', () => {
+  const adminWith = (doc: any, shares: any[]) => {
+    const from = (t: string) => {
+      const chain: any = { select: () => chain, eq: () => chain, in: () => chain,
+        maybeSingle: async () => ({ data: t === 'lp_documents' ? doc : null, error: null }),
+        then: (res: any) => res({ data: t === 'lp_document_shares' ? shares : [], error: null }) }
+      return chain
+    }
+    return { from } as any
+  }
+  it('stays hidden even when shared with a visible LP', async () => {
+    const lp = { scope: { vehicleNames: ['Fund I'] } as any, entityIds: [], investorIds: ['I1'] }
+    expect(await lpDocumentVisible(adminWith({ id: 'd', scope: 'investor', vehicle: 'Fund II' }, [{ lp_investor_id: 'I1' }]), 'f1', 'd', lp)).toBe(false)
+    expect(await lpDocumentVisible(adminWith({ id: 'd', scope: 'investor', vehicle: 'Fund I' }, [{ lp_investor_id: 'I1' }]), 'f1', 'd', lp)).toBe(true)
+  })
+})

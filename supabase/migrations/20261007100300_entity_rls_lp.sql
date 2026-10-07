@@ -118,8 +118,11 @@ begin
       when t = 'lp_documents' then
         -- Fund-wide documents go to every LP, so every member may see them; an investor-scoped one
         -- only when it is shared with an investor the member can see.
-        'scope = ''fund'' or exists (select 1 from lp_document_shares s where s.document_id = lp_documents.id '
-        || 'and s.lp_investor_id = any((select public.lp_investor_ids_readable())::uuid[]))'
+        -- A document tagged to an entity (lp_documents.vehicle) is that entity's: shared with an LP
+        -- the member can see is not enough when the LP is also in another entity.
+        'scope = ''fund'' or ((vehicle is null or vehicle = any((select public.group_names_readable())::text[])) '
+        || 'and exists (select 1 from lp_document_shares s where s.document_id = lp_documents.id '
+        || 'and s.lp_investor_id = any((select public.lp_investor_ids_readable())::uuid[])))'
       when 'vehicle_id' = any(cols) then
         'vehicle_id = any((select public.vehicle_ids_readable())::uuid[])'
       when 'portfolio_group' = any(cols) then

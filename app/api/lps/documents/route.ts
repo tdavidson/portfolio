@@ -39,7 +39,8 @@ export async function GET() {
   const lp = await loadLpScope(admin, access)
   const documents = ((docs as any[]) ?? [])
     .map(d => ({ ...d, lp_document_shares: (d.lp_document_shares ?? []).filter((s: any) => lpVisible(lp.investorIds, s.lp_investor_id)) }))
-    .filter(d => lp.investorIds === null || d.scope === 'fund' || d.lp_document_shares.length > 0)
+    .filter(d => lp.investorIds === null || d.scope === 'fund'
+      || (d.lp_document_shares.length > 0 && (!d.vehicle || lp.scope.vehicleNames === null || lp.scope.vehicleNames.includes(d.vehicle))))
   return NextResponse.json({ documents })
 }
 

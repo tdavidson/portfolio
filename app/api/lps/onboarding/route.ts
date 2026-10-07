@@ -65,7 +65,7 @@ export async function GET(): Promise<NextResponse> {
   }
 
   const kinds = fs?.lp_onboarding_kinds == null ? DEFAULT_ONBOARDING_KINDS : normalizeKinds(fs.lp_onboarding_kinds)
-  const closings = await loadClosingsByEntity(a, ((entities ?? []) as any[]).map(e => e.id))
+  const closings = await loadClosingsByEntity(a, ((entities ?? []) as any[]).map(e => e.id), lp.scope.vehicleNames)
   const excludedEntities = ((entities ?? []) as any[]).filter(e => e.onboarding_excluded).map(e => ({
     id: e.id, name: e.entity_name, investorName: e.lp_investors?.name ?? '', partnerClass: e.partner_class ?? 'lp',
   }))

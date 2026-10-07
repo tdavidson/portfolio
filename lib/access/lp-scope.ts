@@ -98,9 +98,13 @@ export function scopeLiveReport<R extends { rows: { entity_id: string; portfolio
  */
 export async function lpDocumentVisible(admin: SupabaseClient, fundId: string, documentId: string, lp: LpScope): Promise<boolean> {
   if (lp.investorIds === null) return true
-  const { data: doc } = await (admin as any).from('lp_documents').select('id, scope').eq('id', documentId).eq('fund_id', fundId).maybeSingle()
+  const { data: doc } = await (admin as any).from('lp_documents').select('id, scope, vehicle').eq('id', documentId).eq('fund_id', fundId).maybeSingle()
   if (!doc) return false
   if ((doc as any).scope === 'fund') return true
+  // Tagged to an entity: that entity's, whoever it is shared with.
+  const vehicle = (doc as any).vehicle as string | null
+  const names = lp.scope ? lp.scope.vehicleNames : []
+  if (vehicle && names !== null && !names.includes(vehicle)) return false
   const { data: shares } = await (admin as any).from('lp_document_shares').select('lp_investor_id').eq('document_id', documentId)
   return ((shares as any[]) ?? []).some(s => lp.investorIds!.includes(s.lp_investor_id))
 }

@@ -75,7 +75,7 @@ create table lp_capital_events (id uuid primary key default gen_random_uuid(), f
 create table capital_call_lines (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, lp_entity_id uuid);
 create table distribution_lines (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, lp_entity_id uuid);
 create table lp_letters (id uuid primary key default gen_random_uuid(), fund_id uuid not null, portfolio_group text not null, title text);
-create table lp_documents (id uuid primary key default gen_random_uuid(), fund_id uuid not null, scope text not null, title text);
+create table lp_documents (id uuid primary key default gen_random_uuid(), fund_id uuid not null, scope text not null, title text, vehicle text);
 create table lp_document_shares (id uuid primary key default gen_random_uuid(), fund_id uuid not null, document_id uuid, lp_investor_id uuid);
 create table lp_onboarding_items (id uuid primary key default gen_random_uuid(), fund_id uuid not null, lp_entity_id uuid);
 create table diligence_deals (id uuid primary key default gen_random_uuid(), fund_id uuid not null, name text, promoted_company_id uuid);
@@ -291,7 +291,10 @@ try {
         insert into lp_letters (fund_id, portfolio_group, title) values ('${F}', 'Fund I', 'Q3 Fund I'), ('${F}', 'Fund II', 'Q3 Fund II');
         insert into lp_documents (id, fund_id, scope, title) values ('${I1.replace('a001','d001')}', '${F}', 'fund', 'Everyone'),
           ('${I1.replace('a001','d002')}', '${F}', 'investor', 'For Bob');
-        insert into lp_document_shares (fund_id, document_id, lp_investor_id) values ('${F}', '${I1.replace('a001','d002')}', '${I2}');
+        insert into lp_documents (id, fund_id, scope, title, vehicle) values ('${I1.replace('a001','d003')}', '${F}', 'investor', 'Ann Fund II receipt', 'Fund II'),
+          ('${I1.replace('a001','d004')}', '${F}', 'investor', 'Ann Fund I receipt', 'Fund I');
+        insert into lp_document_shares (fund_id, document_id, lp_investor_id) values ('${F}', '${I1.replace('a001','d002')}', '${I2}'),
+          ('${F}', '${I1.replace('a001','d003')}', '${I1}'), ('${F}', '${I1.replace('a001','d004')}', '${I1}');
         insert into lp_account_links values ('${LP_USER}', '${I2}');`)
   check('a member sees LPs with a position in their entity — by legacy group or by commitment',
     psql(`select string_agg(entity_name, ',' order by entity_name) from lp_entities`, { as: MEMBER }), 'Ann LLC,Cy LP')
@@ -301,8 +304,8 @@ try {
     psql(`select count(*) from commitment_events`, { as: MEMBER }), '1')
   check('…their entity\'s letters',
     psql(`select string_agg(title, ',') from lp_letters`, { as: MEMBER }), 'Q3 Fund I')
-  check('…fund-wide documents, not documents shared only with an investor they cannot see',
-    psql(`select string_agg(title, ',') from lp_documents`, { as: MEMBER }), 'Everyone')
+  check('…fund-wide documents and their entity\'s documents for visible LPs — not another entity\'s, even for a shared LP',
+    psql(`select string_agg(title, ',' order by title) from lp_documents`, { as: MEMBER }), 'Ann Fund I receipt,Everyone')
   check('an admin sees every LP',
     psql(`select count(*) from lp_entities`, { as: ADMIN }), '3')
   check('an LP portal user (not a fund member) still reads their own investor row',
