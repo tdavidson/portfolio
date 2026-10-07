@@ -30,7 +30,7 @@ export async function GET(req: NextRequest) {
   if (gate instanceof NextResponse) return gate
 
   const sp = req.nextUrl.searchParams
-  const group = await resolveMancoGroupOr400(admin, gate.fundId, sp.get('group'))
+  const group = await resolveMancoGroupOr400(admin, gate, sp.get('group'))
   if (group instanceof NextResponse) return group
 
   const window = resolveWindow(sp.get('start'), sp.get('end'))

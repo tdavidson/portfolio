@@ -33,7 +33,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json().catch(() => ({}))
   const group = await resolveMancoGroupOr400(
-    admin, gate.fundId, body?.group ?? req.nextUrl.searchParams.get('group'),
+    admin, gate, body?.group ?? req.nextUrl.searchParams.get('group'),
   )
   if (group instanceof NextResponse) return group
 

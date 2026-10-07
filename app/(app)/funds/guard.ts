@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { resolvePageAccess, canViewPage } from '@/lib/access/page-gate'
 import { isManagementCompany } from '@/lib/vehicle-kinds'
 import type { FeatureKey } from '@/lib/types/features'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 
@@ -90,6 +91,11 @@ export async function requireVehicleAccess(
   // back to the section they can see rather than off to the dashboard: they hold `accounting`,
   // so the entity list and every fund in it are theirs; it is this one entity that is not.
   if (isManagementCompany(resolved.kind) && !canViewPage(page, 'management_company')) redirect('/funds')
+
+  // One of THEIR entities? An admin sees every entity; a member only those granted
+  // (fund_member_vehicles). A legacy entity with no registry row cannot be granted, so only a caller
+  // who sees everything reaches it. Sent to the entity list, which shows only theirs.
+  if (!canSeeVehicle(page.access, resolved.vehicleId)) redirect('/funds')
 
   return { fundId: page.fundId, role: page.role, ...resolved }
 }
