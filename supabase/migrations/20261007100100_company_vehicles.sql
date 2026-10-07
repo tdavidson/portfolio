@@ -203,8 +203,26 @@ set search_path = public
 as $$
 declare
   c record;
+  v_names text[];
 begin
-  for c in select id from companies where fund_id = new.fund_id loop
+  -- Nothing that maps a name to this entity changed: nothing to relink.
+  if tg_op = 'UPDATE' and old.name is not distinct from new.name and old.aliases is not distinct from new.aliases then
+    return null;
+  end if;
+  -- Only companies that can be affected: those naming this entity by its new OR old name or alias
+  -- (tags, transactions, wallets), and those already linked to it. Not every company in the fund.
+  v_names := array[new.name] || coalesce(new.aliases, '{}');
+  if tg_op = 'UPDATE' then
+    v_names := v_names || array[old.name] || coalesce(old.aliases, '{}');
+  end if;
+  for c in
+    select id from companies where fund_id = new.fund_id and portfolio_group && v_names
+    union select company_id from investment_transactions
+           where fund_id = new.fund_id and portfolio_group = any(v_names) and company_id is not null
+    union select company_id from crypto_wallets
+           where fund_id = new.fund_id and portfolio_group = any(v_names) and company_id is not null
+    union select company_id from company_vehicles where vehicle_id = new.id
+  loop
     perform refresh_company_vehicles(c.id);
   end loop;
   return null;
