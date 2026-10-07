@@ -15,6 +15,12 @@ export interface VehicleScope {
   all: boolean
   /** fund_vehicles ids. For `all`, whatever the RPC listed — informational, never a filter. */
   ids: string[]
+  /**
+   * The entity-access migration has run (the RPC returned `vehicles`). Before it, the new columns
+   * (inbound_deals.vehicle_id) do not exist yet, so a read that names them would fail. Optional so a
+   * hand-built context (tests, the client) need not say; absent means "not known to be enforced".
+   */
+  enforced?: boolean
 }
 
 /**
@@ -26,8 +32,9 @@ export interface VehicleScope {
  */
 export function vehicleScopeFromRow(role: FundRole, vehicles: unknown): VehicleScope {
   const ids = Array.isArray(vehicles) ? vehicles.filter((v): v is string => typeof v === 'string') : []
-  if (role === 'admin' || vehicles === undefined) return { all: true, ids }
-  return { all: false, ids }
+  const enforced = vehicles !== undefined
+  if (role === 'admin' || !enforced) return { all: true, ids, enforced }
+  return { all: false, ids, enforced }
 }
 
 /**

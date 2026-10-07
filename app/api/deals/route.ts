@@ -25,16 +25,17 @@ export async function GET(req: NextRequest) {
   const search = req.nextUrl.searchParams.get('q')                // company or founder name
   const limit = Math.min(parseInt(req.nextUrl.searchParams.get('limit') || '100', 10), 500)
 
+  const scope = await loadEntityScopeForUser(admin, user.id)
   let query = admin
     .from('inbound_deals')
-    .select('id, fund_id, vehicle_id, email_id, company_name, company_url, company_domain, founder_name, founder_email, intro_source, referrer_name, thesis_fit_score, stage, industry, raise_amount, status, prior_deal_id, created_at')
+    // vehicle_id exists only once the entity-access migration has run; before it, asking fails.
+    .select(`id, fund_id, ${scope?.access.vehicles.enforced ? 'vehicle_id, ' : ''}email_id, company_name, company_url, company_domain, founder_name, founder_email, intro_source, referrer_name, thesis_fit_score, stage, industry, raise_amount, status, prior_deal_id, created_at`)
     .eq('fund_id', membership.fund_id)
     .order('created_at', { ascending: false })
     .limit(limit)
 
   // Only deals owned by the caller's entities. Unassigned deals (the email pipeline does not know
   // which entity a pitch is for) are for admins to triage and assign.
-  const scope = await loadEntityScopeForUser(admin, user.id)
   const vehicleIds = scope ? visibleVehicleIds(scope.access) : []
   if (vehicleIds !== null) query = query.in('vehicle_id', vehicleIds)
 

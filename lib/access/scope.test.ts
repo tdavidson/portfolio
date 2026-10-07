@@ -8,24 +8,24 @@ const ctx = (role: AccessContext['role'], vehicles: AccessContext['vehicles']): 
 
 describe('vehicleScopeFromRow — what access_context said about entities', () => {
   it('gives an admin every entity, whatever the row lists', () => {
-    expect(vehicleScopeFromRow('admin', ['v1'])).toEqual({ all: true, ids: ['v1'] })
+    expect(vehicleScopeFromRow('admin', ['v1'])).toEqual({ all: true, ids: ['v1'], enforced: true })
   })
 
   it('gives a member exactly the entities listed', () => {
-    expect(vehicleScopeFromRow('member', ['v2', 'v1'])).toEqual({ all: false, ids: ['v2', 'v1'] })
+    expect(vehicleScopeFromRow('member', ['v2', 'v1'])).toEqual({ all: false, ids: ['v2', 'v1'], enforced: true })
   })
 
   it('gives a member none when the list is empty — a new member sees nothing until granted', () => {
-    expect(vehicleScopeFromRow('member', [])).toEqual({ all: false, ids: [] })
+    expect(vehicleScopeFromRow('member', [])).toEqual({ all: false, ids: [], enforced: true })
   })
 
   it('treats a row with no vehicles key as everything — the RPC predates entity access', () => {
     // Code deployed before 20261007100000 is pushed must behave exactly as before.
-    expect(vehicleScopeFromRow('member', undefined)).toEqual({ all: true, ids: [] })
+    expect(vehicleScopeFromRow('member', undefined)).toEqual({ all: true, ids: [], enforced: false })
   })
 
   it('drops anything that is not a string id', () => {
-    expect(vehicleScopeFromRow('viewer', ['v1', 3, null])).toEqual({ all: false, ids: ['v1'] })
+    expect(vehicleScopeFromRow('viewer', ['v1', 3, null])).toEqual({ all: false, ids: ['v1'], enforced: true })
   })
 })
 

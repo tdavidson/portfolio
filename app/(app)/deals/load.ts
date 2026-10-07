@@ -9,9 +9,11 @@ export type DealsPageData = Pick<ComponentProps<typeof DealsContent>, 'initialDe
 /** The deals list, server-rendered with the same default status filter the client starts on —
  *  otherwise the first paint shows every deal and then drops half of them once the client refetches. */
 export async function loadDealsPage({ admin, page }: PageContext): Promise<DealsPageData> {
+  // vehicle_id exists only once the entity-access migration has run; before it, asking for it fails.
+  const columns = page.access.vehicles.enforced ? 'id, vehicle_id, email_id,' : 'id, email_id,'
   let query = admin
     .from('inbound_deals')
-    .select('id, vehicle_id, email_id, company_name, company_url, company_domain, founder_name, founder_email, intro_source, referrer_name, thesis_fit_score, stage, industry, raise_amount, status, prior_deal_id, created_at')
+    .select(columns + ' company_name, company_url, company_domain, founder_name, founder_email, intro_source, referrer_name, thesis_fit_score, stage, industry, raise_amount, status, prior_deal_id, created_at')
     .eq('fund_id', page.fundId)
     .in('status', DEFAULT_STATUSES)
   // Only deals owned by the viewer's entities (admins: all, including unassigned) — as the API does.
