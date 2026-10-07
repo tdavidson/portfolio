@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
+import { loadLpScopeForUser, lpVisible } from '@/lib/access/lp-scope'
 
 // ---------------------------------------------------------------------------
 // GET — all investors for this fund, with their entities
@@ -33,7 +34,9 @@ export async function GET() {
 
   if (error) return dbError(error, 'lp-investors')
 
-  return NextResponse.json(data ?? [])
+  // A viewer (the demo role) is not an admin: only investors visible through their entities.
+  const lp = await loadLpScopeForUser(admin, user.id)
+  return NextResponse.json((data ?? []).filter(i => lpVisible(lp ? lp.investorIds : [], i.id)))
 }
 
 // ---------------------------------------------------------------------------

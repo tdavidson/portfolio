@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // lp_relations domain (lib/access/route-domains.ts) — who was emailed what is a relationship fact.
 import { assertReadAccess } from '@/lib/api-helpers'
 import { listDeliveries, type DeliveryKind } from '@/lib/lp-deliveries'
+import { loadLpScope, lpVisible } from '@/lib/access/lp-scope'
 
 const KINDS: DeliveryKind[] = ['notice', 'receipt', 'statement', 'letter', 'snapshot', 'document', 'announcement', 'reply']
 
@@ -26,5 +27,9 @@ export async function GET(req: NextRequest) {
   const ids = (req.nextUrl.searchParams.get('ids') ?? '').split(',').map(s => s.trim()).filter(Boolean).slice(0, 500)
   if (ids.length === 0) return NextResponse.json({ deliveries: [] })
 
-  return NextResponse.json({ deliveries: await listDeliveries(admin, gate.fundId, kind, ids) })
+  // Only deliveries to investors the caller can see (listDeliveries reads with the service role, so
+  // the route filters — the registry test cannot follow a lib helper, so this is checked here).
+  const lp = await loadLpScope(admin, gate)
+  const deliveries = (await listDeliveries(admin, gate.fundId, kind, ids)).filter(d => lpVisible(lp.investorIds, d.lpInvestorId))
+  return NextResponse.json({ deliveries })
 }

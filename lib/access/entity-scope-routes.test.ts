@@ -14,6 +14,10 @@ import { join } from 'node:path'
  * behind the list's back. Restricted members must not be invited until no `phase` line remains.
  */
 const PENDING: Record<string, string> = {
+  'api/cron/affinity-sync': 'exempt: a job acting for the fund, not a member request',
+  'api/cron/memo-agent-worker': 'exempt: a job acting for the fund, not a member request',
+  'api/webhooks/transcription/[token]': 'exempt: a provider webhook, authenticated by its token',
+  'api/portal/analyst': 'exempt: the LP portal — an LP’s own data, authenticated as that LP, not a fund member',
   'api/portal/contact': 'exempt: the LP portal — an LP’s own data, authenticated as that LP, not a fund member',
   'api/portal/letters/[id]/pdf': 'exempt: the LP portal — an LP’s own data, authenticated as that LP, not a fund member',
   'api/portal/letters': 'exempt: the LP portal — an LP’s own data, authenticated as that LP, not a fund member',
@@ -41,21 +45,28 @@ const PENDING: Record<string, string> = {
   'api/requests': 'exempt: asks are fund-wide (email_requests has no company or entity); sending is admin-only',
   'api/settings/notifications': 'exempt: admin-only settings; admins see every entity',
 }
-/** The tables whose rows belong to an entity. RLS covers the first group (20261007100200). */
+/**
+ * The tables whose rows belong to an entity: every table the entity-RLS migrations name (read from
+ * them, so a table added there is watched here too), plus the service-role-only LP and tax tables
+ * RLS cannot cover and the compliance tables keyed by entity name.
+ */
 function entityTables(): string[] {
-  const sql = readFileSync('supabase/migrations/20261007100200_entity_rls.sql', 'utf8')
-  const start = sql.indexOf('tables text[] := array[')
-  const rls = Array.from(sql.slice(start, sql.indexOf('];', start)).matchAll(/'([a-z_0-9]+)'/g)).map(m => m[1])
-  const lp = ['lp_investments', 'lp_entities', 'lp_positions', 'lp_capital_events', 'commitment_events', 'capital_calls',
-    'capital_call_lines', 'distributions', 'distribution_lines', 'lp_letters', 'lp_documents', 'lp_snapshots',
-    'k1_packages', 'k1_lines', 'k1_partners', 'received_k1s',
-    'lp_messages', 'lp_access_events', 'lp_deliveries', 'lp_onboarding_items', 'lp_onboarding_events',
-    'lp_tax_forms', 'k1_deliveries', 'k1_delivery_consents', 'vehicle_closings', 'vehicle_closing_members',
-    'lp_document_shares', 'lp_snapshot_shares', 'lp_letter_shares', 'lp_live_report_shares']
-  return [...rls, ...lp]
+  const fromMigration = (file: string) => {
+    const sql = readFileSync(`supabase/migrations/${file}`, 'utf8')
+    const start = sql.indexOf('tables text[] := array[')
+    return Array.from(sql.slice(start, sql.indexOf('];', start)).matchAll(/'([a-z_0-9]+)'/g)).map(m => m[1])
+  }
+  return [
+    ...fromMigration('20261007100200_entity_rls.sql'),
+    ...fromMigration('20261007100300_entity_rls_lp.sql'),
+    ...fromMigration('20261007100400_diligence_entity.sql'),
+    'lp_snapshots', 'k1_packages', 'k1_lines', 'k1_partners', 'received_k1s', 'lp_tax_forms', 'k1_deliveries',
+    'k1_delivery_consents', 'lp_onboarding_item_documents',
+    'compliance_fund_settings', 'compliance_deadlines',
+  ]
 }
 
-const SCOPED = /resolveGroupOr400|resolveMancoGroupOr400|loadEntityScope|loadEntityScopeForUser|entityScopeFor|visibleVehicleIds|visibleVehicleNames|canSeeVehicle|assertVehicleVisible|resolveHoldingVehicle|loadLpScope|lpVisible|scopeLiveReport|assertK1PackageVisible|lpDocumentVisible|loadLpScopeForUser|filterByCompany|assertAdminAccess|role !== 'admin'/
+const SCOPED = /resolveGroupOr400|resolveMancoGroupOr400|loadEntityScope|loadEntityScopeForUser|entityScopeFor|visibleVehicleIds|visibleVehicleNames|canSeeVehicle|assertVehicleVisible|resolveHoldingVehicle|loadLpScope|lpVisible|scopeLiveReport|assertK1PackageVisible|lpDocumentVisible|loadLpScopeForUser|filterByCompany|entityIdentityChangeDenial|assertAdminAccess|role !== 'admin'\)\s*(?:\{\s*)?return/
 /**
  * Routes the API gate already confines to one visible company or deal (lib/access/entity-gate.ts),
  * whose payload is about that company or deal as a whole — its notes, documents, metrics. A route
@@ -73,6 +84,8 @@ const GATED = [/^api\/companies\/\[id\]/, /^api\/deals\/\[id\]/, /^api\/lp-lette
  */
 function handlers(src: string): string[] {
   const body = src.replace(/^import[\s\S]*?from\s+['"][^'"]+['"];?\s*$/gm, '')
+    // Comments are not code: a helper named in a comment is not a call.
+    .replace(/\/\*[\s\S]*?\*\//g, '').replace(/(^|[^:])\/\/.*$/gm, '$1')
   // Top-level declarations start at column 0.
   const chunks = body.split(/\n(?=(?:export )?(?:async )?function \w+|(?:export )?const \w+ = (?:async )?\()/)
   const named = chunks.map(c => ({ name: c.match(/function (\w+)|const (\w+) =/)?.slice(1).find(Boolean) ?? '', text: c }))

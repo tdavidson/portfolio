@@ -5,6 +5,8 @@ import { assertReadAccess, assertWriteAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { loadEntityNames } from '@/lib/accounting/load'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
+import { loadAccessContext } from '@/lib/access/effective'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 // CRUD for `vehicle_gp_links` — the many-to-many "gp_vehicle_id is a GP of served_vehicle_id, as
 // partner lp_entity_id" table. The `?group=` names the SERVED vehicle throughout.
@@ -130,6 +132,12 @@ export async function DELETE(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const id = body?.id
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
+
+  // Only a link on an entity the caller can see.
+  const { data: link } = await admin.from('vehicle_gp_links' as any).select('served_vehicle_id')
+    .eq('id', id).eq('fund_id', gate.fundId).maybeSingle()
+  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  if (!link || !canSeeVehicle(access, (link as any).served_vehicle_id)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   const { error } = await admin
     .from('vehicle_gp_links' as any)

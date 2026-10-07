@@ -6,6 +6,8 @@ import { rateLimit } from '@/lib/rate-limit'
 import { dbError } from '@/lib/api-error'
 import { parseGroupKey } from '@/lib/compliance/schedule'
 import { overlayCompletion, parseYear, type DeadlineRow } from '@/lib/compliance/completion'
+import { loadEntityScope } from '@/lib/access/entity-scope'
+import { groupWriteDenial } from '@/lib/access/scope'
 
 // Bulk upsert applicability settings
 export async function POST(req: NextRequest) {
@@ -31,6 +33,14 @@ export async function POST(req: NextRequest) {
   }
 
   const VALID_APPLIES = ['yes', 'no', 'unsure']
+
+  // Entity-specific settings only for the caller's entities; fund-level ones (no entity) stay open.
+  const scope = await loadEntityScope(admin, writeCheck)
+  for (const s of settings) {
+    const group = s.portfolio_group ? parseGroupKey(String(s.portfolio_group)).portfolioGroup : ''
+    const denied = group ? groupWriteDenial(scope.vehicleNames, group) : null
+    if (denied) return NextResponse.json({ error: denied }, { status: 403 })
+  }
 
   const rows = settings.map(s => ({
     fund_id: fundId,
@@ -79,6 +89,11 @@ export async function PATCH(req: NextRequest) {
   // The year the page is showing — clamped exactly like GET ?year=.
   const year = parseYear(body.year)
   const pgKey = portfolio_group ? String(portfolio_group).slice(0, 200) : ''
+  {
+    const group = pgKey ? parseGroupKey(pgKey).portfolioGroup : ''
+    const denied = group ? groupWriteDenial((await loadEntityScope(admin, writeCheck)).vehicleNames, group) : null
+    if (denied) return NextResponse.json({ error: denied }, { status: 403 })
+  }
   const clip = (v: unknown) => (v ? String(v).slice(0, 2000) : null)
 
   // Applicability and dismissal are not per-period: they stay on compliance_fund_settings.
