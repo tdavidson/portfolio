@@ -107,6 +107,7 @@ const OTHER_F = '00000000-0000-0000-0000-0000000000ff'
 const ADMIN = '00000000-0000-0000-0000-0000000000a1'
 const MEMBER = '00000000-0000-0000-0000-0000000000b1'
 const LATE = '00000000-0000-0000-0000-0000000000c1'
+const FULL = '00000000-0000-0000-0000-0000000000c2'
 const V1 = '00000000-0000-0000-0000-000000000101'
 const V2 = '00000000-0000-0000-0000-000000000102'
 const VX = '00000000-0000-0000-0000-000000000109'
@@ -128,9 +129,9 @@ try {
   started = true
 
   psql(STUB)
-  psql(`insert into auth.users values ('${ADMIN}'), ('${MEMBER}'), ('${LATE}');
+  psql(`insert into auth.users values ('${ADMIN}'), ('${MEMBER}'), ('${LATE}'), ('${FULL}');
         insert into funds values ('${F}'), ('${OTHER_F}');
-        insert into fund_members values ('${F}', '${ADMIN}', 'admin'), ('${F}', '${MEMBER}', 'member');
+        insert into fund_members values ('${F}', '${ADMIN}', 'admin'), ('${F}', '${MEMBER}', 'member'), ('${F}', '${FULL}', 'member');
         insert into fund_vehicles (id, fund_id, name) values ('${V1}', '${F}', 'Fund I'), ('${V2}', '${F}', 'Fund II'),
           ('${VX}', '${OTHER_F}', 'Elsewhere');`)
 
@@ -166,6 +167,10 @@ try {
   check('a member added after the backfill sees no vehicles until granted',
     psql(`select jsonb_array_length(access_context('${LATE}')->'vehicles')`),
     '0')
+
+  // ---- A member granted EVERY entity is unscoped, like an admin: nobody loses access on push. ----
+  check('a member granted every entity is reported as seeing all of them',
+    psql(`select access_context('${ADMIN}')->>'vehicles_all'`) + ',' + psql(`select access_context('${LATE}')->>'vehicles_all'`), 'true,false')
 
   // ---- vehicle_ids_readable(): the RLS mirror, as the signed-in caller. ----
   check('vehicle_ids_readable() returns the caller\'s own visible vehicles',
@@ -236,6 +241,9 @@ try {
   // Token by Fund II only.
   check('a member sees companies linked to their entities only',
     psql(`select string_agg(name, ',' order by name) from companies`, { as: MEMBER }), 'Acme,Beta')
+  // FULL is granted both entities: unscoped, so it also sees the unassigned company, as an admin does.
+  check('a member granted every entity sees unassigned companies too',
+    psql(`select count(*) from companies where fund_id = '${F}'`, { as: FULL }), '5')
   check('an admin sees every company',
     psql(`select count(*) from companies`, { as: ADMIN }), '5')
 

@@ -77,7 +77,7 @@ declare
   cols text[];
   pred text;
   admin_or_lp constant text :=
-    'not (select public.is_fund_member()) or fund_id = any((select public.admin_fund_ids())::uuid[])';
+    'not (select public.is_fund_member()) or fund_id = any((select public.unscoped_fund_ids())::uuid[])';
   tables text[] := array[
     -- lp_capital
     'lp_investors', 'lp_entities', 'lp_investments', 'lp_positions', 'lp_capital_events', 'commitment_events',

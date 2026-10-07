@@ -144,6 +144,8 @@ interface AccessContextRow {
   defaults: Record<string, string> | null
   /** Absent before 20261007100000_entity_access_grants.sql — see vehicleScopeFromRow. */
   vehicles?: unknown
+  /** True for an admin or a member granted every entity — see vehicleScopeFromRow. */
+  vehicles_all?: unknown
 }
 
 /**
@@ -173,7 +175,7 @@ export async function loadAccessContext(
     grants: recordToLevels(row?.grants),
     defaults: recordToLevels(row?.defaults),
     // No row at all (not a member): nothing. A row without the key: the RPC predates entity access.
-    vehicles: row ? vehicleScopeFromRow(normalizeRole(role ?? row.role), row.vehicles) : { all: false, ids: [] },
+    vehicles: row ? vehicleScopeFromRow(normalizeRole(role ?? row.role), row.vehicles, row.vehicles_all) : { all: false, ids: [] },
   }
 }
 
@@ -198,7 +200,7 @@ export async function resolveAccessContext(
     features: { ...DEFAULT_FEATURE_VISIBILITY, ...(row.features ?? {}) },
     grants: recordToLevels(row.grants),
     defaults: recordToLevels(row.defaults),
-    vehicles: vehicleScopeFromRow(normalizeRole(row.role), row.vehicles),
+    vehicles: vehicleScopeFromRow(normalizeRole(row.role), row.vehicles, row.vehicles_all),
   }
 }
 

@@ -25,7 +25,9 @@
 -- through RLS. A helper taking row arguments would run its subqueries for every row scanned, admins
 -- included.
 -- ---------------------------------------------------------------------------
-create or replace function public.admin_fund_ids()
+-- The funds whose data the caller sees unscoped: where they are an admin, or a member granted every
+-- entity (the same rule as access_context's `vehicles_all`).
+create or replace function public.unscoped_fund_ids()
 returns uuid[]
 language sql
 stable
@@ -33,11 +35,15 @@ security definer
 set search_path = public
 as $$
   select coalesce(array_agg(m.fund_id), '{}'::uuid[]) from fund_members m
-   where m.user_id = auth.uid() and m.role = 'admin';
+   where m.user_id = auth.uid()
+     and (m.role = 'admin' or not exists (
+       select 1 from fund_vehicles v where v.fund_id = m.fund_id
+          and not exists (select 1 from fund_member_vehicles g
+                           where g.fund_id = m.fund_id and g.user_id = m.user_id and g.vehicle_id = v.id)));
 $$;
 
-revoke execute on function public.admin_fund_ids() from public, anon;
-grant execute on function public.admin_fund_ids() to authenticated, service_role;
+revoke execute on function public.unscoped_fund_ids() from public, anon;
+grant execute on function public.unscoped_fund_ids() to authenticated, service_role;
 
 create or replace function public.company_ids_readable()
 returns uuid[]
@@ -115,19 +121,19 @@ begin
       when t = 'fund_vehicles' then
         'id = any((select public.vehicle_ids_readable())::uuid[])'
       when t = 'companies' then
-        'fund_id = any((select public.admin_fund_ids())::uuid[]) or id = any((select public.company_ids_readable())::uuid[])'
+        'fund_id = any((select public.unscoped_fund_ids())::uuid[]) or id = any((select public.company_ids_readable())::uuid[])'
       when t = 'inbound_deals' then
-        'fund_id = any((select public.admin_fund_ids())::uuid[]) or vehicle_id = any((select public.vehicle_ids_readable())::uuid[])'
+        'fund_id = any((select public.unscoped_fund_ids())::uuid[]) or vehicle_id = any((select public.vehicle_ids_readable())::uuid[])'
       when 'vehicle_id' = any(cols) then
-        'vehicle_id = any((select public.vehicle_ids_readable())::uuid[]) or (vehicle_id is null and fund_id = any((select public.admin_fund_ids())::uuid[]))'
+        'vehicle_id = any((select public.vehicle_ids_readable())::uuid[]) or (vehicle_id is null and fund_id = any((select public.unscoped_fund_ids())::uuid[]))'
       when 'portfolio_group' = any(cols) and 'company_id' = any(cols) then
-        'fund_id = any((select public.admin_fund_ids())::uuid[]) or case when portfolio_group is null '
+        'fund_id = any((select public.unscoped_fund_ids())::uuid[]) or case when portfolio_group is null '
         || 'then company_id = any((select public.company_ids_readable())::uuid[]) '
         || 'else portfolio_group = any((select public.group_names_readable())::text[]) end'
       when 'portfolio_group' = any(cols) then
-        'fund_id = any((select public.admin_fund_ids())::uuid[]) or portfolio_group = any((select public.group_names_readable())::text[])'
+        'fund_id = any((select public.unscoped_fund_ids())::uuid[]) or portfolio_group = any((select public.group_names_readable())::text[])'
       when 'company_id' = any(cols) then
-        'company_id is null or fund_id = any((select public.admin_fund_ids())::uuid[]) or company_id = any((select public.company_ids_readable())::uuid[])'
+        'company_id is null or fund_id = any((select public.unscoped_fund_ids())::uuid[]) or company_id = any((select public.company_ids_readable())::uuid[])'
       else null
     end;
 

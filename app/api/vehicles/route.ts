@@ -8,7 +8,7 @@ import { retagPortfolioGroup } from '@/lib/vehicles'
 import { dbError } from '@/lib/api-error'
 import { VEHICLE_KINDS } from '@/lib/vehicle-kinds'
 import { loadAccessContext } from '@/lib/access/effective'
-import { canSeeVehicle } from '@/lib/access/scope'
+import { canSeeVehicle, entityIdentityChangeDenial } from '@/lib/access/scope'
 
 // Fund-wide investment-vehicle registry (fund_vehicles). Vehicles are used across
 // LP snapshots, portfolio, compliance, and accounting — so management lives here,
@@ -61,6 +61,11 @@ export async function POST(req: NextRequest) {
   const kind = KINDS.includes(body.kind) ? body.kind : 'fund'
   if (!name) return NextResponse.json({ error: 'name is required' }, { status: 400 })
 
+  // Creating an entity names rows into it — only an unscoped caller may (see entityIdentityChangeDenial).
+  const createAccess = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  const createDenied = entityIdentityChangeDenial(createAccess, { name })
+  if (createDenied) return NextResponse.json({ error: createDenied }, { status: 403 })
+
   const { data, error } = await (admin as any)
     .from('fund_vehicles')
     .insert({ fund_id: gate.fundId, name, kind, aliases: [], active: true })
@@ -97,6 +102,10 @@ export async function PATCH(req: NextRequest) {
   if (!canSeeVehicle(access, String(body.id)) || (body.mergeIntoId && !canSeeVehicle(access, String(body.mergeIntoId)))) {
     return NextResponse.json({ error: 'Vehicle not found' }, { status: 404 })
   }
+  // Merging is an identity change outright; a rename or alias change is checked once the current
+  // row is loaded, so re-sending the unchanged name (the edit form does) is not mistaken for one.
+  const mergeDenied = entityIdentityChangeDenial(access, { mergeIntoId: body.mergeIntoId })
+  if (mergeDenied) return NextResponse.json({ error: mergeDenied }, { status: 403 })
 
   // Merge: collapse this vehicle into another (e.g. a backfilled "<X> SPV" duplicate of the
   // real "<X> SPV LP"). Distinct from a rename — the source row is deleted, not renamed, and
@@ -143,6 +152,13 @@ export async function PATCH(req: NextRequest) {
   const { data: current } = await (admin as any)
     .from('fund_vehicles').select('id, name, aliases').eq('id', body.id).eq('fund_id', gate.fundId).maybeSingle()
   if (!current) return NextResponse.json({ error: 'Vehicle not found' }, { status: 404 })
+  const sameAliases = (x: unknown, y: unknown) =>
+    JSON.stringify([...((x as string[]) ?? [])].map(String).sort()) === JSON.stringify([...((y as string[]) ?? [])].map(String).sort())
+  const identityDenied = entityIdentityChangeDenial(access, {
+    name: typeof body.name === 'string' && body.name.trim() && body.name.trim() !== (current as any).name ? body.name : undefined,
+    aliases: Array.isArray(body.aliases) && !sameAliases(body.aliases, (current as any).aliases) ? body.aliases : undefined,
+  })
+  if (identityDenied) return NextResponse.json({ error: identityDenied }, { status: 403 })
 
   const update: Record<string, unknown> = { updated_at: new Date().toISOString() }
   if (body.kind !== undefined) {

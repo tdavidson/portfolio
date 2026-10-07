@@ -9,7 +9,7 @@ import { listMancoVehicles } from '@/lib/accounting/load'
 import { chartForVehicleKind } from '@/lib/accounting/chart'
 import { MANCO_KIND } from '@/lib/vehicle-kinds'
 import { loadAccessContext } from '@/lib/access/effective'
-import { canSeeVehicle } from '@/lib/access/scope'
+import { canSeeVehicle, entityIdentityChangeDenial } from '@/lib/access/scope'
 
 // GET — the fund's management companies, with enough state for the section's landing page to
 // distinguish "not set up yet" from "set up and empty".
@@ -89,6 +89,10 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const name = typeof body?.name === 'string' ? body.name.trim() : ''
   if (!name) return NextResponse.json({ error: 'A name is required' }, { status: 400 })
+
+  // Creating an entity names rows into it — only an unscoped caller may.
+  const createDenied = entityIdentityChangeDenial(await loadAccessContext(admin, gate.fundId, gate.userId, gate.role), { name })
+  if (createDenied) return NextResponse.json({ error: createDenied }, { status: 403 })
 
   const { data, error } = await admin
     .from('fund_vehicles' as any)

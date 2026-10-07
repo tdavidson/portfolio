@@ -118,7 +118,14 @@ begin
           and (m.role = 'admin'
                or exists (select 1 from fund_member_vehicles g
                            where g.fund_id = m.fund_id and g.user_id = m.user_id and g.vehicle_id = v.id))),
-      '[]'::jsonb)
+      '[]'::jsonb),
+    -- Unscoped: an admin, or a member granted EVERY entity in the fund. Such a member sees what an
+    -- admin sees — unassigned companies, rows with no entity — so granting everything (as the
+    -- backfill does) changes nothing for them.
+    'vehicles_all', m.role = 'admin' or not exists (
+      select 1 from fund_vehicles v where v.fund_id = m.fund_id
+         and not exists (select 1 from fund_member_vehicles g
+                          where g.fund_id = m.fund_id and g.user_id = m.user_id and g.vehicle_id = v.id))
   )
   into v_result
   from fund_members m

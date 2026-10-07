@@ -63,7 +63,7 @@ set search_path = public
 as $$
   select coalesce(array_agg(d.id), '{}'::uuid[]) from diligence_deals d
    where d.vehicle_id = any(public.vehicle_ids_readable())
-      or d.fund_id = any(public.admin_fund_ids());
+      or d.fund_id = any(public.unscoped_fund_ids());
 $$;
 
 revoke execute on function public.diligence_ids_readable() from public, anon;

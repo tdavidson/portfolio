@@ -24,6 +24,10 @@ describe('vehicleScopeFromRow — what access_context said about entities', () =
     expect(vehicleScopeFromRow('member', undefined)).toEqual({ all: true, ids: [], enforced: false })
   })
 
+  it('treats a member granted every entity as unscoped, like an admin', () => {
+    expect(vehicleScopeFromRow('member', ['v1', 'v2'], true)).toEqual({ all: true, ids: ['v1', 'v2'], enforced: true })
+  })
+
   it('drops anything that is not a string id', () => {
     expect(vehicleScopeFromRow('viewer', ['v1', 3, null])).toEqual({ all: false, ids: ['v1'], enforced: true })
   })
@@ -227,5 +231,22 @@ describe('filterByCompany — scoping a query to visible companies', () => {
   })
   it('matches nothing for a caller with no companies', () => {
     expect(filterByCompany(q(), []).calls).toEqual([['in', 'company_id', []]])
+  })
+})
+
+import { entityIdentityChangeDenial } from './scope'
+describe('entityIdentityChangeDenial — names decide what a member sees, so only an unscoped caller changes them', () => {
+  const member = ctx('member', { all: false, ids: ['v1'] })
+  const unscoped = ctx('member', { all: true, ids: [] })
+  it('refuses a scoped member creating an entity, renaming one, adding aliases or merging', () => {
+    expect(entityIdentityChangeDenial(member, { name: 'New' })).toMatch(/every entity/)
+    expect(entityIdentityChangeDenial(member, { aliases: ['Fund II'] })).toMatch(/every entity/)
+    expect(entityIdentityChangeDenial(member, { mergeIntoId: 'v2' })).toMatch(/every entity/)
+  })
+  it('lets a scoped member change other details of their entity', () => {
+    expect(entityIdentityChangeDenial(member, { active: false, vintage_year: 2020 })).toBeNull()
+  })
+  it('lets an unscoped caller change anything', () => {
+    expect(entityIdentityChangeDenial(unscoped, { name: 'New', aliases: ['x'] })).toBeNull()
   })
 })

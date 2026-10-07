@@ -30,10 +30,12 @@ export interface VehicleScope {
  * access existed. That is what lets this code deploy before the migration is pushed. Once it is
  * pushed the key is always present, and an empty list means what it says.
  */
-export function vehicleScopeFromRow(role: FundRole, vehicles: unknown): VehicleScope {
+export function vehicleScopeFromRow(role: FundRole, vehicles: unknown, vehiclesAll?: unknown): VehicleScope {
   const ids = Array.isArray(vehicles) ? vehicles.filter((v): v is string => typeof v === 'string') : []
   const enforced = vehicles !== undefined
-  if (role === 'admin' || !enforced) return { all: true, ids, enforced }
+  // An admin, or a member granted every entity (`vehicles_all`): unscoped, so granting everything —
+  // as the rollout backfill does — changes nothing for them.
+  if (role === 'admin' || !enforced || vehiclesAll === true) return { all: true, ids, enforced }
   return { all: false, ids, enforced }
 }
 
@@ -161,4 +163,22 @@ export function filterByCompany<Q extends { in: Function; is: Function; or: Func
   if (!opts.keepUnlinked) return query.in(col, companyIds) as Q
   if (companyIds.length === 0) return query.is(col, null) as Q
   return query.or(`${col}.is.null,${col}.in.(${companyIds.join(',')})`) as Q
+}
+
+/**
+ * Why this caller may not change an entity's identity, or null. Name-based scoping (portfolio_group
+ * strings, aliases) is how a member's entities find their rows — so a member who could rename an
+ * entity, add an alias, create one named like a legacy string, or merge one into another could widen
+ * their own sight to rows that are not theirs. Only an unscoped caller (an admin, or a member
+ * granted every entity) changes those.
+ */
+export function entityIdentityChangeDenial(
+  access: Pick<AccessContext, 'vehicles'>,
+  change: { name?: unknown; aliases?: unknown; mergeIntoId?: unknown },
+): string | null {
+  if (access.vehicles.all) return null
+  if (change.name !== undefined || change.aliases !== undefined || change.mergeIntoId !== undefined) {
+    return 'Only someone who can see every entity can create, rename, alias or merge entities.'
+  }
+  return null
 }
