@@ -7,6 +7,7 @@ import { extractDocumentText } from '@/lib/lp-onboarding-extract'
 import { classifyKind, extractFacts, prepareText } from '@/lib/lp-onboarding-classify'
 import { defaultExpiry } from '@/lib/tax/forms'
 import { canRecordTaxForms } from '@/lib/lp-onboarding-tax'
+import { loadLpScope, lpDocumentVisible } from '@/lib/access/lp-scope'
 
 export const maxDuration = 60
 
@@ -34,7 +35,9 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
 
   // The document must be this fund's — lp_documents is cross-fund and the id came from the URL.
   const { data: doc } = await a.from('lp_documents').select('id, storage_path, file_name, mime_type').eq('id', documentId).eq('fund_id', gate.fundId).maybeSingle()
-  if (!doc) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (!doc || !(await lpDocumentVisible(admin, gate.fundId, documentId, await loadLpScope(admin, gate)))) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
 
   const { can } = await canRecordTaxForms(admin, gate.fundId, user.id, gate.role)
 

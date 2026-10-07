@@ -12,6 +12,7 @@ import {
   partnerFormStatus,
   type TaxFormRecord,
 } from '@/lib/tax/forms'
+import { loadLpScope, lpVisible } from '@/lib/access/lp-scope'
 
 // Tax forms behind each partner's K-1 — W-9 for a US person, the W-8 series for everyone else.
 //
@@ -36,7 +37,7 @@ export async function GET(req: NextRequest) {
 
   const asOf = req.nextUrl.searchParams.get('asOf') ?? new Date().toISOString().slice(0, 10)
 
-  const [{ data: entities }, { data: forms, error }] = await Promise.all([
+  const [{ data: allEntities }, { data: forms, error }] = await Promise.all([
     admin.from('lp_entities' as any).select('id, entity_name, investor_id').eq('fund_id', gate.fundId),
     admin
       .from('lp_tax_forms' as any)
@@ -44,6 +45,9 @@ export async function GET(req: NextRequest) {
       .eq('fund_id', gate.fundId),
   ])
   if (error) return dbError(error, 'tax-forms')
+  // Only LPs with a position in one of the caller's entities.
+  const lp = await loadLpScope(admin, gate)
+  const entities = ((allEntities as any[]) ?? []).filter(e => lpVisible(lp.entityIds, e.id))
 
   const byEntity = new Map<string, any[]>()
   for (const f of ((forms as any[]) ?? [])) {
@@ -111,6 +115,8 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const lpEntityId = typeof body?.lpEntityId === 'string' ? body.lpEntityId : ''
   if (!lpEntityId) return NextResponse.json({ error: 'lpEntityId is required' }, { status: 400 })
+  const writeScope = await loadLpScope(admin, gate)
+  if (!lpVisible(writeScope.entityIds, lpEntityId)) return NextResponse.json({ error: 'Entity not found' }, { status: 404 })
   if (!isTaxFormType(body?.formType)) {
     return NextResponse.json({ error: 'formType must be one of w9, w8ben, w8bene, w8imy, w8eci' }, { status: 400 })
   }

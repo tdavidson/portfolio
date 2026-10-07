@@ -14,6 +14,15 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({ from }) }))
 
 import { PATCH } from '@/app/api/lps/entities/profile/route'
 
+// Entity scope: these tests exercise the route's own rules, as a caller who sees every entity.
+// The entity rule itself is tested in lib/access/lp-scope.test.ts.
+const lpScope = vi.hoisted(() => ({ entityIds: null as string[] | null, investorIds: null as string[] | null }))
+vi.mock('@/lib/access/lp-scope', async (orig) => ({
+  ...(await orig<typeof import('@/lib/access/lp-scope')>()),
+  loadLpScope: async () => ({ scope: {} as any, entityIds: lpScope.entityIds, investorIds: lpScope.investorIds }),
+}))
+
+
 let updates: { table: string; patch: Record<string, unknown>; filters: Record<string, unknown> }[] = []
 let inserted: Record<string, Record<string, unknown>[]> = {}
 
@@ -67,6 +76,13 @@ describe('PATCH /api/lps/entities/profile', () => {
     inserted = {}
     await PATCH(req({ lp_entity_id: 'ent-1', entity: { onboarding_excluded: false } }))
     expect(inserted.lp_onboarding_events).toBeUndefined()
+  })
+
+  it('refuses a member an LP with no position in any of their entities, as not found', async () => {
+    lpScope.entityIds = ['ent-2']
+    try {
+      expect((await PATCH(req({ lp_entity_id: 'ent-1', entity: { city: 'X' } }))).status).toBe(404)
+    } finally { lpScope.entityIds = null }
   })
 
   it('refuses an entity outside the fund, a bad email, and an empty body', async () => {

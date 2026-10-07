@@ -8,6 +8,7 @@ import { proposeSort, type MatchableEntity } from '@/lib/lp-onboarding-classify'
 import { runPool } from '@/lib/lp-report-pdf'
 import { canRecordTaxForms } from '@/lib/lp-onboarding-tax'
 import { scanFile } from '@/lib/security/scan-file'
+import { loadLpScope, lpVisible } from '@/lib/access/lp-scope'
 
 export const maxDuration = 120
 
@@ -58,7 +59,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     a.from('lp_entities').select('id, entity_name, investor_id, lp_investors(name)').eq('fund_id', fundId),
     a.from('lp_investments').select('entity_id, commitment').eq('fund_id', fundId),
   ])
-  const entities: MatchableEntity[] = ((ents ?? []) as any[]).map(e => ({ id: e.id, name: e.entity_name, investorName: e.lp_investors?.name ?? '' }))
+  // Match files only against LPs with a position in one of the caller's entities.
+  const lp = await loadLpScope(admin, gate)
+  const entities: MatchableEntity[] = ((ents ?? []) as any[]).filter(e => lpVisible(lp.entityIds, e.id)).map(e => ({ id: e.id, name: e.entity_name, investorName: e.lp_investors?.name ?? '' }))
   const commitmentByEntity = new Map<string, number>()
   for (const r of (invs ?? []) as any[]) {
     const c = Number(r.commitment)

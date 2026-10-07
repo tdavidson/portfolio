@@ -15,13 +15,7 @@ import { join } from 'node:path'
  */
 const PENDING: Record<string, string> = {
   'api/accounting/fof-extract': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/accounting/k1-deliveries': 'phase 2: LPs, K-1s and LP tax',
-  'api/accounting/k1-packages/export': 'phase 2: LPs, K-1s and LP tax',
-  'api/accounting/k1-packages/pdf': 'phase 2: LPs, K-1s and LP tax',
-  'api/accounting/state-worklist': 'phase 2: LPs, K-1s and LP tax',
-  'api/accounting/tax-forms': 'phase 2: LPs, K-1s and LP tax',
   'api/analyst/conversations': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/compliance': 'phase 2: LPs, K-1s and LP tax',
   'api/cron/deal-research': 'exempt: a job or webhook acting for the fund, not a member request',
   'api/cron/deals-digest': 'exempt: a job or webhook acting for the fund, not a member request',
   'api/dashboard/notes/[noteId]': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
@@ -40,15 +34,7 @@ const PENDING: Record<string, string> = {
   'api/inbound-email': 'exempt: a job or webhook acting for the fund, not a member request',
   'api/inbound-email/mailgun': 'exempt: a job or webhook acting for the fund, not a member request',
   'api/interactions': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
-  'api/lps/onboarding': 'phase 2: LPs, K-1s and LP tax',
-  'api/lps/onboarding/facts': 'phase 2: LPs, K-1s and LP tax',
-  'api/lps/onboarding/request': 'phase 2: LPs, K-1s and LP tax',
-  'api/lps/onboarding/sort': 'phase 2: LPs, K-1s and LP tax',
-  'api/lps/onboarding/sort/confirm': 'phase 2: LPs, K-1s and LP tax',
-  'api/lps/preview': 'phase 2: LPs, K-1s and LP tax',
-  'api/lps/preview/document/[id]': 'phase 2: LPs, K-1s and LP tax',
-  'api/lps/preview/snapshot/[id]/pdf': 'phase 2: LPs, K-1s and LP tax',
-  'api/lps/snapshots': 'phase 2: LPs, K-1s and LP tax',
+  'api/lps/snapshots': 'exempt: GET lists fund-wide snapshot headers (name, date); their rows are lp_investments, scoped where read; writes are admin-only',
   'api/metrics/[id]': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
   'api/notes': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
   'api/notes/mark-read': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
@@ -81,7 +67,7 @@ function entityTables(): string[] {
   return [...rls, ...lp]
 }
 
-const SCOPED = /resolveGroupOr400|resolveMancoGroupOr400|loadEntityScope|loadEntityScopeForUser|entityScopeFor|visibleVehicleIds|visibleVehicleNames|canSeeVehicle|assertVehicleVisible|resolveHoldingVehicle|loadLpScope|lpVisible|scopeLiveReport|assertAdminAccess|role !== 'admin'/
+const SCOPED = /resolveGroupOr400|resolveMancoGroupOr400|loadEntityScope|loadEntityScopeForUser|entityScopeFor|visibleVehicleIds|visibleVehicleNames|canSeeVehicle|assertVehicleVisible|resolveHoldingVehicle|loadLpScope|lpVisible|scopeLiveReport|assertK1PackageVisible|lpDocumentVisible|assertAdminAccess|role !== 'admin'/
 /**
  * Routes the API gate already confines to one visible company or deal (lib/access/entity-gate.ts),
  * whose payload is about that company or deal as a whole — its notes, documents, metrics. A route

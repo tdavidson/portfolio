@@ -10,6 +10,8 @@ import {
   planDelivery,
   type ConsentRecord,
 } from '@/lib/tax/delivery'
+import { assertK1PackageVisible } from '@/lib/accounting/vehicle-visibility'
+import { loadLpScope, lpVisible } from '@/lib/access/lp-scope'
 
 // Furnishing a package's K-1s, and the consent that makes electronic furnishing valid.
 //
@@ -46,6 +48,9 @@ export async function GET(req: NextRequest) {
 
   const packageId = req.nextUrl.searchParams.get('packageId')
   if (!packageId) return NextResponse.json({ error: 'packageId is required' }, { status: 400 })
+  // A package is one entity's — it must be one of the caller's.
+  const hiddenPackage = await assertK1PackageVisible(admin, gate, packageId)
+  if (hiddenPackage) return hiddenPackage
 
   const { data: pkg } = await admin
     .from('k1_packages' as any)
@@ -106,6 +111,9 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const lpEntityId = typeof body?.lpEntityId === 'string' ? body.lpEntityId : ''
   if (!lpEntityId) return NextResponse.json({ error: 'lpEntityId is required' }, { status: 400 })
+  // Only for an LP with a position in one of the caller's entities.
+  const lp = await loadLpScope(admin, gate)
+  if (!lpVisible(lp.entityIds, lpEntityId)) return NextResponse.json({ error: 'Entity not found' }, { status: 404 })
 
   const { data: entity } = await admin
     .from('lp_entities' as any)

@@ -12,6 +12,7 @@ import {
 import { canRecordTaxForms, parseTaxFormInput, recordTaxForm } from '@/lib/lp-onboarding-tax'
 import { logOnboardingEvent, attachItemDocument, loadItemDocuments } from '@/lib/lp-onboarding-audit'
 import { emailLpReview } from '@/lib/lp-onboarding-notify'
+import { loadLpScope, lpVisible } from '@/lib/access/lp-scope'
 
 /**
  * The fund's side of LP onboarding.
@@ -40,13 +41,17 @@ export async function GET(): Promise<NextResponse> {
   const fundId = gate.fundId
   const a = admin as any
 
-  const [{ data: fs }, { data: entities, error: entErr }, { data: items }, { data: links }] = await Promise.all([
+  const [{ data: fs }, { data: allEntities, error: entErr }, { data: allItems }, { data: links }] = await Promise.all([
     a.from('fund_settings').select('lp_onboarding_kinds, lp_portal_enabled').eq('fund_id', fundId).maybeSingle(),
     a.from('lp_entities').select('id, entity_name, investor_id, partner_class, onboarding_excluded, entity_type, formation_jurisdiction, address_line1, address_line2, city, region, postal_code, country, notice_email, signatories, profile_notes, profile_updated_at, lp_investors(name, contact_name, contact_email, contact_phone)').eq('fund_id', fundId).order('entity_name'),
     a.from('lp_onboarding_items').select('id, lp_entity_id, kind, status, document_id, submitted_at, reviewed_at, expires_on, note').eq('fund_id', fundId),
     a.from('lp_account_links').select('lp_investor_id, lp_accounts(status)').eq('fund_id', fundId),
   ])
   if (entErr) return dbError(entErr, 'lps-onboarding')
+  // Only LPs with a position in one of the caller's entities.
+  const lp = await loadLpScope(admin, gate)
+  const entities = ((allEntities as any[]) ?? []).filter(e => lpVisible(lp.entityIds, e.id))
+  const items = ((allItems as any[]) ?? []).filter(i => lpVisible(lp.entityIds, i.lp_entity_id))
   const profileById = new Map<string, { entity: Record<string, unknown>; investor: Record<string, unknown> }>()
   for (const e of (entities ?? []) as any[]) {
     profileById.set(e.id, {
@@ -145,6 +150,8 @@ export async function PATCH(req: NextRequest): Promise<NextResponse> {
   const kind = body.kind
   const status = body.status
   if (!entityId) return NextResponse.json({ error: 'lp_entity_id is required' }, { status: 400 })
+  const patchScope = await loadLpScope(admin, gate)
+  if (!lpVisible(patchScope.entityIds, entityId)) return NextResponse.json({ error: 'Entity not found' }, { status: 404 })
   if (!isOnboardingKind(kind)) return NextResponse.json({ error: 'Unknown kind' }, { status: 400 })
   if (!isOnboardingStatus(status) || !REVIEW_STATUSES.includes(status)) {
     return NextResponse.json({ error: `status must be one of ${REVIEW_STATUSES.join(', ')}` }, { status: 400 })

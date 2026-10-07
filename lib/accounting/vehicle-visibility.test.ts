@@ -110,3 +110,21 @@ describe('resolveGroupOr400 — the one line every accounting route has', () => 
     expect((await resolveGroupOr400(admin(), { ...gate, role: 'admin' }, null) as any).status).toBe(400)
   })
 })
+
+import { assertK1PackageVisible } from './vehicle-visibility'
+describe('assertK1PackageVisible — a K-1 package is one entity\'s', () => {
+  const pkgAdmin = (vehicle_id: string | null) => ({
+    from: () => {
+      const chain: any = { select: () => chain, eq: () => chain, maybeSingle: async () => ({ data: vehicle_id === undefined ? null : { vehicle_id }, error: null }) }
+      return chain
+    },
+  }) as any
+  it('lets a member reach their entity\'s package', async () => {
+    sees(['v1'])
+    expect(await assertK1PackageVisible(pkgAdmin('v1'), gate, 'p1')).toBeNull()
+  })
+  it('answers 404 for another entity\'s package', async () => {
+    sees(['v1'])
+    expect((await assertK1PackageVisible(pkgAdmin('v2'), gate, 'p1'))?.status).toBe(404)
+  })
+})

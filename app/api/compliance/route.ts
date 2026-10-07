@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { overlayCompletion, parseYear, type DeadlineRow } from '@/lib/compliance/completion'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { scopeCompanyRows } from '@/lib/access/scope'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
@@ -52,12 +54,17 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Fund-level items stay; anything tied to an entity is shown for the caller's entities only.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  const names = scope ? scope.vehicleNames : []
+  const mine = <T extends { portfolio_group?: string | null }>(rows: T[]) => scopeCompanyRows(rows as any[], names, 'portfolio_group', { keepUnlinked: true }) as T[]
+  const deadlines = mine((deadlinesRes.data ?? []) as any[])
   return NextResponse.json({
     items: itemsRes.data ?? [],
     profile: profileRes.data ?? null,
-    settings: overlayCompletion((settingsRes.data ?? []) as unknown as { compliance_item_id: string; portfolio_group: string | null }[], deadlinesRes.data ?? []),
-    deadlines: deadlinesRes.data ?? [],
-    portfolioGroups: groups.map(g => g.portfolio_group).sort(),
-    closeMonths,
+    settings: overlayCompletion(mine((settingsRes.data ?? []) as unknown as { compliance_item_id: string; portfolio_group: string | null }[]), deadlines),
+    deadlines,
+    portfolioGroups: mine(groups).map(g => g.portfolio_group).sort(),
+    closeMonths: Object.fromEntries(Object.entries(closeMonths).filter(([g]) => names === null || names.includes(g))),
   })
 }

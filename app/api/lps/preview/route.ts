@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { overviewFromLive, type LiveOverviewRow } from '@/lib/lp-overview'
 import { lastDataDates } from '@/lib/accounting/lp-positions'
 import { generateLiveReport } from '@/lib/accounting/live-report'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 /** Portfolio overview for one investor — LIVE (the same data /lps shows, sliced to this LP). */
 async function computeOverview(admin: any, fundId: string, investorId: string) {
@@ -39,6 +41,13 @@ export async function GET(req: NextRequest) {
   // Any fund member may preview the LP portal (read-only); the demo viewer uses this.
   const { data: membership } = await admin.from('fund_members').select('fund_id').eq('user_id', user.id).maybeSingle()
   if (!membership) return NextResponse.json({ error: 'No fund found' }, { status: 403 })
+
+  // Previewing the portal shows an investor everything they hold, in every entity — so only someone
+  // who can see every entity may preview it (the sidebar already offers it to admins only).
+  const previewScope = await loadEntityScopeForUser(admin, user.id)
+  if (!previewScope || !canSeeVehicle(previewScope.access, null)) {
+    return NextResponse.json({ error: 'Previewing the LP portal needs access to every entity.' }, { status: 403 })
+  }
   const fundId = membership.fund_id
 
   // Fund branding, so the preview header mirrors the real portal chrome.

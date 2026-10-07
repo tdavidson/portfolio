@@ -6,6 +6,7 @@ import { refuseWithoutCarryAccess } from '@/lib/tax/access'
 import { assertReadAccess } from '@/lib/api-helpers'
 import { rateLimit } from '@/lib/rate-limit'
 import { buildK1WorkbookForPackage, type K1PackageRow } from '@/lib/tax/k1-export'
+import { assertK1PackageVisible } from '@/lib/accounting/vehicle-visibility'
 
 // The K-1 package as a workbook for the preparer.
 //
@@ -29,6 +30,9 @@ export async function GET(req: NextRequest) {
 
   const packageId = req.nextUrl.searchParams.get('packageId')
   if (!packageId) return NextResponse.json({ error: 'packageId is required' }, { status: 400 })
+  // A package is one entity's — it must be one of the caller's.
+  const hiddenPackage = await assertK1PackageVisible(admin, gate, packageId)
+  if (hiddenPackage) return hiddenPackage
 
   const { data: pkg } = await admin
     .from('k1_packages' as any)

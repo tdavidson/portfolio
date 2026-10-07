@@ -8,6 +8,7 @@ import { isOnboardingKind, ONBOARDING_KIND_LABEL, DOCUMENT_KINDS } from '@/lib/l
 import { canRecordTaxForms, parseTaxFormInput, recordTaxForm, type TaxFormInput } from '@/lib/lp-onboarding-tax'
 import { scanFile } from '@/lib/security/scan-file'
 import { logOnboardingEvent, attachItemDocument } from '@/lib/lp-onboarding-audit'
+import { loadLpScope, lpVisible } from '@/lib/access/lp-scope'
 
 /**
  * File what the reviewer confirmed from a sorted batch, and throw away what they discarded.
@@ -57,6 +58,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   // Entities must be this fund's, and each row's entity needs its investor for the share.
   const entityIds = Array.from(new Set(rows.map(r => r.lp_entity_id as string)))
+  // Filing only for LPs with a position in one of the caller's entities.
+  const lp = await loadLpScope(admin, gate)
+  if (entityIds.some(id => !lpVisible(lp.entityIds, id))) return NextResponse.json({ error: 'One or more entities are not in this fund' }, { status: 400 })
   const investorByEntity = new Map<string, { investorId: string; name: string }>()
   if (entityIds.length) {
     const { data: ents } = await a.from('lp_entities').select('id, investor_id, entity_name').eq('fund_id', fundId).in('id', entityIds)

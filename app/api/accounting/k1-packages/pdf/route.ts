@@ -7,6 +7,7 @@ import { rateLimit } from '@/lib/rate-limit'
 import { emptyLines, type K1Category } from '@/lib/accounting/k1-allocation'
 import { generateK1Pdf } from '@/lib/tax/k1-pdf'
 import { currentForm, type TaxFormRecord } from '@/lib/tax/forms'
+import { assertK1PackageVisible } from '@/lib/accounting/vehicle-visibility'
 
 // One partner's K-1 figures as a PDF.
 //
@@ -33,6 +34,8 @@ export async function GET(req: NextRequest) {
   if (!packageId || !lpEntityId) {
     return NextResponse.json({ error: 'packageId and lpEntityId are required' }, { status: 400 })
   }
+  const hiddenPackage = await assertK1PackageVisible(admin, gate, packageId)
+  if (hiddenPackage) return hiddenPackage
 
   const { data: pkg } = await admin
     .from('k1_packages' as any)

@@ -6,6 +6,7 @@ import { assertReadAccess } from '@/lib/api-helpers'
 import { currentForm, type TaxFormRecord } from '@/lib/tax/forms'
 import { buildStateWorklist, summarizeWorklist, type PartnerStateRow } from '@/lib/tax/state-worklist'
 import { incomeTotal, emptyLines, type K1Category } from '@/lib/accounting/k1-allocation'
+import { assertK1PackageVisible } from '@/lib/accounting/vehicle-visibility'
 
 // Which states have partners, and how much was allocated to each.
 //
@@ -27,6 +28,9 @@ export async function GET(req: NextRequest) {
 
   const packageId = req.nextUrl.searchParams.get('packageId')
   if (!packageId) return NextResponse.json({ error: 'packageId is required' }, { status: 400 })
+  // A package is one entity's — it must be one of the caller's.
+  const hiddenPackage = await assertK1PackageVisible(admin, gate, packageId)
+  if (hiddenPackage) return hiddenPackage
 
   const { data: pkg } = await admin
     .from('k1_packages' as any)

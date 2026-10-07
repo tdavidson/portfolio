@@ -66,3 +66,28 @@ describe('scopeLiveReport — the live LP report across the caller\'s entities o
     expect(Array.from(s.entityNames.keys())).toEqual(['L1'])
   })
 })
+
+import { lpDocumentVisible } from './lp-scope'
+describe('lpDocumentVisible — the lp_documents rule, in code', () => {
+  const adminWith = (doc: any, shares: any[]) => {
+    const from = (t: string) => {
+      const chain: any = { select: () => chain, eq: () => chain, in: () => chain,
+        maybeSingle: async () => ({ data: t === 'lp_documents' ? doc : null, error: null }),
+        then: (res: any) => res({ data: t === 'lp_document_shares' ? shares : [], error: null }) }
+      return chain
+    }
+    return { from } as any
+  }
+  const lp = (investorIds: string[] | null) => ({ scope: {} as any, entityIds: null, investorIds })
+
+  it('shows a fund-wide document to every member', async () => {
+    expect(await lpDocumentVisible(adminWith({ id: 'd', scope: 'fund' }, []), 'f1', 'd', lp(['I1']))).toBe(true)
+  })
+  it('shows an investor document only when shared with a visible investor', async () => {
+    expect(await lpDocumentVisible(adminWith({ id: 'd', scope: 'investor' }, [{ lp_investor_id: 'I1' }]), 'f1', 'd', lp(['I1']))).toBe(true)
+    expect(await lpDocumentVisible(adminWith({ id: 'd', scope: 'investor' }, [{ lp_investor_id: 'I2' }]), 'f1', 'd', lp(['I1']))).toBe(false)
+  })
+  it('shows everything to a caller who sees every entity', async () => {
+    expect(await lpDocumentVisible(adminWith({ id: 'd', scope: 'investor' }, []), 'f1', 'd', lp(null))).toBe(true)
+  })
+})

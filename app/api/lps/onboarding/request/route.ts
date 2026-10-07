@@ -12,6 +12,7 @@ import {
   buildOnboardingMatrix, normalizeKinds, DEFAULT_ONBOARDING_KINDS, ONBOARDING_STATUS_LABEL, loadClosingsByEntity, closingPhrase,
   type OnboardingEntity, type OnboardingItemRow,
 } from '@/lib/lp-onboarding'
+import { loadLpScope, lpVisible } from '@/lib/access/lp-scope'
 
 /**
  * Ask LPs for what they still owe.
@@ -46,7 +47,9 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
 
   const kinds = fs?.lp_onboarding_kinds == null ? DEFAULT_ONBOARDING_KINDS : normalizeKinds(fs.lp_onboarding_kinds)
   const closings = await loadClosingsByEntity(admin, ((entities ?? []) as any[]).map(e => e.id))
-  let list: OnboardingEntity[] = ((entities ?? []) as any[]).map(e => ({
+  // Only LPs with a position in one of the caller's entities.
+  const lp = await loadLpScope(admin, access)
+  let list: OnboardingEntity[] = ((entities ?? []) as any[]).filter(e => lpVisible(lp.entityIds, e.id)).map(e => ({
     id: e.id, name: e.entity_name, investorId: e.investor_id, investorName: e.lp_investors?.name ?? '',
     closing: closings.get(e.id) ?? null,
   }))

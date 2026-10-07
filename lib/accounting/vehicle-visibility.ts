@@ -41,3 +41,15 @@ export async function visibleVehicleNames(
   const { data } = await (admin as any).from('fund_vehicles').select('id, name').eq('fund_id', gate.fundId).in('id', ids)
   return ((data as any[]) ?? []).map(v => v.name as string).sort()
 }
+
+/** 404 when the K-1 package belongs to an entity the caller cannot see (or is not this fund's). */
+export async function assertK1PackageVisible(
+  admin: SupabaseClient,
+  gate: Pick<VehicleGate, 'fundId' | 'userId' | 'role'>,
+  packageId: string,
+): Promise<NextResponse | null> {
+  const { data } = await (admin as any).from('k1_packages').select('vehicle_id').eq('id', packageId).eq('fund_id', gate.fundId).maybeSingle()
+  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  if (data && canSeeVehicle(access, (data as any).vehicle_id ?? null)) return null
+  return NextResponse.json({ error: 'Package not found' }, { status: 404 })
+}

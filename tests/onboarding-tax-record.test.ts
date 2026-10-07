@@ -22,6 +22,15 @@ vi.mock('@/lib/lp-onboarding-notify', () => ({ emailLpReview }))
 import { PATCH } from '@/app/api/lps/onboarding/route'
 import { parseTaxFormInput } from '@/lib/lp-onboarding-tax'
 
+// Entity scope: these tests exercise the route's own rules, as a caller who sees every entity.
+// The entity rule itself is tested in lib/access/lp-scope.test.ts.
+const lpScope = vi.hoisted(() => ({ entityIds: null as string[] | null, investorIds: null as string[] | null }))
+vi.mock('@/lib/access/lp-scope', async (orig) => ({
+  ...(await orig<typeof import('@/lib/access/lp-scope')>()),
+  loadLpScope: async () => ({ scope: {} as any, entityIds: lpScope.entityIds, investorIds: lpScope.investorIds }),
+}))
+
+
 let inserted: Record<string, Record<string, unknown>[]> = {}
 let upserted: Record<string, unknown>[] = []
 

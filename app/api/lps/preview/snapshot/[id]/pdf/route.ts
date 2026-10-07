@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { generateInvestorReportPdf } from '@/lib/lp-report-pdf'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 export const maxDuration = 120
 
@@ -19,6 +21,12 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
 
   const { data: membership } = await admin.from('fund_members').select('fund_id').eq('user_id', user.id).maybeSingle()
   if (!membership) return NextResponse.json({ error: 'No fund found' }, { status: 403 })
+  // Previewing the portal shows an investor everything they hold, in every entity — so only someone
+  // who can see every entity may preview it (the sidebar already offers it to admins only).
+  const previewScope = await loadEntityScopeForUser(admin, user.id)
+  if (!previewScope || !canSeeVehicle(previewScope.access, null)) {
+    return NextResponse.json({ error: 'Previewing the LP portal needs access to every entity.' }, { status: 403 })
+  }
   const fundId = membership.fund_id
 
   const investorId = new URL(req.url).searchParams.get('investor_id') ?? ''
