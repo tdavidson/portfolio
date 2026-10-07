@@ -103,5 +103,11 @@ export async function POST(req: NextRequest) {
     }
     return dbError(error, 'manco-vehicles')
   }
+  // A member who creates an entity can see it; admins see every entity anyway.
+  if (gate.role !== 'admin') {
+    await (admin as any).from('fund_member_vehicles')
+      .upsert({ fund_id: gate.fundId, user_id: gate.userId, vehicle_id: (data as any).id, granted_by: gate.userId },
+        { onConflict: 'fund_id,user_id,vehicle_id', ignoreDuplicates: true })
+  }
   return NextResponse.json(data)
 }

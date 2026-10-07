@@ -5,6 +5,8 @@ import { resolveHoldingVehicle } from '@/lib/portfolio/fof-register'
 // portfolio domain, investments feature (lib/access/route-domains.ts).
 import { assertReadAccess, assertWriteAccess } from '@/lib/api-helpers'
 import { ACTUAL_BOOK } from '@/lib/accounting/books'
+import { loadAccessContext } from '@/lib/access/effective'
+import { canSeeVehicle, scopeCompanyRows, visibleVehicleIds } from '@/lib/access/scope'
 
 // One fund holding and its terms.
 export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -20,7 +22,7 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
     admin.from('companies').select('id, name, holding_type')
       .eq('id', params.id).eq('fund_id', gate.fundId).maybeSingle(),
     (admin as any).from('fund_holding_terms').select('*')
-      .eq('company_id', params.id).eq('fund_id', gate.fundId).maybeSingle(),
+      .eq('company_id', params.id).eq('fund_id', gate.fundId),
     (admin as any).from('fund_capital_events').select('*')
       .eq('company_id', params.id).eq('fund_id', gate.fundId).order('event_date'),
     (admin as any).from('fund_nav_statements').select('*')
@@ -28,6 +30,14 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
   ])
 
   if (!holding.data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // A holding two funds commit to is one company row; the gate admitted the caller on either.
+  // Everything per-entity — terms, notices, statements — is shown for THEIR entities only.
+  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  const visible = visibleVehicleIds(access)
+  terms.data = scopeCompanyRows((terms.data as any[]) ?? [], visible, 'vehicle_id')
+  events.data = scopeCompanyRows((events.data as any[]) ?? [], visible, 'vehicle_id')
+  navs.data = scopeCompanyRows((navs.data as any[]) ?? [], visible, 'vehicle_id')
 
   // WHICH ENTITY HOLDS THIS FUND, so the panel can ask only when it does not already know. The
   // vehicle lives on the register rows (nothing on `companies` or `fund_holding_terms` carries
@@ -42,7 +52,7 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
 
   return NextResponse.json({
     holding: holding.data,
-    terms: terms.data ?? null,
+    terms: ((terms.data as any[]) ?? [])[0] ?? null,
     events: events.data ?? [],
     navStatements: navs.data ?? [],
     /** Null until the first notice names one; a second entry means the register is inconsistent. */
@@ -87,7 +97,10 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
   // The entity whose commitment this is. Inferred from the register when the caller does not say,
   // and allowed to stay null while the holding has no activity to infer from — the constraint is
   // NULLS NOT DISTINCT, so an unassigned terms row keeps the old one-per-fund rule.
-  const held = await resolveHoldingVehicle(admin, gate.fundId, params.id, body?.vehicleId)
+  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  const held = await resolveHoldingVehicle(admin, gate.fundId, params.id, body?.vehicleId, access)
+  // A member writes terms only for one of their entities; an entity-less row is an admin's call.
+  if ('error' in held && !access.vehicles.all) return NextResponse.json({ error: held.error }, { status: 403 })
   const vehicleId = 'vehicleId' in held ? held.vehicleId : null
 
   const { error } = await (admin as any).from('fund_holding_terms').upsert({
@@ -115,6 +128,16 @@ export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: s
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const gate = await assertWriteAccess(admin, user.id)
   if (gate instanceof NextResponse) return gate
+
+  // Deleting removes the holding for every entity that commits to it, so a member may delete only
+  // a holding none of the other entities is linked to.
+  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  if (!access.vehicles.all) {
+    const { data: links } = await (admin as any).from('company_vehicles').select('vehicle_id').eq('company_id', params.id)
+    if (((links as any[]) ?? []).some(l => !canSeeVehicle(access, l.vehicle_id))) {
+      return NextResponse.json({ error: 'Another entity also holds this fund. Ask an admin to remove it.' }, { status: 403 })
+    }
+  }
 
   const { count } = await (admin as any)
     .from('fund_capital_events')

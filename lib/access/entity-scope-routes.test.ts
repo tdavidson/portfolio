@@ -14,6 +14,8 @@ import { join } from 'node:path'
  * behind the list's back. Restricted members must not be invited until no `phase` line remains.
  */
 const PENDING: Record<string, string> = {
+  'api/vehicles': 'exempt: POST creates an entity and grants it to its creator; GET and PATCH are scoped',
+  'api/manco/vehicles': 'exempt: POST creates a management company and grants it to its creator; GET is scoped',
   'api/accounting/fof-extract': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
   'api/accounting/k1-deliveries': 'phase 2: LPs, K-1s and LP tax',
   'api/accounting/k1-packages/export': 'phase 2: LPs, K-1s and LP tax',
@@ -105,9 +107,32 @@ function entityTables(): string[] {
   return [...rls, ...lp]
 }
 
-const SCOPED = /resolveGroupOr400|resolveMancoGroupOr400|loadEntityScope|loadEntityScopeForUser|entityScopeFor|visibleVehicleIds|visibleVehicleNames|canSeeVehicle|assertVehicleVisible/
-/** Routes the API gate already confines to one visible company or deal (lib/access/entity-gate.ts). */
-const GATED = [/^api\/companies\/\[id\]/, /^api\/portfolio\/fund-holdings\/\[id\]/, /^api\/deals\/\[id\]/]
+const SCOPED = /resolveGroupOr400|resolveMancoGroupOr400|loadEntityScope|loadEntityScopeForUser|entityScopeFor|visibleVehicleIds|visibleVehicleNames|canSeeVehicle|assertVehicleVisible|resolveHoldingVehicle/
+/**
+ * Routes the API gate already confines to one visible company or deal (lib/access/entity-gate.ts),
+ * whose payload is about that company or deal as a whole — its notes, documents, metrics. A route
+ * under these whose payload is PER ENTITY (a company's transactions, a fund holding's register)
+ * must scope it in the handler; the fund-holding routes are therefore deliberately not here.
+ */
+const GATED = [/^api\/companies\/\[id\]/, /^api\/deals\/\[id\]/]
+
+/**
+ * A file's handlers, separately: a GET that scopes says nothing about the POST beside it. A handler
+ * is judged together with the file's local helper functions it calls (one level deep), wherever
+ * they are defined — a write path that resolves its entity through a shared local helper is scoped.
+ * Imports are not code: naming a helper in an import is not calling it.
+ */
+function handlers(src: string): string[] {
+  const body = src.replace(/^import[\s\S]*?from\s+['"][^'"]+['"];?\s*$/gm, '')
+  // Top-level declarations start at column 0.
+  const chunks = body.split(/\n(?=(?:export )?(?:async )?function \w+|(?:export )?const \w+ = (?:async )?\()/)
+  const named = chunks.map(c => ({ name: c.match(/function (\w+)|const (\w+) =/)?.slice(1).find(Boolean) ?? '', text: c }))
+  const isHandler = (n: string) => /^(GET|POST|PUT|PATCH|DELETE)$/.test(n)
+  const helpers = named.filter(c => c.name && !isHandler(c.name))
+  const hs = named.filter(c => isHandler(c.name))
+  if (hs.length === 0) return [body]
+  return hs.map(h => h.text + helpers.filter(x => new RegExp(`\\b${x.name}\\(`).test(h.text)).map(x => x.text).join('\n'))
+}
 
 function routes(dir = 'app/api', out: string[] = []): string[] {
   for (const e of readdirSync(dir)) {
@@ -121,10 +146,8 @@ function routes(dir = 'app/api', out: string[] = []): string[] {
 describe('entity scope on API routes', () => {
   const tables = entityTables()
   const unscoped = routes()
-    .filter(f => {
-      const src = readFileSync(f, 'utf8')
-      return tables.some(t => new RegExp(`from\\(\\s*['"]${t}['"]`).test(src)) && !SCOPED.test(src)
-    })
+    .filter(f => handlers(readFileSync(f, 'utf8')).some(h =>
+      tables.some(t => new RegExp(`from\\(\\s*['"]${t}['"]`).test(h)) && !SCOPED.test(h)))
     .map(f => f.replace(/^app\//, '').replace(/\/route\.ts$/, ''))
     .filter(key => !GATED.some(g => g.test(key)))
 

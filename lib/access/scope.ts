@@ -128,3 +128,15 @@ export function dealEntityProblem(access: Pick<AccessContext, 'vehicles'>, vehic
   if (!vehicleId) return 'Choose which of your entities this deal is for.'
   return canSeeVehicle(access, vehicleId) ? null : "You don't have access to that entity."
 }
+
+/**
+ * Why this caller may not create a company with these entity names, or null. A member must name at
+ * least one entity, all of them theirs: a company linked to none is admin-only, so they would lose
+ * it the moment they made it, and naming a new one would create an entity they cannot see.
+ */
+export function newCompanyGroupsProblem(visibleNames: string[] | null, groups: string[] | null | undefined): string | null {
+  if (visibleNames === null) return null
+  const named = (groups ?? []).filter(Boolean)
+  if (named.length === 0) return 'Choose which of your entities this company belongs to.'
+  return named.every(g => visibleNames.includes(g)) ? null : "You don't have access to that entity."
+}

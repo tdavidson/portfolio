@@ -7,6 +7,8 @@ import { dbError } from '@/lib/api-error'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { loadK1Dependencies } from '@/lib/tax/year-close'
 import { K1_EXPECTED_HOLDING_TYPE } from '@/lib/tax/received-k1s'
+import { assertVehicleVisible } from '@/lib/accounting/vehicle-visibility'
+import { loadAccessContext } from '@/lib/access/effective'
 
 // K-1s owed to us by the funds we hold.
 //
@@ -73,6 +75,14 @@ export async function POST(req: NextRequest) {
   }
 
   const group = typeof body?.group === 'string' ? body.group : null
+  // Only into one of the caller's entities.
+  if (group) {
+    const hidden = await assertVehicleVisible(admin, gate, group)
+    if (hidden) return hidden
+  } else {
+    const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+    if (!access.vehicles.all) return NextResponse.json({ error: 'Choose which of your entities received this K-1.' }, { status: 403 })
+  }
   const vehicleId = group ? await vehicleIdByName(admin, gate.fundId, group) : null
 
   const { data, error } = await admin

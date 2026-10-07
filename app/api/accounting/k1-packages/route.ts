@@ -7,6 +7,8 @@ import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { dbError } from '@/lib/api-error'
 import { rateLimit } from '@/lib/rate-limit'
 import { amendK1Package, finalizeK1Package, generateK1Package } from '@/lib/tax/k1-package'
+import { loadAccessContext } from '@/lib/access/effective'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 // K-1 packages for a vehicle: generate a draft, issue it, amend an issued one.
 //
@@ -32,6 +34,7 @@ export async function GET(req: NextRequest) {
   const carryGate = await refuseWithoutCarryAccess(admin, gate, user.id)
   if (carryGate) return carryGate
 
+  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
   const packageId = req.nextUrl.searchParams.get('packageId')
   if (packageId) {
     const [{ data: pkg }, { data: partners }, { data: lines }] = await Promise.all([
@@ -39,7 +42,7 @@ export async function GET(req: NextRequest) {
       admin.from('k1_partners' as any).select('*').eq('fund_id', gate.fundId).eq('package_id', packageId),
       admin.from('k1_lines' as any).select('*').eq('fund_id', gate.fundId).eq('package_id', packageId),
     ])
-    if (!pkg) return NextResponse.json({ error: 'Package not found' }, { status: 404 })
+    if (!pkg || !canSeeVehicle(access, (pkg as any).vehicle_id ?? null)) return NextResponse.json({ error: 'Package not found' }, { status: 404 })
     return NextResponse.json({ package: pkg, partners: partners ?? [], lines: lines ?? [] })
   }
 
@@ -51,7 +54,8 @@ export async function GET(req: NextRequest) {
     .order('version', { ascending: false })
     .limit(200)
   if (error) return dbError(error, 'k1-packages')
-  return NextResponse.json({ packages: data ?? [] })
+  // Only the caller's entities' packages.
+  return NextResponse.json({ packages: ((data as any[]) ?? []).filter(p => canSeeVehicle(access, p.vehicle_id)) })
 }
 
 export async function POST(req: NextRequest) {

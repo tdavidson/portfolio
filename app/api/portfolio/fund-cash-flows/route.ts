@@ -123,6 +123,8 @@ export async function PUT(req: NextRequest) {
   const { id, flowDate, flowType, amount, notes, portfolioGroup } = body
 
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
+  const editDenied = await cashFlowDenial(admin, user.id, membership.fund_id, id, portfolioGroup)
+  if (editDenied) return editDenied
 
   if (flowType && !['commitment', 'called_capital', 'distribution'].includes(flowType)) {
     return NextResponse.json({ error: 'flowType must be commitment, called_capital, or distribution' }, { status: 400 })
@@ -177,6 +179,8 @@ export async function DELETE(req: NextRequest) {
 
   const id = req.nextUrl.searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
+  const deleteDenied = await cashFlowDenial(admin, user.id, membership.fund_id, id, undefined)
+  if (deleteDenied) return deleteDenied
 
   const { error } = await admin
     .from('fund_cash_flows' as any)
@@ -187,4 +191,20 @@ export async function DELETE(req: NextRequest) {
   if (error) return dbError(error, 'fund-cash-flows-delete')
 
   return NextResponse.json({ ok: true })
+}
+
+/**
+ * A member edits or deletes only a cash flow in one of their entities, and moves it only into
+ * another of theirs. 404 rather than 403 for someone else's row: the id should mean nothing to them.
+ */
+async function cashFlowDenial(
+  admin: ReturnType<typeof createAdminClient>, userId: string, fundId: string, id: string, newGroup: string | undefined,
+): Promise<NextResponse | null> {
+  const scope = await loadEntityScopeForUser(admin, userId)
+  const names = scope ? scope.vehicleNames : []
+  if (names === null) return null
+  const { data: row } = await admin.from('fund_cash_flows' as any).select('portfolio_group').eq('id', id).eq('fund_id', fundId).maybeSingle()
+  if (!row || groupWriteDenial(names, (row as any).portfolio_group)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  const moved = newGroup !== undefined ? groupWriteDenial(names, newGroup) : null
+  return moved ? NextResponse.json({ error: moved }, { status: 403 }) : null
 }

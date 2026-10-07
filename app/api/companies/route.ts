@@ -7,7 +7,7 @@ import { logActivity } from '@/lib/activity'
 import { seedCompanyFromDefaults } from '@/lib/metrics/seed-default-metrics'
 import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
-import { scopeCompanyRows, scopeGroups, scopeTransactions } from '@/lib/access/scope'
+import { scopeCompanyRows, scopeGroups, scopeTransactions, newCompanyGroupsProblem } from '@/lib/access/scope'
 
 export async function GET() {
   const supabase = await createClient()
@@ -98,6 +98,12 @@ export async function POST(req: NextRequest) {
   if (!membership) {
     return NextResponse.json({ error: 'No fund found for this user' }, { status: 403 })
   }
+
+  // A member creates a company only in their own entities, and must name one (an unlinked company is
+  // admin-only). Checked before ensureVehiclesByName, which would create an entity they cannot see.
+  const createScope = await loadEntityScopeForUser(admin, user.id)
+  const groupProblem = newCompanyGroupsProblem(createScope ? createScope.vehicleNames : [], portfolio_group)
+  if (groupProblem) return NextResponse.json({ error: groupProblem }, { status: 403 })
 
   // Every stored portfolio_group name must be backed by a real fund_vehicles row — never a
   // disconnected string. Resolve/create before the write, not after.

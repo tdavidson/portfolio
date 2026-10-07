@@ -12,6 +12,8 @@ import {
   walletVariances, type Wallet, type WalletBalance,
 } from '@/lib/portfolio/wallets'
 import { HAS_CHAIN_PROVIDER } from '@/lib/portfolio/balance-providers'
+import { loadEntityScope } from '@/lib/access/entity-scope'
+import { groupWriteDenial } from '@/lib/access/scope'
 
 /**
  * Watched wallets — the public addresses a digital-asset holding is held in — and the balances
@@ -91,13 +93,15 @@ export async function POST(req: NextRequest) {
   if (gate instanceof NextResponse) return gate
 
   const body = await req.json().catch(() => ({}))
+  // A wallet sits in one entity; a member touches only wallets in theirs.
+  const scope = await loadEntityScope(admin, gate)
 
   /** The wallet must belong to the CALLER'S fund — fund_id comes from the membership lookup and
    *  never from the body, so a foreign id has to be rejected rather than silently scoped away. */
   const ownWallet = async (id: string) => {
     const { data } = await (admin as any)
-      .from('crypto_wallets').select('id, fund_id, chain, address').eq('id', id).maybeSingle()
-    return data && data.fund_id === gate.fundId ? data : null
+      .from('crypto_wallets').select('id, fund_id, chain, address, portfolio_group').eq('id', id).maybeSingle()
+    return data && data.fund_id === gate.fundId && !groupWriteDenial(scope.vehicleNames, data.portfolio_group) ? data : null
   }
 
   if (body?.action === 'record-balance') {
@@ -169,9 +173,12 @@ export async function POST(req: NextRequest) {
 
   const { data: company } = await admin
     .from('companies').select('id, fund_id, holding_type').eq('id', companyId).maybeSingle()
-  if (!company || (company as any).fund_id !== gate.fundId) {
+  if (!company || (company as any).fund_id !== gate.fundId
+    || (scope.companyIds !== null && !scope.companyIds.includes(companyId))) {
     return NextResponse.json({ error: 'Holding not found.' }, { status: 404 })
   }
+  const groupDenied = groupWriteDenial(scope.vehicleNames, body.portfolioGroup)
+  if (groupDenied) return NextResponse.json({ error: groupDenied }, { status: 403 })
 
   const { data: wallet, error } = await (admin as any)
     .from('crypto_wallets')
@@ -224,6 +231,12 @@ export async function DELETE(req: NextRequest) {
   const id = req.nextUrl.searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'id is required.' }, { status: 400 })
 
+  // Only a wallet in one of the caller's entities.
+  const deleteScope = await loadEntityScope(admin, gate)
+  const { data: target } = await (admin as any).from('crypto_wallets').select('portfolio_group').eq('id', id).eq('fund_id', gate.fundId).maybeSingle()
+  if (!target || groupWriteDenial(deleteScope.vehicleNames, (target as any).portfolio_group)) {
+    return NextResponse.json({ error: 'Wallet not found.' }, { status: 404 })
+  }
   const { error } = await (admin as any)
     .from('crypto_wallets').delete().eq('id', id).eq('fund_id', gate.fundId)
   if (error) return dbError(error, 'crypto-wallets-delete')

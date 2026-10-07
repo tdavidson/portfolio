@@ -163,7 +163,13 @@ export async function POST(req: NextRequest) {
       .eq('fund_id', membership.fund_id)
       .maybeSingle() as { data: { id: string; name: string; fund_id: string } | null }
 
-    if (!company) return NextResponse.json({ error: 'Company not found' }, { status: 404 })
+    // Only about a company the caller can see — a write here would otherwise also confirm that an
+    // invisible company exists.
+    const noteScope = await loadEntityScopeForUser(admin, user.id)
+    const visible = noteScope ? noteScope.companyIds : []
+    if (!company || (visible !== null && !visible.includes(company.id))) {
+      return NextResponse.json({ error: 'Company not found' }, { status: 404 })
+    }
     companyName = company.name
   }
 

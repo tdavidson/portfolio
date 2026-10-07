@@ -1,6 +1,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { draftEntryForTransaction } from '@/lib/accounting/from-portfolio'
 import { vehicleNameById } from '@/lib/accounting/vehicle-id'
+import type { AccessContext } from '@/lib/access/effective'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 /**
  * The register produces ordinary investment_transactions rows. It is the ONLY thing that
@@ -252,15 +254,22 @@ export async function resolveHoldingVehicle(
   fundId: string,
   companyId: string,
   requested: unknown,
+  /**
+   * The caller's entities. Required: a holding two funds commit to is one company row, so the
+   * company-level gate admits a member of either — this is what keeps one fund's member from
+   * writing into, or inferring, the other's register.
+   */
+  access: Pick<AccessContext, 'vehicles'>,
 ): Promise<{ vehicleId: string } | { error: string }> {
   if (typeof requested === 'string' && requested) {
     const { data } = await admin
       .from('fund_vehicles' as any).select('id')
       .eq('fund_id', fundId).eq('id', requested).maybeSingle()
     if (!data) return { error: 'That entity is not in this fund.' }
+    if (!canSeeVehicle(access, requested)) return { error: "You don't have access to that entity." }
     return { vehicleId: requested }
   }
-  const existing = await holdingVehicleIds(admin, fundId, companyId)
+  const existing = (await holdingVehicleIds(admin, fundId, companyId)).filter(id => canSeeVehicle(access, id))
   if (existing.length === 1) return { vehicleId: existing[0] }
   if (existing.length === 0) {
     return { error: 'Choose which entity holds this fund. A notice with no entity cannot be confirmed or reported.' }

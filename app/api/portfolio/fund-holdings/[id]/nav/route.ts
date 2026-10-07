@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveHoldingVehicle } from '@/lib/portfolio/fof-register'
 // portfolio domain, investments feature (lib/access/route-domains.ts).
 import { assertReadAccess, assertWriteAccess } from '@/lib/api-helpers'
+import { loadAccessContext } from '@/lib/access/effective'
+import { scopeCompanyRows, visibleVehicleIds } from '@/lib/access/scope'
 
 const BASES = ['final', 'preliminary', 'estimate']
 
@@ -21,7 +23,9 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
     .from('fund_nav_statements').select('*')
     .eq('fund_id', gate.fundId).eq('company_id', params.id)
     .order('as_of_date', { ascending: false })
-  return NextResponse.json({ navStatements: data ?? [] })
+  // Only the caller's entities' statements.
+  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  return NextResponse.json({ navStatements: scopeCompanyRows((data as any[]) ?? [], visibleVehicleIds(access), 'vehicle_id') })
 }
 
 // POST — record a manager statement.
@@ -55,7 +59,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   // The entity this statement belongs to. Inferred from the holding's register, because a null
   // here would hide the NAV from the schedule of investments and leave the position carried at
   // cost — a quieter failure than the unconfirmable notice the same bug caused on the event side.
-  const resolved = await resolveHoldingVehicle(admin, gate.fundId, params.id, body?.vehicleId)
+  const resolved = await resolveHoldingVehicle(admin, gate.fundId, params.id, body?.vehicleId,
+    await loadAccessContext(admin, gate.fundId, gate.userId, gate.role))
   if ('error' in resolved) return NextResponse.json({ error: resolved.error }, { status: 400 })
 
   const { error } = await (admin as any)

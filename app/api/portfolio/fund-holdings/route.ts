@@ -6,7 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertReadAccess, assertWriteAccess } from '@/lib/api-helpers'
 import { computeFundPositions } from '@/lib/portfolio/fof-metrics'
 import { loadEntityScope } from '@/lib/access/entity-scope'
-import { scopeCompanyRows, visibleVehicleIds } from '@/lib/access/scope'
+import { dealEntityProblem, scopeCompanyRows, visibleVehicleIds } from '@/lib/access/scope'
 
 // The fund-of-funds position table: one row per underlying fund, every figure derived.
 // Nothing here is stored — see lib/portfolio/fof-metrics.ts for why carrying value is a
@@ -36,6 +36,7 @@ export async function GET(req: NextRequest) {
   holdings.data = scopeCompanyRows((holdings.data ?? []) as any[], scope.companyIds) as any
   events.data = scopeCompanyRows((events.data ?? []) as any[], vehicleIds, 'vehicle_id')
   navs.data = scopeCompanyRows((navs.data ?? []) as any[], vehicleIds, 'vehicle_id')
+  terms.data = scopeCompanyRows((terms.data ?? []) as any[], vehicleIds, 'vehicle_id')
 
   const termByCompany = new Map((terms.data ?? []).map((t: any) => [t.company_id, t]))
 
@@ -98,6 +99,11 @@ export async function POST(req: NextRequest) {
     if (!vehicle) return NextResponse.json({ error: 'That entity is not in this fund.' }, { status: 400 })
     vehicleId = body.vehicleId
   }
+  // A member records a holding only for one of their entities — one with no entity would be
+  // admin-only, and they would lose it the moment they made it.
+  const createScope = await loadEntityScope(admin, gate)
+  const entityProblem = dealEntityProblem(createScope.access, vehicleId)
+  if (entityProblem) return NextResponse.json({ error: entityProblem }, { status: 403 })
 
   const { data: holding, error } = await admin
     .from('companies')

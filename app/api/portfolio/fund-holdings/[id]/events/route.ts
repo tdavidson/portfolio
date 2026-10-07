@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // portfolio domain, investments feature (lib/access/route-domains.ts).
 import { assertReadAccess, assertWriteAccess } from '@/lib/api-helpers'
 import { confirmFundCapitalEvent, resolveHoldingVehicle } from '@/lib/portfolio/fof-register'
+import { loadAccessContext } from '@/lib/access/effective'
+import { canSeeVehicle, scopeCompanyRows, visibleVehicleIds } from '@/lib/access/scope'
 
 // The register for one fund holding: calls and distributions RECEIVED from the manager.
 export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -19,7 +21,9 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
     .from('fund_capital_events').select('*')
     .eq('fund_id', gate.fundId).eq('company_id', params.id)
     .order('event_date')
-  return NextResponse.json({ events: data ?? [] })
+  // Only the caller's entities' notices — another fund's commitment to this holding is not theirs.
+  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  return NextResponse.json({ events: scopeCompanyRows((data as any[]) ?? [], visibleVehicleIds(access), 'vehicle_id') })
 }
 
 // POST — record a notice as a DRAFT. Nothing posts until it is confirmed.
@@ -54,7 +58,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   // and showed every entity's holdings on every entity's page.
   //
   // After the first notice names the entity, the rest infer it — see resolveHoldingVehicle.
-  const resolved = await resolveHoldingVehicle(admin, gate.fundId, params.id, body?.vehicleId)
+  const resolved = await resolveHoldingVehicle(admin, gate.fundId, params.id, body?.vehicleId,
+    await loadAccessContext(admin, gate.fundId, gate.userId, gate.role))
   if ('error' in resolved) return NextResponse.json({ error: resolved.error }, { status: 400 })
 
   // Default the split to the whole amount so a notice recorded without a breakdown still
@@ -103,6 +108,14 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
   const body = await req.json().catch(() => ({}))
   if (typeof body?.eventId !== 'string') {
     return NextResponse.json({ error: 'eventId is required' }, { status: 400 })
+  }
+
+  // Confirming books the notice into its entity's ledger — it must be one of the caller's.
+  const { data: event } = await (admin as any).from('fund_capital_events').select('vehicle_id')
+    .eq('id', body.eventId).eq('fund_id', gate.fundId).eq('company_id', params.id).maybeSingle()
+  const confirmAccess = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  if (!event || !canSeeVehicle(confirmAccess, (event as any).vehicle_id ?? null)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
   const result = await confirmFundCapitalEvent(admin, gate.fundId, user.id, body.eventId)

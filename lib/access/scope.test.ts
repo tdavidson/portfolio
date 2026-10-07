@@ -185,3 +185,20 @@ describe('dealEntityProblem — assigning a deal to an entity', () => {
     expect(dealEntityProblem(admin, null)).toBeNull()
   })
 })
+
+import { newCompanyGroupsProblem } from './scope'
+describe('newCompanyGroupsProblem — creating a company', () => {
+  it('lets a caller who sees every entity create it anywhere, or nowhere yet', () => {
+    expect(newCompanyGroupsProblem(null, ['Fund II'])).toBeNull()
+    expect(newCompanyGroupsProblem(null, [])).toBeNull()
+  })
+  it('requires a member to name at least one of their entities — else they lose the company they made', () => {
+    expect(newCompanyGroupsProblem(['Fund I'], [])).toMatch(/Choose/)
+    expect(newCompanyGroupsProblem(['Fund I'], undefined)).toMatch(/Choose/)
+    expect(newCompanyGroupsProblem(['Fund I'], ['Fund I'])).toBeNull()
+  })
+  it('refuses a member an entity they cannot see, or one that does not exist yet', () => {
+    expect(newCompanyGroupsProblem(['Fund I'], ['Fund I', 'Fund II'])).toMatch(/access to that entity/)
+    expect(newCompanyGroupsProblem(['Fund I'], ['New Fund'])).toMatch(/access to that entity/)
+  })
+})
