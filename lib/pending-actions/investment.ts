@@ -2,6 +2,7 @@ import type { ActionDeps, PreviewResult } from './types'
 import { resolveCompany, executeRecordInvestment, type RecordInvestmentInput } from '@/lib/agent/portfolio-tools'
 import { entityScopeFor } from '@/lib/access/entity-scope'
 import { groupWriteDenial } from '@/lib/access/scope'
+import { validateConversionLink } from '@/lib/accounting/conversion-link'
 
 export { executeRecordInvestment }
 export type { RecordInvestmentInput }
@@ -36,8 +37,13 @@ export function ledgerEffectText(input: RecordInvestmentInput): string {
 export async function previewRecordInvestment(deps: ActionDeps, input: RecordInvestmentInput): Promise<PreviewResult> {
   const c = await resolveCompany(deps.admin, deps.fundId, input.company, deps.access)
   // The same entity rule the write applies — refused when staged, not only when approved.
-  const denied = groupWriteDenial((await entityScopeFor(deps.admin, deps.access)).vehicleNames, input?.vehicle ?? null)
+  const writeNames = (await entityScopeFor(deps.admin, deps.access)).vehicleNames
+  const denied = groupWriteDenial(writeNames, input?.vehicle ?? null)
   if (denied) throw new Error(denied)
+  if (input.converts_from_txn_id) {
+    const linkError = await validateConversionLink(deps.admin, c.id, input.converts_from_txn_id, input.transaction_type, writeNames)
+    if (linkError) throw new Error(linkError)
+  }
   const amount =
     input.investment_cost ?? input.proceeds_received ?? input.unrealized_value_change ?? null
   const convertsFrom = input.converts_from_txn_id ?? null

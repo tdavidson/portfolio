@@ -27,14 +27,21 @@ export interface DealMatch {
  */
 export async function loadActiveDiligenceDeals(
   supabase: Supabase,
-  fundId: string
+  fundId: string,
+  /**
+   * The forwarding member's entities (null = every record: the email came from outside, to the
+   * fund's inbox). Required: a member's forward may only route to diligence they can see.
+   */
+  visibleVehicleIds: string[] | null,
 ): Promise<DiligenceDealRef[]> {
-  const { data: deals } = await supabase
+  let query = supabase
     .from('diligence_deals')
     .select('id, name, aliases')
     .eq('fund_id', fundId)
     .eq('deal_status', 'active')
-    .limit(200)
+  // Filtered only for a scoped member: vehicle_id exists once the entity migration has run.
+  if (visibleVehicleIds !== null) query = query.in('vehicle_id' as any, visibleVehicleIds)
+  const { data: deals } = await query.limit(200)
 
   const rows = (deals ?? []) as Array<{ id: string; name: string; aliases: string[] | null }>
   if (rows.length === 0) return []

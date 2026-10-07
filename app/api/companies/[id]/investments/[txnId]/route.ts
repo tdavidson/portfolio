@@ -81,7 +81,7 @@ export async function PATCH(
   // #2 — Validate the conversion link the same way create does (dangling / cross-company / self /
   // non-investment). Without this, an edit could set a link the create path would have rejected.
   if (body.converts_from_txn_id) {
-    const linkError = await validateConversionLink(admin, params.id, body.converts_from_txn_id, nextType, params.txnId)
+    const linkError = await validateConversionLink(admin, params.id, body.converts_from_txn_id, nextType, scope.vehicleNames, params.txnId)
     if (linkError) return NextResponse.json({ error: linkError }, { status: 400 })
   }
 

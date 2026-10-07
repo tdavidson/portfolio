@@ -15,6 +15,7 @@ import { getUpdates } from '@/lib/company-updates/analyst'
 import type { AccessContext } from '@/lib/access/effective'
 import { entityScopeFor, type EntityScope } from '@/lib/access/entity-scope'
 import { filterByCompany, groupWriteDenial, scopeCompanyRows, scopeGroups, scopeTransactions, visibleCompanyIds } from '@/lib/access/scope'
+import { validateConversionLink } from '@/lib/accounting/conversion-link'
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 
@@ -336,8 +337,14 @@ export async function executeRecordInvestment(
   const { admin, fundId, userId, access } = deps
   const c = await resolveCompany(admin, fundId, input?.company, access)
   // Only into one of the caller's entities (and no company-wide rows from a scoped caller).
-  const denied = groupWriteDenial((await entityScopeFor(admin, access)).vehicleNames, input?.vehicle ?? null)
+  const writeNames = (await entityScopeFor(admin, access)).vehicleNames
+  const denied = groupWriteDenial(writeNames, input?.vehicle ?? null)
   if (denied) throw new Error(denied)
+  // A conversion moves its source position: the source must be this company's, and the caller's.
+  if (input?.converts_from_txn_id) {
+    const linkError = await validateConversionLink(admin, c.id, input.converts_from_txn_id, input.transaction_type, writeNames)
+    if (linkError) throw new Error(linkError)
+  }
 
   const VALID = ['investment', 'unrealized_gain_change', 'proceeds', 'round_info']
   if (!VALID.includes(input?.transaction_type)) {

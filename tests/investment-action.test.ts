@@ -1,10 +1,11 @@
 import { describe, it, expect } from 'vitest'
 import { previewRecordInvestment } from '@/lib/pending-actions/investment'
 
-/** Minimal admin stub: resolveCompany's by-id lookup (maybeSingle) returns the company. */
+/** Minimal admin stub: resolveCompany's by-id lookup (maybeSingle) returns the company; the conversion lookup a SAFE. */
 function makeAdminStub(company: { id: string; name: string }) {
-  const query = () => {
-    const result = { data: company, error: null }
+  const query = (table?: string) => {
+    // The conversion source, for a preview that links one: an investment on the same company.
+    const result = { data: table === 'investment_transactions' ? { id: 'src', transaction_type: 'investment', portfolio_group: 'Fund IV' } : company, error: null }
     const handler: ProxyHandler<any> = {
       get(_t, prop) {
         if (prop === 'then') return (res: any) => Promise.resolve(result).then(res)

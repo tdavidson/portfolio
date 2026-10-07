@@ -24,7 +24,7 @@ import {
 } from '@/lib/company-updates/capture'
 import type { Json, IssueType, ProcessingStatus } from '@/lib/types/database'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
-import { scopeCompanyRows } from '@/lib/access/scope'
+import { scopeCompanyRows, visibleVehicleIds } from '@/lib/access/scope'
 
 type Supabase = ReturnType<typeof createAdminClient>
 
@@ -979,7 +979,10 @@ async function classifyAndStore(
   // Deterministic deal matching runs BEFORE the model. A sender-domain hit is
   // stronger evidence than anything the classifier can infer from prose, and
   // giving the model the answer it should already reach makes the label stable.
-  const activeDeals = await loadActiveDiligenceDeals(supabase, fundId)
+  // A member's forward routes only to diligence in their entities; mail from outside, to any.
+  const forwarderScope = fundMember ? await loadEntityScopeForUser(supabase as any, fundMember.userId) : null
+  const activeDeals = await loadActiveDiligenceDeals(supabase, fundId,
+    !fundMember ? null : forwarderScope ? visibleVehicleIds(forwarderScope.access) : [])
   const deterministic = matchDiligenceDeal({
     senderEmail,
     forwardedFromEmail: fwd.forwarded_from_email,

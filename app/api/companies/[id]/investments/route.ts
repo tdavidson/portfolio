@@ -204,17 +204,17 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
 
   // A conversion links to the SAFE/note it converts. Validate the link the same way here and in
   // PATCH — a dangling or cross-company id would silently break the basis carry and the ledger entry.
-  const convertsFrom: string | null = body.converts_from_txn_id ?? null
-  if (convertsFrom) {
-    const linkError = await validateConversionLink(admin, params.id, convertsFrom, transaction_type)
-    if (linkError) return NextResponse.json({ error: linkError }, { status: 400 })
-  }
-
   // Only into one of the caller's entities — checked before ensureVehiclesByName, which would
   // otherwise create an entity the member then could not see.
   const writeScope = await loadEntityScope(admin, { fundId: company.fund_id, userId: user.id, role: (membership as { role: string }).role })
   const denied = groupWriteDenial(writeScope.vehicleNames, body.portfolio_group)
   if (denied) return NextResponse.json({ error: denied }, { status: 403 })
+
+  const convertsFrom: string | null = body.converts_from_txn_id ?? null
+  if (convertsFrom) {
+    const linkError = await validateConversionLink(admin, params.id, convertsFrom, transaction_type, writeScope.vehicleNames)
+    if (linkError) return NextResponse.json({ error: linkError }, { status: 400 })
+  }
 
   // Every stored portfolio_group name must be backed by a real fund_vehicles row — never a
   // disconnected string. Resolve/create before the write, not after.
