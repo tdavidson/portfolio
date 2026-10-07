@@ -142,3 +142,22 @@ describe('rowCompanyDenial — routes about one email, metric, review or note', 
     expect(await rowCompanyDenial(none, 'api/metrics/[id]', '/api/metrics/m1', { vehicles: { all: true, ids: [] } })).toBeNull()
   })
 })
+
+import { rlsRowDenial } from './entity-gate'
+describe('rlsRowDenial — diligence records', () => {
+  const client = (visible: string[]) => {
+    const chain: any = { select: () => chain, eq: (_k: string, v: string) => { chain.id = v; return chain },
+      maybeSingle: async () => ({ data: visible.includes(chain.id) ? { id: chain.id } : null, error: null }) }
+    return { from: () => chain } as any
+  }
+  const member = { vehicles: { all: false, ids: ['v1'] } }
+  it('answers 404 for diligence of another entity, at any depth', async () => {
+    expect((await rlsRowDenial(client([]), 'api/diligence/[id]/agent/qa/entry', '/api/diligence/d9/agent/qa/entry', member))?.status).toBe(404)
+  })
+  it('lets a member reach their entity\'s diligence', async () => {
+    expect(await rlsRowDenial(client(['d1']), 'api/diligence/[id]/notes', '/api/diligence/d1/notes', member)).toBeNull()
+  })
+  it('ignores diligence routes about no single record', async () => {
+    expect(await rlsRowDenial(client([]), 'api/diligence/inbox', '/api/diligence/inbox', member)).toBeNull()
+  })
+})

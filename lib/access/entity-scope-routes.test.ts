@@ -23,7 +23,6 @@ const PENDING: Record<string, string> = {
   'api/portal/statement/pdf': 'exempt: the LP portal — an LP’s own data, authenticated as that LP, not a fund member',
   'api/cron/deal-research': 'exempt: a job or webhook acting for the fund, not a member request',
   'api/cron/deals-digest': 'exempt: a job or webhook acting for the fund, not a member request',
-  'api/diligence/[id]/email-intake': 'phase 3: email, review, notes, interactions, requests, import, metrics, AI',
   'api/inbound-email': 'exempt: a job or webhook acting for the fund, not a member request',
   'api/inbound-email/mailgun': 'exempt: a job or webhook acting for the fund, not a member request',
   'api/lps/snapshots': 'exempt: GET lists fund-wide snapshot headers (name, date); their rows are lp_investments, scoped where read; writes are admin-only',
@@ -64,7 +63,7 @@ const SCOPED = /resolveGroupOr400|resolveMancoGroupOr400|loadEntityScope|loadEnt
  * must scope it in the handler; the fund-holding routes are therefore deliberately not here.
  */
 const GATED = [/^api\/companies\/\[id\]/, /^api\/deals\/\[id\]/, /^api\/lp-letters\/\[id\]/,
-  /^api\/emails\/\[id\]/, /^api\/metrics\/\[id\]/, /^api\/review\/\[id\]/, /^api\/dashboard\/notes\/\[noteId\]/]
+  /^api\/diligence\/\[id\]/, /^api\/emails\/\[id\]/, /^api\/metrics\/\[id\]/, /^api\/review\/\[id\]/, /^api\/dashboard\/notes\/\[noteId\]/]
 
 /**
  * A file's handlers, separately: a GET that scopes says nothing about the POST beside it. A handler

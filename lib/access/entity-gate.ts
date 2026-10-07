@@ -68,23 +68,32 @@ export async function dealEntityDenial(
 }
 
 /**
- * 404 when the request is about an LP letter of an entity the caller cannot see. A letter is one
- * entity's (lp_letters.portfolio_group); RLS on lp_letters (20261007100300) already returns only the
- * caller's, so reading it with their own client is the whole test.
+ * Routes about ONE row of a table whose RLS already applies the entity rule — an LP letter
+ * (lp_letters, 20261007100300), a diligence record (diligence_deals, 20261007100400). Reading the row
+ * with the caller's own client is the whole test: if RLS hides it, it is not theirs.
  */
-export async function letterEntityDenial(
+const RLS_ROW_ROUTES: { prefix: string; table: string }[] = [
+  { prefix: 'api/lp-letters/[id]', table: 'lp_letters' },
+  { prefix: 'api/diligence/[id]', table: 'diligence_deals' },
+]
+
+export async function rlsRowDenial(
   supabase: SupabaseClient,
   key: string,
   pathname: string,
   access: Pick<AccessContext, 'vehicles'>,
 ): Promise<NextResponse | null> {
   if (access.vehicles.all) return null
-  if (key !== 'api/lp-letters/[id]' && !key.startsWith('api/lp-letters/[id]/')) return null
-  const id = pathname.replace(/^\/+|\/+$/g, '').split('/')[2]
+  const route = RLS_ROW_ROUTES.find(r => key === r.prefix || key.startsWith(`${r.prefix}/`))
+  if (!route) return null
+  const id = pathname.replace(/^\/+|\/+$/g, '').split('/')[route.prefix.split('/').length - 1]
   if (!id) return null
-  const { data } = await (supabase as any).from('lp_letters').select('id').eq('id', decodeURIComponent(id)).maybeSingle()
+  const { data } = await (supabase as any).from(route.table).select('id').eq('id', decodeURIComponent(id)).maybeSingle()
   return data ? null : NextResponse.json({ error: 'Not found' }, { status: 404 })
 }
+
+/** Kept for its callers and tests: the LP-letter case of rlsRowDenial. */
+export const letterEntityDenial = rlsRowDenial
 
 /**
  * Routes about ONE row that belongs to a company: an inbound email, a metric, a parsing review, a

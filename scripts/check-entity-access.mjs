@@ -22,6 +22,7 @@ const MIGRATIONS = (process.env.ENTITY_MIGRATIONS ?? [
   '20261007100100_company_vehicles.sql',
   '20261007100200_entity_rls.sql',
   '20261007100300_entity_rls_lp.sql',
+  '20261007100400_diligence_entity.sql',
 ].join(',')).split(',')
 
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'pipe' })
@@ -76,6 +77,9 @@ create table lp_letters (id uuid primary key default gen_random_uuid(), fund_id 
 create table lp_documents (id uuid primary key default gen_random_uuid(), fund_id uuid not null, scope text not null, title text);
 create table lp_document_shares (id uuid primary key default gen_random_uuid(), fund_id uuid not null, document_id uuid, lp_investor_id uuid);
 create table lp_onboarding_items (id uuid primary key default gen_random_uuid(), fund_id uuid not null, lp_entity_id uuid);
+create table diligence_deals (id uuid primary key default gen_random_uuid(), fund_id uuid not null, name text, promoted_company_id uuid);
+create table diligence_notes (id uuid primary key default gen_random_uuid(), fund_id uuid not null, deal_id uuid, body text);
+alter table inbound_deals add column promoted_diligence_id uuid;
 -- The LP portal's own identity: an LP account sees its investor's rows.
 create table lp_account_links (user_id uuid, lp_investor_id uuid);
 create function get_my_lp_investor_ids() returns uuid[] language sql stable security definer set search_path = public as
@@ -86,7 +90,8 @@ grant select on all tables in schema public to authenticated;
 -- them, so they have to exist and pass first.
 do $$ declare t text; begin
   foreach t in array array['companies','investment_transactions','journal_entries','company_notes','fund_vehicles','inbound_deals','crypto_wallets','fund_holding_terms','chart_of_accounts',
-    'lp_investors','lp_entities','lp_investments','commitment_events','lp_letters','lp_documents','lp_document_shares'] loop
+    'lp_investors','lp_entities','lp_investments','commitment_events','lp_letters','lp_documents','lp_document_shares',
+    'diligence_deals','diligence_notes'] loop
     execute format('alter table %I enable row level security', t);
     execute format('create policy "members" on %I for select to authenticated using (fund_id in (select fund_id from fund_members where user_id = auth.uid()))', t);
   end loop;
@@ -133,6 +138,9 @@ try {
   // in the two-entity fund tagged to nothing. Pushing must not hide the first from members.
   const ORPHAN = '00000000-0000-0000-0000-0000000000f1', LOOSE = '00000000-0000-0000-0000-0000000000f2'
   psql(`insert into companies (id, fund_id, name) values ('${ORPHAN}', '${OTHER_F}', 'Orphan'), ('${LOOSE}', '${F}', 'Loose')`)
+  const DD1 = '00000000-0000-0000-0000-00000000dd01', DD2 = '00000000-0000-0000-0000-00000000dd02', DD3 = '00000000-0000-0000-0000-00000000dd03'
+  psql(`insert into diligence_deals (id, fund_id, name) values ('${DD1}', '${F}', 'From a Fund I deal'), ('${DD2}', '${F}', 'By hand'),
+          ('${DD3}', '${OTHER_F}', 'One-entity fund')`)
 
   for (const m of MIGRATIONS) applyFile(join('supabase/migrations', m))
 
@@ -280,6 +288,21 @@ try {
     psql(`select count(*) from lp_entities`, { as: ADMIN }), '3')
   check('an LP portal user (not a fund member) still reads their own investor row',
     psql(`select string_agg(name, ',') from lp_investors`, { as: LP_USER }), 'Bob')
+
+  // ---- Diligence carries its owning entity, backfilled from the deal it was promoted from. ----
+  check('a diligence record in a one-entity fund is assigned that entity on push',
+    psql(`select coalesce(v.name, 'none') from diligence_deals d left join fund_vehicles v on v.id = d.vehicle_id where d.id = '${DD3}'`), 'Elsewhere')
+  psql(`insert into diligence_notes (fund_id, deal_id, body) values ('${F}', '${DD1}', 'note one'), ('${F}', '${DD2}', 'note two');
+        update diligence_deals set vehicle_id = '${V1}' where id = '${DD1}'`)
+  check('a member sees diligence for their entity only — not unassigned records',
+    psql(`select string_agg(name, ',') from diligence_deals`, { as: MEMBER }), 'From a Fund I deal')
+  check('…and only those records\' notes',
+    psql(`select string_agg(body, ',') from diligence_notes`, { as: MEMBER }), 'note one')
+  check('an admin sees all diligence',
+    psql(`select count(*) from diligence_deals where fund_id = '${F}'`, { as: ADMIN }), '2')
+  psql(`insert into inbound_deals (fund_id, vehicle_id, promoted_diligence_id) values ('${F}', '${V2}', '${DD2}')`)
+  check('promoting a deal to diligence carries the deal\'s entity',
+    psql(`select v.name from diligence_deals d join fund_vehicles v on v.id = d.vehicle_id where d.id = '${DD2}'`), 'Fund II')
 
   // ---- Single-entity funds: unlinked companies are assigned to the one entity on push. ----
   check('a company in a one-entity fund is assigned to that entity, so no member loses it',

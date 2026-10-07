@@ -5,7 +5,7 @@ import { ROUTE_DOMAINS, UNGATED_ROUTES, requiredLevel } from '@/lib/access/route
 import { hasAccess, resolveAccessContext } from '@/lib/access/effective'
 import { DOMAIN_META } from '@/lib/access/domains'
 import { buildReportOnlyCsp, generateNonce, NONCE_HEADER, REPORT_ONLY_HEADER } from '@/lib/security/csp'
-import { companyEntityDenial, dealEntityDenial, letterEntityDenial, rowCompanyDenial } from '@/lib/access/entity-gate'
+import { companyEntityDenial, dealEntityDenial, rlsRowDenial, rowCompanyDenial } from '@/lib/access/entity-gate'
 
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl
@@ -280,7 +280,7 @@ async function gateApiRequest(
   if (hasAccess(access, entry.domain, level, entry.feature)) {
     return (await companyEntityDenial(supabase as never, key, request.nextUrl.pathname, access))
       ?? (await dealEntityDenial(supabase as never, key, request.nextUrl.pathname, access))
-      ?? (await letterEntityDenial(supabase as never, key, request.nextUrl.pathname, access))
+      ?? (await rlsRowDenial(supabase as never, key, request.nextUrl.pathname, access))
       ?? rowCompanyDenial(supabase as never, key, request.nextUrl.pathname, access)
   }
 
