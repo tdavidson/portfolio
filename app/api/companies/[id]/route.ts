@@ -7,6 +7,8 @@ import { dbError } from '@/lib/api-error'
 import { logActivity } from '@/lib/activity'
 import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
 import { LEDGER_BOOKS } from '@/lib/accounting/books'
+import { loadEntityScope } from '@/lib/access/entity-scope'
+import { mergeGroupsForWrite } from '@/lib/access/scope'
 
 const VALID_STATUSES: CompanyStatus[] = ['active', 'exited', 'written-off']
 
@@ -49,7 +51,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
   // Verify the user has access to this company's fund
   const { data: company } = await admin
     .from('companies')
-    .select('fund_id')
+    .select('fund_id, portfolio_group')
     .eq('id', params.id)
     .maybeSingle()
 
@@ -81,10 +83,15 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
   if (current_update !== undefined) updates.current_update = current_update?.trim() || null
   if (contact_email !== undefined) updates.contact_email = contact_email
   if (portfolio_group !== undefined) {
+    // A member edits only their own entities' part: the ones they cannot see are kept as they were,
+    // and naming one they cannot see is refused (before ensureVehiclesByName could create it).
+    const scope = await loadEntityScope(admin, writeCheck)
+    const merged = mergeGroupsForWrite((company as any).portfolio_group, portfolio_group, scope.vehicleNames)
+    if ('error' in merged) return NextResponse.json({ error: merged.error }, { status: 403 })
     // Every stored portfolio_group name must be backed by a real fund_vehicles row — never a
     // disconnected string. Resolve/create before the write, not after.
-    await ensureVehiclesByName(admin, company.fund_id, portfolio_group ?? [])
-    updates.portfolio_group = portfolio_group
+    await ensureVehiclesByName(admin, company.fund_id, merged.groups)
+    updates.portfolio_group = merged.groups
   }
   if (google_drive_folder_id !== undefined) updates.google_drive_folder_id = google_drive_folder_id || null
   if (google_drive_folder_name !== undefined) updates.google_drive_folder_name = google_drive_folder_name || null

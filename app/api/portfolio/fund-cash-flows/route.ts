@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { scopeCompanyRows, groupWriteDenial } from '@/lib/access/scope'
 
 // ---------------------------------------------------------------------------
 // GET — list all fund cash flows for this fund, ordered by flow_date ASC
@@ -33,7 +35,9 @@ export async function GET() {
 
   if (error) return dbError(error, 'fund-cash-flows')
 
-  return NextResponse.json(data ?? [])
+  // Only the caller's entities' cash flows.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  return NextResponse.json(scopeCompanyRows(data ?? [], (scope ? scope.vehicleNames : []), 'portfolio_group'))
 }
 
 // ---------------------------------------------------------------------------
@@ -63,6 +67,9 @@ export async function POST(req: NextRequest) {
   if (!portfolioGroup || !flowDate || !flowType || !amount) {
     return NextResponse.json({ error: 'portfolioGroup, flowDate, flowType, and amount are required' }, { status: 400 })
   }
+  const writeScope = await loadEntityScopeForUser(admin, user.id)
+  const denied = groupWriteDenial((writeScope ? writeScope.vehicleNames : []), portfolioGroup)
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 })
 
   if (!['commitment', 'called_capital', 'distribution'].includes(flowType)) {
     return NextResponse.json({ error: 'flowType must be commitment, called_capital, or distribution' }, { status: 400 })

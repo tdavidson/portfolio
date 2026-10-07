@@ -12,6 +12,8 @@ import { validateConversionLink } from '@/lib/accounting/conversion-link'
 import { normalizeSecurityType, SECURITY_TYPES } from '@/lib/accounting/soi'
 import { disposalBasis, isLotMethod, type LotMethod } from '@/lib/portfolio/lots'
 import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
+import { loadEntityScope } from '@/lib/access/entity-scope'
+import { scopeTransactions, scopeGroups, groupWriteDenial } from '@/lib/access/scope'
 
 // ---------------------------------------------------------------------------
 // GET — all transactions for a company + computed summary
@@ -51,13 +53,16 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
 
   if (error) return dbError(error, 'companies-id-investments')
 
-  const txns = (transactions ?? []) as InvestmentTransaction[]
+  // Only the caller's entities' rows (plus company-wide price signals): a company Fund I and Fund II
+  // both hold shows a Fund-I-only member Fund I's position, and nothing of Fund II's.
+  const scope = await loadEntityScope(admin, { fundId: company.fund_id, userId: user.id, role: (membership as { role: string }).role })
+  const txns = scopeTransactions((transactions ?? []) as InvestmentTransaction[], scope.vehicleNames)
   const asOf = _req.nextUrl.searchParams.get('asOf')
   const asOfDate = asOf ? new Date(asOf) : new Date()
   const summary = computeSummary(txns, company.status as CompanyStatus, asOfDate)
 
   // Compute per-group summaries when there are multiple groups
-  const portfolioGroups: string[] = company.portfolio_group ?? []
+  const portfolioGroups: string[] = scopeGroups(company.portfolio_group ?? [], scope.vehicleNames)
   const groupsInTxns = new Set(txns.map(t => t.portfolio_group ?? '').filter(Boolean))
   const hasMultipleGroups = groupsInTxns.size > 1
 
@@ -204,6 +209,12 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     const linkError = await validateConversionLink(admin, params.id, convertsFrom, transaction_type)
     if (linkError) return NextResponse.json({ error: linkError }, { status: 400 })
   }
+
+  // Only into one of the caller's entities — checked before ensureVehiclesByName, which would
+  // otherwise create an entity the member then could not see.
+  const writeScope = await loadEntityScope(admin, { fundId: company.fund_id, userId: user.id, role: (membership as { role: string }).role })
+  const denied = groupWriteDenial(writeScope.vehicleNames, body.portfolio_group)
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 })
 
   // Every stored portfolio_group name must be backed by a real fund_vehicles row — never a
   // disconnected string. Resolve/create before the write, not after.

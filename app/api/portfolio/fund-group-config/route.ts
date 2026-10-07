@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { scopeCompanyRows, groupWriteDenial } from '@/lib/access/scope'
 
 // ---------------------------------------------------------------------------
 // GET — get all fund group configs for this fund
@@ -29,7 +31,9 @@ export async function GET() {
 
   if (error) return dbError(error, 'fund-group-config')
 
-  return NextResponse.json(data ?? [])
+  // Only the caller's entities' settings.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  return NextResponse.json(scopeCompanyRows(data ?? [], (scope ? scope.vehicleNames : []), 'portfolio_group'))
 }
 
 // ---------------------------------------------------------------------------
@@ -59,6 +63,9 @@ export async function PUT(req: NextRequest) {
   if (!portfolioGroup) {
     return NextResponse.json({ error: 'portfolioGroup is required' }, { status: 400 })
   }
+  const writeScope = await loadEntityScopeForUser(admin, user.id)
+  const denied = groupWriteDenial((writeScope ? writeScope.vehicleNames : []), portfolioGroup)
+  if (denied) return NextResponse.json({ error: denied }, { status: 403 })
 
   const row: Record<string, any> = {
     fund_id: membership.fund_id,

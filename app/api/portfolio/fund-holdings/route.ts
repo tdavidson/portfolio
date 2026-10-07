@@ -5,6 +5,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // already checked the grant.
 import { assertReadAccess, assertWriteAccess } from '@/lib/api-helpers'
 import { computeFundPositions } from '@/lib/portfolio/fof-metrics'
+import { loadEntityScope } from '@/lib/access/entity-scope'
+import { scopeCompanyRows, visibleVehicleIds } from '@/lib/access/scope'
 
 // The fund-of-funds position table: one row per underlying fund, every figure derived.
 // Nothing here is stored — see lib/portfolio/fof-metrics.ts for why carrying value is a
@@ -26,6 +28,14 @@ export async function GET(req: NextRequest) {
     (admin as any).from('fund_capital_events').select('*').eq('fund_id', gate.fundId),
     (admin as any).from('fund_nav_statements').select('*').eq('fund_id', gate.fundId),
   ])
+
+  // Only fund holdings linked to the caller's entities, and only their entities' calls,
+  // distributions and statements — another entity's commitment to the same fund is not theirs.
+  const scope = await loadEntityScope(admin, gate)
+  const vehicleIds = visibleVehicleIds(scope.access)
+  holdings.data = scopeCompanyRows((holdings.data ?? []) as any[], scope.companyIds) as any
+  events.data = scopeCompanyRows((events.data ?? []) as any[], vehicleIds, 'vehicle_id')
+  navs.data = scopeCompanyRows((navs.data ?? []) as any[], vehicleIds, 'vehicle_id')
 
   const termByCompany = new Map((terms.data ?? []).map((t: any) => [t.company_id, t]))
 

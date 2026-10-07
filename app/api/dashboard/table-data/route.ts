@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { scopeCompanyRows, scopeGroups } from '@/lib/access/scope'
 
 export async function GET() {
   const supabase = await createClient()
@@ -33,7 +35,9 @@ export async function GET() {
 
   if (compError) return dbError(compError, 'dashboard-table-data')
 
-  const companies = (companiesRaw ?? []) as {
+  // Only companies linked to the caller's entities.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  const companies = scopeCompanyRows((companiesRaw ?? []) as any[], (scope ? scope.companyIds : [])) as {
     id: string
     name: string
     stage: string | null
@@ -139,7 +143,7 @@ export async function GET() {
       name: c.name,
       stage: c.stage,
       industry: c.industry,
-      portfolioGroup: c.portfolio_group,
+      portfolioGroup: scopeGroups(c.portfolio_group, (scope ? scope.vehicleNames : [])),
       tags: c.tags ?? [],
       latestCash,
       metrics: activeMetrics.map(m => {

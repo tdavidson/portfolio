@@ -5,6 +5,8 @@ import { assertWriteAccess } from '@/lib/api-helpers'
 import { createFundAIProvider } from '@/lib/ai'
 import { logAIUsage } from '@/lib/ai/usage'
 import { rateLimit } from '@/lib/rate-limit'
+import { loadEntityScope } from '@/lib/access/entity-scope'
+import { groupWriteDenial } from '@/lib/access/scope'
 
 const MAX_INPUT_SIZE = 500_000
 
@@ -155,6 +157,8 @@ ${rawData}`,
     return NextResponse.json({ error: 'No cash flows could be parsed from the input.' }, { status: 400 })
   }
 
+  // Rows only into the caller's own entities.
+  const writeScope = await loadEntityScope(admin, writeCheck)
   const validFlowTypes = ['commitment', 'called_capital', 'distribution']
   const errors: string[] = []
   let created = 0
@@ -164,6 +168,12 @@ ${rawData}`,
 
     if (!cf.portfolio_group || !cf.flow_date || !cf.flow_type || !cf.amount) {
       errors.push(`Row ${i + 1}: missing required fields`)
+      continue
+    }
+
+    const denied = groupWriteDenial(writeScope.vehicleNames, String(cf.portfolio_group).trim())
+    if (denied) {
+      errors.push(`Row ${i + 1}: ${denied}`)
       continue
     }
 

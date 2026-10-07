@@ -57,3 +57,114 @@ describe('visibleVehicleIds', () => {
     expect(visibleVehicleIds(ctx('member', { all: false, ids: [] }))).toEqual([])
   })
 })
+
+// ---- Reads across companies and transactions. ---------------------------------------------
+import { scopeTransactions, visibleCompanyIds } from './scope'
+
+describe('scopeTransactions — a shared company shows only your entities\' positions', () => {
+  const rows = [
+    { id: 'a', portfolio_group: 'Fund I' },
+    { id: 'b', portfolio_group: 'Fund II' },
+    { id: 'c', portfolio_group: null }, // a company-wide price signal
+  ]
+
+  it('keeps everything when the caller sees every entity', () => {
+    expect(scopeTransactions(rows, null).map(r => r.id)).toEqual(['a', 'b', 'c'])
+  })
+
+  it('keeps the caller\'s entities and the company-wide price signals', () => {
+    expect(scopeTransactions(rows, ['Fund I']).map(r => r.id)).toEqual(['a', 'c'])
+  })
+
+  it('keeps only price signals for a caller with no entities', () => {
+    expect(scopeTransactions(rows, []).map(r => r.id)).toEqual(['c'])
+  })
+})
+
+describe('visibleCompanyIds', () => {
+  const admin = (links: { company_id: string; vehicle_id: string }[]) => {
+    const chain: any = {
+      select: () => chain,
+      in: (_k: string, ids: string[]) => { chain.ids = ids; return chain },
+      eq: () => chain,
+      then: (res: any) => res({ data: links.filter(l => chain.ids.includes(l.vehicle_id)), error: null }),
+    }
+    return { from: () => chain } as any
+  }
+
+  it('is null — no filter — for a caller who sees every entity', async () => {
+    expect(await visibleCompanyIds(admin([]), ctx('admin', { all: true, ids: [] }))).toBeNull()
+  })
+
+  it('lists the companies linked to the caller\'s entities, once each', async () => {
+    const links = [{ company_id: 'c1', vehicle_id: 'v1' }, { company_id: 'c1', vehicle_id: 'v2' }, { company_id: 'c2', vehicle_id: 'v2' }]
+    expect(await visibleCompanyIds(admin(links), ctx('member', { all: false, ids: ['v1', 'v2'] }))).toEqual(['c1', 'c2'])
+    expect(await visibleCompanyIds(admin(links), ctx('member', { all: false, ids: ['v1'] }))).toEqual(['c1'])
+  })
+
+  it('is empty, without a query, for a caller with no entities', async () => {
+    const none = { from: () => { throw new Error('should not query') } } as any
+    expect(await visibleCompanyIds(none, ctx('member', { all: false, ids: [] }))).toEqual([])
+  })
+})
+
+import { scopeGroups } from './scope'
+describe('scopeGroups', () => {
+  it('hides the other entities that hold a shared company', () => {
+    expect(scopeGroups(['Fund I', 'Fund II'], ['Fund I'])).toEqual(['Fund I'])
+    expect(scopeGroups(['Fund I', 'Fund II'], null)).toEqual(['Fund I', 'Fund II'])
+    expect(scopeGroups(null, ['Fund I'])).toEqual([])
+  })
+})
+
+import { groupWriteDenial } from './scope'
+describe('groupWriteDenial — recording against an entity', () => {
+  it('lets a caller who sees every entity write anything', () => {
+    expect(groupWriteDenial(null, 'Fund II')).toBeNull()
+    expect(groupWriteDenial(null, null)).toBeNull()
+  })
+
+  it('lets a member write to their own entity', () => {
+    expect(groupWriteDenial(['Fund I'], 'Fund I')).toBeNull()
+  })
+
+  it('refuses a member an entity they cannot see — including one that does not exist yet', () => {
+    expect(groupWriteDenial(['Fund I'], 'Fund II')).toMatch(/access to that entity/)
+    expect(groupWriteDenial(['Fund I'], 'Brand New Fund')).toMatch(/access to that entity/)
+  })
+
+  it('refuses a member a company-wide row — it re-prices every entity\'s position, not just theirs', () => {
+    expect(groupWriteDenial(['Fund I'], null)).toMatch(/every entity/)
+    expect(groupWriteDenial(['Fund I'], '')).toMatch(/every entity/)
+  })
+})
+
+import { mergeGroupsForWrite } from './scope'
+describe('mergeGroupsForWrite — a member edits only their own entities on a company', () => {
+  it('applies anything for a caller who sees every entity', () => {
+    expect(mergeGroupsForWrite(['Fund I', 'Fund II'], ['Fund III'], null)).toEqual({ groups: ['Fund III'] })
+  })
+
+  it('keeps the entities the member cannot see, however they edit', () => {
+    // They were shown ['Fund I'] and removed it; Fund II stays.
+    expect(mergeGroupsForWrite(['Fund I', 'Fund II'], [], ['Fund I'])).toEqual({ groups: ['Fund II'] })
+  })
+
+  it('refuses adding an entity they cannot see', () => {
+    expect(mergeGroupsForWrite(['Fund I'], ['Fund I', 'Fund II'], ['Fund I'])).toEqual({ error: "You don't have access to that entity." })
+  })
+})
+
+import { scopeCompanyRows } from './scope'
+describe('scopeCompanyRows', () => {
+  const rows = [{ id: 'c1', company_id: 'c1' }, { id: 'c2', company_id: 'c2' }, { id: 'n0', company_id: null }]
+  it('keeps everything with no filter', () => {
+    expect(scopeCompanyRows(rows, null).map(r => r.id)).toEqual(['c1', 'c2', 'n0'])
+  })
+  it('keeps visible companies by id', () => {
+    expect(scopeCompanyRows(rows, ['c2']).map(r => r.id)).toEqual(['c2'])
+  })
+  it('keys on another column, and keeps rows about no company when asked', () => {
+    expect(scopeCompanyRows(rows, ['c1'], 'company_id', { keepUnlinked: true }).map(r => r.id)).toEqual(['c1', 'n0'])
+  })
+})

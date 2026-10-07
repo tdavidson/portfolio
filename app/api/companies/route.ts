@@ -6,6 +6,8 @@ import { dbError } from '@/lib/api-error'
 import { logActivity } from '@/lib/activity'
 import { seedCompanyFromDefaults } from '@/lib/metrics/seed-default-metrics'
 import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { scopeCompanyRows, scopeGroups, scopeTransactions } from '@/lib/access/scope'
 
 export async function GET() {
   const supabase = await createClient()
@@ -38,7 +40,11 @@ export async function GET() {
 
   if (error) return dbError(error, 'companies')
 
-  const companies = (data ?? []).map(c => {
+  // Only companies linked to the caller's entities, naming only those entities.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  const visible = scopeCompanyRows(data ?? [], (scope ? scope.companyIds : []))
+
+  const companies = visible.map(c => {
     const emails = c.inbound_emails ?? []
     const lastReportAt = emails.length > 0
       ? emails.reduce((max, e) => e.received_at > max ? e.received_at : max, emails[0].received_at)
@@ -51,7 +57,7 @@ export async function GET() {
       industry: c.industry,
       aliases: c.aliases,
       tags: c.tags ?? [],
-      portfolioGroup: c.portfolio_group,
+      portfolioGroup: scopeGroups(c.portfolio_group, (scope ? scope.vehicleNames : [])),
       contactEmail: c.contact_email,
       metricsCount: c.metrics?.length ?? 0,
       lastReportAt,

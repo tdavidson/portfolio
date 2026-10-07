@@ -4,6 +4,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { dbError } from '@/lib/api-error'
 import type { InvestmentTransaction, CompanyStatus } from '@/lib/types/database'
 import { xirr, type CashFlow } from '@/lib/xirr'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { scopeCompanyRows, scopeGroups, scopeTransactions } from '@/lib/access/scope'
 
 // ---------------------------------------------------------------------------
 // GET — portfolio-wide investment summary
@@ -53,11 +55,16 @@ export async function GET(req: NextRequest) {
 
   if (compError) return dbError(compError, 'portfolio-investments-companies')
 
-  const companyMap = new Map((companies ?? []).map(c => [c.id, c]))
+  // Only the caller's entities: their companies, their entities' transactions (plus company-wide
+  // price signals), and only their entities named on each company.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  const names = (scope ? scope.vehicleNames : [])
+  const companyMap = new Map(scopeCompanyRows(companies ?? [], (scope ? scope.companyIds : []))
+    .map(c => [c.id, { ...c, portfolio_group: scopeGroups(c.portfolio_group, names) }]))
 
   // Group transactions by company
   const byCompany = new Map<string, InvestmentTransaction[]>()
-  for (const txn of transactions ?? []) {
+  for (const txn of scopeTransactions(transactions ?? [], scope ? scope.vehicleNames : [])) {
     const list = byCompany.get(txn.company_id) ?? []
     list.push(txn)
     byCompany.set(txn.company_id, list)

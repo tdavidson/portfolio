@@ -6,6 +6,8 @@ import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
 import { logActivity } from '@/lib/activity'
 import { parseMentions, parseCompanyMentions, parseGroupMentions } from '@/lib/notes/mentions'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { scopeCompanyRows } from '@/lib/access/scope'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
@@ -43,12 +45,18 @@ export async function GET(req: NextRequest) {
     query = query.order('created_at', { ascending: true })
   }
 
-  const { data: notes, error } = await query as {
+  let { data: notes, error } = await query as {
     data: { id: string; content: string; user_id: string; company_id: string | null; mentioned_user_ids: string[] | null; created_at: string; updated_at: string }[] | null
     error: { message: string } | null
   }
 
   if (error) return dbError(error, 'dashboard-notes')
+
+  // Notes about a company the caller cannot see are not theirs to read. Fund-wide notes (no company)
+  // stay visible; @mentions of an invisible company are dropped from the names map below.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  const visibleCompanies = (scope ? scope.companyIds : [])
+  notes = scopeCompanyRows(notes ?? [], visibleCompanies, 'company_id', { keepUnlinked: true })
 
   // Batch-load read status
   const noteIds = (notes ?? []).map(n => n.id)
@@ -74,9 +82,9 @@ export async function GET(req: NextRequest) {
   }
 
   // Batch-load company names for tagged notes (both direct and @mentioned)
-  const allMentionedCompanyIds = Array.from(new Set(
+  const allMentionedCompanyIds = (Array.from(new Set(
     (notes ?? []).flatMap(n => [...(n.company_id ? [n.company_id] : []), ...((n as any).mentioned_company_ids ?? [])])
-  )) as string[]
+  )) as string[]).filter(id => visibleCompanies === null || visibleCompanies.includes(id))
   const companyNameMap: Record<string, string> = {}
   if (allMentionedCompanyIds.length > 0) {
     const { data: companies } = await admin

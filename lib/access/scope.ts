@@ -44,3 +44,76 @@ export function canSeeVehicle(access: Pick<AccessContext, 'vehicles'>, vehicleId
 export function visibleVehicleIds(access: Pick<AccessContext, 'vehicles'>): string[] | null {
   return access.vehicles.all ? null : access.vehicles.ids
 }
+
+/**
+ * The companies this caller may see: those linked (company_vehicles) to one of their entities. Null
+ * means no filter — a caller who sees every entity also sees unassigned companies. Read with the
+ * service role, so it filters on the caller's ids itself.
+ */
+export async function visibleCompanyIds(
+  admin: import('@supabase/supabase-js').SupabaseClient,
+  access: Pick<AccessContext, 'fundId' | 'vehicles'>,
+): Promise<string[] | null> {
+  const ids = visibleVehicleIds(access)
+  if (ids === null) return null
+  if (ids.length === 0) return []
+  const { data } = await (admin as any).from('company_vehicles').select('company_id')
+    .eq('fund_id', access.fundId).in('vehicle_id', ids)
+  return Array.from(new Set(((data as any[]) ?? []).map(r => r.company_id as string)))
+}
+
+/**
+ * A company's transactions as this caller may see them: rows in their entities, plus company-wide
+ * price signals (no `portfolio_group`), which belong to the company rather than to any fund.
+ * `visibleNames` null = every entity.
+ */
+export function scopeTransactions<T extends { portfolio_group?: string | null }>(rows: T[], visibleNames: string[] | null): T[] {
+  if (visibleNames === null) return rows
+  return rows.filter(r => r.portfolio_group == null || visibleNames.includes(r.portfolio_group))
+}
+
+/** A company's entity names as this caller may see them. `visibleNames` null = every entity. */
+export function scopeGroups(groups: string[] | null | undefined, visibleNames: string[] | null): string[] {
+  if (visibleNames === null) return groups ?? []
+  return (groups ?? []).filter(g => visibleNames.includes(g))
+}
+
+/**
+ * Why this caller may not record a row against `group`, or null when they may. A member writes only
+ * to their own entities — never to one they cannot see, nor to one that does not exist yet (the
+ * write path would create it, and they could not see what they had made). A company-wide row (no
+ * entity) re-prices every entity's position, so only a caller who sees every entity may write one.
+ */
+export function groupWriteDenial(visibleNames: string[] | null, group: string | null | undefined): string | null {
+  if (visibleNames === null) return null
+  if (!group) return 'Only someone who can see every entity can record a company-wide row. Pick one of your entities.'
+  return visibleNames.includes(group) ? null : "You don't have access to that entity."
+}
+
+/**
+ * A company's entity names after a member's edit. They were shown only their own entities, so the
+ * ones they cannot see are kept exactly as they were — an edit can neither remove another fund's
+ * holding nor add the company to a fund the member cannot see.
+ */
+export function mergeGroupsForWrite(
+  current: string[] | null | undefined,
+  requested: string[] | null | undefined,
+  visibleNames: string[] | null,
+): { groups: string[] } | { error: string } {
+  const next = requested ?? []
+  if (visibleNames === null) return { groups: next }
+  if (next.some(g => !visibleNames.includes(g))) return { error: "You don't have access to that entity." }
+  const hidden = (current ?? []).filter(g => !visibleNames.includes(g))
+  return { groups: Array.from(new Set([...hidden, ...next])) }
+}
+
+/**
+ * Rows about companies, kept when their company is visible. `key` names the company-id column;
+ * `keepUnlinked` keeps rows about no company (a fund-wide note). `companyIds` null = no filter.
+ */
+export function scopeCompanyRows<T extends Record<string, any>>(
+  rows: T[], companyIds: string[] | null, key: keyof T & string = 'id', opts: { keepUnlinked?: boolean } = {},
+): T[] {
+  if (companyIds === null) return rows
+  return rows.filter(r => r[key] == null ? !!opts.keepUnlinked : companyIds.includes(r[key]))
+}

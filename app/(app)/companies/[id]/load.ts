@@ -3,6 +3,8 @@ import { canViewPage } from '@/lib/access/page-gate'
 import type { Company, Metric } from '@/lib/types/database'
 import { DEFAULT_FEATURE_VISIBILITY } from '@/lib/types/features'
 import type { FeatureVisibilityMap } from '@/lib/types/features'
+import { entityScopeFor } from '@/lib/access/entity-scope'
+import { scopeGroups } from '@/lib/access/scope'
 
 export type CompanyPageData = NonNullable<Awaited<ReturnType<typeof loadCompanyPage>>>
 
@@ -10,14 +12,20 @@ export type CompanyPageData = NonNullable<Awaited<ReturnType<typeof loadCompanyP
  * One company: the row, its active metrics, the MRR and cash highlights, and which panels this
  * caller may see. Null when the id is not a company the caller can read.
  */
-export async function loadCompanyPage({ supabase, user, page }: PageContext, params: { id: string }) {
-  const { data: company } = await supabase
+export async function loadCompanyPage({ supabase, admin, user, page }: PageContext, params: { id: string }) {
+  const { data: found } = await supabase
     .from('companies')
     .select('*')
     .eq('id', params.id)
     .maybeSingle() as { data: Company | null }
 
-  if (!company) return null
+  if (!found) return null
+
+  // Only a company linked to one of the viewer's entities — the same answer the API gate gives its
+  // routes (lib/access/entity-gate.ts) — and only those entities named on it.
+  const scope = await entityScopeFor(admin, page.access)
+  if (scope.companyIds !== null && !scope.companyIds.includes(found.id)) return null
+  const company: Company = { ...found, portfolio_group: scopeGroups(found.portfolio_group, scope.vehicleNames) } as Company
 
   const isAdmin = page.isAdmin
 

@@ -8,6 +8,8 @@ import { redraftEntryForTransaction, retractEntriesForTransaction } from '@/lib/
 import { validateConversionLink } from '@/lib/accounting/conversion-link'
 import { normalizeSecurityType, SECURITY_TYPES } from '@/lib/accounting/soi'
 import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
+import { loadEntityScope } from '@/lib/access/entity-scope'
+import { groupWriteDenial } from '@/lib/access/scope'
 
 // ---------------------------------------------------------------------------
 // PATCH — update a transaction
@@ -30,10 +32,10 @@ export async function PATCH(
   // Verify transaction exists and belongs to this company
   const { data: existing } = await admin
     .from('investment_transactions' as any)
-    .select('id, company_id, fund_id, transaction_type')
+    .select('id, company_id, fund_id, transaction_type, portfolio_group')
     .eq('id', params.txnId)
     .eq('company_id', params.id)
-    .maybeSingle() as { data: { id: string; company_id: string; fund_id: string; transaction_type: string } | null }
+    .maybeSingle() as { data: { id: string; company_id: string; fund_id: string; transaction_type: string; portfolio_group: string | null } | null }
 
   if (!existing) return NextResponse.json({ error: 'Transaction not found' }, { status: 404 })
 
@@ -43,6 +45,12 @@ export async function PATCH(
   }
 
   const body = await req.json()
+
+  // Only the caller's entities' rows, and only into one of their entities.
+  const scope = await loadEntityScope(admin, writeCheck)
+  const deniedHere = groupWriteDenial(scope.vehicleNames, existing.portfolio_group)
+    ?? ('portfolio_group' in body ? groupWriteDenial(scope.vehicleNames, body.portfolio_group) : null)
+  if (deniedHere) return NextResponse.json({ error: deniedHere }, { status: 403 })
 
   // A mis-typed row can be reclassified on edit (e.g. a "Round" that should be a "Valuation
   // Update"). Only the DB types are valid; the UI's "conversion" is already translated to
@@ -189,10 +197,10 @@ export async function DELETE(
   // Verify transaction exists and belongs to this company
   const { data: existing } = await admin
     .from('investment_transactions' as any)
-    .select('id, company_id, fund_id')
+    .select('id, company_id, fund_id, portfolio_group')
     .eq('id', params.txnId)
     .eq('company_id', params.id)
-    .maybeSingle() as { data: { id: string; company_id: string; fund_id: string } | null }
+    .maybeSingle() as { data: { id: string; company_id: string; fund_id: string; portfolio_group: string | null } | null }
 
   if (!existing) return NextResponse.json({ error: 'Transaction not found' }, { status: 404 })
 
@@ -200,6 +208,10 @@ export async function DELETE(
   if (existing.fund_id !== writeCheck.fundId) {
     return NextResponse.json({ error: 'Transaction not found' }, { status: 404 })
   }
+
+  const deleteScope = await loadEntityScope(admin, writeCheck)
+  const deniedDelete = groupWriteDenial(deleteScope.vehicleNames, existing.portfolio_group)
+  if (deniedDelete) return NextResponse.json({ error: deniedDelete }, { status: 403 })
 
   // #3 — Refuse to delete an instrument that a conversion depends on. The FK is ON DELETE SET
   // NULL, so deleting it would silently orphan the conversion into a $0-cost investment (its basis

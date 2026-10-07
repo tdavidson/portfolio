@@ -1,5 +1,7 @@
 import type { PageContext } from '@/lib/pages/context'
 import { computeSummary } from '@/lib/investments'
+import { entityScopeFor } from '@/lib/access/entity-scope'
+import { scopeTransactions } from '@/lib/access/scope'
 import type { InvestmentTransaction, CompanyStatus } from '@/lib/types/database'
 
 export type DashboardPageData = Awaited<ReturnType<typeof loadDashboardPage>>
@@ -13,6 +15,10 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
 
   const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
 
+  // Only the companies linked to the viewer's entities, and only their entities' transactions. An
+  // admin sees every entity (no filter); a member with none sees an empty portfolio.
+  const scope = await entityScopeFor(admin, page.access)
+
   // Fetch companies with their first 2 metrics and review counts
   type CompanyRow = {
     id: string; name: string; stage: string | null; status: string
@@ -21,7 +27,7 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
     parsing_reviews: { id: string; resolution: string | null }[]
   }
 
-  const { data: companiesRaw } = await supabase
+  let companiesQuery = supabase
     .from('companies')
     .select(`
       id, name, stage, status, tags, industry, portfolio_group,
@@ -29,7 +35,8 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
       parsing_reviews(id, resolution)
     `)
     .eq('holding_type', 'company')   // fund holdings have their own surfaces
-    .order('name') as { data: CompanyRow[] | null }
+  if (scope.companyIds !== null) companiesQuery = companiesQuery.in('id', scope.companyIds)
+  const { data: companiesRaw } = await companiesQuery.order('name') as { data: CompanyRow[] | null }
 
   // Find cash metric IDs for each company
   const cashMetricMap = new Map<string, string>()
@@ -101,7 +108,8 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
       status: c.status,
       tags: c.tags ?? [],
       industry: c.industry,
-      portfolioGroup: c.portfolio_group,
+      // Which entities hold it — only the viewer's; another fund's holding is not theirs to see.
+      portfolioGroup: scope.vehicleNames === null ? c.portfolio_group : (c.portfolio_group ?? []).filter(g => scope.vehicleNames!.includes(g)),
       lastReportAt,
       openReviews,
       activeMetrics: activeMetrics.map(m => ({ id: m.id, name: m.name, unit: m.unit, unit_position: m.unit_position, value_type: m.value_type, currency: m.currency })),
@@ -117,9 +125,10 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
     .in('company_id', allCompanyIds)
     .order('transaction_date', { ascending: true }) as { data: InvestmentTransaction[] | null }
 
-  // Group transactions by company
+  // Group transactions by company — only the viewer's entities' rows (plus company-wide price
+  // signals), so a shared company's figures are the viewer's position, not every fund's.
   const txnsByCompany = new Map<string, InvestmentTransaction[]>()
-  for (const txn of allTxns ?? []) {
+  for (const txn of scopeTransactions(allTxns ?? [], scope.vehicleNames)) {
     if (!txnsByCompany.has(txn.company_id)) txnsByCompany.set(txn.company_id, [])
     txnsByCompany.get(txn.company_id)!.push(txn)
   }
@@ -163,7 +172,10 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
     unrealizedValue: investmentSummaries.get(c.id)?.unrealizedValue ?? null,
   }))
 
-  const allGroups = Array.from(new Set(companiesWithInvestments.flatMap(c => c.portfolioGroup ?? []))).sort()
+  // The vehicle filter lists only the viewer's entities, never one they cannot see.
+  const allGroups = Array.from(new Set(companiesWithInvestments.flatMap(c => c.portfolioGroup ?? [])))
+    .filter(g => scope.vehicleNames === null || scope.vehicleNames.includes(g))
+    .sort()
 
 
   return {
