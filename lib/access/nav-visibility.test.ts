@@ -24,6 +24,7 @@ import { DEFAULT_FEATURE_VISIBILITY, type FeatureVisibilityMap } from '@/lib/typ
 const ctx = (features: Partial<FeatureVisibilityMap>, grants: Record<string, string> = {}): AccessContext => ({
   fundId: 'f1',
   userId: 'u1',
+  vehicles: { all: true, ids: [] },
   role: 'member',
   features: { ...DEFAULT_FEATURE_VISIBILITY, ...features } as FeatureVisibilityMap,
   grants: grants as never,
@@ -82,7 +83,7 @@ describe('domainGrantableToMembers — what the access grid offers', () => {
       expect(domainGrantableToMembers('compliance', f)).toBe(false)
       expect(
         effectiveAccess(
-          { fundId: 'f', userId: 'u', role: 'member', features: f, grants: { compliance: 'write' }, defaults: {} },
+          { fundId: 'f', userId: 'u', role: 'member', features: f, grants: { compliance: 'write' }, defaults: {}, vehicles: { all: true, ids: [] } },
           'compliance',
         ),
       ).toBe('none')
@@ -94,7 +95,7 @@ describe('domainGrantableToMembers — what the access grid offers', () => {
     expect(domainGrantableToMembers('compliance', f)).toBe(true)
     expect(
       effectiveAccess(
-        { fundId: 'f', userId: 'u', role: 'member', features: f, grants: { compliance: 'read' }, defaults: {} },
+        { fundId: 'f', userId: 'u', role: 'member', features: f, grants: { compliance: 'read' }, defaults: {}, vehicles: { all: true, ids: [] } },
         'compliance',
       ),
     ).toBe('read')

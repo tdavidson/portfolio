@@ -70,6 +70,7 @@ function access(level: 'read' | 'write'): AccessContext {
   return {
     fundId: 'fund-1',
     userId: 'user-1',
+    vehicles: { all: true, ids: [] },
     role: 'member',
     features,
     grants: { accounting: level },

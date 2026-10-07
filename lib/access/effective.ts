@@ -6,6 +6,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { DOMAIN_META, DOMAINS, type Domain } from './domains'
+import { vehicleScopeFromRow, type VehicleScope } from './scope'
 import {
   DEFAULT_FEATURE_VISIBILITY,
   type FeatureKey,
@@ -29,6 +30,8 @@ export interface AccessContext {
   grants: Partial<Record<Domain, AccessLevel>>
   /** The fund's per-domain default for members without an explicit grant. */
   defaults: Partial<Record<Domain, AccessLevel>>
+  /** Which of the fund's entities this user may see — the second axis. See lib/access/scope.ts. */
+  vehicles: VehicleScope
 }
 
 /**
@@ -118,6 +121,8 @@ export function accessContextFrom(args: {
   features: FeatureVisibilityMap
   grants: { domain: string; level: string }[]
   defaults: { domain: string; level: string }[]
+  /** Required: a context built without saying which entities it may see would have to guess. */
+  vehicles: VehicleScope
 }): AccessContext {
   return {
     fundId: args.fundId,
@@ -126,6 +131,7 @@ export function accessContextFrom(args: {
     features: args.features,
     grants: levelMap(args.grants),
     defaults: levelMap(args.defaults),
+    vehicles: args.role === 'admin' ? { ...args.vehicles, all: true } : args.vehicles,
   }
 }
 
@@ -136,6 +142,8 @@ interface AccessContextRow {
   features: Partial<FeatureVisibilityMap> | null
   grants: Record<string, string> | null
   defaults: Record<string, string> | null
+  /** Absent before 20261007100000_entity_access_grants.sql — see vehicleScopeFromRow. */
+  vehicles?: unknown
 }
 
 /**
@@ -164,6 +172,8 @@ export async function loadAccessContext(
     features: { ...DEFAULT_FEATURE_VISIBILITY, ...(row?.features ?? {}) },
     grants: recordToLevels(row?.grants),
     defaults: recordToLevels(row?.defaults),
+    // No row at all (not a member): nothing. A row without the key: the RPC predates entity access.
+    vehicles: row ? vehicleScopeFromRow(normalizeRole(role ?? row.role), row.vehicles) : { all: false, ids: [] },
   }
 }
 
@@ -188,6 +198,7 @@ export async function resolveAccessContext(
     features: { ...DEFAULT_FEATURE_VISIBILITY, ...(row.features ?? {}) },
     grants: recordToLevels(row.grants),
     defaults: recordToLevels(row.defaults),
+    vehicles: vehicleScopeFromRow(normalizeRole(row.role), row.vehicles),
   }
 }
 

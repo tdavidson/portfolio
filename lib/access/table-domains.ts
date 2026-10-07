@@ -298,6 +298,7 @@ export const TABLE_RULES: Record<string, TableRule> = {
   funds: { scope: 'keep', note: 'Membership defines the tenant; its policy is the root of get_my_fund_ids and predates domains.' },
   fund_members: { scope: 'keep', note: 'You must be able to read your own membership before any domain can be resolved.' },
   fund_member_access: { scope: 'keep', note: 'Already own-grants-or-admin (20260716000008); a domain gate here would be circular.' },
+  fund_member_vehicles: { scope: 'keep', note: 'Entity grants: a member reads their own rows only; written by the settings API with the service role (20261007100000).' },
   fund_domain_defaults: { scope: 'keep', note: 'Same — the inputs to the resolver cannot be gated by the resolver.' },
   fund_join_requests: { scope: 'keep', note: 'A request is made by someone who is not yet a member, so membership cannot gate it.' },
   lp_accounts: { scope: 'keep', note: 'LP-portal identity: rows belong to LP users who are not fund members at all.' },

@@ -24,6 +24,7 @@ import { DEFAULT_FEATURE_VISIBILITY, type FeatureVisibilityMap } from '@/lib/typ
 const accessCtx = (over: Partial<AccessContext> = {}): AccessContext => ({
   fundId: 'f1',
   userId: 'u1',
+  vehicles: { all: true, ids: [] },
   role: 'member',
   features: { ...DEFAULT_FEATURE_VISIBILITY } as FeatureVisibilityMap,
   grants: {},

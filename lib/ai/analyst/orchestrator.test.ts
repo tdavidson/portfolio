@@ -66,6 +66,7 @@ const features = Object.fromEntries(
 const access: AccessContext = {
   fundId: 'fund-1',
   userId: 'user-1',
+  vehicles: { all: true, ids: [] },
   role: 'member',
   features,
   grants: { accounting: 'read' },

@@ -24,6 +24,7 @@ function context(over: {
   return accessContextFrom({
     fundId: 'fund-1',
     userId: 'user-1',
+    vehicles: { all: true, ids: [] },
     role: over.role ?? 'member',
     features: { ...DEFAULT_FEATURE_VISIBILITY, accounting: 'everyone', gp_economics: 'everyone', ...(over.features ?? {}) } as FeatureVisibilityMap,
     grants: Object.entries(over.grants ?? {}).map(([domain, level]) => ({ domain, level })),

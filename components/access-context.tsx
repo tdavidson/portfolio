@@ -41,7 +41,9 @@ export function AccessProvider({ value, children }: { value: ClientAccess; child
 export function useAccess(): (domain: Domain, feature?: FeatureKey) => AccessLevel {
   const value = useContext(AccessCtx)
   return useMemo(() => {
-    const ctx: AccessContext = { fundId: '', userId: '', ...value }
+    // The client decides only what to SHOW by domain; entity scoping happens on the server, which
+    // filters the data itself. So the client context claims no entities rather than guessing.
+    const ctx: AccessContext = { fundId: '', userId: '', vehicles: { all: false, ids: [] }, ...value }
     return (domain: Domain, feature?: FeatureKey) => effectiveAccess(ctx, domain, feature)
   }, [value])
 }

@@ -74,6 +74,9 @@ export default async function AppLayout({ children }: { children: React.ReactNod
     features: featureVisibility,
     grants: domainGrants.grants,
     defaults: domainGrants.defaults,
+    // Only the domain half reaches the client (below); entity scoping is the server's job, done
+    // where the data is read. Claim none here rather than guess.
+    vehicles: { all: false, ids: [] },
   })
   const { role, features, grants, defaults } = accessContext
   const domainAccess = { role, features, grants, defaults }

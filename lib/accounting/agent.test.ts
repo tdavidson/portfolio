@@ -11,6 +11,7 @@ const key = (role: string, scopes: string[]): ResolvedKey => ({ fundId: 'f', key
 const ctx = (role: 'admin' | 'member' | 'viewer', grants: Partial<Record<Domain, AccessLevel>>): AccessContext => ({
   fundId: 'f',
   userId: 'u',
+  vehicles: { all: true, ids: [] },
   role,
   features: Object.fromEntries(
     Object.keys(DEFAULT_FEATURE_VISIBILITY).map(k => [k, 'everyone']),

@@ -6,6 +6,7 @@ import { DEFAULT_FEATURE_VISIBILITY, type FeatureVisibilityMap } from '@/lib/typ
 const access: AccessContext = {
   fundId: 'fund-1',
   userId: 'user-1',
+  vehicles: { all: true, ids: [] },
   role: 'member',
   features: { ...DEFAULT_FEATURE_VISIBILITY } as FeatureVisibilityMap,
   grants: {},
