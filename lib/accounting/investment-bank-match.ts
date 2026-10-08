@@ -68,6 +68,33 @@ export function rankBankCandidates<T extends Pick<BankRow, 'amount' | 'txn_date'
     .sort((a, b) => days(a.txn_date) - days(b.txn_date))
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/**
+ * Entries whose `txn:<id>` ref names a transaction that exists in this fund — the same rule as
+ * entryIsOwned, in one query. An orphaned ref (malformed suffix, transaction deleted) is not
+ * ownership, so it is neither listed nor linkable. THROWS on a failed read.
+ */
+async function derivedOwnedIds(admin: SupabaseClient, fundId: string, entries: { id: string; source_ref: string | null }[]): Promise<Set<string>> {
+  const byTxn = new Map<string, string[]>()
+  for (const e of entries) {
+    const ref = String(e.source_ref ?? '')
+    if (!ref.startsWith(TXN_REF_PREFIX)) continue
+    const txnId = ref.slice(TXN_REF_PREFIX.length)
+    if (UUID.test(txnId)) byTxn.set(txnId, [...(byTxn.get(txnId) ?? []), e.id])
+  }
+  if (byTxn.size === 0) return new Set()
+  const ids = Array.from(byTxn.keys())
+  const found = new Set<string>()
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data, error } = await admin.from('investment_transactions' as any).select('id')
+      .eq('fund_id', fundId).in('id', ids.slice(i, i + 200))
+    if (error) throw new Error(`Ownership could not be checked: ${error.message}`)
+    for (const r of (data as any[]) ?? []) found.add(r.id as string)
+  }
+  return new Set(Array.from(byTxn.entries()).filter(([t]) => found.has(t)).flatMap(([, v]) => v))
+}
+
 export interface OwnedCashEntry { id: string; date: string; amount: number; memo: string; status: 'draft' | 'posted' }
 
 const DAY = 86_400_000
@@ -89,9 +116,9 @@ export async function loadOwnedCashEntries(
     .gte('entry_date', shift(sorted[0], -CLEARING_DAYS)).lte('entry_date', shift(sorted[sorted.length - 1], CLEARING_DAYS))
     .order('id').range(from, to))
   const adopted = await adoptedEntryIds(admin, fundId, rows.filter(e => e.status === 'posted').map(e => e.id))
+  const derivedOwned = await derivedOwnedIds(admin, fundId, rows)
   return rows.flatMap(e => {
-    const derived = String(e.source_ref ?? '').startsWith(TXN_REF_PREFIX)
-    if (!(derived || (e.status === 'posted' && adopted.has(e.id)))) return []
+    if (!(derivedOwned.has(e.id) || (e.status === 'posted' && adopted.has(e.id)))) return []
     const amount = roundCents((e.journal_postings ?? []).filter((p: any) => p.account_id === cashId).reduce((s: number, p: any) => s + Number(p.amount), 0))
     return amount === 0 ? [] : [{ id: e.id, date: e.entry_date, amount, memo: e.memo ?? '', status: e.status }]
   })
@@ -202,10 +229,11 @@ export async function unbankedInvestments(admin: SupabaseClient, fundId: string,
   ])
   const linked = new Set(linkedRows.map(r => r.journal_entry_id as string))
   const adopted = await adoptedEntryIds(admin, fundId, entries.map(e => e.id))
+  const derivedOwned = await derivedOwnedIds(admin, fundId, entries)
   const open = await freeOpenRows(admin, fundId, (openRows as any[]) ?? [])
 
   return entries
-    .filter(e => !linked.has(e.id) && (String(e.source_ref ?? '').startsWith(TXN_REF_PREFIX) || adopted.has(e.id)))
+    .filter(e => !linked.has(e.id) && (derivedOwned.has(e.id) || adopted.has(e.id)))
     .flatMap(e => {
       const cash = roundCents((e.journal_postings ?? []).filter((p: any) => p.account_id === cashId).reduce((s: number, p: any) => s + Number(p.amount), 0))
       if (cash === 0) return []

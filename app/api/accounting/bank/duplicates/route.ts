@@ -11,7 +11,9 @@ import { vendorResolver } from '@/lib/accounting/vendors'
 import { reviewKind } from '@/lib/accounting/bank-review'
 import { loadOwnedCashEntries, ownedCandidates } from '@/lib/accounting/investment-bank-match'
 
-// Resolve a held bank row without modifying the original QuickBooks entry.
+// Resolve a held bank row (lib/accounting/bank-review.ts) without modifying the entry it is linked to:
+// a possible QuickBooks duplicate links to the QuickBooks entry or becomes a separate draft; one of
+// several posted investment entries links to the entry the person chooses. Posts nothing.
 export async function POST(req: NextRequest) {
   const auth = await createClient()
   const { data: { user } } = await auth.auth.getUser()
