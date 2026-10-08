@@ -30,17 +30,18 @@ export function AddDigitalAssetButton() {
   useEffect(() => {
     if (!open) return
     let cancelled = false
+    setError(null)
     // Investing entities only: a management company or GP entity cannot hold an investment, and
     // derivation refuses every purchase recorded there.
     fetch('/api/entities')
-      .then(r => (r.ok ? r.json() : []))
+      .then(r => { if (!r.ok) throw new Error('entities'); return r.json() })
       .then(rows => {
         if (cancelled) return
         const list = investingEntities(rows)
         setEntities(list)
         if (list.length === 1) setEntity(list[0].name)
       })
-      .catch(() => { if (!cancelled) setEntities([]) })
+      .catch(() => { if (!cancelled) { setEntities([]); setError('Could not load your entities. Close this and try again.') } })
     return () => { cancelled = true }
   }, [open])
 
@@ -69,7 +70,7 @@ export function AddDigitalAssetButton() {
   }
 
   return (
-    <Dialog open={open} onOpenChange={setOpen}>
+    <Dialog open={open} onOpenChange={o => { setOpen(o); setError(null) }}>
       <DialogTrigger asChild>
         <Button size="sm" variant="outline"><Plus className="h-4 w-4 mr-1" />Add digital asset</Button>
       </DialogTrigger>

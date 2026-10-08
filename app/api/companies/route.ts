@@ -7,6 +7,7 @@ import { logActivity } from '@/lib/activity'
 import { seedCompanyFromDefaults } from '@/lib/metrics/seed-default-metrics'
 import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { hasAccess, loadAccessContext } from '@/lib/access/effective'
 import { scopeCompanyRows, scopeGroups, scopeTransactions, newCompanyGroupsProblem } from '@/lib/access/scope'
 
 export async function GET() {
@@ -92,8 +93,22 @@ export async function POST(req: NextRequest) {
   const holdingType: 'company' | 'fund' | 'crypto' =
     body?.holding_type === 'fund' || body?.holding_type === 'crypto' ? body.holding_type : 'company'
 
+  // A fund holding is created with its terms and a validated entity (POST /api/portfolio/fund-holdings).
+  if (body?.holding_type === 'fund') {
+    return NextResponse.json({ error: 'Add a fund holding from Investments.' }, { status: 400 })
+  }
+
   if (!name?.trim()) {
     return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+  }
+
+  // A digital asset is an investment, not a company: it needs write access to investments, which
+  // the portfolio domain's write access alone does not imply.
+  if (holdingType === 'crypto') {
+    const access = await loadAccessContext(admin, writeCheck.fundId, writeCheck.userId, writeCheck.role)
+    if (!hasAccess(access, 'portfolio', 'write', 'investments')) {
+      return NextResponse.json({ error: 'You do not have access to digital assets.' }, { status: 403 })
+    }
   }
 
   const { data: membership } = await admin
