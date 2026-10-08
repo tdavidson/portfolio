@@ -7,7 +7,8 @@ import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { ledgerByCompany } from '@/lib/accounting/investments'
 import { buildSoiPositions, type SoiCompany } from '@/lib/accounting/soi'
-import { backfillDerivedEntries } from '@/lib/accounting/investment-backfill'
+import { backfillDerivedEntries, backfillAllVehicles } from '@/lib/accounting/investment-backfill'
+import { visibleVehicleNames } from '@/lib/accounting/vehicle-visibility'
 
 // GET — each tracked position for the vehicle, alongside what the LEDGER carries for
 // it. The gap between the two is what needs booking.
@@ -68,11 +69,19 @@ export async function POST(req: NextRequest) {
   if (gate instanceof NextResponse) return gate
 
   const body = await req.json().catch(() => ({}))
+
+  // Every entity at once — the rollout's one run, and the firm index's "Put all on the ledger".
+  // Admins only: it writes across entities. Still limited to the entities the caller can see.
+  if (body?.action === 'backfill' && body?.all === true) {
+    if (gate.role !== 'admin') return NextResponse.json({ error: 'Only an admin can put every entity on the ledger at once.' }, { status: 403 })
+    const visible = await visibleVehicleNames(admin, gate)
+    return NextResponse.json({ vehicles: await backfillAllVehicles(admin, gate.fundId, user.id, visible, { dryRun: !!body?.dryRun }) })
+  }
+
   const group = await resolveGroupOr400(admin, gate, body?.group ?? req.nextUrl.searchParams.get('group'))
   if (group instanceof NextResponse) return group
 
-  // Derive the entries historical transactions never derived: marks post, cash entries draft and
-  // wait for their bank match. `dryRun` previews. Idempotent — see lib/accounting/investment-backfill.ts.
+  // Adopt posted investment entries, derive what's missing, post what waited. `dryRun` previews. Idempotent — see lib/accounting/investment-backfill.ts.
   if (body?.action === 'backfill') {
     return NextResponse.json(await backfillDerivedEntries(admin, gate.fundId, group, user.id, { dryRun: !!body?.dryRun }))
   }

@@ -1,153 +1,86 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
-import { backfillDerivedEntries } from './investment-backfill'
-import { draftEntryForTransaction } from './from-portfolio'
+import { memoryAdmin } from '@/tests/helpers/memory-admin'
 
-vi.mock('./vehicle-id', () => ({ vehicleIdByName: vi.fn(async () => 'veh-1') }))
-vi.mock('./persist', () => ({ accountIdByCode: vi.fn(async () => new Map([['1000', 'cash']])) }))
-vi.mock('./continuous-allocation', () => ({
-  postExistingEntryWithAllocation: vi.fn(async (_a, _f, _g, _u, id) =>
-    id === 'old-refused' ? { error: 'No partner participates.' } : { allocationEntryIds: [] }),
-}))
-vi.mock('./from-portfolio', async (orig) => ({
-  ...(await orig<typeof import('./from-portfolio')>()),
-  draftEntryForTransaction: vi.fn(async (_a, _f, _u, txn) =>
-    txn.transaction_type === 'unrealized_gain_change'
-      ? (txn.transaction_date < '2026-01-01'
-          ? { drafted: false, reason: 'Period closed through 2025-12-31.' }
-          : { drafted: true, posted: true, entryId: `e-${txn.id}` })
-      : { drafted: true, posted: false, entryId: `e-${txn.id}` }),
-}))
+const h = vi.hoisted(() => ({ derive: vi.fn(), post: vi.fn(), link: vi.fn(), adopt: vi.fn() }))
+vi.mock('./vehicle-id', () => ({ vehicleIdByName: async () => 'v' }))
+vi.mock('./from-portfolio', async (orig) => ({ ...(await orig<any>()), draftEntryForTransaction: h.derive }))
+vi.mock('./continuous-allocation', () => ({ postExistingEntryWithAllocation: h.post }))
+vi.mock('./investment-bank-match', () => ({ linkOpenBankRow: h.link }))
+vi.mock('./adoption', async (orig) => ({ ...(await orig<any>()), adoptEntry: h.adopt }))
+import { backfillDerivedEntries, countUnderived } from './investment-backfill'
 
-type Row = Record<string, any>
-/** Answers selects by table, honouring eq / in / like / neq / not-null; records nothing else. */
-function fakeAdmin(tables: Record<string, Row[]>) {
-  const from = (table: string) => {
-    const preds: ((r: Row) => boolean)[] = []
-    let orderKey: string | null = null
-    const chain: any = {
-      select: () => chain,
-      eq: (k: string, v: any) => { preds.push(r => r[k] === v); return chain },
-      neq: (k: string, v: any) => { preds.push(r => r[k] !== v); return chain },
-      in: (k: string, v: any[]) => { preds.push(r => v.includes(r[k])); return chain },
-      like: (k: string, v: string) => { preds.push(r => String(r[k] ?? '').startsWith(v.replace(/%$/, ''))); return chain },
-      not: (k: string, _op: string, _v: null) => { preds.push(r => r[k] != null); return chain },
-      order: (k: string) => { orderKey ??= k; return chain },
-      range: () => chain,
-      then: (res: any) => {
-        let rows = (tables[table] ?? []).filter(r => preds.every(p => p(r)))
-        if (orderKey) rows = [...rows].sort((a, b) => String(a[orderKey!]).localeCompare(String(b[orderKey!])))
-        return res({ data: rows, error: null })
-      },
-    }
-    return chain
-  }
-  return { from } as any
-}
+const chart = [
+  { id: 'cash', fund_id: 'f', vehicle_id: 'v', code: '1000', type: 'asset', subtype: 'cash', company_id: null },
+  { id: 'a1100', fund_id: 'f', vehicle_id: 'v', code: '1100-a', type: 'asset', subtype: 'investment', company_id: 'co' },
+  { id: 'p4200', fund_id: 'f', vehicle_id: 'v', code: '4200', type: 'income', subtype: 'unrealized', company_id: null },
+]
+const entry = (id: string, over: any = {}) => ({ id, fund_id: 'f', vehicle_id: 'v', book: 'actual', status: 'posted', entry_date: '2026-01-15', memo: id, source_ref: null, reversed_by: null, ...over })
+const line = (entryId: string, account_id: string, amount: number) => ({ journal_entry_id: entryId, book: 'actual', fund_id: 'f', account_id, amount })
+const txn = (id: string, over: any = {}) => ({ id, fund_id: 'f', company_id: 'co', portfolio_group: 'Fund I', transaction_type: 'investment', investment_cost: 100, transaction_date: '2026-02-01', adopted_entry_id: null, ...over })
 
-const txn = (id: string, company_id: string, transaction_type: string, transaction_date: string) =>
-  ({ id, fund_id: 'f1', portfolio_group: 'Fund I', company_id, transaction_type, transaction_date, investment_cost: 1000, unrealized_value_change: 250 })
-
-function world(extra: Partial<Record<string, Row[]>> = {}) {
-  return fakeAdmin({
-    investment_transactions: [
-      txn('t3', 'acme', 'unrealized_gain_change', '2026-06-30'),
-      txn('t1', 'acme', 'investment', '2025-03-01'),
-      txn('t2', 'acme', 'unrealized_gain_change', '2025-09-30'),
-      txn('t4', 'beta', 'investment', '2026-02-01'),
-    ],
-    companies: [{ id: 'acme', fund_id: 'f1', name: 'Acme' }, { id: 'beta', fund_id: 'f1', name: 'Beta' }],
-    journal_entries: [],
-    chart_of_accounts: [],
-    journal_postings: [],
-    ...extra,
+function seed(t: Record<string, any[]>) {
+  return memoryAdmin({
+    fund_vehicles: [{ id: 'v', fund_id: 'f', name: 'Fund I', aliases: ['Fund One'] }],
+    chart_of_accounts: chart, companies: [{ id: 'co', fund_id: 'f', name: 'Acme' }],
+    journal_entries: [], journal_postings: [], investment_transactions: [], ...t,
   })
 }
+
+beforeEach(() => {
+  h.derive.mockReset().mockResolvedValue({ drafted: true, posted: true, entryId: 'new' })
+  h.post.mockReset().mockResolvedValue({ allocationEntryIds: [] })
+  h.link.mockReset().mockResolvedValue('b1')
+  h.adopt.mockReset().mockResolvedValue({ adoptedIds: ['t-adopted'] })
+})
 
 describe('backfillDerivedEntries', () => {
-  beforeEach(() => { vi.mocked(draftEntryForTransaction).mockClear() })
-
-  it('derives every transaction in date order, posting marks and drafting purchases', async () => {
-    const r = await backfillDerivedEntries(world(), 'f1', 'Fund I', 'u1')
-    expect(vi.mocked(draftEntryForTransaction).mock.calls.map(c => c[3].id)).toEqual(['t1', 't2', 't4', 't3'])
-    expect(r).toMatchObject({ posted: 1, awaitingBankMatch: 2, alreadyDerived: 0 })
+  it('adopts unowned posted investment entries, skipping derived, adopted, income-only and reversal pairs', async () => {
+    const m = seed({
+      journal_entries: [entry('qb'), entry('derived', { source_ref: 'txn:x' }), entry('owned'), entry('income'),
+        entry('orig', { reversed_by: 'rev' }), entry('rev', { source_ref: 'reversal:orig' })],
+      journal_postings: [line('qb', 'a1100', 100), line('derived', 'a1100', 100), line('owned', 'a1100', 100), line('income', 'p4200', -5),
+        line('orig', 'a1100', 100), line('rev', 'a1100', -100)],
+      investment_transactions: [txn('x'), txn('o', { adopted_entry_id: 'owned' })],
+    })
+    const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')
+    expect(h.adopt).toHaveBeenCalledTimes(1)
+    expect(h.adopt.mock.calls[0][2]).toMatchObject({ entryId: 'qb', vehicleId: 'v' })
+    expect(r).toMatchObject({ toAdopt: 1, adopted: 1 })
   })
-
-  it('reports a mark a closed period refuses, by name — never skipped silently', async () => {
-    const r = await backfillDerivedEntries(world(), 'f1', 'Fund I', 'u1')
-    expect(r.refused).toEqual(['Acme, 2025-09-30: Period closed through 2025-12-31.'])
+  it('derives transactions with no entry, by name or alias, and leaves adopted ones alone', async () => {
+    const m = seed({ investment_transactions: [txn('a'), txn('b', { portfolio_group: 'Fund One' }), txn('c', { adopted_entry_id: 'e' }), txn('r', { transaction_type: 'round_info' })] })
+    const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')
+    expect(h.derive.mock.calls.map(c => c[3].id)).toEqual(['a', 'b'])
+    expect(r).toMatchObject({ toDerive: 2, posted: 2 })
   })
-
-  it('is idempotent on source_ref: a transaction that already derived an entry is left alone', async () => {
-    const r = await backfillDerivedEntries(world({
-      journal_entries: [{ id: 'x', fund_id: 'f1', vehicle_id: 'veh-1', book: 'actual', status: 'posted', source_ref: 'txn:t3' }],
-    }), 'f1', 'Fund I', 'u1')
-    expect(vi.mocked(draftEntryForTransaction).mock.calls.map(c => c[3].id)).not.toContain('t3')
-    expect(r.alreadyDerived).toBe(1)
+  it('posts derived drafts left waiting, then links their bank rows', async () => {
+    const m = seed({ investment_transactions: [txn('a')], journal_entries: [entry('d', { status: 'draft', source_ref: 'txn:a' })] })
+    const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')
+    expect(h.post).toHaveBeenCalledWith(m.admin, 'f', 'Fund I', 'u', 'd')
+    expect(h.link).toHaveBeenCalledWith(m.admin, 'f', 'd')
+    expect(r).toMatchObject({ toPost: 1, posted: 1, linked: 1, toDerive: 0, alreadyDerived: 1 })
   })
-
-  it('re-derives a transaction whose only entries were voided', async () => {
-    await backfillDerivedEntries(world({
-      journal_entries: [{ id: 'x', fund_id: 'f1', vehicle_id: 'veh-1', book: 'actual', status: 'void', source_ref: 'txn:t3' }],
-    }), 'f1', 'Fund I', 'u1')
-    expect(vi.mocked(draftEntryForTransaction).mock.calls.map(c => c[3].id)).toContain('t3')
+  it('a dry run counts and writes nothing', async () => {
+    const m = seed({ investment_transactions: [txn('a')], journal_entries: [entry('qb')], journal_postings: [line('qb', 'a1100', 100)] })
+    expect(await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u', { dryRun: true })).toMatchObject({ toAdopt: 1, toDerive: 1, adopted: 0, posted: 0 })
+    expect(h.adopt).not.toHaveBeenCalled()
+    expect(h.derive).not.toHaveBeenCalled()
   })
-
-  it('leaves alone a company the ledger already carries by another route, and says which', async () => {
-    // A snapshot, a history replay or a QuickBooks import already put Acme on the books.
-    // Deriving its transactions too would book the position twice.
-    const r = await backfillDerivedEntries(world({
-      chart_of_accounts: [{ id: 'acc-acme', fund_id: 'f1', vehicle_id: 'veh-1', company_id: 'acme' }],
-      journal_postings: [{ account_id: 'acc-acme', fund_id: 'f1', book: 'actual', journal_entry_id: 'snap' }],
-      journal_entries: [{ id: 'snap', fund_id: 'f1', vehicle_id: 'veh-1', book: 'actual', status: 'posted', source_ref: null }],
-    }), 'f1', 'Fund I', 'u1')
-    expect(vi.mocked(draftEntryForTransaction).mock.calls.map(c => c[3].id)).toEqual(['t4'])
-    expect(r.carriedElsewhere).toEqual(['Acme'])
-  })
-
-  it('previews without writing anything', async () => {
-    const r = await backfillDerivedEntries(world(), 'f1', 'Fund I', 'u1', { dryRun: true })
-    expect(draftEntryForTransaction).not.toHaveBeenCalled()
-    expect(r).toMatchObject({ toDerive: 4, alreadyDerived: 0, carriedElsewhere: [] })
+  it('running twice books nothing twice', async () => {
+    const m = seed({ investment_transactions: [txn('a')] })
+    h.derive.mockImplementation(async (_a: any, _f: string, _u: any, t: any) => {
+      m.tables.journal_entries.push(entry(`e-${t.id}`, { source_ref: `txn:${t.id}` }))
+      return { drafted: true, posted: true, entryId: `e-${t.id}` }
+    })
+    await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')
+    expect(await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')).toMatchObject({ toDerive: 0, alreadyDerived: 1 })
+    expect(h.derive).toHaveBeenCalledTimes(1)
   })
 })
 
-describe('backfillDerivedEntries — rows that never imply an entry', () => {
-  it('does not count rounds, splits, or zero-value marks and purchases as waiting for the ledger', async () => {
-    const r = await backfillDerivedEntries(fakeAdmin({
-      investment_transactions: [
-        txn('r', 'acme', 'round_info', '2026-01-01'),
-        txn('s', 'acme', 'split', '2026-01-02'),
-        { ...txn('m0', 'acme', 'unrealized_gain_change', '2026-01-03'), unrealized_value_change: 0 },
-        { ...txn('i0', 'acme', 'investment', '2026-01-04'), investment_cost: 0 },
-        { ...txn('m1', 'acme', 'unrealized_gain_change', '2026-01-05'), unrealized_value_change: 10 },
-      ],
-      companies: [{ id: 'acme', fund_id: 'f1', name: 'Acme' }],
-      journal_entries: [], chart_of_accounts: [], journal_postings: [],
-    }), 'f1', 'Fund I', 'u1', { dryRun: true })
-    expect(r.toDerive).toBe(1)
-  })
-})
-
-describe('backfillDerivedEntries — what counts as already on the ledger', () => {
-  beforeEach(() => { vi.mocked(draftEntryForTransaction).mockClear() })
-
-  it('ignores an unposted draft from another source — a draft is not on the books', async () => {
-    const r = await backfillDerivedEntries(world({
-      chart_of_accounts: [{ id: 'acc-acme', fund_id: 'f1', vehicle_id: 'veh-1', company_id: 'acme', code: '1100-acme' }],
-      journal_postings: [{ account_id: 'acc-acme', fund_id: 'f1', book: 'actual', journal_entry_id: 'bank-draft' }],
-      journal_entries: [{ id: 'bank-draft', fund_id: 'f1', vehicle_id: 'veh-1', book: 'actual', status: 'draft', source_ref: null }],
-    }), 'f1', 'Fund I', 'u1', { dryRun: true })
-    expect(r.carriedElsewhere).toEqual([])
-  })
-
-  it('refuses the whole vehicle when the pooled investment account carries postings — they cannot be attributed to a company', async () => {
-    const r = await backfillDerivedEntries(world({
-      chart_of_accounts: [{ id: 'pooled', fund_id: 'f1', vehicle_id: 'veh-1', company_id: null, code: '1100', subtype: 'investment' }],
-      journal_postings: [{ account_id: 'pooled', fund_id: 'f1', book: 'actual', journal_entry_id: 'qb' }],
-      journal_entries: [{ id: 'qb', fund_id: 'f1', vehicle_id: 'veh-1', book: 'actual', status: 'posted', source_ref: null }],
-    }), 'f1', 'Fund I', 'u1')
-    expect(draftEntryForTransaction).not.toHaveBeenCalled()
-    expect(r.toDerive).toBe(0)
-    expect(r.blocked).toMatch(/1100/)
+describe('countUnderived', () => {
+  it('counts what the backfill would derive', async () => {
+    const m = seed({ investment_transactions: [txn('a'), txn('b'), txn('c', { adopted_entry_id: 'e' })], journal_entries: [entry('d', { source_ref: 'txn:b' })] })
+    expect(await countUnderived(m.admin, 'f', 'v', ['Fund I'])).toBe(1)
   })
 })
