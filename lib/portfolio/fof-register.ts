@@ -3,6 +3,7 @@ import { draftEntryForTransaction } from '@/lib/accounting/from-portfolio'
 import { vehicleNameById } from '@/lib/accounting/vehicle-id'
 import type { AccessContext } from '@/lib/access/effective'
 import { canSeeVehicle } from '@/lib/access/scope'
+import type { NavBooking } from './fof-nav'
 
 /**
  * The register produces ordinary investment_transactions rows. It is the ONLY thing that
@@ -120,6 +121,12 @@ export interface ConfirmResult {
    * success and silently leaves the position off the books.
    */
   ledgerSkipped?: string
+  /**
+   * Every NAV statement for this holding and entity dated on or after this event, re-booked oldest
+   * first: each was booked against a ledger that did not yet carry this event, so its mark was
+   * stale by exactly this amount (lib/portfolio/fof-nav.ts). Absent when nothing was re-booked.
+   */
+  navRebooked?: NavBooking[]
   error?: string
 }
 
@@ -187,10 +194,22 @@ export async function confirmFundCapitalEvent(
     .from('companies').select('name').eq('id', row.company_id).maybeSingle()
   const drafted = await draftEntryForTransaction(admin, fundId, userId, txn, (holding as any)?.name ?? 'Fund')
 
+  // Statements struck on or after this event's date were booked against a ledger without it, so
+  // the close would block on marks nothing could clear. Re-book them. Dynamic import: fof-nav
+  // imports this module.
+  let navRebooked: NavBooking[] = []
+  if (drafted?.drafted) {
+    const { rebookNavsFrom } = await import('./fof-nav')
+    navRebooked = await rebookNavsFrom(admin, fundId, userId, {
+      companyId: row.company_id, vehicleId: row.vehicle_id, since: row.event_date, inclusive: true,
+    })
+  }
+
   return {
     ok: true,
     transactionId: txn.id,
     ...(drafted?.drafted ? {} : { ledgerSkipped: drafted?.reason ?? 'No ledger entry was drafted.' }),
+    ...(navRebooked.length ? { navRebooked } : {}),
   }
 }
 
