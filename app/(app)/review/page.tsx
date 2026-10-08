@@ -10,6 +10,10 @@ import { EmailReviewModal } from '@/components/email-review-modal'
 import { AnalystToggleButton } from '@/components/analyst-button'
 import { AnalystPanel } from '@/components/analyst-panel'
 import { EmptyState } from '@/components/ui/empty-state'
+import { FundReviewCard, resolveSummary, type FundReviewDecision } from '@/components/fund-review-card'
+import { isFundReviewType, type FundProposal } from '@/lib/portfolio/fof-review-types'
+import { investingEntities } from '@/lib/portfolio/investing-entities'
+import { useCanWrite } from '@/components/access-context'
 
 interface ReviewItem {
   id: string
@@ -20,6 +24,8 @@ interface ReviewItem {
   company: { id: string; name: string } | null
   metric: { id: string; name: string; unit: string | null; value_type: string } | null
   email: { id: string; subject: string | null; received_at: string; from_address: string; diligence_deal_id?: string | null } | null
+  payload?: FundProposal | null
+  vehicle?: { id: string; name: string } | null
 }
 
 interface NeedsReviewEmail {
@@ -45,6 +51,9 @@ const ISSUE_LABELS: Record<string, string> = {
   company_not_identified: 'Unidentified Company',
   duplicate_period: 'Duplicate Period',
   diligence_intake_pending: 'Diligence Match',
+  fund_nav: 'Manager NAV',
+  fund_capital_call: 'Capital call',
+  fund_distribution: 'Distribution',
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -55,6 +64,9 @@ const STATUS_COLORS: Record<string, string> = {
   company_not_identified: 'bg-destructive-subtle text-destructive border-destructive',
   duplicate_period: 'bg-warning-subtle text-warning border-warning',
   diligence_intake_pending: 'bg-warning-subtle text-warning border-warning',
+  fund_nav: 'bg-info-subtle text-info border-info',
+  fund_capital_call: 'bg-info-subtle text-info border-info',
+  fund_distribution: 'bg-info-subtle text-info border-info',
 }
 
 export default function ReviewPage() {
@@ -64,6 +76,9 @@ export default function ReviewPage() {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editValue, setEditValue] = useState('')
   const [reviewModalEmailId, setReviewModalEmailId] = useState<string | null>(null)
+  const [entities, setEntities] = useState<{ id: string; name: string }[]>([])
+  const [fundMessage, setFundMessage] = useState<{ text: string; error: boolean } | null>(null)
+  const canWrite = useCanWrite('portfolio', 'investments')
 
   // `silent` refetches without the spinner: after resolving an item the list is already correct
   // optimistically, and blanking the page to a loader would be a worse answer than the one on
@@ -82,6 +97,49 @@ export default function ReviewPage() {
   }, [])
 
   useEffect(() => { load() }, [load])
+
+  // A fund review naming no entity asks the approver to choose one of theirs.
+  const needsEntities = (data?.items ?? []).some(i => isFundReviewType(i.issue_type) && !i.vehicle)
+  useEffect(() => {
+    if (!needsEntities) return
+    let cancelled = false
+    fetch('/api/entities')
+      .then(r => (r.ok ? r.json() : []))
+      .then(rows => { if (!cancelled) setEntities(investingEntities(rows)) })
+      .catch(() => { if (!cancelled) setEntities([]) })
+    return () => { cancelled = true }
+  }, [needsEntities])
+
+  async function resolveFund(item: ReviewItem, decision: FundReviewDecision) {
+    setResolving(prev => ({ ...prev, [item.id]: true }))
+    setFundMessage(null)
+    try {
+      const res = await fetch(`/api/review/${item.id}/resolve`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(decision),
+      })
+      const json = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setFundMessage({ text: json?.error ?? 'That could not be resolved.', error: true })
+        // Already resolved elsewhere (409) or the approval threw: the list is stale either way.
+        load({ silent: true })
+        return
+      }
+      setFundMessage({ text: resolveSummary(json) ?? 'Done.', error: false })
+      setData(prev => prev ? {
+        ...prev,
+        total: prev.total - 1,
+        counts: { ...prev.counts, [item.issue_type]: (prev.counts[item.issue_type] ?? 1) - 1 },
+        items: prev.items.filter(i => i.id !== item.id),
+      } : prev)
+      load({ silent: true })
+    } catch {
+      setFundMessage({ text: 'That could not be resolved. Check your connection and try again.', error: true })
+    } finally {
+      setResolving(prev => ({ ...prev, [item.id]: false }))
+    }
+  }
 
   async function resolve(
     item: ReviewItem,
@@ -166,9 +224,25 @@ export default function ReviewPage() {
         <EmptyState>All clear, nothing to review.</EmptyState>
       )}
 
+      {fundMessage && (
+        <p role="status" className={`mb-3 text-sm ${fundMessage.error ? 'text-destructive' : ''}`}>{fundMessage.text}</p>
+      )}
+
       {!loading && items.length > 0 && (
         <div className="space-y-3">
           {items.map(item => {
+            if (isFundReviewType(item.issue_type) && item.payload) {
+              return (
+                <FundReviewCard
+                  key={item.id}
+                  item={{ id: item.id, issue_type: item.issue_type, payload: item.payload, context_snippet: item.context_snippet, company: item.company, vehicle: item.vehicle ?? null }}
+                  entities={entities}
+                  busy={!!resolving[item.id]}
+                  readOnly={!canWrite}
+                  onResolve={d => resolveFund(item, d)}
+                />
+              )
+            }
             const isEditing = editingId === item.id
             const isResolving = !!resolving[item.id]
             const hasValue = !!item.extracted_value

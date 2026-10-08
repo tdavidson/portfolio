@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useCurrency, formatCurrency } from '@/components/currency-context'
+import { FundReviewCard, resolveSummary, type FundReviewDecision, type FundReviewItem } from '@/components/fund-review-card'
 import { FundHoldingNavs, type NavStatementRow } from '@/components/fund-holding-navs'
 import { useCanWrite } from '@/components/access-context'
 import { latestOnly } from '@/lib/portfolio/latest-only'
@@ -61,6 +62,8 @@ export function FundHoldingDetail({
   /** Every investing entity the caller may record against, for a holding with no entity yet. */
   const [choices, setChoices] = useState<EntityChoice[]>([])
   const [chosenVehicle, setChosenVehicle] = useState('')
+  const [reviews, setReviews] = useState<FundReviewItem[]>([])
+  const [reviewsWarning, setReviewsWarning] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
 
@@ -85,6 +88,12 @@ export function FundHoldingDetail({
       setEvents(json?.events ?? [])
       setNavs(json?.navStatements ?? [])
       setHeld(json?.vehicles ?? [])
+      const names = new Map(((json?.vehicles ?? []) as EntityChoice[]).map(v => [v.id, v]))
+      setReviews(((json?.reviews ?? []) as any[]).map(r => ({
+        id: r.id, issue_type: r.issue_type, payload: r.payload, context_snippet: r.context_snippet ?? null,
+        company: null, vehicle: r.vehicle_id ? names.get(r.vehicle_id) ?? { id: r.vehicle_id, name: 'This entity' } : null,
+      })))
+      setReviewsWarning(json?.reviewsWarning ?? null)
       const shown: string | null = json?.vehicleId ?? null
       loadedFor.current = shown
       setEntity(shown)
@@ -181,6 +190,13 @@ export function FundHoldingDetail({
     await load(entity); onChanged?.()
   }
 
+  async function resolveReview(id: string, decision: FundReviewDecision) {
+    const json = await send(`/api/review/${id}/resolve`, { method: 'POST', body: JSON.stringify(decision) })
+    if (!json) { await load(entity); return }
+    setNotice(resolveSummary(json))
+    await load(entity); onChanged?.()
+  }
+
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose() }}>
       <DialogContent className="max-w-3xl">
@@ -224,6 +240,20 @@ export function FundHoldingDetail({
                   Recorded with the first notice or statement below. A notice with no entity cannot be confirmed to the ledger.
                 </p>
               </div>
+            )}
+
+            {reviewsWarning && <p role="alert" className="text-sm text-warning">{reviewsWarning}</p>}
+            {reviews.length > 0 && (
+              <section className="space-y-2">
+                <h3 className="text-base font-medium">From the manager&rsquo;s emails</h3>
+                <p className="text-xs text-muted-foreground">Read from documents the manager sent. Nothing is recorded until you approve it.</p>
+                {reviews.map(r => (
+                  <FundReviewCard
+                    key={r.id} item={r} entities={choices} busy={busy} showHolding={false} readOnly={!canWrite}
+                    onResolve={d => resolveReview(r.id, d)}
+                  />
+                ))}
+              </section>
             )}
 
             <section className="space-y-2">
