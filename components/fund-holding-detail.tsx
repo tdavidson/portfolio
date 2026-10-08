@@ -5,7 +5,6 @@ import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
-import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useCurrency, formatCurrency } from '@/components/currency-context'
 import { FundReviewCard, resolveSummary, type FundReviewDecision, type FundReviewItem } from '@/components/fund-review-card'
@@ -40,14 +39,15 @@ function bookingText(json: any): string | null {
  * takes back its mark on the server (lib/portfolio/fof-nav.ts) — there is no separate "book the
  * mark" step, and the panel says what each save did to the ledger. Two entities holding the same
  * fund are two positions, so the panel shows one entity at a time and switches between them.
+ *
+ * Rendered inline on the holding's page (/companies/[id]) — the register lives where the holding does.
  */
 export function FundHoldingDetail({
-  companyId, vehicleId = null, onClose, onChanged,
+  companyId, vehicleId = null, onChanged,
 }: {
   companyId: string
   /** The entity to open the register for. Omitted: the holding's first entity by name. */
   vehicleId?: string | null
-  onClose: () => void
   onChanged?: () => void
 }) {
   const currency = useCurrency()
@@ -209,9 +209,8 @@ export function FundHoldingDetail({
   }
 
   return (
-    <Dialog open onOpenChange={o => { if (!o) onClose() }}>
-      <DialogContent className="max-w-3xl">
-        <DialogHeader><DialogTitle>{name || 'Fund holding'}</DialogTitle></DialogHeader>
+    <section className="space-y-3" aria-label={name ? `${name} register` : 'Fund register'}>
+      <h2 className="text-base font-medium">Fund register</h2>
 
         {loading ? (
           <div className="p-8 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
@@ -371,7 +370,6 @@ export function FundHoldingDetail({
             </section>
           </div>
         )}
-      </DialogContent>
-    </Dialog>
+    </section>
   )
 }

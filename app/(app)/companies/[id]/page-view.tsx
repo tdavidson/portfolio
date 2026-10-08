@@ -16,6 +16,8 @@ import { CompanyDocuments } from './company-documents'
 import { CompanyUpdates } from './company-updates'
 import { CompanyInvestments } from './company-investments'
 import { CompanyInteractions } from './company-interactions'
+import { FundRegisterSection } from './fund-register-section'
+import { holdingPanels } from './holding-panels'
 import type { CompanyPageData } from './load'
 
 function formatHighlightValue(value: number, metric: Metric, fundCurrency: string) {
@@ -41,41 +43,51 @@ function formatHighlightValue(value: number, metric: Metric, fundCurrency: strin
     : `${formatted} ${unit}`
 }
 
+/**
+ * One holding's page — a company, a fund holding or a digital asset, each created, recorded and
+ * configured here (plans/spec-ledger-one-writer.md §6). `holdingPanels` decides what shows.
+ */
 export function CompanyPageView({
   company, userId, isAdmin, fundCurrency, hasClaudeKey, hasOpenAIKey, defaultAIProvider, storageProvider,
   googleDriveFolderId, featureVisibility, showNotes, showInvestments, showInteractions, metrics, latestMrr, latestCash,
-  hasCapturedUpdates,
-}: CompanyPageData) {
+  hasCapturedUpdates, holdingType, entities, initialEntityId,
+}: CompanyPageData & { initialEntityId?: string | null }) {
+  // A demo snapshot recorded before holdingType existed reads as a company.
+  const panels = holdingPanels(holdingType)
+  const back = panels.companyProfile ? { href: '/dashboard', label: 'Portfolio' } : { href: '/investments', label: 'Investments' }
+
   return (
     <CompanyPanelProvider companyId={company.id} userId={userId} isAdmin={isAdmin}>
     <div className="p-4 md:p-8">
       {/* Header */}
       <div className="mb-6 max-w-page">
         <Link
-          href="/dashboard"
+          href={back.href}
           className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground mb-4"
         >
           <ArrowLeft className="h-3.5 w-3.5" />
-          Portfolio
+          {back.label}
         </Link>
 
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-2xl font-semibold tracking-tight">{company.name}</h1>
           <CompanyEditButton company={company} />
+          {holdingType === 'fund' && <Badge variant="outline">Fund holding</Badge>}
+          {holdingType === 'crypto' && <Badge variant="outline">Digital asset</Badge>}
           {(company.portfolio_group ?? []).map((pg) => (
             <Badge key={pg} variant="outline">{pg}</Badge>
           ))}
-          {company.stage && (
+          {panels.companyProfile && company.stage && (
             <Badge variant="outline">{company.stage}</Badge>
           )}
-          {(company.industry ?? []).map((ind) => (
+          {panels.companyProfile && (company.industry ?? []).map((ind) => (
             <Badge key={ind} variant="outline">{ind}</Badge>
           ))}
           {showNotes && <ChatButton />}
           <AnalystButton companyId={company.id} pushRight={!showNotes} />
         </div>
 
-        {(latestMrr || latestCash) && (
+        {panels.companyProfile && (latestMrr || latestCash) && (
           <div className="flex items-center gap-4 mt-1.5">
             {latestMrr && (
               <span className="text-sm">
@@ -98,7 +110,7 @@ export function CompanyPageView({
       {/* Content + Notes panel side by side */}
       <div className="flex flex-col lg:flex-row gap-6 items-start">
         <div className="flex-1 min-w-0 max-w-page w-full [&>*:first-child]:mt-0">
-          {company.status !== 'exited' && company.status !== 'written-off' && (
+          {panels.companyProfile && company.status !== 'exited' && company.status !== 'written-off' && (
             <>
               <CompanySummary
                 companyId={company.id}
@@ -115,8 +127,18 @@ export function CompanyPageView({
             </>
           )}
 
+          {showInvestments && panels.register && (
+            <FundRegisterSection companyId={company.id} entities={entities ?? []} initialEntityId={initialEntityId ?? null} />
+          )}
+
           {showInvestments && (
-            <CompanyInvestments companyId={company.id} companyStatus={company.status as CompanyStatus} portfolioGroups={company.portfolio_group ?? []} adminOnly={featureVisibility.investments === 'admin'} />
+            <CompanyInvestments
+              companyId={company.id}
+              companyStatus={company.status as CompanyStatus}
+              portfolioGroups={company.portfolio_group ?? []}
+              adminOnly={featureVisibility.investments === 'admin'}
+              showUnits={panels.units}
+            />
           )}
 
           <div id="updates">
@@ -135,7 +157,7 @@ export function CompanyPageView({
             <CompanyInteractions companyId={company.id} adminOnly={featureVisibility.interactions === 'admin'} />
           )}
 
-          {(company.founders || (company.contact_email && company.contact_email.length > 0) || company.overview || company.why_invested || company.current_update) && (
+          {panels.companyProfile && (company.founders || (company.contact_email && company.contact_email.length > 0) || company.overview || company.why_invested || company.current_update) && (
             <div className="mt-6 space-y-3">
               {company.founders && (
                 <div>

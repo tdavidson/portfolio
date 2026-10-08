@@ -36,7 +36,7 @@ async function ids(ctx: PageContext, table: string, filter: (q: any) => any = q 
 export const PAGE_LOADERS: Record<string, PageLoaderEntry> = {
   '/dashboard': { hrefs: one('/dashboard'), load: ctx => loadDashboardPage(ctx) },
   '/companies/:id': {
-    hrefs: async ctx => (await ids(ctx, 'companies', q => q.eq('holding_type', 'company'))).map(id => `/companies/${id}`),
+    hrefs: async ctx => (await ids(ctx, 'companies', q => q.in('holding_type', ['company', 'fund', 'crypto']))).map(id => `/companies/${id}`),
     load: (ctx, p) => loadCompanyPage(ctx, { id: p.id }),
   },
   '/company-updates': { hrefs: one('/company-updates'), load: ctx => loadCompanyUpdatesPage(ctx) },

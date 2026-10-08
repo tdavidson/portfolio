@@ -24,9 +24,11 @@ import { CompanyPageView } from './page-view'
 export default async function CompanyDetailPage(
   props: {
     params: Promise<{ id: string }>
+    searchParams: Promise<{ entity?: string | string[] }>
   }
 ) {
   const params = await props.params;
+  const sp = await props.searchParams
   const supabase = await createClient()
   const user = await getUser()
   if (!user) redirect('/auth')
@@ -42,5 +44,9 @@ export default async function CompanyDetailPage(
   const data = await loadCompanyPage({ supabase, admin, user, page }, params)
   // Not one of the viewer's companies (or no such company): the same neutral page either way.
   if (!data) notFound()
-  return <CompanyPageView {...data} />
+  // `?entity=<vehicleId>` (holdingHref) opens the page on one entity's register. Only an entity the
+  // viewer can see is honoured — `initialEntity` checks it against `data.entities`, which
+  // holdingEntities already scoped to the caller's grants.
+  const entity = typeof sp.entity === 'string' ? sp.entity : null
+  return <CompanyPageView {...data} initialEntityId={entity} />
 }

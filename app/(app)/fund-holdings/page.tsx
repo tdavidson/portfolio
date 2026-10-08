@@ -187,14 +187,7 @@ export default function FundHoldingsPage() {
         </CardContent>
       </Card>
 
-      {openHolding && (
-        <FundHoldingDetail
-          companyId={openHolding.companyId}
-          vehicleId={openHolding.vehicleId}
-          onClose={() => setOpenHolding(null)}
-          onChanged={() => void load()}
-        />
-      )}
+      {openHolding && <FundHoldingDetail companyId={openHolding.companyId} vehicleId={openHolding.vehicleId} onChanged={() => void load()} />}
     </div>
   )
 }

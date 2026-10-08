@@ -21,6 +21,8 @@ interface Props {
   companyStatus: CompanyStatus
   portfolioGroups: string[]
   adminOnly?: boolean
+  /** Show the unit count beside cost and value (a digital asset). */
+  showUnits?: boolean
 }
 
 // 'conversion' is a UI-only mode: it is stored as an `investment` row carrying
@@ -42,7 +44,7 @@ function fmtMoic(val: number | null | undefined): string {
   return `${val.toFixed(2)}x`
 }
 
-export function CompanyInvestments({ companyId, companyStatus, portfolioGroups, adminOnly }: Props) {
+export function CompanyInvestments({ companyId, companyStatus, portfolioGroups, adminOnly, showUnits }: Props) {
   const currency = useCurrency()
   const fmt = (val: number | null | undefined) => val == null ? '-' : formatCurrencyFull(val, currency)
   const fmtPrice = (val: number | null | undefined) => val == null ? '-' : formatSharePrice(val, currency)
@@ -144,7 +146,7 @@ export function CompanyInvestments({ companyId, companyStatus, portfolioGroups, 
       </div>
 
       {expanded && summary && summary.totalInvested > 0 && !groupSummaries && (
-        <SummaryLine summary={summary} fmt={fmt} fmtMoic={fmtMoic} asOfDate={asOfDate} setAsOfDate={setAsOfDate} />
+        <SummaryLine summary={summary} fmt={fmt} fmtMoic={fmtMoic} asOfDate={asOfDate} setAsOfDate={setAsOfDate} showUnits={showUnits} />
       )}
 
       {expanded && groupSummaries && (
@@ -156,7 +158,7 @@ export function CompanyInvestments({ companyId, companyStatus, portfolioGroups, 
           return (
             <div key={group} className="mb-5">
               <h3 className="text-base font-semibold text-muted-foreground uppercase tracking-wide mb-1.5">{group}</h3>
-              <SummaryLine summary={gs} fmt={fmt} fmtMoic={fmtMoic} asOfDate={asOfDate} setAsOfDate={setAsOfDate} />
+              <SummaryLine summary={gs} fmt={fmt} fmtMoic={fmtMoic} asOfDate={asOfDate} setAsOfDate={setAsOfDate} showUnits={showUnits} />
               <TransactionTable
                 transactions={groupTxns}
                 summary={gs}
@@ -308,16 +310,24 @@ function SummaryLine({
   fmtMoic: fmtMoicFn,
   asOfDate,
   setAsOfDate,
+  showUnits,
 }: {
   summary: CompanyInvestmentSummary
   fmt: (v: number | null | undefined) => string
   fmtMoic: (v: number | null | undefined) => string
   asOfDate: string
   setAsOfDate: (v: string) => void
+  showUnits?: boolean
 }) {
   if (summary.totalInvested <= 0) return null
   return (
     <div className="flex items-center gap-4 mb-3 text-sm flex-wrap">
+      {showUnits && (
+        <span>
+          <span className="text-muted-foreground">Units:</span>{' '}
+          <span className="font-medium tabular-nums">{fmtNum(summary.totalShares)}</span>
+        </span>
+      )}
       <span>
         <span className="text-muted-foreground">Invested:</span>{' '}
         <span className="font-medium">{fmt(summary.totalInvested)}</span>

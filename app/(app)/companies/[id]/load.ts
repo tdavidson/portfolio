@@ -5,6 +5,8 @@ import { DEFAULT_FEATURE_VISIBILITY } from '@/lib/types/features'
 import type { FeatureVisibilityMap } from '@/lib/types/features'
 import { entityScopeFor } from '@/lib/access/entity-scope'
 import { scopeGroups } from '@/lib/access/scope'
+import { holdingEntities } from '@/lib/portfolio/holding-entities'
+import type { HoldingKind } from './holding-panels'
 
 export type CompanyPageData = NonNullable<Awaited<ReturnType<typeof loadCompanyPage>>>
 
@@ -26,6 +28,13 @@ export async function loadCompanyPage({ supabase, admin, user, page }: PageConte
   const scope = await entityScopeFor(admin, page.access)
   if (scope.companyIds !== null && !scope.companyIds.includes(found.id)) return null
   const company: Company = { ...found, portfolio_group: scopeGroups(found.portfolio_group, scope.vehicleNames) } as Company
+
+  // Companies, fund holdings and digital assets all live on this page; which panels it shows
+  // follows the kind (holding-panels.ts). `holding_type` is not on the generated Company type.
+  const rawType = (found as { holding_type?: string | null }).holding_type
+  const holdingType: HoldingKind = rawType === 'fund' || rawType === 'crypto' ? rawType : 'company'
+  // The viewer's entities that hold it — the fund register and the wallets are kept per entity.
+  const entities = await holdingEntities(admin, company.fund_id, company.id, page.access)
 
   const isAdmin = page.isAdmin
 
@@ -97,6 +106,8 @@ export async function loadCompanyPage({ supabase, admin, user, page }: PageConte
 
   return {
     company,
+    holdingType,
+    entities,
     userId: user.id,
     isAdmin,
     fundCurrency,
