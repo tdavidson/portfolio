@@ -5,16 +5,18 @@ import { dbError } from '@/lib/api-error'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 import { filterByCompany } from '@/lib/access/scope'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { scopeFundReviews } from '@/lib/portfolio/fof-review-types'
 
 type ReviewRow = Pick<
   ParsingReview,
-  'id' | 'issue_type' | 'extracted_value' | 'context_snippet' | 'created_at'
+  'id' | 'issue_type' | 'extracted_value' | 'context_snippet' | 'created_at' | 'payload' | 'vehicle_id'
 > & {
   companies: Pick<Company, 'id' | 'name'> | null
   metrics: Pick<Metric, 'id' | 'name' | 'unit' | 'value_type'> | null
   inbound_emails: (Pick<InboundEmail, 'id' | 'subject' | 'received_at' | 'from_address'> & {
     diligence_deal_id: string | null
   }) | null
+  fund_vehicles: { id: string; name: string } | null
 }
 
 export async function GET() {
@@ -31,17 +33,19 @@ export async function GET() {
   const { data, error } = await filterByCompany(supabase
     .from('parsing_reviews')
     .select(`
-      id, issue_type, extracted_value, context_snippet, created_at,
+      id, issue_type, extracted_value, context_snippet, created_at, payload, vehicle_id,
       companies ( id, name ),
       metrics ( id, name, unit, value_type ),
-      inbound_emails ( id, subject, received_at, from_address, diligence_deal_id )
+      inbound_emails ( id, subject, received_at, from_address, diligence_deal_id ),
+      fund_vehicles ( id, name )
     `)
     .is('resolution', null), visible)
     .order('created_at', { ascending: false })
 
   if (error) return dbError(error, 'review')
 
-  const rows = (data ?? []) as unknown as ReviewRow[]
+  // A fund review is one entity's: RLS already narrows it for the Data API; say the same rule here.
+  const rows = scopeFundReviews((data ?? []) as unknown as ReviewRow[], scope?.access ?? { vehicles: { all: false, ids: [] } })
 
   // The router's diligence match names a record; keep it only when the caller can see that record
   // (read with their own client, so RLS applies the entity rule).
@@ -65,6 +69,8 @@ export async function GET() {
     company: r.companies ?? null,
     metric: r.metrics ?? null,
     email: r.inbound_emails ?? null,
+    payload: r.payload ?? null,
+    vehicle: r.fund_vehicles ?? null,
   }))
 
   const counts: Record<string, number> = {}

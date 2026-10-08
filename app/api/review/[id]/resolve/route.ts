@@ -8,6 +8,9 @@ import type { ParsingReview, Metric } from '@/lib/types/database'
 import type { ExtractMetricsResult } from '@/lib/claude/extractMetrics'
 import { logActivity } from '@/lib/activity'
 import { dbError } from '@/lib/api-error'
+import { loadAccessContext } from '@/lib/access/effective'
+import { approveFundReview, type FundApproval } from '@/lib/portfolio/fof-reviews'
+import { isFundReviewType, scopeFundReviews } from '@/lib/portfolio/fof-review-types'
 
 type ReviewRow = Pick<
   ParsingReview,
@@ -19,6 +22,8 @@ type ReviewRow = Pick<
   | 'issue_type'
   | 'extracted_value'
   | 'resolution'
+  | 'vehicle_id'
+  | 'payload'
 >
 
 export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -36,6 +41,10 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const { resolution, resolved_value } = body as {
     resolution: string
     resolved_value?: string
+    /** Fund reviews: the entity, when the review names none. */
+    vehicleId?: string
+    /** Fund reviews: the approver's corrections to the proposal (fof-review-types.ts applyEdits). */
+    edits?: Record<string, unknown>
   }
 
   if (!['accepted', 'rejected', 'manually_corrected'].includes(resolution)) {
@@ -48,11 +57,12 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     )
   }
 
-  // RLS ensures the review belongs to the user's fund
+  // RLS ensures the review belongs to the user's fund; say the same with the gate's fund.
   const { data: reviewData, error: reviewError } = await supabase
     .from('parsing_reviews')
-    .select('id, fund_id, email_id, metric_id, company_id, issue_type, extracted_value, resolution')
+    .select('id, fund_id, email_id, metric_id, company_id, issue_type, extracted_value, resolution, vehicle_id, payload')
     .eq('id', params.id)
+    .eq('fund_id', writeCheck.fundId)
     .maybeSingle()
 
   if (reviewError) return dbError(reviewError, 'review-id-resolve')
@@ -62,6 +72,59 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   if (review.resolution) return NextResponse.json({ error: 'Already resolved' }, { status: 409 })
 
   const admin = createAdminClient()
+
+  // A FUND-HOLDING proposal (lib/portfolio/fof-email.ts) is one entity's: a member may resolve it —
+  // approve or dismiss — only for an entity of theirs, and one naming no entity is for unscoped
+  // callers to assign. The same rule RLS applies, said here because what follows uses the admin client.
+  const isFund = isFundReviewType(review.issue_type)
+  const access = isFund ? await loadAccessContext(admin, writeCheck.fundId, writeCheck.userId, writeCheck.role) : null
+  if (access && scopeFundReviews([review], access).length === 0) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+  const corrected = isFund && resolution !== 'rejected' && !!body.edits && Object.keys(body.edits).length > 0
+  const validResolution = (corrected ? 'manually_corrected' : resolution) as 'accepted' | 'rejected' | 'manually_corrected'
+
+  // CLAIM the review before writing anything: only the request that moves it from open to resolved
+  // goes on, so a double-click or a second tab cannot save the NAV or draft the notice twice.
+  const { data: claimed, error: claimError } = await admin
+    .from('parsing_reviews')
+    .update({
+      resolution: validResolution,
+      resolved_value: corrected ? JSON.stringify(body.edits) : resolved_value ?? null,
+      resolved_at: new Date().toISOString(),
+    })
+    .eq('id', params.id)
+    .eq('fund_id', writeCheck.fundId)
+    .is('resolution', null)
+    .select('id')
+  if (claimError) return dbError(claimError, 'review-id-resolve')
+  if (!claimed || claimed.length === 0) return NextResponse.json({ error: 'Already resolved' }, { status: 409 })
+
+  // Approving a fund proposal writes the register row it proposes — a NAV statement, which books its
+  // mark, or a draft notice. Dismissing writes nothing. A refusal reopens the review.
+  let fund: Extract<FundApproval, { ok: true }> | null = null
+  if (isFund && access && resolution !== 'rejected') {
+    const approved: FundApproval = await approveFundReview(admin, { fundId: writeCheck.fundId, userId: user.id, access }, review, {
+      vehicleId: body.vehicleId, edits: body.edits,
+    }).catch((e: unknown) => {
+      console.error('[review-id-resolve] fund approval failed:', e)
+      return { ok: false as const, status: 500, error: 'The proposal could not be saved.' }
+    })
+    if (!approved.ok) {
+      await admin
+        .from('parsing_reviews')
+        .update({ resolution: null, resolved_value: null, resolved_at: null })
+        .eq('id', params.id)
+        .eq('fund_id', writeCheck.fundId)
+      return NextResponse.json({ error: approved.error }, { status: approved.status })
+    }
+    fund = approved
+    await admin
+      .from('parsing_reviews')
+      .update({ vehicle_id: fund.vehicleId })
+      .eq('id', params.id)
+      .eq('fund_id', writeCheck.fundId)
+  }
 
   // Write to metric_values for issue types where the pipeline skipped writing.
   // low_confidence: value was already written → only write if manually_corrected.
@@ -74,7 +137,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const valueToWrite =
     resolution === 'manually_corrected' ? resolved_value! : review.extracted_value
 
-  if (shouldWrite && review.metric_id && review.company_id && valueToWrite) {
+  if (!isFund && shouldWrite && review.metric_id && review.company_id && valueToWrite) {
     // Get period info from the email's stored Claude response
     const { data: emailData } = await admin
       .from('inbound_emails')
@@ -150,22 +213,11 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     }
   }
 
-  // Mark the review resolved
-  const validResolution = resolution as 'accepted' | 'rejected' | 'manually_corrected'
-  await admin
-    .from('parsing_reviews')
-    .update({
-      resolution: validResolution,
-      resolved_value: resolved_value ?? null,
-      resolved_at: new Date().toISOString(),
-    })
-    .eq('id', params.id)
-
   // If fund prefers not to retain resolved reviews, delete immediately
   const { data: settingsData } = await admin
     .from('fund_settings')
     .select('retain_resolved_reviews')
-    .eq('fund_id', review.fund_id)
+    .eq('fund_id', writeCheck.fundId)
     .maybeSingle()
 
   const settings = settingsData as unknown as { retain_resolved_reviews: boolean } | null
@@ -192,5 +244,11 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
 
   expireTag('review-badge')
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({
+    ok: true,
+    ...(fund ? {
+      message: fund.message, booking: fund.booking ?? null, eventId: fund.eventId ?? null,
+      ...(fund.later ? { later: fund.later } : {}),
+    } : {}),
+  })
 }

@@ -9,6 +9,7 @@ import { loadAccessContext } from '@/lib/access/effective'
 import { canSeeVehicle, scopeCompanyRows, visibleVehicleIds } from '@/lib/access/scope'
 import { companyDeleteDenial } from '@/lib/access/company-delete'
 import { loadEntityScope } from '@/lib/access/entity-scope'
+import { FUND_REVIEW_TYPES, scopeFundReviews } from '@/lib/portfolio/fof-review-types'
 
 // One fund holding and its terms.
 export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -66,6 +67,15 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
   const forEntity = (rows: any[]) => rows.filter(r =>
     (r.vehicle_id ?? null) === selected || (r.vehicle_id == null && entities.length <= 1))
 
+  // What the manager's emails propose for this holding, waiting for review — the shown entity's,
+  // and unassigned ones for a caller who may assign them (scopeFundReviews).
+  const { data: reviewRows } = await (admin as any).from('parsing_reviews')
+    .select('id, issue_type, payload, vehicle_id, context_snippet, created_at')
+    .eq('fund_id', gate.fundId).eq('company_id', params.id).is('resolution', null)
+    .in('issue_type', [...FUND_REVIEW_TYPES]).order('created_at', { ascending: false })
+  const reviews = scopeFundReviews(((reviewRows as any[]) ?? []), access)
+    .filter(r => r.vehicle_id == null || r.vehicle_id === selected)
+
   return NextResponse.json({
     holding: holding.data,
     terms: forEntity((terms.data as any[]) ?? []).sort((a, b) => (a.vehicle_id ? 0 : 1) - (b.vehicle_id ? 0 : 1))[0] ?? null,
@@ -75,6 +85,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     vehicleId: selected,
     /** Every entity of this holding the caller can see, by name. */
     vehicles: entities,
+    /** Open manager-email proposals for this holding (api/review/[id]/resolve approves them). */
+    reviews,
   })
 }
 

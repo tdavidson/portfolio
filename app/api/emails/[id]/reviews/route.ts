@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import type { ParsingReview, Company, Metric, InboundEmail } from '@/lib/types/database'
 import { dbError } from '@/lib/api-error'
+import { isFundReviewType } from '@/lib/portfolio/fof-review-types'
 
 type ReviewRow = Pick<
   ParsingReview,
@@ -95,7 +96,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   // Get all unresolved reviews for this email
   const { data: reviews, error } = await supabase
     .from('parsing_reviews')
-    .select('id, fund_id')
+    .select('id, fund_id, issue_type')
     .eq('email_id', params.id)
     .is('resolution', null)
 
@@ -103,8 +104,15 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
 
   const fundId = userFundId
 
-  if (reviews && reviews.length > 0) {
-    const reviewIds = reviews.map(r => (r as unknown as { id: string }).id)
+  // A fund-holding proposal is approved by writing the register (api/review/[id]/resolve), one at a
+  // time with its entity. A bulk "accept" would mark it approved with nothing saved, so it is left
+  // open — and so is the email, until it is resolved.
+  const rows = (reviews ?? []) as unknown as { id: string; issue_type: string }[]
+  const leftOpen = rows.filter(r => isFundReviewType(r.issue_type)).length
+  const bulk = rows.filter(r => !isFundReviewType(r.issue_type))
+
+  if (bulk.length > 0) {
+    const reviewIds = bulk.map(r => r.id)
 
     // Mark all with the appropriate resolution
     await admin
@@ -131,7 +139,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   }
 
   // Promote email status to success (scoped to fund)
-  if (fundId) {
+  if (fundId && leftOpen === 0) {
     await admin
       .from('inbound_emails')
       .update({ processing_status: 'success', processing_error: null })
@@ -142,5 +150,5 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
 
   expireTag('review-badge')
 
-  return NextResponse.json({ ok: true, resolved: reviews?.length ?? 0 })
+  return NextResponse.json({ ok: true, resolved: bulk.length, leftOpen })
 }

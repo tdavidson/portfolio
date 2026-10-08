@@ -57,4 +57,15 @@ describe('one fund holding, for one entity', () => {
     expect(json.events).toEqual([])
     expect(json.terms).toBeNull()
   })
+  it('lists the entity\'s open manager-email reviews, and unassigned ones only to an unscoped caller', async () => {
+    s.m.tables.parsing_reviews = [
+      { id: 'r1', fund_id: 'f', company_id: 'h1', vehicle_id: 'v1', issue_type: 'fund_nav', resolution: null, payload: { kind: 'nav' } },
+      { id: 'r2', fund_id: 'f', company_id: 'h1', vehicle_id: 'v2', issue_type: 'fund_nav', resolution: null, payload: { kind: 'nav' } },
+      { id: 'r3', fund_id: 'f', company_id: 'h1', vehicle_id: null, issue_type: 'fund_capital_call', resolution: null, payload: { kind: 'call' } },
+      { id: 'r4', fund_id: 'f', company_id: 'h1', vehicle_id: 'v1', issue_type: 'fund_nav', resolution: 'accepted', payload: { kind: 'nav' } },
+    ]
+    expect((await get()).reviews.map((r: any) => r.id).sort()).toEqual(['r1', 'r3'])
+    s.access = { vehicles: { all: false, ids: ['v1'] } }
+    expect((await get()).reviews.map((r: any) => r.id)).toEqual(['r1'])
+  })
 })
