@@ -78,7 +78,7 @@ export function serializeLedger(accounts: Account[], entries: TextEntryInput[]):
     if (e.sourceType) lines.push(`  source: "${e.sourceType}"`)
     // What produced the entry (txn:<id>, qb:<hash>, …). Re-importing an exported ledger must not
     // book these a second time — postLedgerText refuses an entry whose ref is already live.
-    if (e.sourceRef) lines.push(`  ref: "${e.sourceRef}"`)
+    if (e.sourceRef) lines.push(`  ref: "${e.sourceRef.replace(/"/g, '\'')}"`)
     for (const p of e.postings) {
       const acct = byId.get(p.accountId)
       const name = acct ? textAccountName(acct) : `Equity:Unknown:${p.accountId.slice(0, 8)}`
