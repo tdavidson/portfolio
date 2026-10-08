@@ -7,6 +7,7 @@ import { logActivity } from '@/lib/activity'
 import { draftEntryForTransaction, retractEntriesForTransaction } from '@/lib/accounting/from-portfolio'
 import { validateConversionLink } from '@/lib/accounting/conversion-link'
 import { normalizeSecurityType, SECURITY_TYPES } from '@/lib/accounting/soi'
+import { TRANSACTION_TYPES, transactionRowError } from '@/lib/portfolio/transaction-checks'
 import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
 import { loadEntityScope } from '@/lib/access/entity-scope'
 import { groupWriteDenial } from '@/lib/access/scope'
@@ -83,8 +84,7 @@ export async function PATCH(
   // A mis-typed row can be reclassified on edit (e.g. a "Round" that should be a "Valuation
   // Update"). Only the DB types are valid; the UI's "conversion" is already translated to
   // 'investment' + converts_from before it reaches here.
-  const VALID_TYPES = ['investment', 'proceeds', 'escrow_receipt', 'unrealized_gain_change', 'round_info', 'split', 'income']
-  if ('transaction_type' in body && !VALID_TYPES.includes(body.transaction_type)) {
+  if ('transaction_type' in body && !TRANSACTION_TYPES.includes(body.transaction_type)) {
     return NextResponse.json({ error: 'Invalid transaction_type' }, { status: 400 })
   }
   const nextType: string = ('transaction_type' in body ? body.transaction_type : existing.transaction_type)
@@ -168,6 +168,11 @@ export async function PATCH(
     updates.security_type = null
   }
 
+  // The edited row as the database will see it, checked against its constraints BEFORE anything is
+  // retracted: a deterministic refusal must leave the transaction and its journal entry as they were.
+  const rowProblem = transactionRowError({ ...existing, ...updates })
+  if (rowProblem) return NextResponse.json({ error: rowProblem }, { status: 400 })
+
   if ('portfolio_group' in updates) {
     // Every stored portfolio_group name must be backed by a real fund_vehicles row — never a
     // disconnected string. Resolve/create before the write, not after.
@@ -197,10 +202,17 @@ export async function PATCH(
     .single()
 
   if (error) {
-    // The old entry was retracted; put the unchanged transaction back on the ledger.
+    // The old entry was retracted; put the unchanged transaction back on the ledger. If that fails
+    // too, the transaction is in the tracker with no journal entry — say so plainly, not a bare 500.
     if (retracted.retracted > 0) {
       const restored = await draftEntryForTransaction(admin, existing.fund_id, user.id, existing, companyName)
-      if (!restored.drafted) console.error('[companies-id-investments-txnId-patch] could not re-derive after a failed update', restored.reason)
+      if (!restored.drafted) {
+        console.error('[companies-id-investments-txnId-patch] update failed:', error.message, '; re-derive failed:', restored.reason)
+        return NextResponse.json({
+          error: `The transaction's journal entry was removed and could not be re-derived: ${(restored.reason ?? 'unknown reason').replace(/\.\s*$/, '')}. `
+               + 'Re-save the transaction to post it again.',
+        }, { status: 500 })
+      }
     }
     return dbError(error, 'companies-id-investments-txnId-patch')
   }

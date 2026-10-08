@@ -9,6 +9,7 @@ import type { CompanyInvestmentSummary } from '@/lib/types/investments'
 import { computeSummary } from '@/lib/investments'
 import { draftEntryForTransaction } from '@/lib/accounting/from-portfolio'
 import { validateConversionLink } from '@/lib/accounting/conversion-link'
+import { TRANSACTION_TYPES, incomeError, splitError } from '@/lib/portfolio/transaction-checks'
 import { normalizeSecurityType, SECURITY_TYPES } from '@/lib/accounting/soi'
 import { disposalBasis, isLotMethod, type LotMethod } from '@/lib/portfolio/lots'
 import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
@@ -101,53 +102,7 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
 // POST — create a new transaction
 // ---------------------------------------------------------------------------
 
-const VALID_TYPES = ['investment', 'proceeds', 'escrow_receipt', 'unrealized_gain_change', 'round_info', 'split', 'income']
-
-const INCOME_KINDS = ['staking', 'airdrop', 'dividend', 'other']
-const INCOME_SETTLEMENTS = ['cash', 'in_kind']
-
-/**
- * An income row is meaningless without its kind, settlement and amount, and in-kind income
- * without units recognises a value that landed nowhere. The database enforces all of it;
- * validated here too so the caller gets a sentence rather than a raw constraint violation.
- */
-function incomeError(body: any): string | null {
-  if (body.transaction_type !== 'income') return null
-  if (!INCOME_KINDS.includes(body.income_kind)) {
-    return `income_kind must be one of: ${INCOME_KINDS.join(', ')}.`
-  }
-  if (!INCOME_SETTLEMENTS.includes(body.income_settlement)) {
-    return `income_settlement must be one of: ${INCOME_SETTLEMENTS.join(', ')} — cash income lands in the bank, in-kind income lands in the position.`
-  }
-  const amount = Number(body.income_amount)
-  if (!Number.isFinite(amount) || amount < 0) {
-    return 'Enter the income amount — its fair value on the day it was received.'
-  }
-  if (!body.transaction_date) {
-    return 'Income needs a date — its fair value on that day becomes the basis of any units received.'
-  }
-  if (body.income_settlement === 'in_kind' && !(Number(body.shares_acquired) > 0)) {
-    return 'In-kind income needs the number of units received — the units are the income.'
-  }
-  return null
-}
-
-/**
- * A split row is meaningless without a positive ratio and a date, and the DB enforces both.
- * Validated here too so the caller gets a sentence instead of a raw constraint violation
- * surfacing as "An unexpected error occurred" — the same reason security_type is checked below.
- */
-function splitError(body: any): string | null {
-  if (body.transaction_type !== 'split') return null
-  const ratio = Number(body.split_ratio)
-  if (!Number.isFinite(ratio) || ratio <= 0) {
-    return 'A split needs a positive split_ratio — new shares per old share (2-for-1 forward = 2, 1-for-10 reverse = 0.1).'
-  }
-  if (!body.transaction_date) {
-    return 'A split needs a transaction_date — its effective date places it in the share history.'
-  }
-  return null
-}
+// The type, split and income rules live with the edit route's (lib/portfolio/transaction-checks.ts).
 
 export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -181,7 +136,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const body = await req.json()
   const { transaction_type } = body
 
-  if (!transaction_type || !VALID_TYPES.includes(transaction_type)) {
+  if (!transaction_type || !TRANSACTION_TYPES.includes(transaction_type)) {
     return NextResponse.json({ error: 'Invalid transaction_type' }, { status: 400 })
   }
 

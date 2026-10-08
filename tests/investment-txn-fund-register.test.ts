@@ -90,4 +90,40 @@ describe('editing a transaction retracts the ledger side first', () => {
     expect(s.redraft).toHaveBeenCalledTimes(1)
     expect(s.redraft).toHaveBeenCalledWith(expect.anything(), 'f', 'u', expect.objectContaining({ id: 't-free', unrealized_value_change: 200 }), 'Acme Ventures III')
   })
+  it('when the update fails AND the unchanged row cannot be re-derived, the response says the entry is gone', async () => {
+    s.m.failNext('investment_transactions', 'update', 'update failed')
+    s.redraft.mockResolvedValue({ drafted: false, reason: 'The period is closed.' })
+    const res = await patch('t-free')
+    expect(res.status).toBe(500)
+    expect((await res.json()).error).toBe("The transaction's journal entry was removed and could not be re-derived: The period is closed. Re-save the transaction to post it again.")
+  })
+})
+
+describe('an edit the database would refuse is refused BEFORE anything is retracted', () => {
+  const edit = (body: Record<string, unknown>) => PATCH(new NextRequest('http://localhost/api/companies/h1/investments/t-free', {
+    method: 'PATCH', body: JSON.stringify(body),
+  }), props('t-free'))
+  const row = () => s.m.tables.investment_transactions.find((t: any) => t.id === 't-free')
+  it.each([
+    [{ transaction_type: 'split' }, /split_ratio/],
+    [{ transaction_type: 'split', split_ratio: 2, transaction_date: null }, /transaction_date/],
+    [{ split_ratio: -1 }, /split_ratio/],
+    [{ transaction_type: 'income', income_kind: 'staking', income_settlement: 'in_kind', income_amount: 10, transaction_date: '2025-01-02' }, /units/],
+    [{ transaction_type: 'income', income_kind: 'gift', income_settlement: 'cash', income_amount: 10, transaction_date: '2025-01-02' }, /income_kind/],
+    [{ transaction_date: '2025-02-30' }, /date/],
+    [{ unrealized_value_change: 'lots' }, /number/],
+    [{ fee_amount: -5 }, /fee_amount/],
+    [{ fx_rate: 0 }, /fx_rate/],
+    [{ valuation_change_source: 'guess' }, /valuation_change_source/],
+  ])('%j', async (body, message) => {
+    const res = await edit(body)
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(message)
+    expect(s.retract).not.toHaveBeenCalled()
+    expect(s.redraft).not.toHaveBeenCalled()
+    expect(row().unrealized_value_change).toBe(200)
+  })
+  it('a valid edit still goes through, numeric strings included', async () => {
+    expect((await edit({ unrealized_value_change: '250', transaction_date: '2025-01-02' })).status).toBe(200)
+  })
 })
