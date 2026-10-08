@@ -212,7 +212,7 @@ export function TaxView() {
                     </tbody>
                   </table>
                 )}
-              {run.data.missingAccounts.length > 0 && <p className="text-sm text-warning">The chart is missing {run.data.missingAccounts.join(', ')} — run Sync accounts on Admin first.</p>}
+              {run.data.missingAccounts.length > 0 && <p className="text-sm text-warning">The chart is missing {run.data.missingAccounts.join(', ')} — add them under Admin → Chart of accounts first.</p>}
               {run.data.skipped.length > 0 && <p className="text-sm text-warning">{run.data.skipped.length} difference{run.data.skipped.length === 1 ? '' : 's'} could not be built: {run.data.skipped.map(s => s.reason ?? s.kind).join('; ')}</p>}
               {canWrite && run.data.proposals.length > 0 && !state?.data?.closed && (
                 <Button size="sm" disabled={!!busy || run.data.missingAccounts.length > 0} onClick={postAdjustments}>

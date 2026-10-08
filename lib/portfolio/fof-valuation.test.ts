@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { companiesWithPendingNotices, periodEndMarks, valuationBasisNote, managerTieOut, fofCloseIssues, STALE_NAV_DAYS } from './fof-valuation'
+import { companiesWithPendingNotices, periodEndMarks, valuationBasisNote, fofCloseIssues, STALE_NAV_DAYS } from './fof-valuation'
 import type { FundPosition } from './fof-metrics'
 
 const pos = (over: Partial<FundPosition>): FundPosition => ({
@@ -79,40 +79,6 @@ describe('valuationBasisNote', () => {
     expect(rows[0].navAsOf).toBeNull()
     expect(rows[0].basis).toBe('unreported')
     expect(rows[0].rolledForward).toBe(false)
-  })
-})
-
-describe('managerTieOut', () => {
-  it('flags where our register disagrees with the manager statement', () => {
-    const rows = managerTieOut(
-      [pos({ contributed: 3_000_000, distributed: 0, unfunded: 2_000_000 })],
-      [{ companyId: 'f1', reportedContributions: 3_500_000, reportedDistributions: 0, reportedUnfunded: 1_500_000 }],
-    )
-    // A 500k gap on contributions is a call notice we never received.
-    expect(rows.find(r => r.field === 'contributions')).toMatchObject({
-      ours: 3_000_000, theirs: 3_500_000, difference: -500_000,
-    })
-    expect(rows.find(r => r.field === 'unfunded')?.difference).toBe(500_000)
-  })
-
-  it('returns nothing when everything agrees', () => {
-    const rows = managerTieOut(
-      [pos({ contributed: 3_000_000, distributed: 0, unfunded: 2_000_000 })],
-      [{ companyId: 'f1', reportedContributions: 3_000_000, reportedDistributions: 0, reportedUnfunded: 2_000_000 }],
-    )
-    expect(rows).toEqual([])
-  })
-
-  it('skips fields the manager did not report', () => {
-    const rows = managerTieOut(
-      [pos({})],
-      [{ companyId: 'f1', reportedContributions: null, reportedDistributions: null, reportedUnfunded: null }],
-    )
-    expect(rows).toEqual([])
-  })
-
-  it('skips a holding with no manager statement at all', () => {
-    expect(managerTieOut([pos({})], [])).toEqual([])
   })
 })
 

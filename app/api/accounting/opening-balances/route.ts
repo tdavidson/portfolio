@@ -53,7 +53,7 @@ export async function POST(req: NextRequest) {
   await ensureVehicleAccounts(admin, gate.fundId, group)
   const codes = await accountIdByCode(admin, gate.fundId, group)
   const offsetId = codes.get(offsetCode)
-  if (!offsetId) return NextResponse.json({ error: `Offset account ${offsetCode} not found — seed the chart first` }, { status: 400 })
+  if (!offsetId) return NextResponse.json({ error: `The chart is missing the offset account ${offsetCode} — add it under the entity's Admin → Chart of accounts.` }, { status: 400 })
   // Opening POSITIONS are investment transactions, not an opening-balance offset: an offset on an
   // investment account would post value no transaction owns (plans/spec-ledger-one-writer.md §1).
   const { data: offsetAccount } = await admin.from('chart_of_accounts' as any)

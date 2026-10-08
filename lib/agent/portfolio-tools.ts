@@ -398,8 +398,8 @@ export async function executeRecordInvestment(
 
   // The point of routing an agent's write through here rather than straight at the
   // table: the ledger hears about it. The write runs only after a human approves it
-  // (lib/pending-actions/investment.ts), so it follows the same rule as a human's: no cash leg
-  // posts, a cash leg drafts and waits for its bank match.
+  // (lib/pending-actions/investment.ts), so it follows the same rule as a human's: the entry is
+  // derived and posted, and a bank row links to it later.
   const ledger = await draftEntryForTransaction(admin, fundId, userId, txn, c.name)
 
   return { transaction: txn, ledger }

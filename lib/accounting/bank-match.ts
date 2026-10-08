@@ -6,7 +6,7 @@
 //              entry, drop the auto-draft, and mark the transaction reconciled.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { loadOwnership, loadEntityNames, loadPostedLedger } from './load'
+import { loadOwnership, loadEntityNames } from './load'
 import { accountIdByCode, ensureCapitalAccounts, persistEntry } from './persist'
 import { vehicleIdByName } from './vehicle-id'
 import { buildCapitalCallEntry, buildFundingEntry, buildDistributionEntry, buildDistributionSettlementEntry } from './entries'
@@ -57,7 +57,7 @@ export async function bookCapitalCallFromInflow(
 
   const codes = await accountIdByCode(admin, fundId, group)
   const cashId = codes.get('1000')
-  if (!cashId) return { error: 'Seed the chart of accounts first' }
+  if (!cashId) return { error: "The chart is missing account 1000 Cash — add it under the entity's Admin → Chart of accounts." }
 
   let entry: JournalEntry
   let suggestedCode = '3100'
@@ -232,7 +232,7 @@ export async function bookDistributionFromOutflow(
 
   const codes = await accountIdByCode(admin, fundId, group)
   const cashId = codes.get('1000')
-  if (!cashId) return { error: 'Seed the chart of accounts first' }
+  if (!cashId) return { error: "The chart is missing account 1000 Cash — add it under the entity's Admin → Chart of accounts." }
 
   // A named partner with a DECLARED distribution outstanding settles it, rather than reducing
   // their capital a second time. Exactly the shape `bookCapitalCallFromInflow` already uses for

@@ -11,7 +11,7 @@ import type { PortfolioSheet, SheetRow } from '@/lib/portfolio/sheet'
  * The portfolio sheet: every holding — companies (listed stocks among them), fund holdings and
  * digital assets — at cost and fair value, one section per kind.
  *
- * `group` set: that entity's sheet (`/funds/[id]/portfolio`). Omitted: the viewer's aggregate across
+ * `group` set: that entity's sheet (no page passes it today; the API serves it). Omitted: the viewer's aggregate across
  * every entity they can see (`/dashboard`). The server decides which entities; this only renders.
  */
 export function PortfolioSheetView({ group, exclude, sections = ['companies', 'funds', 'crypto'], hideWhenEmpty = false }: {

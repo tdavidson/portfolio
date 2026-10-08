@@ -197,8 +197,8 @@ export async function postTaxAdjustments(
 
   const missingAccounts = Object.values(CODES).filter(c => !codes.get(c))
   // Refuse rather than post what can be posted: a partial adjustment set reads as a complete one,
-  // and the missing piece is invisible on the resulting statements. The fix is Sync accounts on
-  // the vehicle's Setup page, which is worth saying rather than making someone infer it.
+  // and the missing piece is invisible on the resulting statements. The fix is adding the account
+  // under the entity's Admin → Chart of accounts, which is worth saying rather than making someone infer it.
   if (missingAccounts.length > 0 && proposals.length > 0) {
     return {
       taxYear,

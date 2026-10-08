@@ -220,9 +220,7 @@ export function CapitalAccountsView() {
     load()
   }
 
-  // Repair from here. The Setup page hides these tools once a vehicle counts as "onboarded"
-  // — which is judged on accounts and partners existing, not on capital reaching anyone — so
-  // the one place the problem is visible had no way to act on it.
+  // Repair from here: this page is where pooled capital that never reached a partner shows.
   async function attributeNow() {
     if (!window.confirm('Create each partner\u2019s capital account and move the pooled LP capital onto it? Balance-sheet neutral; postings in a closed period are skipped.')) return
     setFixing(true); setFixMsg(null)

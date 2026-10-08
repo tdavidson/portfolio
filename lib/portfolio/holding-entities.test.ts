@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { memoryAdmin } from '@/tests/helpers/memory-admin'
 import { holdingHref, soiRowHref } from './holding-href'
-import { holdingEntities, holdersAsOf, walletEntity, walletsForEntity, scopeWallets } from './holding-entities'
+import { holdingEntities, holdersAsOf, walletEntity, walletsForEntity } from './holding-entities'
 import { walletFromRow, balanceFromRow } from './wallets'
 
 describe('holdingHref', () => {
@@ -102,12 +102,6 @@ describe('which entity a wallet speaks for', () => {
     expect(walletEntity(w('c', 'shared', null), holders)).toBeNull()
     expect(walletsForEntity([w('c', 'shared', null)], 'Fund I', holders)).toEqual([])
     expect(walletsForEntity([w('c', 'shared', null)], 'Fund II', holders)).toEqual([])
-  })
-
-  it('shows a scoped member only the wallets of their entities', () => {
-    const all = [w('a', 'shared', 'Fund II'), w('b', 'solo', null), w('c', 'shared', null), w('d', 'shared', 'Fund I')]
-    expect(scopeWallets(all, ['Fund I'], holders).map(x => x.id)).toEqual(['b', 'd'])
-    expect(scopeWallets(all, null, holders).map(x => x.id)).toEqual(['a', 'b', 'c', 'd'])
   })
 })
 

@@ -50,10 +50,10 @@ everything you do scopes to it.
 
 ## Scenario A — an existing entity already on the platform (e.g. the SPV)
 
-The entity's LPs, commitments, and prior figures are already in the platform. You choose how much
-history to bring in. Both paths start the same:
-
-- Accounting → **home** → **Seed the chart of accounts** (one click).
+The entity's LPs, commitments, and prior figures are already in the platform. So is its chart of
+accounts: an entity gets the chart for its kind when it is created, and one created before that gets
+it the first time its books are opened. There is no setup step. You choose how much history to
+bring in.
 
 ### A1. Full history (reconstruct from inception) — recommended for the SPV
 
@@ -64,10 +64,14 @@ Best when volume is low and you want a complete, auditable trail.
 2. **Categorize with AI** to classify the fuzzy rows against the chart.
 3. For each inflow that's a capital call, **Book as call** (allocates per LP by commitment) or
    **Match call** if you already recorded it. Post the drafts.
-4. **Book the investment purchase** on the journal's **Plain text** tab (rare, so it's a text entry):
-   `Dr Assets:Investments-At-Cost:1100 / Cr Assets:Cash:1000`.
-5. Record each periodic mark: **Journal → New entry → Revalue investment** (enter the new fair
-   value; the delta is booked as unrealized, and the close allocates it per LP and moves NAV).
+4. **Record the investment purchase on the company** (its Investments panel → add a transaction).
+   The transaction derives its journal entry and posts it (`Dr 1100 / Cr 1000`); the bank row for
+   the wire links to that entry rather than drafting a second one. An entry written by hand or
+   imported on an investment account is **adopted**: it creates the matching investment
+   transaction, so the tracker and the books stay one record.
+5. Record each periodic mark as a **valuation update on the company** (a quoted holding can book
+   its price feed's quote; a fund holding books its manager's NAV statement). The delta against the
+   ledger's carrying value is booked as unrealized, and the close allocates it per LP and moves NAV.
 6. **Reconcile** → *Load from LP snapshot* to prefill the answer-key from `lp_investments`, then
    reconcile the ledger capital accounts against it. Use the statements **As of** control to tie out
    at each historical date.
@@ -77,10 +81,10 @@ Best when volume is low and you want a complete, auditable trail.
 
 Best for other vehicles where reconstructing history isn't worth it.
 
-1. Accounting → home → choose **Cutover opening balance** → pick the cutover date → **Bootstrap
-   opening balances**. This reads the vehicle's `lp_investments` and books, as of that date,
-   `Dr Cash / Cr each LP's capital` for paid-in − distributions. (Capital in nets against cash.)
-2. **Book the investment purchase** on the journal's Plain text tab so cash moves into the investment
+1. Open the entity's **Opening balances** page → pick the cutover date → enter each LP's capital
+   balance from their latest statement. It books one opening entry as of that date,
+   `Dr Cash / Cr each LP's capital`.
+2. **Record the investment purchase on the company**, as in A1, so cash moves into the investment
    (`Dr 1100 / Cr 1000`), leaving ending cash = paid-in − cost.
 3. Run forward from the cutover: book new calls/distributions/fees/marks as they happen.
 
@@ -93,14 +97,14 @@ Greenfield: no history to reconstruct — you're the book of record from first c
 1. **Create the vehicle's LP data first** so it appears in the selector: in the **LPs** section add
    the investors/entities and their commitments under the new `portfolio_group` (or import them).
    Set the vehicle's economics on its admin status page (**Entities → the vehicle → Admin**, `/funds/[id]/status`): vintage on the vehicle record, plus carry terms (rate, preferred return, catch-up, and the receiving GP entity) and allocation terms (each partner's commitment, including the GP's, and who bears fees, expenses, and carry).
-2. Pick the new vehicle → Accounting → home → **Seed the chart of accounts**.
+2. The vehicle's chart of accounts is seeded when the vehicle is created; there is no setup step.
 3. Book from **first close forward**:
    - **Capital call**: issue it from **Capital accounts**, then match the wire from the bank feed
      — it ends as `Dr Cash / Cr each LP capital`.
-   - **Investment purchase**: the journal's Plain text tab (`Dr 1100 / Cr 1000`), or a plain entry.
+   - **Investment purchase**: record it on the company; its entry (`Dr 1100 / Cr 1000`) posts with it.
    - **Management fee / expenses / gains**: **Journal → New entry** (Management fee, Partnership
      expense, Realized gain) as they occur — each shows the entry before it is written.
-   - **Revalue** at each reporting date.
+   - **Valuation update** on each holding at each reporting date.
 4. Reconcile cash against the bank feed; close & lock each period.
 
 No bootstrap and no historical import — you simply start posting.
@@ -496,8 +500,9 @@ Cash/income in; each LP's capital increases. Line: **gains**.
 ```
 
 ### 7. Revaluation (unrealized mark) — `source: valuation` (compound, via bridge)
-Mark the investment to a new fair value. You enter the **new fair value**; the system books the
-**delta** vs the current carrying value. Line: **gains**. (A mark-down flips every sign.)
+Mark the investment to a new fair value by recording a valuation update on the company (or booking
+a quoted price or a manager's NAV). The derived entry books the **delta** vs the ledger's current
+carrying value. Line: **gains**. (A mark-down flips every sign.)
 
 | Account | Dr / Cr |
 |---|---|
@@ -670,6 +675,6 @@ Checks that should always hold — use these to confirm a new setup and to sanit
 
 # Agents
 
-Everything above is also available to agents over MCP/REST (Settings → *Agent access*): seed the
-chart, import a bank feed, categorize, book calls, revalue, author entries as text, reconcile, and
-close periods — each scoped to a vehicle via the `vehicle` argument.
+Everything above is also available to agents over MCP/REST (Settings → *Agent access*): import a
+bank feed, categorize, book calls, record investment transactions (approved by a person before they
+post), author entries as text, reconcile, and close periods — each scoped to a vehicle via the `vehicle` argument.

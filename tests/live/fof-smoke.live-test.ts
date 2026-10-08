@@ -242,7 +242,6 @@ describe('FoF register — live database', { timeout: 30_000 }, () => {
     expect(p.unfunded).toBe(4_000_000)
     expect(p.carryingValue).toBe(1_100_000)
     expect(p.stalenessDays).toBe(92)   // reportDate is navDate + 92
-    expect(fof.managerFigures.find(m => m.companyId === companyId)?.reportedUnfunded).toBe(4_000_000)
   })
 
   it('computes a period-end mark against what the ledger actually carries', async () => {

@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { syncableFeeds } from './quote-sync'
-import { resolveQuotes, providerFor, PROVIDER_NAMES, HAS_FETCHING_PROVIDER } from './quote-providers'
+import { resolveQuotes, providerFor, PROVIDER_NAMES } from './quote-providers'
 import type { PriceFeed } from './quotes'
 
 const feed = (o: Partial<PriceFeed> = {}): PriceFeed => ({
@@ -37,12 +37,6 @@ describe('provider registry', () => {
 
   it('always offers hand entry', () => {
     expect(PROVIDER_NAMES).toContain('manual')
-  })
-
-  it('reports that nothing fetches until a vendor adapter is registered', () => {
-    // The UI hides its sync control on this, so that a button which could only ever report
-    // "nothing to fetch" is not offered in the first place.
-    expect(HAS_FETCHING_PROVIDER).toBe(PROVIDER_NAMES.some(n => n !== 'manual'))
   })
 
   it('never calls a provider for manual feeds', async () => {

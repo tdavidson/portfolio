@@ -209,14 +209,14 @@ To automatically archive processed emails and attachments:
 
 ### Optional: Fund accounting
 
-Accounting is off until you onboard a vehicle to it, and it is onboarded **one vehicle at a time** — a fund, an SPV, a direct deal, or a GP/associate entity. Nothing else in the platform changes if you never turn it on.
+Accounting is a feature switch, and each vehicle keeps its own books — a fund, an SPV, a direct deal, or a GP/associate entity. Nothing else in the platform changes if you never turn it on.
 
 Before you start, define your vehicles in **Settings > Investment vehicles**. Every accounting page is scoped to one of them.
 
-For each vehicle you want books on, go to **Accounting > Admin** and:
+For each vehicle you want books on:
 
-1. **Seed the chart of accounts.** A fund, SPV or direct vehicle gets the standard fund chart; a vehicle classified as an *associate* gets the GP-entity chart instead (investment in fund, members' capital, carried interest income), because it keeps different books. The seed is additive and idempotent — re-running it later backfills any account added by a newer release without touching your existing or custom accounts. Use **Sync accounts** after an upgrade.
-2. **Choose how the books start.** *Full history* rebuilds the ledger from inception out of your existing portfolio and LP data. *Cutover* starts at a date, and you enter opening balances for that date. Pick one; the choice determines what the rest of the setup asks for.
+1. **The chart of accounts is already there.** A vehicle gets its chart when it is created — the standard fund chart for a fund, SPV or direct vehicle; the GP-entity chart (investment in fund, members' capital, carried interest income) for one classified as an *associate*, because it keeps different books. A vehicle created before that gets its chart the first time its books are opened. Accounts are added, renamed or hidden under the vehicle's **Admin → Chart of accounts**.
+2. **Bring in what came before.** Import the bank history, or take over at a cutover date on the vehicle's **Opening balances** page with each LP's capital balance from their latest statement. Investments and marks are recorded on the companies; each posts its own journal entry.
 3. **Set the allocation terms.** Under **Accounting > Allocation terms**: the allocation basis, each partner's commitment, who bears which category, and — if the vehicle pays carry — the carry terms (none, a straight split, or a European waterfall with a preferred return and catch-up). Carry accrues at each close only if you set terms here; the default is no carry.
 
 Then work the vehicle: import a bank feed under **Bank transactions**, review the drafted entries in the **Journal**, and run a **Period close** to allocate to each partner's capital account.

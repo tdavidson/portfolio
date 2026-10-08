@@ -169,8 +169,8 @@ export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: s
     }, { status: 409 })
   }
 
-  // Refuse to orphan any company-specific chart accounts that still carry postings, including
-  // positions bootstrapped directly into the ledger rather than mirrored from the tracker.
+  // Refuse to orphan any company-specific chart accounts that still carry postings — any journal
+  // entry on them the transaction check above does not account for.
   const { data: accountRows, error: accountError } = await admin
     .from('chart_of_accounts' as any)
     .select('id')

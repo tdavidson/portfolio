@@ -62,18 +62,6 @@ export interface LedgerDraftResult {
 
 const skip = (reason: string): LedgerDraftResult => ({ drafted: false, reason })
 
-/** A batch of derivations, said back: how many posted, how many were kept as drafts, every refusal by name. */
-export function tallyLedgerResults(
-  rows: { name: string; result: Pick<LedgerDraftResult, 'drafted' | 'posted' | 'reason'> }[]
-): { booked: number; posted: number; drafted: number; errors: string[] } {
-  const out = { posted: 0, drafted: 0, errors: [] as string[] }
-  for (const { name, result } of rows) {
-    if (result.drafted) result.posted ? out.posted++ : out.drafted++
-    else if (result.reason) out.errors.push(`${name}: ${result.reason}`)
-  }
-  return { booked: out.posted + out.drafted, ...out }
-}
-
 /** The `source_ref` that ties a journal entry back to the tracker row that drafted it. */
 export const txnRef = (txnId: string) => `txn:${txnId}`
 
@@ -328,11 +316,11 @@ async function companyCarrying(
   excludeEntryIds: string[] = [],
 ): Promise<{ cost: number; unrealized: number; fx: number }> {
   const { postings } = await loadPostedLedger(admin, fundId, group)
-  // PLUS the entries derived from tracker rows that are still drafts. A purchase now waits as a
-  // draft for its bank match while the marks after it post; an exit derived in that window must
-  // still see the purchase's cost, or a partial exit unwinds the WHOLE accumulated mark and
-  // freezes that figure into its entry. The derived draft is the same fact as the transaction,
-  // so it is the carrying value — it is only waiting on cash.
+  // PLUS the entries derived from tracker rows that are still drafts. A derived entry posts when
+  // it is recorded; it stays a draft only when its partner allocation failed. An exit derived
+  // while one sits there must still see the purchase's cost, or a partial exit unwinds the WHOLE
+  // accumulated mark and freezes that figure into its entry. The derived draft is the same fact
+  // as the transaction, so it is the carrying value.
   const { data: drafts } = await admin.from('journal_entries' as any)
     .select('id, journal_postings(account_id, amount)')
     .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('vehicle_id', vehicleId)

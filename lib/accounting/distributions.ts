@@ -249,7 +249,7 @@ export async function declareDistribution(
     const codes = await accountIdByCode(admin, fundId, group)
     const payableId = codes.get(DISTRIBUTION_PAYABLE_CODE)
     if (!payableId) {
-      return { error: `Seed the chart of accounts first (missing ${DISTRIBUTION_PAYABLE_CODE} Distributions payable) — use Sync accounts on the vehicle's Setup page` }
+      return { error: `The chart is missing account ${DISTRIBUTION_PAYABLE_CODE} Distributions payable — add it under the entity's Admin → Chart of accounts.` }
     }
 
     const capMap = await ensureCapitalAccounts(admin, fundId, group, [...Array.from(perLp.keys()), ...Array.from(perRecipient.keys())])

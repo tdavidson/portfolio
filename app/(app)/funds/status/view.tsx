@@ -206,9 +206,6 @@ function EntityStatusView() {
           </CollapsibleSection>
         )}
 
-        {/* The chart itself — add, rename, hide. The only surface for it: the Setup block that
-            holds "Sync accounts" disappears once a vehicle counts as onboarded, which is exactly
-            when you want to add an account to one. */}
         {!manco && <CollapsibleSection title="Payment instructions" subtitle="Bank details printed on this vehicle's capital call notices">
           <WireInstructionsCard />
         </CollapsibleSection>}

@@ -112,7 +112,7 @@ export async function issueCapitalCall(
     await ensureVehicleAccounts(admin, fundId, group)
     const codes = await accountIdByCode(admin, fundId, group)
     const receivableId = codes.get(RECEIVABLE_CODE)
-    if (!receivableId) return { error: `Seed the chart of accounts first (missing ${RECEIVABLE_CODE} Due from LPs)` }
+    if (!receivableId) return { error: `The chart is missing account ${RECEIVABLE_CODE} Due from LPs — add it under the entity's Admin → Chart of accounts.` }
 
     const capMap = await ensureCapitalAccounts(admin, fundId, group, lines.map(l => l.lpEntityId))
     const entry = buildCapitalCallIssuanceEntry(

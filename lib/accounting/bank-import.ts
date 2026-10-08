@@ -44,7 +44,7 @@ export async function importBankTransactions(
   await ensureVehicleAccounts(admin, fundId, group)
   const codes = await accountIdByCode(admin, fundId, group)
   const cashId = codes.get('1000')
-  if (!cashId) return { error: 'Seed the chart of accounts first' }
+  if (!cashId) return { error: "The chart is missing account 1000 Cash — add it under the entity's Admin → Chart of accounts." }
   // Counterparties become vendors as they arrive, so the 1099 worksheet sees bank-fed spend too.
   const resolveVendor = vendorResolver(admin, fundId)
 

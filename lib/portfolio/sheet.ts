@@ -5,7 +5,7 @@
 // statement read the same positions and cannot disagree about cost or fair value. The sheet adds
 // what accounting does not carry: stage, cash, last report, a listed stock's ticker.
 //
-// One entity: that entity's sheet (`/funds/[id]/portfolio`). Several: the viewer's aggregate
+// One entity: that entity's sheet (GET /api/portfolio/sheet?group=). Several: the viewer's aggregate
 // (`/dashboard`) — a company two of their entities hold is ONE row, summed, naming both. An entity
 // the viewer cannot see never reaches this function, so it cannot leak through a sum.
 

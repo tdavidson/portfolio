@@ -248,10 +248,9 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     transactionType: transaction_type,
   })
 
-  // Mirror it into the ledger as a DRAFT for review. Deliberately after the insert and
-  // deliberately non-fatal: the transaction is saved either way, and `ledger.reason`
-  // says why no entry was drafted (vehicle not on the ledger, a closed period, a
-  // company-wide pricing row with no vehicle to attribute it to).
+  // Derive its journal entry and post it. Deliberately after the insert and deliberately
+  // non-fatal: the transaction is saved either way, and `ledger.reason` says why no entry was
+  // posted (a closed period, a company-wide pricing row with no entity to attribute it to).
   const ledger = await draftEntryForTransaction(
     admin,
     company.fund_id,

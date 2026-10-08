@@ -8,11 +8,10 @@
 // still move capital directly — they are capital movements, not P&L.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { loadOwnership, loadPostedLedger } from './load'
+import { loadOwnership } from './load'
 import { accountIdByCode, ensureCapitalAccounts } from './persist'
 import { computeManagementFee } from './fees'
 import { loadPartnerTerms } from './terms'
-import { accountBalances, roundCents } from './ledger'
 import {
   buildManagementFeeEntry,
   buildExpenseEntry,
@@ -59,7 +58,7 @@ export async function buildAllocationEntry(
   const codes = await accountIdByCode(admin, fundId, group)
   const need = (code: string): string => {
     const id = codes.get(code)
-    if (!id) throw new Error(`Missing account ${code} — seed the chart of accounts first`)
+    if (!id) throw new Error(`The chart is missing account ${code} — add it under the entity's Admin → Chart of accounts.`)
     return id
   }
   const base = { fundId, entryDate, memo: body.memo }

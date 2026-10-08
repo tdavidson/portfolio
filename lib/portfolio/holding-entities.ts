@@ -81,14 +81,3 @@ export function walletEntity(w: WalletLike, holders: Map<string, string[]>): str
 export function walletsForEntity<T extends WalletLike>(wallets: T[], group: string, holders: Map<string, string[]>): T[] {
   return wallets.filter(w => walletEntity(w, holders) === group)
 }
-
-/** The wallets a caller may see: those of their entities. `visibleNames` null = every entity. */
-export function scopeWallets<T extends WalletLike>(
-  wallets: T[], visibleNames: string[] | null, holders: Map<string, string[]>,
-): T[] {
-  if (visibleNames === null) return wallets
-  return wallets.filter(w => {
-    const e = walletEntity(w, holders)
-    return e !== null && visibleNames.includes(e)
-  })
-}

@@ -43,7 +43,7 @@ export async function runCategorization(
   if (txns.length === 0) return { considered: 0, updated: 0, errors: [] }
 
   const { accounts } = await loadPostedLedger(admin, fundId, group)
-  if (accounts.length === 0) return { error: 'Seed the chart of accounts first' }
+  if (accounts.length === 0) return { error: "This entity has no chart of accounts yet. Import its bank transactions, or open its Admin → Chart of accounts." }
   const codes = await accountIdByCode(admin, fundId, group)
   const cashId = codes.get('1000')
 

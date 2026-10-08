@@ -1,7 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { computeFundPositions, type FundPosition } from './fof-metrics'
-import type { ManagerStatementFigures } from './fof-valuation'
 
 /**
  * The one place fund-of-funds positions are loaded from the database.
@@ -16,8 +15,6 @@ import type { ManagerStatementFigures } from './fof-valuation'
 
 export interface FofData {
   positions: FundPosition[]
-  /** The manager's own since-inception figures, for the tie-out. Empty when none reported. */
-  managerFigures: ManagerStatementFigures[]
   /** Raw register rows, for surfaces that show the notices themselves. */
   events: any[]
   navStatements: any[]
@@ -124,10 +121,9 @@ export async function loadFofRaw(
   }
 }
 
-/** Positions and manager figures at one as-of date. Pure over already-loaded rows. */
+/** Positions at one as-of date. Pure over already-loaded rows. */
 export function computeFofFromRaw(raw: FofRawData, asOf: string): {
   positions: FundPosition[]
-  managerFigures: ManagerStatementFigures[]
 } {
   // Prefer a row that names an entity over an unassigned one, so a holding mid-migration reads
   // its real commitment rather than whichever row the array happened to end on.
@@ -168,23 +164,7 @@ export function computeFofFromRaw(raw: FofRawData, asOf: string): {
     })),
   })
 
-  // Tie out against the NEWEST statement on or before the reporting date — the same one the
-  // position is carried on. An older statement's since-inception figures would disagree with
-  // our register for the perfectly good reason that time passed.
-  const newestByCompany = new Map<string, any>()
-  for (const n of raw.navs) {
-    if (n.as_of_date > asOf) continue
-    const cur = newestByCompany.get(n.company_id)
-    if (!cur || n.as_of_date > cur.as_of_date) newestByCompany.set(n.company_id, n)
-  }
-  const managerFigures: ManagerStatementFigures[] = Array.from(newestByCompany.values()).map(n => ({
-    companyId: n.company_id,
-    reportedContributions: n.reported_contributions === null ? null : Number(n.reported_contributions),
-    reportedDistributions: n.reported_distributions === null ? null : Number(n.reported_distributions),
-    reportedUnfunded: n.reported_unfunded === null ? null : Number(n.reported_unfunded),
-  }))
-
-  return { positions, managerFigures }
+  return { positions }
 }
 
 /** Convenience: load and compute at one date. Delegates, so there is one mapping, not two. */
@@ -196,9 +176,9 @@ export async function loadFofData(
   group?: string,
 ): Promise<FofData> {
   const raw = await loadFofRaw(admin, fundId, group)
-  if (!raw) return { positions: [], managerFigures: [], events: [], navStatements: [] }
-  const { positions, managerFigures } = computeFofFromRaw(raw, asOf)
-  return { positions, managerFigures, events: raw.events, navStatements: raw.navs }
+  if (!raw) return { positions: [], events: [], navStatements: [] }
+  const { positions } = computeFofFromRaw(raw, asOf)
+  return { positions, events: raw.events, navStatements: raw.navs }
 }
 
 /**

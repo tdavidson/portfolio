@@ -166,7 +166,6 @@ async function unownedInvestmentEntries(admin: SupabaseClient, fundId: string, v
   const reversalOwned = await ownedReversals(admin, fundId, entries)
   return entries
     .filter(e => {
-      const ref = String(e.source_ref ?? '')
       if (adopted.has(e.id) || derivedOwned.has(e.id) || reversalOwned.has(e.id)) return false
       if (e.reversed_by && liveReversals.has(e.reversed_by)) return false
       return true

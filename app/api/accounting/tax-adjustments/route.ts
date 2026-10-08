@@ -69,7 +69,7 @@ export async function POST(req: NextRequest) {
         ...result,
         error:
           `This vehicle's chart is missing ${result.missingAccounts.join(', ')}. ` +
-          "Run Sync accounts on the vehicle's Setup page, then post again.",
+          "Add them under the entity's Admin → Chart of accounts, then post again.",
       },
       { status: 409 },
     )

@@ -11,7 +11,7 @@ import type { GridInputRow } from './fof-paste'
  * asked for and what is accepted back are both tested without a model.
  *
  * NEVER TRUST A MODEL NUMBER. Everything that comes back is re-parsed here: amounts must be finite
- * and non-negative, dates are normalized through the same helper the paste path uses, and anything
+ * and non-negative, dates are normalized through fof-paste's date helper, and anything
  * that fails is DROPPED with a warning naming the fund. A wrong figure that looks tidy is worse than
  * a missing one, because the missing one gets typed and the wrong one gets confirmed. And nothing
  * read here is written anywhere until a person approves it (lib/portfolio/fof-email.ts).

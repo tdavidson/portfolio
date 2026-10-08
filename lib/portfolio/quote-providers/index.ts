@@ -49,9 +49,6 @@ const PROVIDERS: Record<string, QuoteProvider> = {
 
 export const PROVIDER_NAMES = Object.keys(PROVIDERS)
 
-/** True once something other than hand entry is registered — the UI hides sync controls until then. */
-export const HAS_FETCHING_PROVIDER = PROVIDER_NAMES.some(n => n !== 'manual')
-
 export function providerFor(name: string | null | undefined): QuoteProvider {
   return PROVIDERS[name ?? 'manual'] ?? manualProvider
 }

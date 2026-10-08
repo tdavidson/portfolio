@@ -1,7 +1,7 @@
 -- supabase/pending-deploy/investment_ownership_trigger.sql
 --
--- STAGED — DO NOT MOVE INTO supabase/migrations/ UNTIL the release implementing
--- plans/plan-ledger-one-writer-a.md (adoption at posting) is deployed. Until then every
+-- STAGED — DO NOT MOVE INTO supabase/migrations/ UNTIL a release built from main at commit
+-- 27fddb55 or later (the ledger-one-writer set: adoption at posting) is deployed. Until then every
 -- QuickBooks or manual post to an investment account would be refused, because nothing adopts
 -- it. When moving it, rename it to a current timestamp (CLAUDE.md, "A migration that must wait
 -- for a deploy"). Tested where it stands by scripts/check-investment-ownership.mjs.

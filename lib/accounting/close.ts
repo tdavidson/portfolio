@@ -58,7 +58,7 @@ import { loadCloseEntrySuggestions, type CloseEntrySuggestion } from './close-su
 const NOTE_INTEREST_INCOME = '4110'
 import {
   loadAllocationBasis, loadPartnerTerms, loadCommitmentEvents,
-  resolveCommitmentMap, allocationWeights,
+  allocationWeights,
   type AllocationBasis, type AllocationCategory,
 } from './terms'
 import { exportLedgerText } from './text-ledger-run'
@@ -183,7 +183,7 @@ export async function previewClose(
     return { error: 'This period overlaps an already-closed period — reopen it first' }
   }
 
-  const [{ accounts, postings, capitalPostings, sourcedPostings }, owners, names, basis, terms, commitmentEvents, kind] = await Promise.all([
+  const [{ accounts, capitalPostings, sourcedPostings }, owners, names, basis, terms, commitmentEvents, kind] = await Promise.all([
     loadPostedLedger(admin, fundId, group),
     loadOwnership(admin, fundId, group),
     loadEntityNames(admin, fundId, group),
@@ -699,7 +699,7 @@ export async function checkReadiness(
     blockers.push(
       `LP capital is not attributed to partner accounts. ${stranded.message} ` +
       `Allocating on top of this would divide the period's income using capital balances that read zero. ` +
-      `Attribute it on the vehicle's Setup page first.`
+      `Attribute it on the entity's Capital accounts page first.`
     )
   }
 
@@ -980,7 +980,7 @@ export async function closePeriodWithAllocation(
   const vehicleId = await vehicleIdByName(admin, fundId, group)
   const codes = await accountIdByCode(admin, fundId, group)
   const bridgeId = codes.get(BRIDGE_CODE)
-  if (!bridgeId) return { error: `Missing account ${BRIDGE_CODE} (Undistributed earnings) — seed the chart of accounts first` }
+  if (!bridgeId) return { error: `The chart is missing account ${BRIDGE_CODE} Undistributed earnings — add it under the entity's Admin → Chart of accounts.` }
 
   const lpIds = Array.from(new Set(preview.categories.flatMap(c => c.lines.map(l => l.lpEntityId))))
   const capMap = await ensureCapitalAccounts(admin, fundId, group, lpIds)
@@ -1044,7 +1044,7 @@ export async function closePeriodWithAllocation(
       .maybeSingle()
     if (!ownerAcct) {
       await admin.from('fiscal_periods' as any).delete().eq('id', periodId).eq('fund_id', fundId)
-      return { error: "No owner's capital account (subtype members_capital) on this chart — seed the chart for this vehicle's kind first" }
+      return { error: "The chart has no owner's capital account (subtype members_capital) — add it under the entity's Admin → Chart of accounts." }
     }
     const kind = await vehicleKindByName(admin, fundId, group)
     const entries = ownerCloseEntries(preview.categories, {

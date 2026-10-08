@@ -223,7 +223,7 @@ export async function postExistingEntryWithAllocation(
     return { error: removed.error ? keptAsDraft(entryId, removed.error) : refusal }
   }
   // Compare-and-set: flip it only if it is STILL a draft. Two requests that both read the draft
-  // (a bank match racing a "post without a bank match") would otherwise both post and both run
+  // (two posts of the same draft — a double-click, or two tabs) would otherwise both post and both run
   // the partner allocation, doubling it. The loser finds no draft and stops here.
   const { data: flipped, error: statusError } = await admin.from('journal_entries' as any)
     .update({ status: 'posted', posted_at: new Date().toISOString() })

@@ -405,8 +405,9 @@ ${text}`,
     // portfolio silently diverged from the books — every position present in the tracker and
     // absent from the ledger — until someone happened to run a bootstrap or replay.
     //
-    // Non-fatal by design: the import must not fail because a vehicle has no chart of
-    // accounts. Reasons are collected and reported, never swallowed.
+    // Non-fatal by design: the import must not fail because one entry is refused (a closed
+    // period, say); an entity's chart is provisioned on first touch. Reasons are collected and
+    // reported, never swallowed.
     if (inserted) {
       const draft = await draftEntryForTransaction(admin, fundId, user.id, inserted, companyName)
       if (draft.drafted) draft.posted ? results.entriesPosted++ : results.entriesDrafted++

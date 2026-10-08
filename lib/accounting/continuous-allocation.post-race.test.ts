@@ -4,8 +4,8 @@ import { postExistingEntryWithAllocation } from './continuous-allocation'
 vi.mock('./vehicle-id', () => ({ vehicleIdByName: vi.fn(async () => 'veh-1') }))
 
 /**
- * Two requests can both read a draft and both post it — a bank match and a "post without a bank
- * match" racing, say — and each runs the partner allocation, doubling it. The draft → posted
+ * Two requests can both read a draft and both post it — two posts of the same draft, from a
+ * double-click or two tabs — and each runs the partner allocation, doubling it. The draft → posted
  * transition must be a compare-and-set: the loser finds no draft to flip and stops.
  */
 describe('postExistingEntryWithAllocation — concurrent post', () => {
