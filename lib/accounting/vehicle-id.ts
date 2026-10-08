@@ -11,10 +11,11 @@ export type VehicleIdMap = Map<string, string>
  * resolves, exactly as the per-name path does.
  */
 export async function loadVehicleIdMap(admin: SupabaseClient, fundId: string): Promise<VehicleIdMap> {
-  const { data } = await (admin as any)
+  const { data, error } = await (admin as any)
     .from('fund_vehicles')
     .select('id, name, aliases')
     .eq('fund_id', fundId)
+  if (error) throw new Error(`fund_vehicles read failed: ${error.message}`)
   const map: VehicleIdMap = new Map()
   for (const v of ((data as any[]) ?? [])) {
     if (v.name) map.set(v.name as string, v.id as string)
@@ -27,7 +28,7 @@ export async function loadVehicleIdMap(admin: SupabaseClient, fundId: string): P
  * Resolve a vehicle name (or legacy alias) to its fund_vehicles.id. The accounting
  * tables key off this id, so callers keep passing the vehicle name (from the
  * picker) and we resolve it here — a rename changes the registry name, not the
- * ledger rows. Returns null if the fund has no matching vehicle.
+ * ledger rows. Returns null if the fund has no matching vehicle; THROWS if the registry read fails (a failed read is not "no vehicle").
  *
  * Pass `idMap` (from `loadVehicleIdMap`) to resolve from memory and skip the DB — used
  * by the report paths that already loaded the whole fund's vehicles.
@@ -39,9 +40,11 @@ export async function vehicleIdByName(
   idMap?: VehicleIdMap,
 ): Promise<string | null> {
   if (idMap) return idMap.get(name) ?? null
-  const { data } = await (admin as any).from('fund_vehicles').select('id').eq('fund_id', fundId).eq('name', name).maybeSingle()
+  const { data, error } = await (admin as any).from('fund_vehicles').select('id').eq('fund_id', fundId).eq('name', name).maybeSingle()
+  if (error) throw new Error(`fund_vehicles read failed: ${error.message}`)
   if (data) return data.id as string
-  const { data: alias } = await (admin as any).from('fund_vehicles').select('id').eq('fund_id', fundId).contains('aliases', [name]).maybeSingle()
+  const { data: alias, error: aliasError } = await (admin as any).from('fund_vehicles').select('id').eq('fund_id', fundId).contains('aliases', [name]).limit(1).maybeSingle()
+  if (aliasError) throw new Error(`fund_vehicles read failed: ${aliasError.message}`)
   return (alias?.id as string) ?? null
 }
 

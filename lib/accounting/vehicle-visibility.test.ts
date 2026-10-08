@@ -23,6 +23,7 @@ function admin() {
     const f: Record<string, any> = {}
     const chain: any = {
       select: () => chain,
+      limit: () => chain,
       eq: (k: string, v: any) => { f[k] = v; return chain },
       in: (k: string, v: any[]) => { f[`in:${k}`] = v; return chain },
       contains: (k: string, v: any[]) => { f[`contains:${k}`] = v; return chain },

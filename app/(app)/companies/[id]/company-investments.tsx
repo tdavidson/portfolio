@@ -12,6 +12,7 @@ import {
   InvestmentTransactionForm, LedgerSaveNote, PreviewLine, signedFmt, fmtNum,
   type LedgerResult, type TransactionType,
 } from '@/components/investment-transaction-form'
+import { deleteInvestmentTransaction } from '@/lib/delete-investment-transaction'
 import type { InvestmentTransaction, CompanyStatus } from '@/lib/types/database'
 import type { CompanyInvestmentSummary } from '@/lib/types/investments'
 
@@ -58,6 +59,7 @@ export function CompanyInvestments({ companyId, companyStatus, portfolioGroups, 
   const [editing, setEditing] = useState<InvestmentTransaction | null>(null)
 
   const [deletingId, setDeletingId] = useState<string | null>(null)
+  const [deleteError, setDeleteError] = useState<string | null>(null)
   const [ledger, setLedger] = useState<LedgerResult | null>(null)
   const [asOfDate, setAsOfDate] = useState(() => new Date().toISOString().slice(0, 10))
 
@@ -91,11 +93,11 @@ export function CompanyInvestments({ companyId, companyStatus, portfolioGroups, 
 
   async function handleDelete(txnId: string) {
     setDeletingId(txnId)
+    setDeleteError(null)
     try {
-      const res = await fetch(`/api/companies/${companyId}/investments/${txnId}`, {
-        method: 'DELETE',
-      })
-      if (res.ok) load()
+      const result = await deleteInvestmentTransaction(companyId, txnId)
+      if (result.ok) load()
+      else setDeleteError(result.error)
     } finally {
       setDeletingId(null)
     }
@@ -120,6 +122,7 @@ export function CompanyInvestments({ companyId, companyStatus, portfolioGroups, 
   return (
     <div className="mt-6">
       <LedgerSaveNote ledger={ledger} onDismiss={() => setLedger(null)} />
+      {deleteError && <p className="text-sm text-destructive mb-2">{deleteError}</p>}
 
       <div className="flex items-center justify-between mb-2">
         <button

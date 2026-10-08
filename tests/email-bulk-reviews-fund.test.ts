@@ -3,12 +3,16 @@ import { describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 import { memoryAdmin } from '@/tests/helpers/memory-admin'
 
-const s = vi.hoisted(() => ({ m: null as any, hide: null as null | ((t: string) => any) }))
+const s = vi.hoisted(() => ({ investments: true, m: null as any, hide: null as null | ((t: string) => any) }))
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: 'u' } } }) }, from: (t: string) => (s.hide ?? s.m.admin.from)(t) }) }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => s.m.admin }))
-vi.mock('@/lib/api-helpers', async (orig) => ({ ...(await orig<any>()), assertWriteAccess: async () => ({ fundId: 'f', userId: 'u', role: 'admin' }) }))
+vi.mock('@/lib/api-helpers', async (orig) => ({ ...(await orig<any>()), assertWriteAccess: async () => ({ fundId: 'f', userId: 'u', role: 'admin' }), assertReadAccess: async () => ({ fundId: 'f', userId: 'u', role: 'member' }) }))
+vi.mock('@/lib/access/effective', () => ({
+  loadAccessContext: async () => ({}),
+  hasAccess: (_a: unknown, _d: string, _l: string, feature?: string) => feature !== 'investments' || s.investments,
+}))
 vi.mock('@/lib/cache/tags', () => ({ expireTag: () => {} }))
-import { POST } from '@/app/api/emails/[id]/reviews/route'
+import { GET, POST } from '@/app/api/emails/[id]/reviews/route'
 
 describe('approve all on an email', () => {
   it('leaves a fund review open — approving it writes the register, which a bulk action must not skip — and the email in review', async () => {
@@ -65,6 +69,42 @@ describe('approve all on an email', () => {
       expect(s.m.tables.inbound_emails[0].processing_status).toBe('needs_review')
     } finally {
       s.hide = null
+    }
+  })
+
+  const seedMixed = () => {
+    s.m = memoryAdmin({
+      inbound_emails: [{ id: 'em1', fund_id: 'f', processing_status: 'needs_review' }],
+      parsing_reviews: [
+        { id: 'r1', fund_id: 'f', email_id: 'em1', issue_type: 'low_confidence', resolution: null },
+        { id: 'r2', fund_id: 'f', email_id: 'em1', issue_type: 'fund_nav', resolution: null, payload: { kind: 'nav' } },
+      ],
+      fund_settings: [{ fund_id: 'f', retain_resolved_reviews: true }],
+    })
+  }
+  const get = () => GET(new NextRequest('http://localhost/api/emails/em1/reviews'), { params: Promise.resolve({ id: 'em1' }) })
+
+  it('a member below investments read is not shown fund reviews; with it they are', async () => {
+    seedMixed()
+    s.investments = false
+    try {
+      expect((await (await get()).json()).items.map((i: any) => i.id)).toEqual(['r1'])
+    } finally {
+      s.investments = true
+    }
+    expect((await (await get()).json()).items.map((i: any) => i.id).sort()).toEqual(['r1', 'r2'])
+  })
+
+  it('dismiss all leaves fund reviews open for a caller below investments write, and counts them', async () => {
+    seedMixed()
+    s.investments = false
+    try {
+      const res = await post('dismiss_all')
+      expect(await res.json()).toMatchObject({ ok: true, resolved: 1, leftOpen: 1 })
+      expect(s.m.tables.parsing_reviews.map((r: any) => r.resolution)).toEqual(['rejected', null])
+      expect(s.m.tables.inbound_emails[0].processing_status).toBe('needs_review')
+    } finally {
+      s.investments = true
     }
   })
 })

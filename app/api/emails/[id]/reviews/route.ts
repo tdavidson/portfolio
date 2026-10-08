@@ -2,9 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { expireTag } from '@/lib/cache/tags'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { assertWriteAccess } from '@/lib/api-helpers'
+import { assertReadAccess, assertWriteAccess } from '@/lib/api-helpers'
 import type { ParsingReview, Company, Metric, InboundEmail } from '@/lib/types/database'
 import { dbError } from '@/lib/api-error'
+import { hasAccess, loadAccessContext } from '@/lib/access/effective'
 import { isFundReviewType } from '@/lib/portfolio/fof-review-types'
 
 type ReviewRow = Pick<
@@ -25,6 +26,13 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // A fund review writes the fund register, the investments feature's: hidden below that read.
+  const admin = createAdminClient()
+  const gate = await assertReadAccess(admin, user.id)
+  if (gate instanceof NextResponse) return gate
+  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  const fundReadable = hasAccess(access, 'portfolio', 'read', 'investments')
+
   const { data, error } = await supabase
     .from('parsing_reviews')
     .select(`
@@ -39,7 +47,7 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
 
   if (error) return dbError(error, 'emails-id-reviews')
 
-  const rows = (data ?? []) as unknown as ReviewRow[]
+  const rows = ((data ?? []) as unknown as ReviewRow[]).filter(r => fundReadable || !isFundReviewType(r.issue_type))
 
   const items = rows.map(r => ({
     id: r.id,
@@ -109,7 +117,12 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   // leaves it open — and so the email, until it is resolved. Dismissing writes nothing to the
   // register, so dismiss-all resolves it with the rest (RLS already limited `rows` to the caller's).
   const rows = (reviews ?? []) as unknown as { id: string; issue_type: string }[]
-  const skip = (r: { issue_type: string }) => action === 'approve_all' && isFundReviewType(r.issue_type)
+  // Either way, a caller without write on the investments feature leaves them open (counted in leftOpen).
+  const fundWritable = rows.some(r => isFundReviewType(r.issue_type))
+    ? hasAccess(await loadAccessContext(admin, userFundId, writeCheck.userId, writeCheck.role), 'portfolio', 'write', 'investments')
+    : true
+  const skip = (r: { issue_type: string }) =>
+    isFundReviewType(r.issue_type) && (action === 'approve_all' || !fundWritable)
   const leftOpen = rows.filter(skip).length
   const bulk = rows.filter(r => !skip(r))
 

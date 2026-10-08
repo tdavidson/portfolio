@@ -21,7 +21,13 @@ export async function assertVehicleVisible(
 ): Promise<NextResponse | null> {
   const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
   if (access.vehicles.all) return null
-  const id = await vehicleIdByName(admin, gate.fundId, name)
+  // A failed registry read is an error, not "no such entity" (which would read as a 403).
+  let id: string | null
+  try {
+    id = await vehicleIdByName(admin, gate.fundId, name)
+  } catch {
+    return NextResponse.json({ error: 'Could not check access to that entity. Try again.' }, { status: 500 })
+  }
   if (canSeeVehicle(access, id)) return null
   return NextResponse.json({ error: "You don't have access to that entity." }, { status: 403 })
 }
