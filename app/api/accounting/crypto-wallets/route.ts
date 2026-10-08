@@ -9,8 +9,9 @@ import { dbError } from '@/lib/api-error'
 import { logActivity } from '@/lib/activity'
 import { buildSoiPositions, type SoiCompany } from '@/lib/accounting/soi'
 import {
-  walletVariances, type Wallet, type WalletBalance,
+  walletVariances, walletFromRow, balanceFromRow, type Wallet, type WalletBalance,
 } from '@/lib/portfolio/wallets'
+import { holdersFromTransactions, walletsForEntity } from '@/lib/portfolio/holding-entities'
 import { HAS_CHAIN_PROVIDER } from '@/lib/portfolio/balance-providers'
 import { loadEntityScope } from '@/lib/access/entity-scope'
 import { groupWriteDenial } from '@/lib/access/scope'
@@ -40,7 +41,7 @@ export async function GET(req: NextRequest) {
   if (group instanceof NextResponse) return group
   const asOf = req.nextUrl.searchParams.get('asOf') ?? new Date().toISOString().slice(0, 10)
 
-  const [{ data: walletRows, error }, { data: balRows }, { data: txnRows }, { data: companyRows }] =
+  const [{ data: walletRows, error }, { data: balRows, error: balError }, { data: txnRows, error: txnError }, { data: companyRows, error: companyError }] =
     await Promise.all([
       (admin as any).from('crypto_wallets').select('*').eq('fund_id', gate.fundId).order('chain'),
       (admin as any).from('crypto_wallet_balances').select('*').eq('fund_id', gate.fundId)
@@ -49,14 +50,19 @@ export async function GET(req: NextRequest) {
       (admin as any).from('companies').select('*').eq('fund_id', gate.fundId),
     ])
   if (error) return dbError(error, 'crypto-wallets-get')
+  if (balError) return dbError(balError, 'crypto-wallets-get-balances')
+  if (txnError) return dbError(txnError, 'crypto-wallets-get-transactions')
+  if (companyError) return dbError(companyError, 'crypto-wallets-get-companies')
 
-  const wallets: Wallet[] = ((walletRows as any[]) ?? []).map(w => ({
-    id: w.id, companyId: w.company_id, chain: w.chain, address: w.address, label: w.label,
-    active: w.active !== false, verifiedAt: w.verified_at, verificationMethod: w.verification_method,
-  }))
-  const balances: WalletBalance[] = ((balRows as any[]) ?? []).map(b => ({
-    walletId: b.wallet_id, asOfDate: b.as_of_date, units: Number(b.units), blockHeight: b.block_height,
-  }))
+  // Only this entity's wallets. The fund-wide list handed every entity's addresses and balances to
+  // anyone who could open one entity's status page; resolveGroupOr400 above is what makes `group`
+  // one the caller may see. An untagged wallet counts only for a holding's sole holder, and that is
+  // judged from the WHOLE fund's transactions (txnRows is not narrowed to the caller's entities),
+  // so a holding two entities share never looks single-held to a scoped member.
+  const holders = holdersFromTransactions((txnRows as any[]) ?? [])
+  const rows = walletsForEntity((walletRows as any[]) ?? [], group, holders)
+  const wallets: Wallet[] = rows.map(walletFromRow)
+  const balances: WalletBalance[] = ((balRows as any[]) ?? []).map(balanceFromRow)
 
   const latest = new Map<string, WalletBalance>()
   for (const b of balances) if (!latest.has(b.walletId)) latest.set(b.walletId, b)
@@ -69,7 +75,7 @@ export async function GET(req: NextRequest) {
 
   return NextResponse.json({
     asOf,
-    wallets: ((walletRows as any[]) ?? []).map(w => ({
+    wallets: rows.map(w => ({
       ...w,
       latestBalance: latest.get(w.id) ?? null,
       holdingName: positions.find(p => p.companyId === w.company_id)?.name ?? null,
