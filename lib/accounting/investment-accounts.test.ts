@@ -42,4 +42,72 @@ describe('loadVehicleChart', () => {
     ] })
     expect(await loadVehicleChart(admin, 'f', 'v')).toEqual([{ id: 'a1', code: '1100-ab', type: 'asset', subtype: 'investment', companyId: 'c' }])
   })
+
+  it('throws on query error', async () => {
+    const fakeAdmin = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => ({
+              order: () => ({
+                range: async () => ({ data: null, error: { message: 'boom' } })
+              })
+            })
+          })
+        })
+      })
+    }
+    await expect(loadVehicleChart(fakeAdmin as any, 'f', 'v')).rejects.toThrow('Could not read the chart of accounts: boom')
+  })
+
+  it('pages through all rows when chart has more than 1000 entries', async () => {
+    let callCount = 0
+    const fakeAdmin = {
+      from: () => ({
+        select: () => ({
+          eq: () => ({
+            eq: () => ({
+              order: () => ({
+                range: async (from: number, to: number) => {
+                  callCount++
+                  if (callCount === 1) {
+                    // First call: return 1000 rows (fills the page)
+                    const rows = Array.from({ length: 1000 }, (_, i) => ({
+                      id: `a${i}`,
+                      fund_id: 'f',
+                      vehicle_id: 'v',
+                      code: `1100-${i}`,
+                      type: 'asset',
+                      subtype: 'investment',
+                      company_id: 'c'
+                    }))
+                    return { data: rows, error: null }
+                  } else if (callCount === 2) {
+                    // Second call: return 1 row (incomplete page, signals end)
+                    return {
+                      data: [{
+                        id: 'a1000',
+                        fund_id: 'f',
+                        vehicle_id: 'v',
+                        code: '1100-1000',
+                        type: 'asset',
+                        subtype: 'investment',
+                        company_id: 'c'
+                      }],
+                      error: null
+                    }
+                  }
+                  return { data: [], error: null }
+                }
+              })
+            })
+          })
+        })
+      })
+    }
+    const result = await loadVehicleChart(fakeAdmin as any, 'f', 'v')
+    expect(result).toHaveLength(1001)
+    expect(result[0].id).toBe('a0')
+    expect(result[1000].id).toBe('a1000')
+  })
 })

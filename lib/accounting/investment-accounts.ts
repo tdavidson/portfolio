@@ -35,9 +35,36 @@ export const isInvestmentAccount = (a: Shape): boolean => investmentKind(a) !== 
 export const isPooledInvestmentAccount = (a: Shape): boolean => isInvestmentAccount(a) && !a.companyId
 
 export async function loadVehicleChart(admin: SupabaseClient, fundId: string, vehicleId: string): Promise<ChartAccount[]> {
-  const { data } = await admin.from('chart_of_accounts' as any)
-    .select('id, code, type, subtype, company_id').eq('fund_id', fundId).eq('vehicle_id', vehicleId)
-  return ((data as any[]) ?? []).map(a => ({
-    id: a.id, code: a.code, type: a.type, subtype: a.subtype ?? null, companyId: a.company_id ?? null,
-  }))
+  const results: ChartAccount[] = []
+  let from = 0
+
+  while (true) {
+    const { data, error } = await admin.from('chart_of_accounts' as any)
+      .select('id, code, type, subtype, company_id')
+      .eq('fund_id', fundId)
+      .eq('vehicle_id', vehicleId)
+      .order('id')
+      .range(from, from + 999)
+
+    if (error) {
+      throw new Error(`Could not read the chart of accounts: ${error.message}`)
+    }
+
+    if (!data) {
+      break
+    }
+
+    results.push(...data.map(a => ({
+      id: a.id, code: a.code, type: a.type, subtype: a.subtype ?? null, companyId: a.company_id ?? null,
+    })))
+
+    // If we got fewer than 1000 rows, we've reached the end
+    if (data.length < 1000) {
+      break
+    }
+
+    from += 1000
+  }
+
+  return results
 }
