@@ -1,17 +1,20 @@
 import { normalizeDate, parseAmount } from '@/lib/accounting/bank'
+import type { AIProvider, ContentBlock } from '@/lib/ai/types'
 import type { GridInputRow } from './fof-paste'
 
 /**
- * Turning a manager's quarterly PDF into the SAME reviewable rows the paste grid produces.
+ * Turning a manager's document — a capital account statement, a call notice, a distribution
+ * notice — into reviewable rows.
  *
- * This module is the contract and the validator — no AI import, no Supabase — so what the
- * model is asked for and what is accepted back can both be tested without a model.
+ * The contract, the validator and the one model call. No AI runtime import: the caller passes the
+ * fund's provider in (the email pipeline's, lib/pipeline/processEmail.ts), so what the model is
+ * asked for and what is accepted back are both tested without a model.
  *
- * NEVER TRUST A MODEL NUMBER. Everything that comes back is re-parsed here: amounts must be
- * finite and non-negative, dates are normalized through the same helper the paste path uses,
- * and anything that fails is DROPPED with a warning naming the fund. A wrong figure that looks
- * tidy is worse than a missing one, because the missing one gets typed and the wrong one gets
- * confirmed.
+ * NEVER TRUST A MODEL NUMBER. Everything that comes back is re-parsed here: amounts must be finite
+ * and non-negative, dates are normalized through the same helper the paste path uses, and anything
+ * that fails is DROPPED with a warning naming the fund. A wrong figure that looks tidy is worse than
+ * a missing one, because the missing one gets typed and the wrong one gets confirmed. And nothing
+ * read here is written anywhere until a person approves it (lib/portfolio/fof-email.ts).
  */
 
 export interface ExtractedRow extends GridInputRow {
@@ -19,6 +22,14 @@ export interface ExtractedRow extends GridInputRow {
   confidence: 'high' | 'medium' | 'low'
   /** The text this row was read from, so a human reviews against the statement. */
   sourceText: string | null
+  /** The date of the call or distribution itself; null when the document gives none. */
+  eventDate: string | null
+  /** When a call's payment is due. */
+  dueDate: string | null
+  /** The notice or drawdown number as printed. */
+  noticeNumber: string | null
+  /** What the call is for, or what the distribution is, as stated. */
+  purpose: string | null
 }
 
 /** The JSON Schema the model fills in. */
@@ -38,6 +49,10 @@ export const EXTRACTION_SCHEMA = {
           reportedNav: { type: 'number', description: 'Our ending capital account / NAV. Omit if the document does not state one.' },
           calls: { type: 'number', description: 'Capital CALLED from us in this period. 0 if none. Always positive.' },
           distributions: { type: 'number', description: 'Capital DISTRIBUTED to us in this period. 0 if none. Always positive.' },
+          eventDate: { type: 'string', description: 'For a capital call or distribution: the date it is made (YYYY-MM-DD). Omit for a statement that only reports period totals.' },
+          dueDate: { type: 'string', description: 'For a capital call: the date payment is due (YYYY-MM-DD). Omit if not stated.' },
+          noticeNumber: { type: 'string', description: 'The notice or drawdown number as printed, e.g. "Drawdown No. 7". Omit if none.' },
+          purpose: { type: 'string', description: 'What the call is for or what the distribution is, as stated (investments, management fee, expenses, return of capital, gain). Omit if not stated.' },
           confidence: { type: 'string', enum: ['high', 'medium', 'low'] },
           sourceText: { type: 'string', description: 'The line you read the figures from, verbatim.' },
         },
@@ -58,6 +73,7 @@ Extract, for each underlying fund the document reports on:
 - our ending capital account balance / NAV, if stated
 - capital CALLED from us in this period, as a positive number (0 if none)
 - capital DISTRIBUTED to us in this period, as a positive number (0 if none)
+- for a capital call or distribution notice: the date of the call or distribution, the date payment is due, the notice or drawdown number, and its stated purpose — each only if the document states it
 
 Rules:
 - Report amounts as plain numbers, always POSITIVE. Direction is conveyed by which field you put them in, never by a sign.
@@ -123,6 +139,16 @@ export function validateExtraction(raw: unknown): { rows: ExtractedRow[]; warnin
       }
     }
 
+    // Notice fields. An unreadable date is left blank with a warning rather than dropping the row:
+    // the NAV beside it may be perfectly good, and a reviewer fills the date in before approving.
+    const optionalDate = (v: unknown, label: string): string | null => {
+      if (v === null || v === undefined || String(v).trim() === '') return null
+      const d = normalizeDate(String(v))
+      if (!d) warnings.push(`${fundName}: could not read ${label} ("${String(v)}"); left blank.`)
+      return d ?? null
+    }
+    const text = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null)
+
     const confidence = item.confidence === 'high' || item.confidence === 'medium' ? item.confidence : 'low'
 
     rows.push({
@@ -134,8 +160,48 @@ export function validateExtraction(raw: unknown): { rows: ExtractedRow[]; warnin
       distributions: dists ?? 0,
       confidence,
       sourceText: typeof item.sourceText === 'string' ? item.sourceText : null,
+      eventDate: optionalDate(item.eventDate, 'the date of the call or distribution'),
+      dueDate: optionalDate(item.dueDate, 'the due date'),
+      noticeNumber: text(item.noticeNumber),
+      purpose: text(item.purpose),
     })
   }
 
   return { rows, warnings }
+}
+
+/** Models fence JSON, prepend prose, or both. Salvage the object rather than failing on it. */
+export function parseJsonLoosely(text: string): unknown {
+  const trimmed = text.trim()
+  try { return JSON.parse(trimmed) } catch { /* fall through */ }
+  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/)
+  if (fenced) { try { return JSON.parse(fenced[1]) } catch { /* fall through */ } }
+  const start = trimmed.indexOf('{')
+  const end = trimmed.lastIndexOf('}')
+  if (start >= 0 && end > start) {
+    try { return JSON.parse(trimmed.slice(start, end + 1)) } catch { /* fall through */ }
+  }
+  return null
+}
+
+/**
+ * Read a manager's document with the fund's model. A PDF should arrive as a `document` block:
+ * statements are tables, and table structure survives in the document block and dies in flattened
+ * text. Throws only when the provider does; a model that answers in prose yields no rows and a
+ * warning.
+ */
+export async function readManagerDocument(
+  ai: { provider: Pick<AIProvider, 'createMessage'>; model: string },
+  content: ContentBlock[],
+): Promise<{ rows: ExtractedRow[]; warnings: string[] }> {
+  const result = await ai.provider.createMessage({
+    model: ai.model,
+    maxTokens: 4000,
+    system: EXTRACTION_PROMPT,
+    content: [
+      ...content,
+      { type: 'text', text: `Return ONLY JSON matching this schema, with no commentary:\n${JSON.stringify(EXTRACTION_SCHEMA)}` },
+    ],
+  })
+  return validateExtraction(parseJsonLoosely(result.text ?? ''))
 }

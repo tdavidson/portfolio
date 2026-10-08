@@ -2,9 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'fs'
 import { createClient } from '@supabase/supabase-js'
 import { createFundAIProvider } from '@/lib/ai'
-import type { ContentBlock } from '@/lib/ai'
 import { renderHtmlToPdf } from '@/lib/lp-report-pdf'
-import { validateExtraction, EXTRACTION_PROMPT, EXTRACTION_SCHEMA } from '@/lib/portfolio/fof-extract'
+import { readManagerDocument } from '@/lib/portfolio/fof-extract'
 import { matchHoldings } from '@/lib/portfolio/fof-paste'
 
 /**
@@ -75,17 +74,9 @@ describe('statement extraction — live model', { timeout: 180_000 }, () => {
     console.log(`[pdf] ${pdf.length} bytes`)
 
     const ai = await createFundAIProvider(admin, fundId)
-    const content: ContentBlock[] = [
+    const { rows, warnings } = await readManagerDocument(ai, [
       { type: 'document', mediaType: 'application/pdf', data: pdf.toString('base64') },
-      { type: 'text', text: `Return ONLY JSON matching this schema, with no commentary:\n${JSON.stringify(EXTRACTION_SCHEMA)}` },
-    ]
-    const result = await ai.provider.createMessage({
-      model: ai.model, maxTokens: 4000, system: EXTRACTION_PROMPT, content,
-    })
-    console.log('[model raw]', result.text.slice(0, 600))
-
-    const parsed = parseJsonLoosely(result.text)
-    const { rows, warnings } = validateExtraction(parsed)
+    ])
     console.log('[validated]', JSON.stringify({ rows, warnings }, null, 1))
 
     expect(warnings).toEqual([])
@@ -102,6 +93,7 @@ describe('statement extraction — live model', { timeout: 180_000 }, () => {
     // Parenthesised on the page; must come back positive in the distributions field, not as
     // a negative call.
     expect(r.distributions).toBe(475_000)
+    expect(r.eventDate).toBe('2025-08-12')
     expect(r.sourceText).toBeTruthy()
   })
 
@@ -119,28 +111,10 @@ describe('statement extraction — live model', { timeout: 180_000 }, () => {
 
   it('returns nothing financial for a document that is not a statement', async () => {
     const ai = await createFundAIProvider(admin, fundId)
-    const result = await ai.provider.createMessage({
-      model: ai.model, maxTokens: 1000, system: EXTRACTION_PROMPT,
-      content: [
-        { type: 'text', text: 'Dear LP, our annual general meeting will be held on 3 March at the Fairmont. Breakfast is at 8am. Please RSVP.' },
-        { type: 'text', text: `Return ONLY JSON matching this schema, with no commentary:\n${JSON.stringify(EXTRACTION_SCHEMA)}` },
-      ],
-    })
-    const { rows } = validateExtraction(parseJsonLoosely(result.text))
-    console.log('[non-statement] rows:', rows.length, '| raw:', result.text.slice(0, 200))
+    const { rows } = await readManagerDocument(ai, [
+      { type: 'text', text: 'Dear LP, our annual general meeting will be held on 3 March at the Fairmont. Breakfast is at 8am. Please RSVP.' },
+    ])
+    console.log('[non-statement] rows:', rows.length)
     expect(rows).toEqual([])
   })
 })
-
-function parseJsonLoosely(text: string): unknown {
-  const trimmed = text.trim()
-  try { return JSON.parse(trimmed) } catch { /* fall through */ }
-  const fenced = trimmed.match(/```(?:json)?\s*([\s\S]*?)```/)
-  if (fenced) { try { return JSON.parse(fenced[1]) } catch { /* fall through */ } }
-  const start = trimmed.indexOf('{')
-  const end = trimmed.lastIndexOf('}')
-  if (start >= 0 && end > start) {
-    try { return JSON.parse(trimmed.slice(start, end + 1)) } catch { /* fall through */ }
-  }
-  return null
-}
