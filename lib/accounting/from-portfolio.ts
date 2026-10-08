@@ -694,6 +694,10 @@ export async function draftEntryForTransaction(
       }
       return skip(result.error)
     }
+    // The bank is reconciliation afterwards: link the open row that is this payment, if there is
+    // exactly one (investment-bank-match.ts). Dynamic import — that module imports this one.
+    const { linkOpenBankRow } = await import('./investment-bank-match')
+    await linkOpenBankRow(admin, fundId, result.entryId)
     return { drafted: true, posted: true, entryId: result.entryId, kind, amount, vehicle: group }
   } catch (e) {
     // The portfolio write already succeeded. A ledger failure must not undo it.

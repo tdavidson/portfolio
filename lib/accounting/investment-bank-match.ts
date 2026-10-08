@@ -331,3 +331,59 @@ export async function entriesAwaitingBankMatch(
   }
   return held
 }
+
+/**
+ * THE REVERSE OF THE IMPORT MATCH. An entry derived after its bank row arrived finds that row: one
+ * open row (drafted or unmatched, not under review) in the same vehicle, same amount, within seven
+ * days → claim it with a compare-and-set, reconcile it, and retire its auto-draft. Several or none
+ * → nothing; the bank page lists the entry with its candidates.
+ *
+ * Runs from portfolio-domain routes, so a member with no accounting grant can link a bank row and
+ * retire an auto-draft — in a vehicle they can already write, which is the point.
+ */
+export async function linkOpenBankRow(admin: SupabaseClient, fundId: string, entryId: string): Promise<string | null> {
+  try {
+    const { data: e } = await admin.from('journal_entries' as any)
+      .select('id, vehicle_id, entry_date, status, journal_postings(account_id, amount)')
+      .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', entryId).maybeSingle()
+    const entry = e as any
+    if (!entry || entry.status !== 'posted') return null
+    const { data: cashAccount } = await admin.from('chart_of_accounts' as any)
+      .select('id').eq('fund_id', fundId).eq('vehicle_id', entry.vehicle_id).eq('code', CASH).maybeSingle()
+    if (!cashAccount) return null
+    const cash = roundCents((entry.journal_postings ?? []).filter((p: any) => p.account_id === (cashAccount as any).id)
+      .reduce((s: number, p: any) => s + Number(p.amount), 0))
+    if (cash === 0) return null
+
+    const { data: open } = await admin.from('bank_transactions' as any)
+      .select('id, amount, txn_date, status, journal_entry_id, raw')
+      .eq('fund_id', fundId).eq('vehicle_id', entry.vehicle_id).in('status', OPEN_BANK_STATUSES)
+      .gte('txn_date', shift(entry.entry_date, -CLEARING_DAYS)).lte('txn_date', shift(entry.entry_date, CLEARING_DAYS))
+    const sameCash = ((open as any[]) ?? []).filter(b => !underReview(b.raw) && sameAmount(roundCents(Number(b.amount)), cash))
+    // A row an auto-draft holds is free to take; one another derived entry (or anything posted) holds is not.
+    const holderIds = sameCash.map(b => b.journal_entry_id).filter(Boolean)
+    const { data: holders } = holderIds.length
+      ? await admin.from('journal_entries' as any).select('id, status, source_ref').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('id', holderIds)
+      : { data: [] }
+    const holder = new Map(((holders as any[]) ?? []).map(h => [h.id as string, h]))
+    const free = sameCash.filter(b => {
+      if (!b.journal_entry_id) return true
+      const h = holder.get(b.journal_entry_id)
+      return !!h && h.status === 'draft' && !String(h.source_ref ?? '').startsWith(TXN_REF_PREFIX)
+    })
+    if (free.length !== 1) return null
+
+    const bank = free[0]
+    let claim = admin.from('bank_transactions' as any).update({ journal_entry_id: entryId, status: 'reconciled' })
+      .eq('id', bank.id).eq('fund_id', fundId).eq('status', bank.status)
+    claim = bank.journal_entry_id ? claim.eq('journal_entry_id', bank.journal_entry_id) : claim.is('journal_entry_id', null)
+    const { data: claimed, error } = await claim.select('id')
+    if (error || !((claimed as any[]) ?? []).length) return null
+    if (bank.journal_entry_id) {
+      await admin.from('journal_entries' as any).delete().eq('id', bank.journal_entry_id).eq('fund_id', fundId).eq('status', 'draft')
+    }
+    return bank.id
+  } catch {
+    return null
+  }
+}
