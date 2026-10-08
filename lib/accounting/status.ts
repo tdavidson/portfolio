@@ -184,7 +184,14 @@ export async function vehicleStatus(
   }
 
   // Transactions the ledger does not carry yet — the backfill puts them there (investment-backfill.ts).
-  const backlog = manco ? null : await backfillDerivedEntries(admin, fundId, group, null, { dryRun: true })
+  let backlog: Awaited<ReturnType<typeof backfillDerivedEntries>> | null = null
+  if (!manco) {
+    try {
+      backlog = await backfillDerivedEntries(admin, fundId, group, null, { dryRun: true })
+    } catch (e) {
+      issues.push({ level: 'info', title: `Could not check which investment items are not on the ledger: ${e instanceof Error ? e.message : String(e)}`, detail: 'Everything else on this page is current. Reload to check again.' })
+    }
+  }
   const notOnLedger = backlog ? backlog.toAdopt + backlog.toDerive + backlog.toPost : 0
   if (notOnLedger > 0) {
     issues.push({

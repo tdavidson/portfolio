@@ -30,7 +30,10 @@ export async function GET(req: NextRequest) {
   if (vehicleId) {
     const { count } = await admin.from('chart_of_accounts' as any).select('id', { count: 'exact', head: true })
       .eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId)
-    if (!count) await ensureVehicleAccounts(admin, gate.fundId, group)
+    if (!count) {
+      // A seed failure must not fail the read: fall through to the plain select.
+      try { await ensureVehicleAccounts(admin, gate.fundId, group) } catch (e) { console.error('Seeding the chart on first look failed:', e) }
+    }
   }
 
   const { data, error } = await admin

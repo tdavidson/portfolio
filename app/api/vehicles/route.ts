@@ -76,14 +76,19 @@ export async function POST(req: NextRequest) {
     if ((error as any).code === '23505') return NextResponse.json({ error: 'A vehicle with that name already exists' }, { status: 409 })
     return dbError(error, 'vehicles')
   }
-  // Every entity has a ledger from the moment it exists (plans/spec-ledger-one-writer.md §3) — the
-  // chart its kind needs, seeded here rather than on some later "onboarding" step.
-  await ensureVehicleAccounts(admin as any, gate.fundId, (data as any).name)
   // A member who creates an entity can see it; admins see every entity anyway.
   if (gate.role !== 'admin') {
     await (admin as any).from('fund_member_vehicles')
       .upsert({ fund_id: gate.fundId, user_id: gate.userId, vehicle_id: data.id, granted_by: gate.userId },
         { onConflict: 'fund_id,user_id,vehicle_id', ignoreDuplicates: true })
+  }
+  // Every entity has a ledger from the moment it exists (plans/spec-ledger-one-writer.md §3) — the
+  // chart its kind needs, seeded here rather than on some later "onboarding" step.
+  // A failed seed must not undo the creation (a retry would 409); the chart GET seeds on first look.
+  try {
+    await ensureVehicleAccounts(admin as any, gate.fundId, (data as any).name)
+  } catch (e) {
+    console.error('Seeding the chart for a new entity failed; it will be seeded on first look:', e)
   }
   return NextResponse.json(data)
 }

@@ -85,7 +85,6 @@ export function LedgerView() {
   const accounts = data?.accounts ?? []
   const selectedId = accounts.find(a => a.code === accountRef || a.id === accountRef)?.id ?? ''
   const period = data?.period
-  // No chart of accounts yet: the register has nothing to pick from.
   const openingLabel = period?.start ? `Opening balance at ${period.start}` : 'Opening balance — inception'
   const closingLabel = period?.end ? `Closing balance at ${period.end}` : 'Closing balance'
 

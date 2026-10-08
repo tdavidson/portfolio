@@ -86,6 +86,14 @@ describe('management company accounting status', () => {
     expect(s.issues).toContainEqual(expect.objectContaining({ title: '3 investment items not on the ledger', level: 'blocker', href: '/funds/status#book-investments' }))
   })
 
+  it('still renders when the ledger backlog check fails', async () => {
+    vi.mocked(vehicleKindByName).mockResolvedValue('fund')
+    vi.mocked(backfillDerivedEntries).mockRejectedValueOnce(new Error('db down'))
+    const s = await vehicleStatus(adminWith(), 'firm', 'Fund I')
+    expect(s.issues).toContainEqual(expect.objectContaining({ level: 'info', title: 'Could not check which investment items are not on the ledger: db down' }))
+    expect(s.issues.map(i => i.title)).toContain('No partners yet')
+  })
+
   it('keeps the existing LP setup requirements for funds', async () => {
     vi.mocked(vehicleKindByName).mockResolvedValue('fund')
     const s = await vehicleStatus(adminWith(), 'firm', 'Fund I')
