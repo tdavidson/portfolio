@@ -17,7 +17,8 @@ import { vendorInFund } from '@/lib/accounting/vendors'
 import { ACTUAL_BOOK, isLedgerBook, type LedgerBook } from '@/lib/accounting/books'
 import { reversalOf, reversalDateError } from '@/lib/accounting/reversal'
 import { postExistingEntryWithAllocation, setGeneratedAllocationStatus } from '@/lib/accounting/continuous-allocation'
-import { owningTransactions, releaseOwnership, planRelease, deleteOwners } from '@/lib/accounting/ownership'
+import { owningTransactions, releaseOwnership, planRelease, deleteOwners, isLiveInvestmentReversalHalf, HALF_OF_A_PAIR } from '@/lib/accounting/ownership'
+import { isInvestmentAccount, loadVehicleChart } from '@/lib/accounting/investment-accounts'
 
 // A database failure after the owning transactions were already deleted: still generic to the
 // client, but it must say what is gone.
@@ -154,7 +155,7 @@ export async function PUT(req: NextRequest) {
   // A derived draft (the allocation-failure fallback) edited by hand no longer says what its
   // transaction says: delete the transaction, and the edited lines are adopted when it posts.
   const released = await releaseOwnership(admin, gate.fundId, existing as any)
-  if ('error' in released) return NextResponse.json({ error: released.error }, { status: 400 })
+  if ('error' in released) return NextResponse.json({ error: released.error, removedTransactions: released.removed ?? [], unlinkedRegisterRows: released.unlinked ?? [] }, { status: 400 })
 
   // Insert the new postings first, then drop the old ones — so a failure never
   // leaves the entry without lines.
@@ -283,12 +284,17 @@ export async function PATCH(req: NextRequest) {
     const result = await persistEntry(admin, gate.fundId, group, user.id, reversal, reversalStatus)
     if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
     await admin.from('journal_entries' as any).update({ reversed_by: result.entryId }).eq('id', id).eq('fund_id', gate.fundId)
+    // A reversal saved as a draft changes nothing on the books, so the tracker keeps the
+    // transaction; posting the draft releases it (postExistingEntryWithAllocation).
+    if (reversalStatus === 'draft') {
+      return NextResponse.json({ ok: true, reversalId: result.entryId, status: reversalStatus, reverseDate, removedTransactions: [], unlinkedRegisterRows: [] })
+    }
     // Only now, with the reversal on the books (owned as a pair while the transaction still
     // exists), delete the owners. A failed reversal above leaves everything as it was.
     const failed = await deleteOwners(admin, gate.fundId, ex, plan)
     return NextResponse.json({
       ok: true, reversalId: result.entryId, status: reversalStatus, reverseDate,
-      removedTransactions: failed ? [] : plan.removed, unlinkedRegisterRows: failed ? [] : plan.unlinked,
+      removedTransactions: failed ? failed.removed : plan.removed, unlinkedRegisterRows: failed ? failed.unlinked : plan.unlinked,
       ...(failed ? { warning: `The reversal was created, but ${failed.error}` } : {}),
     })
   }
@@ -318,12 +324,31 @@ export async function PATCH(req: NextRequest) {
     }
     // Keep any bank transaction that points at this entry in step.
     await admin.from('bank_transactions' as any).update({ status: 'reconciled' }).eq('journal_entry_id', id).eq('fund_id', gate.fundId)
-    return NextResponse.json({ ok: true, status: 'posted' })
+    // Posting a reversal draft deletes the transactions that owned the entry it reverses.
+    return NextResponse.json({
+      ok: true, status: 'posted',
+      removedTransactions: allocated.removedTransactions ?? [], unlinkedRegisterRows: allocated.unlinkedRegisterRows ?? [],
+      ...(allocated.warning ? { warning: allocated.warning } : {}),
+    })
+  }
+
+  // Either half of a live reversal pair on investment accounts: voiding or unposting it would
+  // break the pair the tracker was reconciled against. Reverse the reversal instead.
+  if (action === 'void' || action === 'unpost') {
+    try {
+      const chart = await loadVehicleChart(admin, gate.fundId, vehicleId!)
+      const investment = new Set(chart.filter(isInvestmentAccount).map(a => a.id))
+      if (await isLiveInvestmentReversalHalf(admin, gate.fundId, existing as any, investment)) {
+        return NextResponse.json({ error: HALF_OF_A_PAIR }, { status: 400 })
+      }
+    } catch (e) {
+      return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 400 })
+    }
   }
 
   if (action === 'unpost') {
     const released = await release()
-    if ('error' in released) return NextResponse.json({ error: released.error }, { status: 400 })
+    if ('error' in released) return NextResponse.json({ error: released.error, removedTransactions: released.removed ?? [], unlinkedRegisterRows: released.unlinked ?? [] }, { status: 400 })
     const linked = await setGeneratedAllocationStatus(admin, gate.fundId, id, 'draft')
     if (linked.error) return NextResponse.json({ error: linked.error, removedTransactions: released.removed, unlinkedRegisterRows: released.unlinked }, { status: 400 })
     const { error } = await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null }).eq('id', id).eq('fund_id', gate.fundId)
@@ -336,7 +361,7 @@ export async function PATCH(req: NextRequest) {
   // `posted_at: null` matches what the bank page's Ignore writes, so an entry voided from
   // either surface looks identical afterwards.
   const released = await release()
-  if ('error' in released) return NextResponse.json({ error: released.error }, { status: 400 })
+  if ('error' in released) return NextResponse.json({ error: released.error, removedTransactions: released.removed ?? [], unlinkedRegisterRows: released.unlinked ?? [] }, { status: 400 })
   const linked = await setGeneratedAllocationStatus(admin, gate.fundId, id, 'void')
   if (linked.error) return NextResponse.json({ error: linked.error, removedTransactions: released.removed, unlinkedRegisterRows: released.unlinked }, { status: 400 })
   const { error } = await admin.from('journal_entries' as any).update({ status: 'void', posted_at: null }).eq('id', id).eq('fund_id', gate.fundId)

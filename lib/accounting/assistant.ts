@@ -293,7 +293,7 @@ export async function applyProposal(
     // its generated partner allocation — leaving that posted credited partners for an entry that
     // is no longer on the books.
     const released = await releaseOwnership(admin, fundId, existing as any)
-    if ('error' in released) return { error: released.error }
+    if ('error' in released) return { error: released.error, removedTransactions: released.removed ?? [], unlinkedRegisterRows: released.unlinked ?? [] }
     const gone = { removedTransactions: released.removed, unlinkedRegisterRows: released.unlinked }
     if ((existing as any).status !== 'draft') {
       const allocation = await setGeneratedAllocationStatus(admin, fundId, proposal.entryId, 'draft')

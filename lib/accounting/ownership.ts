@@ -65,27 +65,101 @@ export async function planRelease(
   return { removed, unlinked }
 }
 
+/**
+ * A failure from deleteOwners or releaseOwnership. `removed`/`unlinked` say what was deleted
+ * before it failed — empty when nothing was, the whole plan when only the source_ref clear failed.
+ */
+export interface ReleaseFailure { error: string; removed: OwningTransaction[]; unlinked: string[] }
+
 /** The write step: delete the planned transactions and clear a derived entry's source_ref. */
 export async function deleteOwners(
   admin: SupabaseClient, fundId: string, entry: Entry, plan: OwnershipPlan,
-): Promise<{ error: string } | null> {
+): Promise<ReleaseFailure | null> {
   if (plan.removed.length === 0) return null
   const { error } = await admin.from('investment_transactions' as any).delete()
     .eq('fund_id', fundId).in('id', plan.removed.map(t => t.id))
-  if (error) return { error: `Its investment transactions could not be deleted: ${error.message}` }
+  if (error) return { error: `Its investment transactions could not be deleted: ${error.message}`, removed: [], unlinked: [] }
   if ((entry.source_ref ?? '').startsWith(TXN)) {
     const { error: refErr } = await admin.from('journal_entries' as any).update({ source_ref: null })
       .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', entry.id)
-    if (refErr) return { error: `The investment transactions were deleted but the entry could not be unlinked: ${refErr.message}` }
+    if (refErr) return { error: `The investment transactions were deleted but the entry could not be unlinked: ${refErr.message}`, removed: plan.removed, unlinked: plan.unlinked }
   }
   return null
 }
 
 export async function releaseOwnership(
   admin: SupabaseClient, fundId: string, entry: Entry,
-): Promise<OwnershipPlan | { error: string }> {
+): Promise<OwnershipPlan | { error: string; removed?: OwningTransaction[]; unlinked?: string[] }> {
   const plan = await planRelease(admin, fundId, entry)
   if ('error' in plan) return plan
   const failed = await deleteOwners(admin, fundId, entry, plan)
   return failed ?? plan
 }
+
+// ─── Reversal pairs ──────────────────────────────────────────────────────────────────────────
+//
+// Reversing an owned entry deletes the original's owners only once the reversal is POSTED — a
+// reversal saved as a draft changes nothing on the books, so the tracker must keep the
+// transaction until the draft posts (postExistingEntryWithAllocation releases them then).
+
+const REVERSAL = 'reversal:'
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const readFailed = (e: { message: string }) => new Error(`Could not check whether this entry is half of a reversal pair: ${e.message}`)
+
+export interface ReversedOriginal { original: Entry & { status: string; reversed_by: string | null }; plan: OwnershipPlan }
+
+/**
+ * When `entry` is a `reversal:<orig>` about to be posted and paired with a posted original, the
+ * original's ownership plan (read-only). Null when the entry is not such a reversal or the
+ * original owns nothing. An error when the owners could not be released (a dependent conversion).
+ */
+export async function planReversedOriginalRelease(
+  admin: SupabaseClient, fundId: string, entry: { id: string; source_ref: string | null },
+): Promise<ReversedOriginal | { error: string } | null> {
+  const ref = entry.source_ref ?? ''
+  if (!ref.startsWith(REVERSAL)) return null
+  const originalId = ref.slice(REVERSAL.length)
+  if (!UUID.test(originalId)) return null
+  const { data, error } = await admin.from('journal_entries' as any).select('id, status, reversed_by, source_ref')
+    .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', originalId).maybeSingle()
+  if (error) return { error: `The reversed entry could not be read: ${error.message}` }
+  const o = data as any
+  if (!o || o.status !== 'posted' || (o.reversed_by != null && o.reversed_by !== entry.id)) return null
+  const plan = await planRelease(admin, fundId, o)
+  if ('error' in plan) return plan
+  return plan.removed.length === 0 ? null : { original: o, plan }
+}
+
+/**
+ * Is this entry one half of a LIVE reversal pair whose original carries investment value? The
+ * original with a reversal that is not void, or a posted reversal whose original is posted.
+ * Voiding or unposting either half would leave the other booking a position the tracker no
+ * longer holds (or holding one the books no longer carry): reverse the reversal instead.
+ */
+export async function isLiveInvestmentReversalHalf(
+  admin: SupabaseClient, fundId: string, entry: { id: string; status: string; reversed_by: string | null; source_ref: string | null },
+  investmentAccountIds: Set<string>,
+): Promise<boolean> {
+  // THROWS on a failed read: a guard that cannot read must not read as "not a pair".
+  let originalId: string | null = null
+  if (entry.reversed_by) {
+    const { data, error } = await admin.from('journal_entries' as any).select('status')
+      .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', entry.reversed_by).maybeSingle()
+    if (error) throw readFailed(error)
+    if (data && (data as any).status !== 'void') originalId = entry.id
+  }
+  const ref = entry.source_ref ?? ''
+  if (!originalId && entry.status === 'posted' && ref.startsWith(REVERSAL) && UUID.test(ref.slice(REVERSAL.length))) {
+    const { data, error } = await admin.from('journal_entries' as any).select('id, status')
+      .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', ref.slice(REVERSAL.length)).maybeSingle()
+    if (error) throw readFailed(error)
+    if (data && (data as any).status === 'posted') originalId = (data as any).id
+  }
+  if (!originalId) return false
+  const { data: lines, error } = await admin.from('journal_postings' as any).select('account_id')
+    .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('journal_entry_id', originalId)
+  if (error) throw readFailed(error)
+  return ((lines as any[]) ?? []).some(l => investmentAccountIds.has(l.account_id))
+}
+
+export const HALF_OF_A_PAIR = 'This entry is half of a reversal pair — reverse the reversal instead.'

@@ -34,6 +34,14 @@ export async function POST(req: NextRequest) {
   if (!body?.proposal) return NextResponse.json({ error: 'proposal is required' }, { status: 400 })
 
   const result = await applyProposal(admin, gate.fundId, group, user.id, body.proposal)
-  if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
+  // An edit that failed part-way may already have deleted the transactions that owned the entry:
+  // say which, as the success path does.
+  if ('error' in result) {
+    return NextResponse.json({
+      error: result.error,
+      ...(result.removedTransactions ? { removedTransactions: result.removedTransactions } : {}),
+      ...(result.unlinkedRegisterRows ? { unlinkedRegisterRows: result.unlinkedRegisterRows } : {}),
+    }, { status: 400 })
+  }
   return NextResponse.json({ ok: true, ...result })
 }

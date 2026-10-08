@@ -1,4 +1,5 @@
 import { adoptEntry, keptAsDraft, removeAdopted, settleLostRace } from './adoption'
+import { deleteOwners, planReversedOriginalRelease, type OwningTransaction } from './ownership'
 import { loadResolvedCommitments } from './terms'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { allocateAmountCumulatively } from './allocation'
@@ -173,10 +174,19 @@ export async function rollbackGeneratedAllocations(
   await admin.from('journal_entry_allocations' as any).delete().eq('fund_id', fundId).eq('source_entry_id', sourceEntryId)
 }
 
+export interface PostedExisting {
+  allocationEntryIds: string[]
+  /** Posting a `reversal:` draft deletes the transactions that owned the entry it reverses. */
+  removedTransactions?: OwningTransaction[]
+  unlinkedRegisterRows?: string[]
+  /** The entry posted, but releasing the reversed entry's transactions failed part-way. */
+  warning?: string
+}
+
 /** The canonical draft -> posted transition for entries that already exist. */
 export async function postExistingEntryWithAllocation(
   admin: SupabaseClient, fundId: string, group: string, userId: string | null, entryId: string,
-): Promise<{ allocationEntryIds: string[] } | { error: string }> {
+): Promise<PostedExisting | { error: string }> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
   const [{ data: header }, { data: rows }] = await Promise.all([
     admin.from('journal_entries' as any).select('entry_date, memo, source_type, source_ref, status')
@@ -197,6 +207,13 @@ export async function postExistingEntryWithAllocation(
   })
   if ('refused' in adoption) return { error: adoption.refused }
   const adopted = adoption.adoptedIds
+  // A reversal draft: the transactions that own the entry it reverses go when it posts. Planned
+  // BEFORE the flip, so one that cannot go (a dependent conversion) refuses the post instead.
+  const reversed = await planReversedOriginalRelease(admin, fundId, { id: entryId, source_ref: (header as any).source_ref ?? null })
+  if (reversed && 'error' in reversed) {
+    const removed = await removeAdopted(admin, fundId, adopted)
+    return { error: removed.error ? keptAsDraft(entryId, removed.error) : reversed.error }
+  }
   // Compare-and-set: flip it only if it is STILL a draft. Two requests that both read the draft
   // (a bank match racing a "post without a bank match") would otherwise both post and both run
   // the partner allocation, doubling it. The loser finds no draft and stops here.
@@ -221,12 +238,20 @@ export async function postExistingEntryWithAllocation(
   if ('error' in allocated) {
     await rollbackGeneratedAllocations(admin, fundId, entryId)
     const removed = await removeAdopted(admin, fundId, adopted)
-    if (removed.error) {
-      await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null }).eq('fund_id', fundId).eq('id', entryId)
-      return { error: keptAsDraft(entryId, removed.error) }
+    const { error: revertError } = await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null })
+      .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', entryId)
+    if (revertError) {
+      return { error: `${allocated.error}. The entry could not be put back to draft, so entry ${entryId} is posted without its partner allocation — unpost or void it from the journal. (${revertError.message})` }
     }
-    await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null }).eq('fund_id', fundId).eq('id', entryId)
+    if (removed.error) return { error: keptAsDraft(entryId, removed.error) }
     return allocated
+  }
+  if (reversed) {
+    const failed = await deleteOwners(admin, fundId, reversed.original, reversed.plan)
+    if (failed) {
+      return { ...allocated, removedTransactions: failed.removed, unlinkedRegisterRows: failed.unlinked, warning: `The reversal was posted, but ${failed.error}` }
+    }
+    return { ...allocated, removedTransactions: reversed.plan.removed, unlinkedRegisterRows: reversed.plan.unlinked }
   }
   return allocated
 }
