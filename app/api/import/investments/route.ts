@@ -271,7 +271,7 @@ ${text}`,
     companiesCreated: 0,
     /** Entries posted on record — marks and anything else with no cash leg. */
     entriesPosted: 0,
-    /** Entries drafted to wait for their cash leg to be matched to a bank transaction. */
+    // Kept as drafts because their partner allocation failed — see draftEntryForTransaction.
     entriesDrafted: 0,
     errors: [] as string[],
     /** Rows that were imported but implied no ledger entry, and why. Reported, not swallowed —

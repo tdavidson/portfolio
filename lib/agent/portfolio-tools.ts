@@ -16,6 +16,7 @@ import type { AccessContext } from '@/lib/access/effective'
 import { entityScopeFor, type EntityScope } from '@/lib/access/entity-scope'
 import { filterByCompany, groupWriteDenial, scopeCompanyRows, scopeGroups, scopeTransactions, visibleCompanyIds } from '@/lib/access/scope'
 import { validateConversionLink } from '@/lib/accounting/conversion-link'
+import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 
@@ -325,7 +326,7 @@ export interface RecordInvestmentInput {
 }
 
 /**
- * The one write path for recording a portfolio transaction: insert the row AND draft (never post)
+ * The one write path for recording a portfolio transaction: insert the row, then derive and post
  * the journal entry it implies. Shared by the MCP/REST `record_investment` handler and the
  * Analyst's pending-action approval, so both behave identically. `userId` may be null (MCP
  * credential contexts); it flows through to the draft's author field.
@@ -353,6 +354,10 @@ export async function executeRecordInvestment(
   if (!input?.transaction_date) throw new Error('transaction_date is required (YYYY-MM-DD)')
 
   const num = (v: any) => (v == null || v === '' ? null : Number(v))
+
+  // The registry is the source of truth for entity names; a new name is registered before the row
+  // that carries it (the company and import routes already do this).
+  if (input.vehicle) await ensureVehiclesByName(admin, fundId, [input.vehicle])
 
   const { data: txn, error } = await (admin as any)
     .from('investment_transactions')

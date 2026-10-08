@@ -2,7 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Loader2, FileText, X, AlertTriangle, BookOpen } from 'lucide-react'
+import { Loader2, X, AlertTriangle, BookOpen } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -170,14 +170,12 @@ export function formFromTransaction(txn: InvestmentTransaction): Record<string, 
 /** What the API says about the books after a save. See draftEntryForTransaction. */
 export interface LedgerResult {
   drafted: boolean
-  /** Posted on record (no cash leg), rather than drafted to wait for its bank match. */
+  /** False only when the partner allocation failed and the entry was kept as a draft. */
   posted?: boolean
   kind?: string
   amount?: number
   vehicle?: string
   reason?: string
-  /** The vehicle keeps no books yet — an invitation, not a warning. See from-portfolio.ts. */
-  notOnboarded?: boolean
 }
 
 /** The API's response to a save: the row, plus what happened on the ledger. */
@@ -211,7 +209,7 @@ export function LedgerSaveNote({ ledger, onDismiss }: { ledger: LedgerResult | n
   const canReadAccounting = useCanRead('accounting')
   if (!canReadAccounting || !ledger) return null
 
-  // No cash leg, so it is already on the books. Said, quietly — this is the normal case.
+  // Posted — the normal case. Said, quietly.
   if (ledger.drafted && ledger.posted) {
     return (
       <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
@@ -230,8 +228,8 @@ export function LedgerSaveNote({ ledger, onDismiss }: { ledger: LedgerResult | n
     )
   }
 
-  // No cash leg, but it could not post — its partner allocation failed (no partner participates
-  // yet, say). It is kept as a draft rather than lost; say why, and where it is.
+  // It could not post — its partner allocation failed (no partner participates yet, say). Kept as
+  // a draft rather than lost; say why, and where it is.
   if (ledger.drafted && ledger.reason) {
     return (
       <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
@@ -242,51 +240,6 @@ export function LedgerSaveNote({ ledger, onDismiss }: { ledger: LedgerResult | n
         </span>
         <Link href="/funds/journal" className="ml-auto text-xs underline underline-offset-2 hover:text-foreground">
           Review the entry
-        </Link>
-        <button onClick={onDismiss} className="text-muted-foreground hover:text-foreground" aria-label="Dismiss">
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-    )
-  }
-
-  // Cash moved, so the entry waits for the bank row that is the same payment — posting it now
-  // would book the wire twice once the bank feed brings it in. Say so, and point at the match.
-  if (ledger.drafted) {
-    return (
-      <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-info/40 bg-info/10 px-3 py-2 text-sm">
-        <FileText className="h-4 w-4 shrink-0 text-info" />
-        <span>
-          Drafted {LEDGER_KIND_LABEL[ledger.kind ?? ''] ?? 'a journal entry'} in{' '}
-          <strong>{ledger.vehicle}</strong>&rsquo;s ledger. It posts when its cash is{' '}
-          <strong>matched to a bank transaction</strong>.
-        </span>
-        <Link
-          href="/funds/bank"
-          className="ml-auto text-xs underline underline-offset-2 hover:text-foreground"
-        >
-          Match it
-        </Link>
-        <button onClick={onDismiss} className="text-muted-foreground hover:text-foreground" aria-label="Dismiss">
-          <X className="h-3.5 w-3.5" />
-        </button>
-      </div>
-    )
-  }
-
-  // The vehicle isn't on the ledger yet. That is not a warning — a fund that hasn't onboarded a
-  // vehicle has done nothing wrong, and telling it "NOTHING WAS BOOKED" in amber on every single
-  // save is alarming about a non-event. Neutral, and an offer rather than a scolding.
-  if (ledger.notOnboarded) {
-    return (
-      <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border bg-muted/40 px-3 py-2 text-sm">
-        <BookOpen className="h-4 w-4 shrink-0 text-muted-foreground" />
-        <span>
-          Saved. Onboard <strong>{ledger.vehicle}</strong> to accounting to create full financial
-          statements.
-        </span>
-        <Link href="/funds/status" className="ml-auto text-xs underline underline-offset-2 hover:text-foreground">
-          Onboard
         </Link>
         <button onClick={onDismiss} className="text-muted-foreground hover:text-foreground" aria-label="Dismiss">
           <X className="h-3.5 w-3.5" />
