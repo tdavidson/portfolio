@@ -31,7 +31,8 @@ export interface NoteEntity { id: string; name: string }
 
 /**
  * The entities a new note may be for: the writer's active entities (never the management company,
- * which holds no portfolio), and — for a note about a company — only those linked to that company.
+ * which holds no portfolio); for a note about a company, those of theirs that hold it — or, for a
+ * company no entity holds yet, any of theirs (only an unscoped writer can see such a company).
  */
 export async function noteEntityCandidates(
   admin: SupabaseClient,
@@ -44,10 +45,17 @@ export async function noteEntityCandidates(
       ? (admin as any).from('company_vehicles').select('vehicle_id').eq('fund_id', scope.access.fundId).eq('company_id', companyId)
       : Promise.resolve({ data: null }),
   ])
+  const mine = ((vehicles as any[]) ?? []).filter(v => v.kind !== 'manco' && canSeeVehicle(scope.access, v.id))
   const holding = links.data ? new Set(((links.data as any[]) ?? []).map(l => l.vehicle_id as string)) : null
-  return ((vehicles as any[]) ?? [])
-    .filter(v => v.active && v.kind !== 'manco' && canSeeVehicle(scope.access, v.id) && (!holding || holding.has(v.id)))
-    .map(v => ({ id: v.id as string, name: v.name as string }))
+  // About a company: the writer's entities that hold it — inactive ones included, since a company
+  // held only by a wound-down entity still has notes written about it.
+  const holders = holding ? mine.filter(v => holding.has(v.id)) : []
+  // About no company, or a company no entity holds yet: the writer's active entities — offered for
+  // an unassigned company only to an unscoped writer (only they can see it at all).
+  const pick = holding && (holders.length > 0 || !scope.access.vehicles.all)
+    ? holders
+    : mine.filter(v => v.active)
+  return pick.map(v => ({ id: v.id as string, name: v.name as string }))
 }
 
 /**

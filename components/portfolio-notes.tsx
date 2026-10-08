@@ -9,7 +9,7 @@ import { useAnalystContext } from '@/components/analyst-context'
 import { useFeatureVisibility } from '@/components/feature-visibility-context'
 import Link from 'next/link'
 import { MobileDrawerPanel } from '@/components/mobile-drawer-panel'
-import { NoteEntitySelect } from '@/components/note-entity-select'
+import { NoteEntitySelect, NoteEntityTag } from '@/components/note-entity-select'
 
 interface Note {
   id: string
@@ -19,6 +19,7 @@ interface Note {
   userEmail: string
   companyId: string | null
   companyName: string | null
+  vehicleId?: string | null
   mentionedUserIds: string[]
   mentionedCompanyIds?: string[]
   mentionedGroups?: string[]
@@ -340,6 +341,7 @@ function NotesPanel({ toggle, pageContext }: { toggle: () => void; pageContext?:
                 )}
               </div>
             </div>
+            <NoteEntityTag noteId={note.id} vehicleId={note.vehicleId} companyId={note.companyId} />
             {note.companyName && (
               <Link
                 href={`/companies/${note.companyId}`}

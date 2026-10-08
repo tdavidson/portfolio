@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { resolveNoteEntity } from '@/lib/notes/entity'
 
 export async function PATCH(req: NextRequest, props: { params: Promise<{ noteId: string }> }) {
   const params = await props.params;
@@ -17,7 +19,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ noteId:
   if (writeCheck instanceof NextResponse) return writeCheck
 
   const body = await req.json()
-  const { content, pinned } = body
+  const { content, pinned, vehicleId } = body
 
   const { data: membership } = await admin
     .from('fund_members')
@@ -29,12 +31,28 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ noteId:
 
   const { data: note } = await admin
     .from('company_notes')
-    .select('id, user_id, fund_id')
+    .select('id, user_id, fund_id, company_id')
     .eq('id', params.noteId)
     .eq('fund_id', membership.fund_id)
-    .maybeSingle() as { data: { id: string; user_id: string; fund_id: string } | null }
+    .maybeSingle() as { data: { id: string; user_id: string; fund_id: string; company_id: string | null } | null }
 
   if (!note) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Which entity the note is for — how an unattributed legacy note gets one, or a note moves to
+  // the right team. Its author, or an unscoped user; the new entity must be one the note may be for.
+  if (typeof vehicleId === 'string') {
+    const scope = await loadEntityScopeForUser(admin, user.id)
+    if (!scope) return NextResponse.json({ error: 'No fund found' }, { status: 403 })
+    if (note.user_id !== user.id && !scope.access.vehicles.all) {
+      return NextResponse.json({ error: 'Only the author or an admin can move a note' }, { status: 403 })
+    }
+    const entity = await resolveNoteEntity(admin, scope, note.company_id, vehicleId)
+    if ('error' in entity) return NextResponse.json({ error: entity.error }, { status: entity.status })
+    const { error } = await (admin as any).from('company_notes').update({ vehicle_id: entity.vehicleId }).eq('id', params.noteId)
+    if (error) return dbError(error, 'dashboard-notes')
+    expireTag('notes-badge')
+    return NextResponse.json({ id: params.noteId, vehicleId: entity.vehicleId })
+  }
 
   // Pin/unpin: any fund member can do this
   if (typeof pinned === 'boolean') {

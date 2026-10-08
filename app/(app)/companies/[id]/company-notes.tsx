@@ -9,7 +9,7 @@ import { usePanelContext } from './company-panel-context'
 import { useAnalystContext } from '@/components/analyst-context'
 import { useFeatureVisibility } from '@/components/feature-visibility-context'
 import { MobileDrawerPanel } from '@/components/mobile-drawer-panel'
-import { NoteEntitySelect } from '@/components/note-entity-select'
+import { NoteEntitySelect, NoteEntityTag } from '@/components/note-entity-select'
 
 interface Note {
   id: string
@@ -17,6 +17,7 @@ interface Note {
   userId: string
   userName: string | null
   userEmail: string
+  vehicleId?: string | null
   mentionedUserIds: string[]
   isRead: boolean
   createdAt: string
@@ -222,6 +223,7 @@ function NotesPanel() {
               <span className="text-xs text-muted-foreground">
                 {formatRelativeTime(note.createdAt)}
               </span>
+              <NoteEntityTag noteId={note.id} vehicleId={note.vehicleId} companyId={companyId} />
               {note.edited && (
                 <span className="text-[10px] text-muted-foreground italic">edited</span>
               )}

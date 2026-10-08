@@ -10,6 +10,7 @@ import { PortfolioNotesProvider } from '@/components/portfolio-notes'
 import { useFeatureVisibility } from '@/components/feature-visibility-context'
 import { MentionTextarea, type MentionMember, type MentionTextareaRef } from '@/components/mention-textarea'
 import { Button } from '@/components/ui/button'
+import { NoteEntityTag } from '@/components/note-entity-select'
 
 interface Note {
   id: string
@@ -293,6 +294,7 @@ export default function NotesPage() {
               ) : (
                 <span className="text-[11px] text-muted-foreground">General</span>
               )}
+              <NoteEntityTag noteId={note.id} vehicleId={note.vehicleId} companyId={note.companyId} />
               {/* Pin / Edit / Delete actions */}
               <div className="md:opacity-0 md:group-hover:opacity-100 transition-opacity ml-auto flex items-center gap-1">
                 <button onClick={() => handlePin(note.id, !note.pinnedAt)} title={note.pinnedAt ? 'Unpin' : 'Pin'}>

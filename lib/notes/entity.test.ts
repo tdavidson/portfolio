@@ -45,6 +45,16 @@ describe('noteEntityCandidates — which entities a new note may be for', () => 
   it('a general note: the writer\'s active entities (not the management company)', async () => {
     expect((await noteEntityCandidates(admin, member, null)).map(v => v.name)).toEqual(['Fund I', 'Fund III'])
   })
+  it('a company held only by an inactive entity: that entity is still a candidate', async () => {
+    links.push({ company_id: 'c4', vehicle_id: 'v4' })
+    try {
+      expect((await noteEntityCandidates(admin, everyone, 'c4')).map(v => v.name)).toEqual(['Old SPV'])
+    } finally { links.pop() }
+  })
+  it('an unassigned company: an unscoped writer chooses among their active entities; a member has none', async () => {
+    expect((await noteEntityCandidates(admin, everyone, 'c9')).map(v => v.name)).toEqual(['Fund I', 'Fund II', 'Fund III'])
+    expect(await noteEntityCandidates(admin, member, 'c9')).toEqual([])
+  })
   it('a company note: the company\'s entities that are also the writer\'s', async () => {
     expect((await noteEntityCandidates(admin, member, 'c1')).map(v => v.name)).toEqual(['Fund I'])
     expect((await noteEntityCandidates(admin, everyone, 'c1')).map(v => v.name)).toEqual(['Fund I', 'Fund II'])
