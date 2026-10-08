@@ -11,6 +11,7 @@ import { loadPortfolioSheet } from '@/lib/portfolio/sheet-load'
 
 // GET ?group=<entity> — that entity's portfolio sheet (it must be one of the caller's).
 // GET (no group)      — the caller's aggregate: every entity they can see, never one they cannot.
+//   &exclude=<a>&exclude=<b> — minus these (the dashboard's entity picker). It only ever narrows.
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
   const admin = createAdminClient()
@@ -29,6 +30,8 @@ export async function GET(req: NextRequest) {
     const visible = await visibleVehicleNames(admin, gate)
     const funds = await listVehicles(admin, gate.fundId)
     vehicles = visible === null ? funds : funds.filter(v => visible.includes(v))
+    const exclude = req.nextUrl.searchParams.getAll('exclude').filter(Boolean)
+    if (exclude.length > 0) vehicles = vehicles.filter(v => !exclude.includes(v))
   }
 
   return NextResponse.json({ vehicles, sheet: await loadPortfolioSheet(admin, gate.fundId, vehicles) })

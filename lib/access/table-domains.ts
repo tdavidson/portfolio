@@ -265,6 +265,12 @@ export const TABLE_RULES: Record<string, TableRule> = {
     note: 'Summaries are replayed into the Analyst system prompt, so a colleague who could write your conversation could write your prompt. Owner-only is the containment.',
   },
 
+  dashboard_preferences: {
+    scope: 'owner',
+    column: 'user_id',
+    note: 'One user’s dashboard entity selection (excluded entity ids). Written by api/dashboard/entities with the service role; the fund-wide default lives on fund_settings.',
+  },
+
   // ---- Never through the Data API ------------------------------------------------------------
   fund_api_keys: { scope: 'service', note: 'API key material.' },
   affinity_credentials: { scope: 'service', note: 'Per-user Affinity API key.' },

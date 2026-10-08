@@ -13,8 +13,10 @@ import type { PortfolioSheet, SheetRow } from '@/lib/portfolio/sheet'
  * `group` set: that entity's sheet (`/funds/[id]/portfolio`). Omitted: the viewer's aggregate across
  * every entity they can see (`/dashboard`). The server decides which entities; this only renders.
  */
-export function PortfolioSheetView({ group, sections = ['companies', 'funds', 'crypto'], hideWhenEmpty = false }: {
+export function PortfolioSheetView({ group, exclude, sections = ['companies', 'funds', 'crypto'], hideWhenEmpty = false }: {
   group?: string
+  /** Aggregate only: entity names to leave out (the dashboard's entity picker). */
+  exclude?: string[]
   /** Render nothing (not an empty message) when these sections hold nothing — for a page that
    *  has its own content above. */
   hideWhenEmpty?: boolean
@@ -26,13 +28,15 @@ export function PortfolioSheetView({ group, sections = ['companies', 'funds', 'c
   const [data, setData] = useState<{ vehicles: string[]; sheet: PortfolioSheet } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
+  // Entity names can hold commas, so each is its own `exclude` parameter.
+  const excludeKey = group ? '' : new URLSearchParams((exclude ?? []).map(e => ['exclude', e])).toString()
   useEffect(() => {
-    const qs = group ? `?group=${encodeURIComponent(group)}` : ''
+    const qs = group ? `?group=${encodeURIComponent(group)}` : excludeKey ? `?${excludeKey}` : ''
     fetch(`/api/portfolio/sheet${qs}`)
       .then(async r => (r.ok ? r.json() : Promise.reject((await r.json().catch(() => ({}))).error ?? 'Could not load the portfolio.')))
       .then(setData)
       .catch(e => setError(String(e)))
-  }, [group])
+  }, [group, excludeKey])
 
   if (error) return hideWhenEmpty ? null : <p className="text-sm text-destructive">{error}</p>
   if (!data) return hideWhenEmpty ? null : <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading the portfolio…</div>

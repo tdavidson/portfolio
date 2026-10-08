@@ -1,5 +1,6 @@
 'use client'
 
+import { useState } from 'react'
 import { DashboardCompanies } from './dashboard-companies'
 import { DashboardNotesLayout, DashboardChatButton, DashboardNotesPanel } from './dashboard-notes'
 import { AnalystToggleButton } from '@/components/analyst-button'
@@ -7,7 +8,11 @@ import { AnalystPanel } from '@/components/analyst-panel'
 import type { DashboardPageData } from './load'
 import { PortfolioSheetView } from '@/components/portfolio-sheet'
 
-export function DashboardPageView({ companies, allGroups, canAdd, isAdmin, userId }: DashboardPageData) {
+export function DashboardPageView({ companies, entityOptions, initialExcluded, hasSavedSelection, canAdd, isAdmin, userId }: DashboardPageData) {
+  // The entity selection drives both the company list and the holdings sheet below it.
+  const [excluded, setExcluded] = useState<string[]>(initialExcluded)
+  const [hasSaved, setHasSaved] = useState(hasSavedSelection)
+  const excludedNames = entityOptions.filter(o => excluded.includes(o.id)).map(o => o.name)
   return (
     <DashboardNotesLayout userId={userId} isAdmin={isAdmin} companies={companies.map(c => ({ id: c.id, name: c.name }))}>
     <div className="p-4 md:py-8 md:pl-8 md:pr-4">
@@ -24,11 +29,20 @@ export function DashboardPageView({ companies, allGroups, canAdd, isAdmin, userI
 
       <div className="flex flex-col lg:flex-row gap-6 items-start">
         <div className="flex-1 min-w-0 max-w-page w-full">
-          <DashboardCompanies companies={companies} allGroups={allGroups} canAdd={canAdd} />
+          <DashboardCompanies
+            companies={companies}
+            canAdd={canAdd}
+            entities={{
+              options: entityOptions,
+              excluded,
+              hasSaved,
+              onChange: (next, saved) => { setExcluded(next); setHasSaved(saved) },
+            }}
+          />
           {/* Fund holdings and digital assets across the viewer's entities. Companies are the table
               above, which carries their KPIs; the sheet adds the other two kinds of holding. */}
           <div className="mt-8">
-            <PortfolioSheetView sections={['funds', 'crypto']} hideWhenEmpty />
+            <PortfolioSheetView sections={['funds', 'crypto']} exclude={excludedNames} hideWhenEmpty />
           </div>
         </div>
         <DashboardNotesPanel />

@@ -3,6 +3,8 @@ import { computeSummary, effectiveCompanyStatus } from '@/lib/investments'
 import { entityScopeFor } from '@/lib/access/entity-scope'
 import { scopeTransactions } from '@/lib/access/scope'
 import type { InvestmentTransaction, CompanyStatus } from '@/lib/types/database'
+import { resolveExcluded } from '@/lib/dashboard/entity-selection'
+import { loadActiveEntityOptions, loadFundDefaultExcluded, loadSavedExcluded } from '@/lib/dashboard/entity-selection-load'
 
 export type DashboardPageData = Awaited<ReturnType<typeof loadDashboardPage>>
 
@@ -181,15 +183,20 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
     unrealizedValue: investmentSummaries.get(c.id)?.unrealizedValue ?? null,
   }))
 
-  // The vehicle filter lists only the viewer's entities, never one they cannot see.
-  const allGroups = Array.from(new Set(companiesWithInvestments.flatMap(c => c.portfolioGroup ?? [])))
-    .filter(g => scope.vehicleNames === null || scope.vehicleNames.includes(g))
-    .sort()
-
+  // The entity picker: the viewer's entities holding an active position (companies, fund holdings,
+  // digital assets), and the selection in force — their saved one, else the fund default, else all.
+  const [entityOptions, savedExcluded, fundDefaultExcluded] = await Promise.all([
+    loadActiveEntityOptions(admin, page.access),
+    loadSavedExcluded(admin, page.fundId, user.id),
+    loadFundDefaultExcluded(admin, page.fundId),
+  ])
+  const selection = resolveExcluded({ options: entityOptions, saved: savedExcluded, fundDefault: fundDefaultExcluded })
 
   return {
     companies: companiesWithInvestments,
-    allGroups,
+    entityOptions,
+    initialExcluded: selection.excluded,
+    hasSavedSelection: selection.source === 'saved',
     canAdd: page.role !== 'viewer',
     isAdmin,
     userId: user.id,

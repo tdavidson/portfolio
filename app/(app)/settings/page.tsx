@@ -28,6 +28,7 @@ import { OutboundEmailSection } from './_sections/platform/outbound-email-sectio
 import { RemindersSection } from './_sections/platform/reminders-section'
 import { SendersSection } from './_sections/platform/senders-section'
 import { AiSummaryPromptSection, AiSummaryPromptReadOnly } from './_sections/products/portfolio/ai-summary-prompt-section'
+import { DashboardEntitiesSection } from './_sections/products/portfolio/dashboard-entities-section'
 import { DealScreeningSection } from './_sections/products/investment/deal-screening-section'
 import { KnownReferrersSection } from './_sections/products/investment/known-referrers-section'
 import { MemoAgentSection } from './_sections/products/investment/memo-agent-section'
@@ -230,6 +231,7 @@ export default function SettingsPage() {
               <DefaultMetricsSettings />
             </Section>
             <AiSummaryPromptSection currentPrompt={settings.aiSummaryPrompt} onSaved={load} />
+            <DashboardEntitiesSection />
           </ProductGroup>
 
           <ProductGroup product="investment_workflow" values={visValues} onFeatureChange={handleFeatureChange} onToggled={load}>

@@ -8,7 +8,8 @@ import { Button } from '@/components/ui/button'
 import { DashboardTable } from './dashboard-table'
 import { AddCompanyButton } from '@/components/add-company-button'
 import { useCurrency, getCurrencySymbol } from '@/components/currency-context'
-import { matchesVehicle, vehicleFilterOptions } from './vehicle-filter'
+import { EntityPicker } from './entity-picker'
+import { companyInSelection, type EntityOption } from '@/lib/dashboard/entity-selection'
 import { isNewCompany } from '@/lib/investments'
 
 interface ActiveMetric {
@@ -43,8 +44,14 @@ interface Company {
 
 interface Props {
   companies: Company[]
-  allGroups: string[]
   canAdd?: boolean
+  /** The entity selection, held by the page so the holdings sheet follows it too. */
+  entities: {
+    options: EntityOption[]
+    excluded: string[]
+    hasSaved: boolean
+    onChange: (excluded: string[], hasSaved: boolean) => void
+  }
 }
 
 type SortMode = 'alpha' | 'investDate' | null
@@ -74,10 +81,9 @@ function formatCurrency(v: number): string {
   return neg ? `-${str}` : str
 }
 
-export function DashboardCompanies({ companies, allGroups, canAdd }: Props) {
+export function DashboardCompanies({ companies, canAdd, entities }: Props) {
   const [view, setView] = useState<'cards' | 'table'>('cards')
   const [statusFilter, setStatusFilter] = useState<string>('active')
-  const [vehicleFilter, setVehicleFilter] = useState<string>('')
   const [sortMode, setSortMode] = useState<SortMode>('investDate')
   const [alphaSortAsc, setAlphaSortAsc] = useState(true)
   const [investDateSortAsc, setInvestDateSortAsc] = useState(false) // newest first by default
@@ -87,13 +93,11 @@ export function DashboardCompanies({ companies, allGroups, canAdd }: Props) {
     if (statusFilter) {
       result = result.filter(c => c.status === statusFilter)
     }
-    if (vehicleFilter) {
-      result = result.filter(c => matchesVehicle(c, vehicleFilter))
+    if (entities.excluded.length > 0) {
+      result = result.filter(c => companyInSelection(c.portfolioGroup, entities.options, entities.excluded))
     }
     return result
-  }, [companies, statusFilter, vehicleFilter])
-
-  const vehicleOptions = useMemo(() => vehicleFilterOptions(allGroups, companies), [allGroups, companies])
+  }, [companies, statusFilter, entities.options, entities.excluded])
 
   function sortCompanies(list: Company[]) {
     if (sortMode === 'alpha') {
@@ -133,18 +137,13 @@ export function DashboardCompanies({ companies, allGroups, canAdd }: Props) {
             <option value="exited">Exited</option>
             <option value="written-off">Written Off</option>
           </select>
-          {vehicleOptions.length > 0 && (
-            <select
-              value={vehicleFilter}
-              onChange={e => setVehicleFilter(e.target.value)}
-              aria-label="Filter by vehicle"
-              className="h-8 max-w-[14rem] rounded-md border border-input bg-background px-3 text-xs"
-            >
-              <option value="">All Vehicles</option>
-              {vehicleOptions.map(o => (
-                <option key={o.value} value={o.value}>{o.label}</option>
-              ))}
-            </select>
+          {entities.options.length > 0 && (
+            <EntityPicker
+              options={entities.options}
+              excluded={entities.excluded}
+              hasSaved={entities.hasSaved}
+              onChange={entities.onChange}
+            />
           )}
           <div className="ml-auto flex items-center gap-1">
             <Button

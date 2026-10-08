@@ -279,6 +279,9 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/company-updates/status': { domain: 'portfolio' },
   'api/company-updates/backfill': { domain: 'admin', level: { GET: 'read', POST: 'write' } },
   'api/dashboard/table-data': { domain: 'portfolio' },
+  // The caller's own entity selection for the dashboard: read level for every method, because
+  // saving how YOU view the portfolio changes nothing anyone else sees.
+  'api/dashboard/entities': { domain: 'portfolio', level: 'read' },
   'api/default-metrics': { domain: 'portfolio' },
   'api/default-metrics/[id]': { domain: 'portfolio' },
   'api/default-metrics/apply': { domain: 'portfolio' },
@@ -460,6 +463,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/settings/theme': { domain: 'portfolio', level: 'any' },
   'api/settings/notifications': { domain: 'portfolio', level: 'any' },
   'api/settings/reminders': { domain: 'admin' },
+  'api/settings/dashboard-entities': { domain: 'admin' },
   'api/settings/reminders/test': { domain: 'admin' },
   'api/auth/activity': { domain: 'portfolio', level: 'any' },
   // Affinity issues ONE KEY PER USER, scoped to that user's own permissions, so each member
