@@ -11,6 +11,8 @@ import { assertWriteAccess } from '@/lib/api-helpers'
 import { assertDomainAccess } from '@/lib/access/gate'
 import { domainForRerouteTarget, isRerouteTarget, type RerouteTarget } from '@/lib/access/reroute-targets'
 import { removeCompanyUpdate } from '@/lib/company-updates/capture'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -61,6 +63,14 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const emailId = (emailData as any).id as string
   const fundId = (emailData as any).fund_id as string
   const originalLabel = ((emailData as any).routing_label ?? (emailData as any).routed_to ?? 'reporting') as string
+
+  // Rerouting wipes the deal this email became. If that deal is another entity's (an admin assigned
+  // it), the caller may not destroy it. '*': vehicle_id exists once the entity migration has run.
+  const { data: madeDeals } = await admin.from('inbound_deals').select('*').eq('email_id', emailId).eq('fund_id', fundId)
+  const rerouteScope = await loadEntityScopeForUser(admin, user.id)
+  if (((madeDeals as any[]) ?? []).some(d => !rerouteScope || !canSeeVehicle(rerouteScope.access, d.vehicle_id ?? null))) {
+    return NextResponse.json({ error: 'This email became a deal you can’t change. Ask an admin to reroute it.' }, { status: 403 })
+  }
 
   // Wipe records from all pipelines so the destination starts from a clean slate.
   await Promise.all([

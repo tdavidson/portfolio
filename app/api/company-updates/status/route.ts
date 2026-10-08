@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveFund } from '@/lib/api-helpers'
 import { CAPTURE_VERSION } from '@/lib/company-updates/extraction'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 
 /**
  * Coverage and quality counts for the fund's Company Updates corpus — eligible emails vs captured
@@ -17,6 +18,10 @@ export async function GET(_req: NextRequest) {
   const admin = createAdminClient()
   const fund = await resolveFund(admin, user.id)
   if (fund instanceof NextResponse) return fund
+
+  // Corpus-wide counts across every company: for unscoped callers only.
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  if (!scope || scope.companyIds !== null) return NextResponse.json({ error: 'Not available' }, { status: 403 })
 
   const { data, error } = await (admin as any).rpc('company_updates_stats', {
     p_fund_id: fund.fundId,

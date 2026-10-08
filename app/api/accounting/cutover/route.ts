@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // caller's grant for this route + method; these resolve identity and keep the demo out of writes.
 import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { previewCutover, applyCutover, revertCutover } from '@/lib/accounting/snapshot-cutover'
+import { loadAccessContext } from '@/lib/access/effective'
 
 // The LP-snapshot → capital-events cutover.
 //
@@ -28,6 +29,10 @@ export async function GET(req: NextRequest) {
   // refuse the read-only demo, which this GET never refused.)
   const gate = await assertReadAccess(admin, user.id)
   if (gate instanceof NextResponse) return gate
+  // Cutover reads and writes every vehicle's LP positions at once: unscoped callers only.
+  if (!(await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)).vehicles.all) {
+    return NextResponse.json({ error: 'Cutover covers every entity, so it needs access to all of them.' }, { status: 403 })
+  }
 
   const snapshotId = req.nextUrl.searchParams.get('snapshot') ?? undefined
   try {
@@ -44,6 +49,10 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const gate = await assertWriteAccess(admin, user.id)
   if (gate instanceof NextResponse) return gate
+  // Cutover reads and writes every vehicle's LP positions at once: unscoped callers only.
+  if (!(await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)).vehicles.all) {
+    return NextResponse.json({ error: 'Cutover covers every entity, so it needs access to all of them.' }, { status: 403 })
+  }
 
   const body = await req.json().catch(() => ({}))
   try {
@@ -61,6 +70,10 @@ export async function DELETE(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   const gate = await assertWriteAccess(admin, user.id)
   if (gate instanceof NextResponse) return gate
+  // Cutover reads and writes every vehicle's LP positions at once: unscoped callers only.
+  if (!(await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)).vehicles.all) {
+    return NextResponse.json({ error: 'Cutover covers every entity, so it needs access to all of them.' }, { status: 403 })
+  }
 
   const snapshotId = req.nextUrl.searchParams.get('snapshot')
   if (!snapshotId) return NextResponse.json({ error: 'snapshot is required' }, { status: 400 })

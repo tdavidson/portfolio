@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveFund } from '@/lib/api-helpers'
 import { getCompanyUpdate } from '@/lib/company-updates/search'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { updateVisible } from '@/lib/company-updates/scope'
 
 /**
  * One Company Update in full: both body representations (original and cleaned current message),
@@ -21,7 +23,8 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
 
   try {
     const update = await getCompanyUpdate(admin as any, { fundId: fund.fundId, updateId: params.id })
-    if (!update) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    const scope = await loadEntityScopeForUser(admin, user.id)
+    if (!update || !updateVisible(update, scope ? scope.companyIds : [])) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     return NextResponse.json({
       ...update,
       source_email_url: `/emails/${update.source_email_id}`,

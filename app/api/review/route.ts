@@ -43,6 +43,19 @@ export async function GET() {
 
   const rows = (data ?? []) as unknown as ReviewRow[]
 
+  // The router's diligence match names a record; keep it only when the caller can see that record
+  // (read with their own client, so RLS applies the entity rule).
+  const dealIds = Array.from(new Set(rows.map(r => r.inbound_emails?.diligence_deal_id).filter(Boolean))) as string[]
+  const { data: visibleDeals } = dealIds.length
+    ? await (supabase as any).from('diligence_deals').select('id').in('id', dealIds)
+    : { data: [] }
+  const seenDeals = new Set(((visibleDeals as any[]) ?? []).map(d => d.id as string))
+  for (const r of rows) {
+    if (r.inbound_emails?.diligence_deal_id && !seenDeals.has(r.inbound_emails.diligence_deal_id)) {
+      r.inbound_emails = { ...r.inbound_emails, diligence_deal_id: null }
+    }
+  }
+
   const items = rows.map(r => ({
     id: r.id,
     issue_type: r.issue_type,

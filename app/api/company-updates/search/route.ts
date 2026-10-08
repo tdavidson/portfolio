@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveFund } from '@/lib/api-helpers'
 import { SearchParamsError, parseSearchParams, searchCompanyUpdates } from '@/lib/company-updates/search'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { scopeSearchParams } from '@/lib/company-updates/scope'
 
 /**
  * Portfolio update search — the Company Updates corpus only, never the mailbox. Query params:
@@ -21,7 +23,13 @@ export async function GET(req: NextRequest) {
   if (fund instanceof NextResponse) return fund
 
   try {
-    const params = parseSearchParams(fund.fundId, Object.fromEntries(req.nextUrl.searchParams.entries()))
+    const requested = parseSearchParams(fund.fundId, Object.fromEntries(req.nextUrl.searchParams.entries()))
+    // Only the caller's companies: the search RPC filters on exactly the ids it is given.
+    const scope = await loadEntityScopeForUser(admin, user.id)
+    const params = scopeSearchParams(requested, scope ? scope.companyIds : [])
+    if (!params) {
+      return NextResponse.json({ total: 0, results: [], next_cursor: null, match_mode: 'none', order: 'newest', latency_ms: 0 })
+    }
     const started = Date.now()
     const response = await searchCompanyUpdates(admin as any, params)
     return NextResponse.json({ ...response, latency_ms: Date.now() - started })

@@ -112,7 +112,7 @@ describe('applyDefaultsToAllCompanies', () => {
       companies: ['co-1', 'co-2'],
     })
 
-    const res = await applyDefaultsToAllCompanies(client, 'fund-1')
+    const res = await applyDefaultsToAllCompanies(client, 'fund-1', null)
 
     expect(res.companies).toBe(2)
     expect(res.inserted).toBe(3) // co-1: arr; co-2: cash + arr

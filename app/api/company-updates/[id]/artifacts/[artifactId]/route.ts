@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveFund } from '@/lib/api-helpers'
 import { getCompanyUpdate, getCompanyUpdateArtifact } from '@/lib/company-updates/search'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { updateVisible } from '@/lib/company-updates/scope'
 
 /**
  * One artifact: its complete extracted text with chunk locators, or — with `?download=1` — a
@@ -28,6 +30,10 @@ export async function GET(
   try {
     const artifact = await getCompanyUpdateArtifact(admin as any, { fundId: fund.fundId, artifactId: params.artifactId })
     if (!artifact || artifact.update_id !== params.id) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    // An attachment is its update's: visible only when the update's company is the caller's.
+    const scope = await loadEntityScopeForUser(admin, user.id)
+    const parent = await getCompanyUpdate(admin as any, { fundId: fund.fundId, updateId: params.id })
+    if (!parent || !updateVisible(parent, scope ? scope.companyIds : [])) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
     if (req.nextUrl.searchParams.get('download') === '1') {
       if (!artifact.storage_path) {

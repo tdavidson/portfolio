@@ -3,7 +3,7 @@ import { expireTag } from '@/lib/cache/tags'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
-import { filterByCompany } from '@/lib/access/scope'
+import { scopeNotesQuery } from '@/lib/notes/entity'
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -32,13 +32,14 @@ export async function POST(req: NextRequest) {
   if (!membership) return NextResponse.json({ error: 'No fund found' }, { status: 403 })
 
   // Validate note IDs belong to the user's fund
-  // …and to notes the caller can see.
+  // …and to notes the caller can read (the note rule: lib/notes/entity.ts).
   const scope = await loadEntityScopeForUser(admin, user.id)
-  const { data: validNotes } = await filterByCompany((admin as any)
+  if (!scope) return NextResponse.json({ ok: true })
+  const { data: validNotes } = await scopeNotesQuery((admin as any)
     .from('company_notes')
     .select('id')
     .in('id', ids)
-    .eq('fund_id', membership.fund_id), scope ? scope.companyIds : [], { keepUnlinked: true }) as { data: { id: string }[] | null }
+    .eq('fund_id', membership.fund_id), scope) as { data: { id: string }[] | null }
 
   const validIds = new Set((validNotes ?? []).map(n => n.id))
 

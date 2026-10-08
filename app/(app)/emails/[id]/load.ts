@@ -43,12 +43,20 @@ export async function loadEmailPage({ supabase }: PageContext, params: { id: str
   const { data: emailData, error } = await supabase
     .from('inbound_emails')
     .select(
-      'id, from_address, subject, received_at, processing_status, processing_error, claude_response, metrics_extracted, attachments_count, raw_payload, company_id, fund_id, routed_to, routing_label, routing_confidence, routing_reasoning'
+      'id, from_address, subject, received_at, processing_status, processing_error, claude_response, metrics_extracted, attachments_count, raw_payload, company_id, fund_id, routed_to, routing_label, routing_confidence, routing_reasoning, diligence_deal_id'
     )
     .eq('id', params.id)
     .maybeSingle()
 
   if (error || !emailData) return null
+
+  // The router's reasoning can name the diligence record it matched; show it only when the viewer
+  // can see that record (their own client, so RLS applies the entity rule).
+  const matchedDeal = (emailData as any).diligence_deal_id as string | null
+  if (matchedDeal) {
+    const { data: deal } = await (supabase as any).from('diligence_deals').select('id').eq('id', matchedDeal).maybeSingle()
+    if (!deal) (emailData as any).routing_reasoning = null
+  }
 
   const email = emailData as unknown as InboundEmail
 

@@ -5,6 +5,8 @@ import { classifyDocumentHeuristic } from '@/lib/memo-agent/heuristic-classify'
 import { enqueueIngestForDocuments } from '@/lib/diligence/enqueue-ingest'
 import { scanFileAsync } from '@/lib/security/scan-file'
 import type { PostmarkPayload } from '@/lib/pipeline/processEmail'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 /**
  * Accept an inbound email into a diligence deal's data room.
@@ -56,13 +58,18 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     return NextResponse.json({ error: 'deal_id is required — no deal was matched for this email.' }, { status: 400 })
   }
 
+  // Only into one of the caller's entities' data rooms — the router matches against every active
+  // record, and the request may name any. '*': vehicle_id exists once the entity migration has run.
   const { data: deal } = await admin
     .from('diligence_deals')
-    .select('id, name')
+    .select('*')
     .eq('id', dealId)
     .eq('fund_id', fundId)
     .maybeSingle()
-  if (!deal) return NextResponse.json({ error: 'Diligence deal not found' }, { status: 404 })
+  const scope = await loadEntityScopeForUser(admin, userId)
+  if (!deal || !scope || !canSeeVehicle(scope.access, (deal as any).vehicle_id ?? null)) {
+    return NextResponse.json({ error: 'Diligence deal not found' }, { status: 404 })
+  }
 
   const payload = ((email as any).raw_payload ?? {}) as PostmarkPayload
   const attachments = payload.Attachments ?? []

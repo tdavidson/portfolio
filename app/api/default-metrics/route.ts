@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertReadAccess, assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
 import { applyDefaultsToAllCompanies } from '@/lib/metrics/seed-default-metrics'
+import { loadEntityScope } from '@/lib/access/entity-scope'
 
 // The fund-wide default metric profile. Admin-only: it writes into every company, so the
 // question is "may this person configure the fund?", not a per-domain grant.
@@ -74,8 +75,8 @@ export async function POST(req: NextRequest) {
 
   if (error) return dbError(error, 'default-metrics')
 
-  // Apply to every existing company now (new companies get seeded at creation).
-  const { inserted, companies } = await applyDefaultsToAllCompanies(admin, gate.fundId)
+  // Apply to the caller's existing companies now (new companies get seeded at creation).
+  const { inserted, companies } = await applyDefaultsToAllCompanies(admin, gate.fundId, (await loadEntityScope(admin, gate)).companyIds)
 
   return NextResponse.json({ metric: data, applied: { inserted, companies } }, { status: 201 })
 }

@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { filterByCompany } from '@/lib/access/scope'
 
 /**
  * The fund-wide "default metric profile". An admin defines these once (Settings → Portfolio →
@@ -97,13 +98,16 @@ export async function seedCompanyFromDefaults(
  */
 export async function applyDefaultsToAllCompanies(
   admin: SupabaseClient,
-  fundId: string
+  fundId: string,
+  /** The caller's companies (null = all). Required: a scoped member syncs only theirs. */
+  visibleCompanyIds: string[] | null,
 ): Promise<{ inserted: number; companies: number }> {
-  const { data: companies } = await admin
+  const { data: companies } = await filterByCompany((admin as any)
     .from('companies')
     .select('id')
     .eq('fund_id', fundId)
-    .eq('holding_type', 'company')   // fund holdings have their own surfaces
+    .eq('holding_type', 'company'),   // fund holdings have their own surfaces
+    visibleCompanyIds, { column: 'id' })
 
   const ids = ((companies ?? []) as { id: string }[]).map(c => c.id)
   let inserted = 0

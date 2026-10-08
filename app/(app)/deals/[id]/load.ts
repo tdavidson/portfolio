@@ -26,12 +26,16 @@ export async function loadDealPage({ admin, page }: PageContext, params: { id: s
 
   let priorDeal: DealPageData['priorDeal'] = null
   if ((deal as any).prior_deal_id) {
+    // '*': vehicle_id exists once the entity migration has run. Another entity's earlier deal is
+    // not named here.
     const { data } = await admin
       .from('inbound_deals')
-      .select('id, company_name, created_at')
+      .select('*')
       .eq('id', (deal as any).prior_deal_id)
       .maybeSingle()
-    priorDeal = data as typeof priorDeal
+    if (data && canSeeVehicle(page.access, (data as any).vehicle_id ?? null)) {
+      priorDeal = { id: (data as any).id, company_name: (data as any).company_name, created_at: (data as any).created_at } as NonNullable<DealPageData['priorDeal']>
+    }
   }
 
   return { deal: deal as any, email: email as any, priorDeal }
