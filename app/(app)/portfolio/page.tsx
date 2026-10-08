@@ -1,6 +1,7 @@
 'use client'
 
 import { Suspense, useEffect, useState } from 'react'
+import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { PortfolioSheetView } from '@/components/portfolio-sheet'
 
@@ -65,6 +66,11 @@ function HoldingsByEntity() {
         </div>
       )}
 
+      {entity && (
+        <Link href={`/entities/${entity.id}/documents`} className="inline-block text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground">
+          {entity.name} documents — LPA, side letters, amendments
+        </Link>
+      )}
       {entities !== null && <PortfolioSheetView key={entity?.name ?? 'all'} group={entity?.name} />}
     </div>
   )

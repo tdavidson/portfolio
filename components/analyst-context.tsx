@@ -62,6 +62,11 @@ interface AnalystContextValue {
   deleteConversation: (id: string) => Promise<void>
   showHistory: boolean
   setShowHistory: (show: boolean) => void
+  /** Open the Analyst with a question typed into its input, for the user to review and send. */
+  ask: (question: string) => void
+  /** The question waiting to be put in the input (consumed by the conversation view). */
+  prefill: string | null
+  clearPrefill: () => void
 }
 
 const AnalystContext = createContext<AnalystContextValue | null>(null)
@@ -95,6 +100,9 @@ export function AnalystProvider({
 
   const toggleOpen = useCallback(() => setOpen(prev => !prev), [])
   const close = useCallback(() => setOpen(false), [])
+  const [prefill, setPrefill] = useState<string | null>(null)
+  const ask = useCallback((question: string) => { setPrefill(question); setOpen(true) }, [])
+  const clearPrefill = useCallback(() => setPrefill(null), [])
 
   // Reset conversation state when companyId changes
   const setCompanyId = useCallback((id: string | null) => {
@@ -285,6 +293,9 @@ export function AnalystProvider({
       deleteConversation,
       showHistory,
       setShowHistory,
+      ask,
+      prefill,
+      clearPrefill,
     }}>
       {children}
     </AnalystContext.Provider>

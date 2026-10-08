@@ -245,6 +245,11 @@ export function FundDetailView({ vehicle, vehicleId }: { vehicle: string; vehicl
         truncateTitle
         actions={<>
           {hasGpSplit && <LensToggle lens={lens} setLens={setLens} />}
+          {vehicleId && (
+            <Link href={`/entities/${vehicleId}/documents`} className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground whitespace-nowrap">
+              Documents
+            </Link>
+          )}
           <FundSwitcher />
         </>}
       >

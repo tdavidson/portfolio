@@ -13,6 +13,7 @@ import { Card, CardContent } from '@/components/ui/card'
 import { Metric as MetricBox } from '@/components/ui/metric'
 import { ChartCard, EmptyPlot, AXIS, tooltipStyle, HUE } from '@/components/fund-chart-kit'
 import { IntercompanyPanel } from '@/components/accounting/intercompany-panel'
+import Link from 'next/link'
 
 // The management company dashboard. Everything here is READ-ONLY and derived from the manco's own
 // ledger — see lib/accounting/manco-overview.ts for what each figure means and why.
@@ -105,7 +106,12 @@ export function MancoDetailView({
           <span className="shrink-0 rounded-md bg-muted px-1.5 py-0.5 text-caption font-normal text-muted-foreground">Inactive</span>
         )}</span>}
         titleAttr={vehicle}
-        actions={<FundSwitcher />}
+        actions={<>
+          <Link href={`/entities/${vehicleId}/documents`} className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground whitespace-nowrap">
+            Documents
+          </Link>
+          <FundSwitcher />
+        </>}
       >
         Management company &mdash; cash, the quarterly fee cycle, operating costs, and
         intercompany balances with the funds.

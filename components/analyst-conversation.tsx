@@ -105,10 +105,18 @@ export function AnalystConversation({
     showHistory,
     setShowHistory,
     ensureModels,
+    prefill,
+    clearPrefill,
   } = useAnalystContext()
   const appFetch = useAppFetch()
 
   const [input, setInput] = useState('')
+  // A question a page asked us to start with (useAnalystContext().ask): into the input, unsent.
+  useEffect(() => {
+    if (prefill === null) return
+    setInput(prefill)
+    clearPrefill()
+  }, [prefill, clearPrefill])
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [savingIdx, setSavingIdx] = useState<number | null>(null)
