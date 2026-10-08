@@ -4,13 +4,13 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // portfolio domain, investments feature (lib/access/route-domains.ts). The middleware has
 // already checked the grant.
 import { assertReadAccess, assertWriteAccess } from '@/lib/api-helpers'
-import { computeFundPositions } from '@/lib/portfolio/fof-metrics'
+import { fundHoldingRows } from '@/lib/portfolio/fof-holdings'
 import { loadEntityScope } from '@/lib/access/entity-scope'
 import { dealEntityProblem, scopeCompanyRows, visibleVehicleIds } from '@/lib/access/scope'
 
-// The fund-of-funds position table: one row per underlying fund, every figure derived.
-// Nothing here is stored — see lib/portfolio/fof-metrics.ts for why carrying value is a
-// roll-forward rather than a column.
+// The fund-of-funds position table: one row per (underlying fund, entity that holds it), every
+// figure derived. Nothing here is stored — see lib/portfolio/fof-metrics.ts for why carrying value
+// is a roll-forward, and lib/portfolio/fof-holdings.ts for why two entities are two rows.
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
   const admin = createAdminClient()
@@ -21,54 +21,27 @@ export async function GET(req: NextRequest) {
 
   const asOf = req.nextUrl.searchParams.get('asOf') ?? new Date().toISOString().slice(0, 10)
 
-  const [holdings, terms, events, navs] = await Promise.all([
+  const [holdings, terms, events, navs, vehicles] = await Promise.all([
     admin.from('companies').select('id, name')
       .eq('fund_id', gate.fundId).eq('holding_type', 'fund').order('name'),
     (admin as any).from('fund_holding_terms').select('*').eq('fund_id', gate.fundId),
     (admin as any).from('fund_capital_events').select('*').eq('fund_id', gate.fundId),
     (admin as any).from('fund_nav_statements').select('*').eq('fund_id', gate.fundId),
+    (admin as any).from('fund_vehicles').select('id, name').eq('fund_id', gate.fundId),
   ])
 
   // Only fund holdings linked to the caller's entities, and only their entities' calls,
-  // distributions and statements — another entity's commitment to the same fund is not theirs.
+  // distributions, statements and terms — another entity's commitment to the same fund is not theirs.
   const scope = await loadEntityScope(admin, gate)
   const vehicleIds = visibleVehicleIds(scope.access)
-  holdings.data = scopeCompanyRows((holdings.data ?? []) as any[], scope.companyIds) as any
-  events.data = scopeCompanyRows((events.data ?? []) as any[], vehicleIds, 'vehicle_id')
-  navs.data = scopeCompanyRows((navs.data ?? []) as any[], vehicleIds, 'vehicle_id')
-  terms.data = scopeCompanyRows((terms.data ?? []) as any[], vehicleIds, 'vehicle_id')
 
-  const termByCompany = new Map((terms.data ?? []).map((t: any) => [t.company_id, t]))
-
-  const positions = computeFundPositions({
+  const positions = fundHoldingRows({
     asOf,
-    terms: ((holdings.data ?? []) as any[]).map(h => {
-      const t: any = termByCompany.get(h.id)
-      return {
-        companyId: h.id,
-        name: h.name,
-        managerName: t?.manager_name ?? null,
-        vintageYear: t?.vintage_year ?? null,
-        strategy: t?.strategy ?? null,
-        commitment: Number(t?.commitment ?? 0),
-      }
-    }),
-    events: ((events.data ?? []) as any[]).map(e => ({
-      companyId: e.company_id,
-      kind: e.kind,
-      eventDate: e.event_date,
-      amount: Number(e.amount),
-      recallableAmount: Number(e.recallable_amount ?? 0),
-      charReturnOfCapital: Number(e.char_return_of_capital ?? 0),
-      charRealizedGain: Number(e.char_realized_gain ?? 0),
-      charIncome: Number(e.char_income ?? 0),
-    })),
-    navs: ((navs.data ?? []) as any[]).map(n => ({
-      companyId: n.company_id,
-      asOfDate: n.as_of_date,
-      reportedNav: Number(n.reported_nav),
-      basis: n.basis,
-    })),
+    holdings: scopeCompanyRows(((holdings.data ?? []) as any[]), scope.companyIds),
+    terms: scopeCompanyRows(((terms.data ?? []) as any[]), vehicleIds, 'vehicle_id'),
+    events: scopeCompanyRows(((events.data ?? []) as any[]), vehicleIds, 'vehicle_id'),
+    navs: scopeCompanyRows(((navs.data ?? []) as any[]), vehicleIds, 'vehicle_id'),
+    vehicles: ((vehicles.data ?? []) as any[]).map(v => ({ id: v.id as string, name: v.name as string })),
   })
 
   return NextResponse.json({ positions, asOf })

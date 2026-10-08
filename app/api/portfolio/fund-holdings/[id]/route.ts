@@ -6,12 +6,12 @@ import { resolveHoldingVehicle } from '@/lib/portfolio/fof-register'
 import { assertReadAccess, assertWriteAccess } from '@/lib/api-helpers'
 import { ACTUAL_BOOK } from '@/lib/accounting/books'
 import { loadAccessContext } from '@/lib/access/effective'
-import { scopeCompanyRows, visibleVehicleIds } from '@/lib/access/scope'
+import { canSeeVehicle, scopeCompanyRows, visibleVehicleIds } from '@/lib/access/scope'
 import { companyDeleteDenial } from '@/lib/access/company-delete'
 import { loadEntityScope } from '@/lib/access/entity-scope'
 
 // One fund holding and its terms.
-export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
+export async function GET(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
   const supabase = await createClient()
   const admin = createAdminClient()
@@ -41,25 +41,40 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
   events.data = scopeCompanyRows((events.data as any[]) ?? [], visible, 'vehicle_id')
   navs.data = scopeCompanyRows((navs.data as any[]) ?? [], visible, 'vehicle_id')
 
-  // WHICH ENTITY HOLDS THIS FUND, so the panel can ask only when it does not already know. The
-  // vehicle lives on the register rows (nothing on `companies` or `fund_holding_terms` carries
-  // it), so it is derived from them rather than stored twice. More than one means the register
-  // disagrees with itself and the panel asks.
-  const vehicleIds = Array.from(new Set([
-    ...((events.data as any[]) ?? []), ...((navs.data as any[]) ?? []),
+  // THE ENTITIES THAT HOLD THIS FUND, of those the caller can see — from its register rows (nothing
+  // on `companies` carries the vehicle). The panel shows one entity at a time: two entities' positions
+  // in one fund are two positions (lib/portfolio/fof-holdings.ts).
+  const entityIds = Array.from(new Set([
+    ...((terms.data as any[]) ?? []), ...((events.data as any[]) ?? []), ...((navs.data as any[]) ?? []),
   ].map(r => r.vehicle_id).filter(Boolean))) as string[]
-  const { data: vehicleRows } = vehicleIds.length > 0
-    ? await admin.from('fund_vehicles' as any).select('id, name').eq('fund_id', gate.fundId).in('id', vehicleIds)
+  const requested = req.nextUrl.searchParams.get('entity')
+  const lookup = Array.from(new Set([...entityIds, ...(requested ? [requested] : [])]))
+  const { data: vehicleRows } = lookup.length > 0
+    ? await admin.from('fund_vehicles' as any).select('id, name').eq('fund_id', gate.fundId).in('id', lookup)
     : { data: [] as any[] }
+  const names = new Map(((vehicleRows as any[]) ?? []).map(v => [v.id as string, v.name as string]))
+  const entities = entityIds.filter(id => names.has(id))
+    .map(id => ({ id, name: names.get(id)! }))
+    .sort((a, b) => a.name.localeCompare(b.name))
+
+  // The one asked for when it is in this fund and the caller's (it may hold nothing here yet — the
+  // first notice or statement names it), else the holding's first entity, else none.
+  const selected = requested && names.has(requested) && canSeeVehicle(access, requested)
+    ? requested
+    : entities[0]?.id ?? null
+  // Legacy rows naming no entity belong with the holding's only entity, or stand alone when it has none.
+  const forEntity = (rows: any[]) => rows.filter(r =>
+    (r.vehicle_id ?? null) === selected || (r.vehicle_id == null && entities.length <= 1))
 
   return NextResponse.json({
     holding: holding.data,
-    terms: ((terms.data as any[]) ?? [])[0] ?? null,
-    events: events.data ?? [],
-    navStatements: navs.data ?? [],
-    /** Null until the first notice names one; a second entry means the register is inconsistent. */
-    vehicleId: vehicleIds.length === 1 ? vehicleIds[0] : null,
-    vehicles: ((vehicleRows as any[]) ?? []).map(v => ({ id: v.id as string, name: v.name as string })),
+    terms: forEntity((terms.data as any[]) ?? []).sort((a, b) => (a.vehicle_id ? 0 : 1) - (b.vehicle_id ? 0 : 1))[0] ?? null,
+    events: forEntity((events.data as any[]) ?? []),
+    navStatements: forEntity((navs.data as any[]) ?? []),
+    /** The entity shown; null until the holding's first notice or statement names one. */
+    vehicleId: selected,
+    /** Every entity of this holding the caller can see, by name. */
+    vehicles: entities,
   })
 }
 
