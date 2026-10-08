@@ -13,10 +13,11 @@
 //   unrealized, no cost line  → a mark
 //   FX translation, no cost   → an FX mark
 // A 1200/1250 credit beside a cost credit is the exit unwinding its mark, not a separate mark.
+// A company's own 4000 gain with no cost line is an earn-out after a full exit: proceeds, zero basis.
 //
 // WHAT IT REFUSES TO GUESS, in plain words for the person posting: a pooled account (which
-// company?), a pooled gain or escrow across several exits (whose?), a gain with no exit, lines it
-// cannot read, and conversions (a SAFE or note becoming equity has its own transaction shape —
+// company?), a pooled gain or escrow across several exits (whose?), a gain beside a cost line that
+// nets to zero, an exit with a mark-up beside it, lines it cannot read, and conversions (a SAFE or note becoming equity has its own transaction shape —
 // record it on the company).
 
 import { roundCents } from './ledger'
@@ -103,6 +104,13 @@ export function readInvestmentLines(postings: ReadPosting[], chart: ChartAccount
   const transactions: AdoptedTxn[] = []
   for (const id of companies) {
     const c = per.get(id)!
+    if (c.realized !== 0 && !c.hadCost) {
+      // A gain on the company's own 4000 with no cost line: an earn-out or distribution after a
+      // full exit. Derivation builds exactly this entry for a zero-basis exit.
+      if (c.unrealized !== 0 || c.fx !== 0) return { refused: 'This entry\'s investment lines cannot be read as a purchase, an exit or a mark. Split it into one entry per transaction.' }
+      transactions.push({ company_id: id, transaction_type: 'proceeds', cost_basis_exited: 0, proceeds_received: roundCents(-c.realized) })
+      continue
+    }
     if (c.realized !== 0 && c.cost >= 0) {
       return { refused: 'This entry books a realized gain with no exit — nothing is sold from the position. Record the exit with its cost basis, or book the gain elsewhere.' }
     }
@@ -117,6 +125,7 @@ export function readInvestmentLines(postings: ReadPosting[], chart: ChartAccount
       continue
     }
     if (c.cost < 0) {
+      if (c.unrealized > 0 || c.fx > 0) return { refused: 'This entry records an exit and a mark-up together. Split the mark into its own entry.' }
       const basis = roundCents(-c.cost)
       const gain = roundCents(-(c.realized + (companies.length === 1 ? pooledGain : 0)))
       const held = companies.length === 1 || exits.length === 1 ? escrow : 0

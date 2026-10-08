@@ -1,6 +1,7 @@
 // lib/accounting/adopt.test.ts
 import { describe, it, expect } from 'vitest'
 import { readInvestmentLines, touchesInvestmentAccounts } from './adopt'
+import { exitPostings } from './from-portfolio'
 import type { ChartAccount } from './investment-accounts'
 
 const A = (id: string, code: string, type: string, subtype: string | null, companyId: string | null = null): ChartAccount =>
@@ -66,6 +67,20 @@ describe('readInvestmentLines — what it reads', () => {
       { company_id: 'co-a', transaction_type: 'proceeds', cost_basis_exited: 800, proceeds_received: 900, proceeds_escrow: 100 },
     ] })
   })
+  it("an earn-out: the company's own 4000 gain with no cost line reads as zero-basis proceeds", () => {
+    expect(read(L('cash', 100), L('a4000', -100))).toEqual({ transactions: [
+      { company_id: 'co-a', transaction_type: 'proceeds', cost_basis_exited: 0, proceeds_received: 100 },
+    ] })
+  })
+  it('round-trips a partial exit with an FX unwind from exitPostings', () => {
+    const postings = exitPostings(
+      { proceeds: 600, basis: 500, carried: { cost: 1000, unrealized: 200, fx: 40 } } as never,
+      { cashId: 'cash', gainId: 'a4000', costId: 'a1100', unrealizedId: 'a1200', fxId: 'a1250', unrealizedIncomeId: 'p4200', fxIncomeId: 'p4300' } as never,
+    ).map(p => ({ accountId: p.accountId, amount: p.amount }))
+    expect(readInvestmentLines(postings, chart)).toEqual({ transactions: [
+      { company_id: 'co-a', transaction_type: 'proceeds', cost_basis_exited: 500, proceeds_received: 600 },
+    ] })
+  })
   it('in-kind income reads as a purchase at that cost', () => {
     expect(read(L('a1100', 300), L('inc', -300))).toEqual({ transactions: [
       { company_id: 'co-a', transaction_type: 'investment', investment_cost: 300 },
@@ -95,8 +110,11 @@ describe('readInvestmentLines — what it refuses', () => {
   it('escrow when several companies exit', () => {
     expect(refused(read(L('cash', 1900), L('esc', 100), L('a1100', -1000), L('b1100', -1000)))).toMatch(/escrow/i)
   })
-  it('a realized gain with no exit', () => {
-    expect(refused(read(L('cash', 100), L('a4000', -100)))).toMatch(/gain.*no exit/i)
+  it('a realized gain beside a cost line that nets to zero', () => {
+    expect(refused(read(L('a1100', 100), L('a1100', -100), L('a4000', -50), L('cash', 50)))).toMatch(/gain.*no exit/i)
+  })
+  it('an exit with a mark-up beside it', () => {
+    expect(refused(read(L('cash', 1500), L('a1100', -1000), L('a4000', -500), L('a1200', 100), L('p4200', -100)))).toMatch(/mark-up/i)
   })
   it('cost lines netting to zero beside other investment lines', () => {
     expect(refused(read(L('a1100', 100), L('a1100', -100), L('a1200', 50), L('p4200', -50)))).toMatch(/cannot be read/i)
