@@ -1,11 +1,7 @@
--- PENDING DEPLOY — do not move into supabase/migrations/ until the release containing
--- "Every note belongs to an entity" (commit ad028023 and later: the note routes that send
--- vehicle_id) is deployed. Then move it there, renamed to a current timestamp
--- (e.g. 20261101000000_notes_entity_required.sql), and push.
---
--- Why it waits: the release before that one inserts notes without vehicle_id. Pushed earlier, this
--- trigger makes every note creation fail until the new code ships. See CLAUDE.md, "A migration
--- that must wait for a deploy". Depends on 20261007100600_notes_entity.sql (the column).
+-- New notes must name an entity. Staged in supabase/pending-deploy/ until the release whose note
+-- routes send vehicle_id ("Every note belongs to an entity", ad028023) shipped: the release before it
+-- inserted notes without one, and this trigger would have refused them. Depends on
+-- 20261007100600_notes_entity.sql (the column).
 
 -- New notes must name an entity, and a note's entity can be changed but not cleared. A trigger
 -- rather than a CHECK: Postgres re-checks a NOT VALID check on every UPDATE, so pinning or editing

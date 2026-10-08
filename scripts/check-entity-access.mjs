@@ -26,6 +26,7 @@ const MIGRATIONS = (process.env.ENTITY_MIGRATIONS ?? [
   '20261007100500_entity_storage.sql',
   '20261007100600_notes_entity.sql',
   '20261007100700_entity_documents.sql',
+  '20261008030109_notes_entity_required.sql',
 ].join(',')).split(',')
 
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'pipe' })
@@ -181,8 +182,6 @@ try {
           ('${OTHER_F}', null, 'legacy elsewhere', '{}')`)
 
   for (const m of MIGRATIONS) applyFile(join('supabase/migrations', m))
-  // Staged until its release ships (supabase/pending-deploy/); checked here as it will be applied.
-  applyFile('supabase/pending-deploy/notes_entity_required.sql')
 
   // ---- Backfill: nobody loses access on deploy. ----
   check('backfill gives every existing member the explicit "All entities" grant',

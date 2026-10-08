@@ -33,9 +33,8 @@ update public.company_notes n
  where n.vehicle_id is null and v.fund_id = n.fund_id and v.active and v.kind <> 'manco'
    and (select count(*) from public.fund_vehicles o where o.fund_id = n.fund_id and o.active and o.kind <> 'manco') = 1;
 
--- New notes must name an entity: enforced by a trigger staged in
--- supabase/pending-deploy/notes_entity_required.sql — the deployed release inserts notes without
--- vehicle_id, so the trigger may only be applied once the release that sends it has shipped.
+-- New notes must name an entity: enforced by a trigger in 20261008030109_notes_entity_required.sql,
+-- a separate migration because it could only be applied once the release that sends vehicle_id shipped.
 
 -- The entity rule in RLS, replacing the company-only rule 20261007100200 gave this table: the
 -- note's entity is one of the caller's and, for a note about a company, so is the company.
