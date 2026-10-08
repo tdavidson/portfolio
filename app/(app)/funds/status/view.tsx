@@ -7,7 +7,6 @@ import { TaxPackageLink } from '@/components/accounting/download-menu'
 import { useCurrency, formatCurrencyPrice } from '@/components/currency-context'
 import { useLedgerFetch, useFundSeg, useVehicle } from '@/components/accounting-vehicle'
 import { VehicleEditModal, type EditableVehicle } from '@/components/vehicle-edit-modal'
-import { AccountingSetup } from '../setup'
 import { DealCarryCard } from './deal-carry-card'
 import { PriceFeedsPanel } from './price-feeds-panel'
 import { BootstrapInvestmentsCard } from './bootstrap-investments'
@@ -124,7 +123,6 @@ function EntityStatusView() {
     <div className="space-y-6">
       <VehicleDetailsCard />
 
-      <AccountingSetup />
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
         {cards.map(c => (
