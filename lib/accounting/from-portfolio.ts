@@ -629,6 +629,32 @@ export async function buildEntryForTransaction(
     }
   }
 
+  // ---- An escrow receipt: the holdback lands. --------------------------------
+  //
+  // The exit recognized the escrow as a receivable (Dr 1350). When the money arrives, cash comes
+  // in and the receivable goes down by the same amount. On a chart without 1350 the exit booked
+  // cash only — the escrow was never recognized — so what arrives now is gain on the exit.
+  else if (txn.transaction_type === 'escrow_receipt') {
+    const received = roundCents(num(txn.proceeds_received))
+    if (received === 0) return { skip: skip('The escrow receipt has no amount received — nothing to book.') }
+    const escrowId = codes.get(ESCROW_RECEIVABLE)
+    const creditId = escrowId ?? a.realizedId ?? codes.get(REALIZED_GAIN)
+    if (!creditId) return { skip: skip(`${group} is missing account ${ESCROW_RECEIVABLE} (Escrow receivable).`) }
+
+    amount = received
+    kind = 'proceeds'
+    entry = {
+      fundId,
+      entryDate,
+      sourceType: 'realized_gain',
+      memo: `Escrow received — ${companyName}${txn.round_name ? ` (${txn.round_name})` : ''}`,
+      postings: [
+        { accountId: cashId, amount: received, currency: 'USD', lpEntityId: null },
+        { accountId: creditId, amount: roundCents(-received), currency: 'USD', lpEntityId: null },
+      ],
+    }
+  }
+
   if (!entry) return { skip: skip(`No ledger entry is implied by a "${txn.transaction_type}" row.`) }
 
   // Tag the entry with the transaction that produced it. Without this there is no link at

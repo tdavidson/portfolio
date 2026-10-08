@@ -70,6 +70,7 @@ export function impliesNoEntry(t: any): boolean {
   if (t.transaction_type === 'unrealized_gain_change') return n(t.unrealized_value_change) === 0 && n(t.fx_value_change) === 0
   if (t.transaction_type === 'investment' && !t.converts_from_txn_id) return n(t.investment_cost) + n(t.fee_amount) === 0
   if (t.transaction_type === 'income') return n(t.income_amount) === 0
+  if (t.transaction_type === 'escrow_receipt') return n(t.proceeds_received) === 0
   return false
 }
 
