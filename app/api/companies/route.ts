@@ -85,6 +85,13 @@ export async function POST(req: NextRequest) {
     : undefined
   const customMetrics: CustomMetricInput[] = Array.isArray(body.custom_metrics) ? body.custom_metrics : []
 
+  // A holding is a company unless it says otherwise. A fund holding is created with its terms
+  // (POST /api/portfolio/fund-holdings); a digital asset is created here and configured on its own
+  // page (wallets, price feed). Anything unrecognised is a company, so an unexpected value cannot
+  // create an unreachable holding.
+  const holdingType: 'company' | 'fund' | 'crypto' =
+    body?.holding_type === 'fund' || body?.holding_type === 'crypto' ? body.holding_type : 'company'
+
   if (!name?.trim()) {
     return NextResponse.json({ error: 'Name is required' }, { status: 400 })
   }
@@ -126,9 +133,7 @@ export async function POST(req: NextRequest) {
       contact_email: contact_email ?? null,
       portfolio_group: portfolio_group ?? null,
       status: 'active',
-      // A holding is a company unless it is explicitly a fund. Anything but 'fund' falls
-      // back to 'company' so an unexpected value cannot create an unreachable holding.
-      holding_type: body?.holding_type === 'fund' ? 'fund' : 'company',
+      holding_type: holdingType,
     })
     .select()
     .single()
@@ -138,12 +143,16 @@ export async function POST(req: NextRequest) {
   // Seed the fund's default metric profile into the new company (deduped by slug; no-op if
   // the fund has no defaults configured). If the modal sent an explicit selection, seed only
   // those and record the rest as exclusions, so a later fund-wide apply doesn't re-add them.
-  await seedCompanyFromDefaults(admin, membership.fund_id, data.id, defaultMetricIds)
-  if (defaultMetricIds) {
-    await recordDefaultMetricExclusions(admin, membership.fund_id, data.id, defaultMetricIds)
-  }
-  if (customMetrics.length > 0) {
-    await insertCustomMetrics(admin, membership.fund_id, data.id, customMetrics)
+  // Company metrics (MRR, cash, burn) describe an operating company. A token or a fund has none,
+  // and seeding them would put empty charts on its page.
+  if (holdingType === 'company') {
+    await seedCompanyFromDefaults(admin, membership.fund_id, data.id, defaultMetricIds)
+    if (defaultMetricIds) {
+      await recordDefaultMetricExclusions(admin, membership.fund_id, data.id, defaultMetricIds)
+    }
+    if (customMetrics.length > 0) {
+      await insertCustomMetrics(admin, membership.fund_id, data.id, customMetrics)
+    }
   }
 
   logActivity(admin, membership.fund_id, user.id, 'company.create', { companyName: name.trim() })
