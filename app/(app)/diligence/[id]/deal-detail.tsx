@@ -21,6 +21,7 @@ import type { ResearchOutput } from '@/lib/memo-agent/stages/research'
 import { uploadDiligenceDocument } from '@/lib/diligence/upload-document'
 import { MemoEditor } from './drafts/[draftId]/memo-editor'
 import { MemoConfigPanel } from '@/components/diligence/memo-config-panel'
+import { EntityPicker } from '@/components/entity-picker'
 
 interface Deal {
   id: string
@@ -31,6 +32,7 @@ interface Deal {
   deal_status: 'active' | 'passed' | 'invested' | 'won' | 'lost' | 'on_hold'
   current_memo_stage: string
   lead_partner_id: string | null
+  vehicle_id?: string | null
   promoted_company_id: string | null
   drive_folder_url: string | null
   created_at: string
@@ -138,6 +140,18 @@ export function DealDetail({ deal: initial, initialDocuments, latestDraft, isAdm
     router.refresh()
   }
 
+  async function updateEntity(vehicle_id: string | null) {
+    const previous = deal.vehicle_id ?? null
+    setDeal(d => ({ ...d, vehicle_id }))
+    const res = await fetch(`/api/diligence/${deal.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ vehicle_id }),
+    })
+    if (!res.ok) setDeal(d => ({ ...d, vehicle_id: previous }))
+    router.refresh()
+  }
+
   async function updateStatus(deal_status: Deal['deal_status']) {
     setDeal(d => ({ ...d, deal_status }))
     await fetch(`/api/diligence/${deal.id}`, {
@@ -235,6 +249,9 @@ export function DealDetail({ deal: initial, initialDocuments, latestDraft, isAdm
           )}
         </div>
         <div className="flex items-center gap-2 shrink-0">
+          <div className="w-44" title="The entity this diligence is for — its team can see it">
+            <EntityPicker value={deal.vehicle_id ?? null} onChange={updateEntity} allowUnassigned />
+          </div>
           <StatusDropdown value={deal.deal_status} onPick={updateStatus} />
         </div>
       </div>

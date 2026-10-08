@@ -99,7 +99,12 @@ export async function POST(req: NextRequest) {
   const entityId = typeof body?.vehicle_id === 'string' && body.vehicle_id ? body.vehicle_id : null
   const entityProblem = createScope ? dealEntityProblem(createScope.access, entityId) : 'No fund found'
   if (entityProblem) return NextResponse.json({ error: entityProblem }, { status: 403 })
-  if (entityId) insert.vehicle_id = entityId
+  if (entityId) {
+    // One of THIS fund's entities (an unscoped caller passes the check above for any id).
+    const { data: v } = await admin.from('fund_vehicles' as any).select('id').eq('fund_id', createScope!.access.fundId).eq('id', entityId).maybeSingle()
+    if (!v) return NextResponse.json({ error: 'Entity not found' }, { status: 404 })
+    insert.vehicle_id = entityId
+  }
 
   const { data, error } = await admin
     .from('diligence_deals')

@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { dbError } from '@/lib/api-error'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { dealEntityProblem } from '@/lib/access/scope'
 
 // 'invested' is the current label for a closed/won deal; 'won'/'lost'/'on_hold'
 // are retained for back-compat with rows written before the relabel.
@@ -70,6 +72,19 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     }
     updates.current_memo_stage = body.current_memo_stage
   }
+  // The owning entity. The gate already confirmed the caller can see this record; the new entity
+  // must be theirs too (a member can't leave it unassigned), and must belong to this fund.
+  if (typeof body.vehicle_id === 'string' || body.vehicle_id === null) {
+    const scope = await loadEntityScopeForUser(admin, guard.userId)
+    const problem = scope ? dealEntityProblem(scope.access, body.vehicle_id) : 'No fund found'
+    if (problem) return NextResponse.json({ error: problem }, { status: 403 })
+    if (body.vehicle_id) {
+      const { data: v } = await admin.from('fund_vehicles' as any).select('id').eq('fund_id', fundId).eq('id', body.vehicle_id).maybeSingle()
+      if (!v) return NextResponse.json({ error: 'Entity not found' }, { status: 404 })
+    }
+    updates.vehicle_id = body.vehicle_id
+  }
+
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'No fields to update' }, { status: 400 })
   }

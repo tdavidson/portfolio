@@ -11,6 +11,7 @@ import { AnalystDomainScope } from '@/components/analyst-scope'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
+import { EntityPicker } from '@/components/entity-picker'
 
 interface Deal {
   id: string
@@ -204,11 +205,13 @@ function NewDealDialog({ open, onOpenChange, onCreated }: {
   const [name, setName] = useState('')
   const [sector, setSector] = useState('')
   const [stage, setStage] = useState('')
+  // The entity this diligence is for: its team sees it (an unassigned record is admin-only).
+  const [vehicleId, setVehicleId] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
   function reset() {
-    setName(''); setSector(''); setStage('')
+    setName(''); setSector(''); setStage(''); setVehicleId(null)
   }
 
   async function submit() {
@@ -223,6 +226,7 @@ function NewDealDialog({ open, onOpenChange, onCreated }: {
           name,
           sector: sector || undefined,
           stage_at_consideration: stage || undefined,
+          vehicle_id: vehicleId,
         }),
       })
       if (!res.ok) {
@@ -260,6 +264,10 @@ function NewDealDialog({ open, onOpenChange, onCreated }: {
               <label className="block text-xs font-medium text-muted-foreground mb-1">Stage</label>
               <Input value={stage} onChange={e => setStage(e.target.value)} placeholder="e.g. seed, Series A" />
             </div>
+          </div>
+          <div>
+            <label className="block text-xs font-medium text-muted-foreground mb-1">Entity</label>
+            <EntityPicker value={vehicleId} onChange={setVehicleId} allowUnassigned />
           </div>
           <p className="text-[11px] text-muted-foreground">Add documents — upload files or import a Google Drive folder — from the Data Room tab after the deal is created.</p>
           {error && <p className="text-sm text-destructive">{error}</p>}
