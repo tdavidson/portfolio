@@ -9,6 +9,7 @@ import { useAccess, useIsAdmin } from '@/components/access-context'
 import { VEHICLE_KIND_LABELS, isVehicleKind } from '@/lib/vehicle-kinds'
 import { hasSectionForKind, sectionForSlug } from '@/lib/accounting/nav'
 import { withCapitalAction, type CapitalAction } from '@/lib/accounting/capital-action'
+import { bookAllNote, type BookAllVehicle } from '@/lib/accounting/backfill-note'
 import { EmptyState } from '@/components/ui/empty-state'
 import { AddVehicleButton } from '@/components/add-vehicle-button'
 
@@ -245,9 +246,8 @@ export function FirmVehiclesTable({
         setBookError(body?.error ?? 'Could not put the transactions on the ledger.')
         return
       }
-      const refused = ((body?.vehicles ?? []) as { result?: { refused?: string[] } }[])
-        .reduce((sum, v) => sum + (v.result?.refused?.length ?? 0), 0)
-      if (refused > 0) setBookNote(`${refused} could not be booked — see each entity’s status page.`)
+      const note = bookAllNote((body?.vehicles ?? []) as BookAllVehicle[])
+      if (note) setBookNote(note)
       load()
     } catch {
       setBookError('Could not put the transactions on the ledger.')

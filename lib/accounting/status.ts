@@ -189,7 +189,8 @@ export async function vehicleStatus(
     try {
       backlog = await backfillDerivedEntries(admin, fundId, group, null, { dryRun: true })
     } catch (e) {
-      issues.push({ level: 'info', title: `Could not check which investment items are not on the ledger: ${e instanceof Error ? e.message : String(e)}`, detail: 'Everything else on this page is current. Reload to check again.' })
+      console.error('[status] backlog dry run failed', e instanceof Error ? e.message : e)
+      issues.push({ level: 'info', title: 'Could not check which investment items are not on the ledger', detail: 'Everything else on this page is current. Reload to check again.' })
     }
   }
   const notOnLedger = backlog ? backlog.toAdopt + backlog.toDerive + backlog.toPost : 0
@@ -199,6 +200,18 @@ export async function vehicleStatus(
       level: 'blocker',
       title: `${conflicted.length} investment position${conflicted.length === 1 ? ' is' : 's are'} carried by both the tracker and the journal`,
       detail: `${conflicted.slice(0, 3).join('; ')}${conflicted.length > 3 ? `; and ${conflicted.length - 3} more` : ''}. Booking either side would count them twice, so putting investments on the ledger leaves them alone. Void the duplicate entries or delete the duplicate transactions.`,
+      href: '/funds/status#book-investments',
+      action: 'Review them',
+    })
+  }
+  // A dry run refuses only one thing: an entry skipped because one of its companies is carried by
+  // both sides, which leaves its OTHER companies unowned too. Nothing else would name those.
+  const spanning = backlog?.refused ?? []
+  if (spanning.length > 0) {
+    issues.push({
+      level: 'blocker',
+      title: `${spanning.length} journal entr${spanning.length === 1 ? 'y waits' : 'ies wait'} on a position carried by both the tracker and the journal`,
+      detail: `${spanning.slice(0, 3).join(' ')}${spanning.length > 3 ? ` And ${spanning.length - 3} more.` : ''}`,
       href: '/funds/status#book-investments',
       action: 'Review them',
     })

@@ -100,8 +100,23 @@ describe('management company accounting status', () => {
     vi.mocked(vehicleKindByName).mockResolvedValue('fund')
     vi.mocked(backfillDerivedEntries).mockRejectedValueOnce(new Error('db down'))
     const s = await vehicleStatus(adminWith(), 'firm', 'Fund I')
-    expect(s.issues).toContainEqual(expect.objectContaining({ level: 'info', title: 'Could not check which investment items are not on the ledger: db down' }))
+    // Plain words: the database's message goes to the log, not the page.
+    expect(s.issues).toContainEqual(expect.objectContaining({ level: 'info', title: 'Could not check which investment items are not on the ledger' }))
+    expect(JSON.stringify(s.issues)).not.toContain('db down')
     expect(s.issues.map(i => i.title)).toContain('No partners yet')
+  })
+
+  it('names an entry skipped because it spans a company carried by both sides', async () => {
+    vi.mocked(vehicleKindByName).mockResolvedValue('fund')
+    vi.mocked(backfillDerivedEntries).mockResolvedValueOnce({
+      toAdopt: 0, toDerive: 0, toPost: 0, conflicted: ['Acme: …'],
+      refused: ['Journal entry of 2026-01-15 "span" also carries Beta; not adopted because Acme is carried by both — reconcile Acme by hand, then run this again.'],
+    } as any)
+    const s = await vehicleStatus(adminWith(), 'firm', 'Fund I')
+    expect(s.issues).toContainEqual(expect.objectContaining({
+      level: 'blocker', title: '1 journal entry waits on a position carried by both the tracker and the journal',
+      detail: expect.stringContaining('also carries Beta'),
+    }))
   })
 
   it('keeps the existing LP setup requirements for funds', async () => {

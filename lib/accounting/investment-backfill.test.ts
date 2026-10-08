@@ -137,6 +137,45 @@ describe('backfillDerivedEntries: a position carried by both the tracker and the
     expect(h.adopt).not.toHaveBeenCalled()
     expect(h.derive).not.toHaveBeenCalled()
     expect(r.conflicted).toEqual(['Acme: carried by both the tracker and 1 journal entry — reconcile by hand'])
+    // …and says so for the clean company, which nothing else would ever flag.
+    expect(r.refused).toEqual(['Journal entry of 2026-01-15 "span" also carries Beta; not adopted because Acme is carried by both — reconcile Acme by hand, then run this again.'])
+  })
+  it('the spanning skip is named by a dry run too', async () => {
+    const m = seed({
+      investment_transactions: [txn('a')],
+      journal_entries: [entry('span')],
+      journal_postings: [line('span', 'a1100', 100), line('span', 'b1100', 50), line('span', 'cash', -150)],
+    })
+    const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u', { dryRun: true })
+    expect(r.refused).toEqual([expect.stringMatching(/also carries Beta/)])
+  })
+  it('an entry touching only the conflicted company adds no refusal line', async () => {
+    const m = seed({ investment_transactions: [txn('a')], journal_entries: [entry('replay')], journal_postings: [line('replay', 'a1100', 100)] })
+    expect((await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')).refused).toEqual([])
+  })
+})
+
+describe('backfillDerivedEntries on a failed read', () => {
+  it('a failed entity read throws instead of dropping the aliases', async () => {
+    const m = seed({})
+    m.failNext('fund_vehicles', 'select', 'read failed')
+    await expect(backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')).rejects.toThrow(/names could not be read: read failed/)
+  })
+  it('a failed read of the live reversals throws instead of adopting the original as a purchase', async () => {
+    const R = '00000000-0000-4000-8000-0000000000r1'.replace('r1', 'b1')
+    const m = seed({
+      journal_entries: [entry('orig', { reversed_by: R }), entry(R, { source_ref: 'reversal:orig' })],
+      journal_postings: [line('orig', 'a1100', 100), line(R, 'a1100', -100)],
+    })
+    // The reversal-liveness read is the first journal_entries read issued after the entries load.
+    let n = 0
+    const from = m.admin.from
+    m.admin.from = (t: string) => {
+      if (t === 'journal_entries' && ++n === 2) m.failNext('journal_entries', 'select', 'reversals unread')
+      return from(t)
+    }
+    await expect(backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')).rejects.toThrow(/reversals unread/)
+    expect(h.adopt).not.toHaveBeenCalled()
   })
 })
 

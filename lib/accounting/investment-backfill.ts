@@ -72,7 +72,10 @@ export function impliesNoEntry(t: any): boolean {
 }
 
 export async function vehicleNames(admin: SupabaseClient, fundId: string, vehicleId: string, group: string): Promise<string[]> {
-  const { data } = await admin.from('fund_vehicles' as any).select('name, aliases').eq('fund_id', fundId).eq('id', vehicleId).maybeSingle()
+  // THROWS on a failed read: falling back to the bare name would hide alias transactions from the
+  // conflict check, so their entries would be adopted and the alias rows derived too — twice.
+  const { data, error } = await admin.from('fund_vehicles' as any).select('name, aliases').eq('fund_id', fundId).eq('id', vehicleId).maybeSingle()
+  if (error) throw new Error(`The entity's names could not be read: ${error.message}`)
   const v = data as any
   return Array.from(new Set([v?.name ?? group, ...((v?.aliases as string[] | null) ?? [])].filter(Boolean)))
 }
@@ -151,7 +154,9 @@ async function unownedInvestmentEntries(admin: SupabaseClient, fundId: string, v
   const reversalIds = entries.map(e => e.reversed_by).filter(Boolean) as string[]
   const liveReversals = new Set<string>()
   for (const ids of chunks(reversalIds)) {
-    const { data } = await admin.from('journal_entries' as any).select('id').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('id', ids).neq('status', 'void')
+    const { data, error } = await admin.from('journal_entries' as any).select('id').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('id', ids).neq('status', 'void')
+    // A failed read would make the original of a reversal pair look unowned → adopted as a purchase.
+    if (error) throw new Error(`Ownership could not be checked: ${error.message}`)
     for (const r of (data as any[]) ?? []) liveReversals.add(r.id)
   }
   // Ownership by source_ref decides as entryIsOwned does: a txn: ref owns only while its
@@ -188,15 +193,30 @@ export async function backfillDerivedEntries(
   const onLedger = new Map<string, number>()
   for (const e of unowned) for (const c of entryCompanies(e)) onLedger.set(c, (onLedger.get(c) ?? 0) + 1)
   const conflicted = new Set(before.pending.map(t => t.company_id as string).filter(c => onLedger.has(c)))
-  const { data: companies } = await admin.from('companies' as any).select('id, name').eq('fund_id', fundId)
+  const { data: companies, error: companiesError } = await admin.from('companies' as any).select('id, name').eq('fund_id', fundId)
+  if (companiesError) throw new Error(`The holdings could not be read: ${companiesError.message}`)
   const nameOf = new Map(((companies as any[]) ?? []).map(c => [c.id as string, c.name as string]))
   out.conflicted = Array.from(conflicted).map(c => {
     const k = onLedger.get(c)!
     return `${nameOf.get(c) ?? 'Investment'}: carried by both the tracker and ${k} journal ${k === 1 ? 'entry' : 'entries'} — reconcile by hand`
   }).sort()
 
-  // 1. Adopt — an entry touching any conflicted company is skipped whole.
-  const toAdopt = unowned.filter(e => !Array.from(entryCompanies(e)).some(c => conflicted.has(c)))
+  // 1. Adopt — an entry touching any conflicted company is skipped whole. When it also carries a
+  //    clean company, that company's value stays unowned with no tracker row behind it, and nothing
+  //    else would ever flag it (it has no pending transactions): name every company it touches.
+  const toAdopt: any[] = []
+  for (const e of unowned) {
+    const touched = Array.from(entryCompanies(e))
+    const blocked = touched.filter(c => conflicted.has(c))
+    if (blocked.length === 0) { toAdopt.push(e); continue }
+    const clean = touched.filter(c => !conflicted.has(c))
+    if (clean.length === 0) continue
+    const names = (ids: string[]) => ids.map(c => nameOf.get(c) ?? 'Investment').sort().join(', ')
+    out.refused.push(
+      `Journal entry of ${e.entry_date}${e.memo ? ` "${e.memo}"` : ''} also carries ${names(clean)}; not adopted because `
+      + `${names(blocked)} ${blocked.length === 1 ? 'is' : 'are'} carried by both — reconcile ${names(blocked)} by hand, then run this again.`,
+    )
+  }
   out.toAdopt = toAdopt.length
   if (!opts.dryRun) {
     for (const e of toAdopt) {

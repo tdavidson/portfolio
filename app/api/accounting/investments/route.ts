@@ -83,7 +83,12 @@ export async function POST(req: NextRequest) {
 
   // Adopt posted investment entries, derive what's missing, post what waited. `dryRun` previews. Idempotent — see lib/accounting/investment-backfill.ts.
   if (body?.action === 'backfill') {
-    return NextResponse.json(await backfillDerivedEntries(admin, gate.fundId, group, user.id, { dryRun: !!body?.dryRun }))
+    try {
+      return NextResponse.json(await backfillDerivedEntries(admin, gate.fundId, group, user.id, { dryRun: !!body?.dryRun }))
+    } catch (e) {
+      console.error('[accounting-investments-backfill]', e instanceof Error ? e.message : e)
+      return NextResponse.json({ error: 'Part of the ledger could not be read, so nothing was put on it. Try again.' }, { status: 500 })
+    }
   }
 
   return NextResponse.json({ error: "Unknown action. Record investments, marks and exits as transactions on each company; 'backfill' puts existing ones on the ledger." }, { status: 400 })
