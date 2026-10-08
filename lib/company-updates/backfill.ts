@@ -413,9 +413,12 @@ async function eligiblePage(
   cursor: { received_at: string; id: string } | null,
   limit: number,
 ): Promise<EligibleEmail[]> {
+  // The raw payloads are large — `Attachments` carries the files themselves — so reading them
+  // here timed out the statement even ten emails at a time. Planning only counted attachments for
+  // the dry-run summary; it no longer reads them (each email's capture reads its own payload).
   let query = admin
     .from('inbound_emails')
-    .select('id, company_id, received_at, routed_to, attachments:raw_payload->Attachments')
+    .select('id, company_id, received_at, routed_to')
     .eq('fund_id', job.fund_id)
     .not('company_id', 'is', null)
     .or('routed_to.eq.reporting,routed_to.is.null')
@@ -426,7 +429,7 @@ async function eligiblePage(
   if (cursor) query = query.or(`received_at.gt.${cursor.received_at},and(received_at.eq.${cursor.received_at},id.gt.${cursor.id})`)
   const { data, error } = await query
   if (error) throw new Error(`Could not enumerate eligible emails: ${error.message}`)
-  return (data ?? []) as EligibleEmail[]
+  return ((data ?? []) as EligibleEmail[]).map(email => ({ ...email, attachments: null }))
 }
 
 async function capturedVersions(admin: SupabaseAdmin, fundId: string): Promise<Map<string, string | null>> {

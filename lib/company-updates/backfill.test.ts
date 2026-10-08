@@ -122,7 +122,9 @@ describe('backfill planning', () => {
     const job = await createBackfillJob({ admin: db.admin as any }, { fundId: FUND, mode: 'dry_run' })
     const planned = await planBackfillJob({ admin: db.admin as any }, job.id)
     expect(planned.status).toBe('completed')
-    expect(planned.counts).toMatchObject({ eligible: 3, already_current: 1, stale_version: 1, never_captured: 1, would_process: 2, attachments: 3, attachments_by_declared_type: { 'application/pdf': 3 } })
+    expect(planned.counts).toMatchObject({ eligible: 3, already_current: 1, stale_version: 1, never_captured: 1, would_process: 2 })
+    // Planning no longer reads the raw payloads (they carry the files and timed out the read).
+    expect(planned.counts).toMatchObject({ attachments: 0 })
     expect(db.items).toHaveLength(0)
   })
 
