@@ -1,5 +1,5 @@
 import type { PageContext } from '@/lib/pages/context'
-import { computeSummary } from '@/lib/investments'
+import { computeSummary, effectiveCompanyStatus } from '@/lib/investments'
 import { entityScopeFor } from '@/lib/access/entity-scope'
 import { scopeTransactions } from '@/lib/access/scope'
 import type { InvestmentTransaction, CompanyStatus } from '@/lib/types/database'
@@ -21,7 +21,7 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
 
   // Fetch companies with their first 2 metrics and review counts
   type CompanyRow = {
-    id: string; name: string; stage: string | null; status: string
+    id: string; name: string; stage: string | null; status: string; created_at: string | null
     tags: string[]; industry: string[] | null; portfolio_group: string[] | null
     metrics: { id: string; name: string; unit: string | null; unit_position: string; value_type: string; currency: string | null; display_order: number; is_active: boolean }[]
     parsing_reviews: { id: string; resolution: string | null }[]
@@ -30,7 +30,7 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
   let companiesQuery = supabase
     .from('companies')
     .select(`
-      id, name, stage, status, tags, industry, portfolio_group,
+      id, name, stage, status, created_at, tags, industry, portfolio_group,
       metrics(id, name, unit, unit_position, value_type, currency, display_order, is_active),
       parsing_reviews(id, resolution)
     `)
@@ -106,6 +106,7 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
       name: c.name,
       stage: c.stage,
       status: c.status,
+      createdAt: c.created_at,
       tags: c.tags ?? [],
       industry: c.industry,
       // Which entities hold it — only the viewer's; another fund's holding is not theirs to see.
@@ -143,16 +144,23 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
     }
   }
 
+  // The status the transactions support. An 'active' column whose whole position the tracker shows
+  // closed out is exited or written off here (display only; the column is not touched).
+  const effectiveStatus = new Map<string, CompanyStatus>()
+  for (const c of companies) {
+    effectiveStatus.set(c.id, effectiveCompanyStatus(txnsByCompany.get(c.id) ?? [], c.status as CompanyStatus))
+  }
+
   // Compute summaries for exited/written-off companies
   const exitedIds = companies
-    .filter(c => c.status === 'exited' || c.status === 'written-off')
+    .filter(c => effectiveStatus.get(c.id) === 'exited' || effectiveStatus.get(c.id) === 'written-off')
     .map(c => c.id)
 
   const investmentSummaries = new Map<string, { moic: number | null; grossIrr: number | null; totalInvested: number; totalRealized: number; unrealizedValue: number }>()
 
   for (const id of exitedIds) {
     const txns = txnsByCompany.get(id) ?? []
-    const status = companies.find(c => c.id === id)!.status as CompanyStatus
+    const status = effectiveStatus.get(id)!
     if (txns.length > 0) {
       const summary = computeSummary(txns, status)
       investmentSummaries.set(id, { moic: summary.moic, grossIrr: summary.grossIrr, totalInvested: summary.totalInvested, totalRealized: summary.totalRealized, unrealizedValue: summary.unrealizedValue })
@@ -164,6 +172,7 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
   // Attach investment data to company objects
   const companiesWithInvestments = companies.map(c => ({
     ...c,
+    status: effectiveStatus.get(c.id) ?? c.status,
     firstInvestmentDate: firstInvestmentDates.get(c.id) ?? null,
     moic: investmentSummaries.get(c.id)?.moic ?? null,
     grossIrr: investmentSummaries.get(c.id)?.grossIrr ?? null,

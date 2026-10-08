@@ -338,3 +338,63 @@ export function computeSummary(
     rounds,
   }
 }
+
+
+// ---------------------------------------------------------------------------
+// Effective status — what the tracker shows, regardless of the status column
+// ---------------------------------------------------------------------------
+
+const BASIS_EPSILON = 0.01
+
+/**
+ * The position state as the transactions tell it. `companies.status` is a hand-set column and
+ * can lag the ledger: a company whose every dollar of basis has been exited or written off is
+ * not "active". Read-only — nothing is written back.
+ *
+ * "Closed out" = there was invested basis (summary rounds, so fees, conversions and in-kind
+ * income are counted as computeSummary counts them) and the cost basis exited across the
+ * proceeds rows covers all of it. Closed out with nothing received (proceeds_received +
+ * proceeds_escrow == 0) and a write-off or exited basis on record is 'written-off'; otherwise
+ * 'exited'. A partial exit, no transactions, or a status already 'exited'/'written-off' is
+ * returned unchanged.
+ */
+export function effectiveCompanyStatus(
+  transactions: InvestmentTransaction[],
+  status: CompanyStatus,
+): CompanyStatus {
+  if (status !== 'active' || transactions.length === 0) return status
+
+  const summary = computeSummary(transactions, status)
+  const basis = summary.rounds.reduce((sum, r) => sum + r.investmentCost, 0)
+  if (basis <= BASIS_EPSILON) return status
+
+  let exitedBasis = 0
+  let received = 0
+  for (const t of transactions) {
+    if (t.transaction_type !== 'proceeds') continue
+    exitedBasis += Math.abs(t.cost_basis_exited ?? 0)
+    received += (t.proceeds_received ?? 0) + (t.proceeds_escrow ?? 0)
+  }
+  if (basis - exitedBasis > BASIS_EPSILON) return status
+
+  if (received === 0 && (summary.totalWrittenOff > 0 || exitedBasis > 0)) return 'written-off'
+  return 'exited'
+}
+
+export const NEW_COMPANY_WINDOW_DAYS = 90
+
+/**
+ * "New" only when the company's first investment (created_at when it has none) is within the
+ * last 90 days. A years-old holding with no metrics yet is just unreported, not new.
+ */
+export function isNewCompany(
+  firstInvestmentDate: string | null,
+  createdAt: string | null,
+  now: Date = new Date(),
+): boolean {
+  const anchor = firstInvestmentDate ?? createdAt
+  if (!anchor) return false
+  const t = new Date(anchor).getTime()
+  if (Number.isNaN(t)) return false
+  return now.getTime() - t <= NEW_COMPANY_WINDOW_DAYS * 24 * 60 * 60 * 1000
+}

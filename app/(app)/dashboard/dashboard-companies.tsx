@@ -9,6 +9,7 @@ import { DashboardTable } from './dashboard-table'
 import { AddCompanyButton } from '@/components/add-company-button'
 import { useCurrency, getCurrencySymbol } from '@/components/currency-context'
 import { matchesVehicle, vehicleFilterOptions } from './vehicle-filter'
+import { isNewCompany } from '@/lib/investments'
 
 interface ActiveMetric {
   id: string
@@ -24,6 +25,7 @@ interface Company {
   name: string
   stage: string | null
   status: string
+  createdAt?: string | null
   tags: string[]
   industry: string[] | null
   portfolioGroup: string[] | null
@@ -301,8 +303,14 @@ function CompanyGrid({ companies }: { companies: Company[] }) {
               ) : c.activeMetrics.length === 0 ? (
                 <div className="grid grid-cols-2 gap-3 mt-3">
                   <div className="min-w-0">
-                    <div className="text-[10px] text-muted-foreground truncate mb-0.5">No metrics</div>
-                    <div className="text-xl font-semibold">New</div>
+                    {isNewCompany(c.firstInvestmentDate, c.createdAt ?? null) ? (
+                      <>
+                        <div className="text-[10px] text-muted-foreground truncate mb-0.5">No metrics</div>
+                        <div className="text-xl font-semibold">New</div>
+                      </>
+                    ) : (
+                      <div className="text-xs text-muted-foreground">No metrics reported</div>
+                    )}
                   </div>
                 </div>
               ) : (
