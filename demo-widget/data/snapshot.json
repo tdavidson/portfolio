@@ -1,6 +1,6 @@
 {
  "schemaVersion": 2,
- "generatedAt": "2026-10-06",
+ "generatedAt": "2026-10-08",
  "source": "the demo fund",
  "fund": {
   "name": "Portfolio Demo",
@@ -1306,31 +1306,7 @@
   },
   {
    "vehicleId": "061ee98b-cea1-465e-a73c-d597df4afaba",
-   "lpEntityId": "278ec0e3-2940-46f6-b651-5775726f9560"
-  },
-  {
-   "vehicleId": "d73f3df5-5a2f-4c34-b431-e6c8d71fd4e9",
-   "lpEntityId": "278ec0e3-2940-46f6-b651-5775726f9560"
-  },
-  {
-   "vehicleId": "061ee98b-cea1-465e-a73c-d597df4afaba",
    "lpEntityId": "284cb747-2354-4cf1-8018-548eb5eac0f3"
-  },
-  {
-   "vehicleId": "d73f3df5-5a2f-4c34-b431-e6c8d71fd4e9",
-   "lpEntityId": "284cb747-2354-4cf1-8018-548eb5eac0f3"
-  },
-  {
-   "vehicleId": "d73f3df5-5a2f-4c34-b431-e6c8d71fd4e9",
-   "lpEntityId": "4f57aefa-a42b-4293-9162-6b849f592dc8"
-  },
-  {
-   "vehicleId": "d73f3df5-5a2f-4c34-b431-e6c8d71fd4e9",
-   "lpEntityId": "6a657357-5f5d-416f-81f3-35815df4ae69"
-  },
-  {
-   "vehicleId": "061ee98b-cea1-465e-a73c-d597df4afaba",
-   "lpEntityId": "7888b510-c3cf-40ab-b40a-586623662b83"
   },
   {
    "vehicleId": "d73f3df5-5a2f-4c34-b431-e6c8d71fd4e9",
@@ -1338,15 +1314,39 @@
   },
   {
    "vehicleId": "061ee98b-cea1-465e-a73c-d597df4afaba",
+   "lpEntityId": "7888b510-c3cf-40ab-b40a-586623662b83"
+  },
+  {
+   "vehicleId": "061ee98b-cea1-465e-a73c-d597df4afaba",
+   "lpEntityId": "278ec0e3-2940-46f6-b651-5775726f9560"
+  },
+  {
+   "vehicleId": "061ee98b-cea1-465e-a73c-d597df4afaba",
    "lpEntityId": "a2636fbe-5a1e-4bf1-a600-c1d5e28631d5"
+  },
+  {
+   "vehicleId": "061ee98b-cea1-465e-a73c-d597df4afaba",
+   "lpEntityId": "fcfff8e9-f323-497e-bcf1-15d2979a3a82"
+  },
+  {
+   "vehicleId": "d73f3df5-5a2f-4c34-b431-e6c8d71fd4e9",
+   "lpEntityId": "284cb747-2354-4cf1-8018-548eb5eac0f3"
   },
   {
    "vehicleId": "d73f3df5-5a2f-4c34-b431-e6c8d71fd4e9",
    "lpEntityId": "ed542a37-1fc6-4c19-bce8-992413009631"
   },
   {
-   "vehicleId": "061ee98b-cea1-465e-a73c-d597df4afaba",
-   "lpEntityId": "fcfff8e9-f323-497e-bcf1-15d2979a3a82"
+   "vehicleId": "d73f3df5-5a2f-4c34-b431-e6c8d71fd4e9",
+   "lpEntityId": "6a657357-5f5d-416f-81f3-35815df4ae69"
+  },
+  {
+   "vehicleId": "d73f3df5-5a2f-4c34-b431-e6c8d71fd4e9",
+   "lpEntityId": "278ec0e3-2940-46f6-b651-5775726f9560"
+  },
+  {
+   "vehicleId": "d73f3df5-5a2f-4c34-b431-e6c8d71fd4e9",
+   "lpEntityId": "4f57aefa-a42b-4293-9162-6b849f592dc8"
   }
  ],
  "deals": [
@@ -1558,6 +1558,14 @@
    "note": "Full pro-rata"
   },
   {
+   "company_id": "d1263d61-e648-4906-b991-f831fb74a186",
+   "vehicle": "Fund II",
+   "type": "unrealized_gain_change",
+   "date": "2023-04-01",
+   "unrealized_change": 900000,
+   "note": "Adopted from journal entry \"Mark to fair value — Benchline\" (2023-04-01)."
+  },
+  {
    "company_id": "a67954cb-474b-404b-858b-49c240c22027",
    "vehicle": "Fund I",
    "type": "investment",
@@ -1576,6 +1584,14 @@
    "cost": 1000000,
    "share_price": 3,
    "note": "Full pro-rata"
+  },
+  {
+   "company_id": "b4870bad-ddd4-42d1-a300-7111899cf154",
+   "vehicle": "Fund I",
+   "type": "unrealized_gain_change",
+   "date": "2023-07-15",
+   "unrealized_change": 799999,
+   "note": "Adopted from journal entry \"Mark to fair value — RouteWise\" (2023-07-15)."
   },
   {
    "company_id": "2231479f-1bf3-4646-9173-abc5d31fd515",
@@ -1627,6 +1643,14 @@
    "note": "Led Series B at $85M pre"
   },
   {
+   "company_id": "d1263d61-e648-4906-b991-f831fb74a186",
+   "vehicle": "Fund II",
+   "type": "unrealized_gain_change",
+   "date": "2024-08-01",
+   "unrealized_change": 3600000,
+   "note": "Adopted from journal entry \"Mark to fair value — Benchline\" (2024-08-01)."
+  },
+  {
    "company_id": "8b396e22-1612-4737-8d09-5dbf593bb08f",
    "vehicle": "Fund II",
    "type": "investment",
@@ -1639,12 +1663,28 @@
   {
    "company_id": "a67954cb-474b-404b-858b-49c240c22027",
    "vehicle": "Fund I",
+   "type": "unrealized_gain_change",
+   "date": "2024-09-01",
+   "unrealized_change": 500000,
+   "note": "Adopted from journal entry \"Mark to fair value — NovaTech\" (2024-09-01)."
+  },
+  {
+   "company_id": "a67954cb-474b-404b-858b-49c240c22027",
+   "vehicle": "Fund I",
    "type": "investment",
    "date": "2024-09-01",
    "round": "Series A",
    "cost": 1500000,
    "share_price": 2,
    "note": "Pro-rata follow-on"
+  },
+  {
+   "company_id": "b4870bad-ddd4-42d1-a300-7111899cf154",
+   "vehicle": "Fund I",
+   "type": "unrealized_gain_change",
+   "date": "2024-11-01",
+   "unrealized_change": 2933330,
+   "note": "Adopted from journal entry \"Mark to fair value — RouteWise\" (2024-11-01)."
   },
   {
    "company_id": "b4870bad-ddd4-42d1-a300-7111899cf154",
@@ -1670,10 +1710,9 @@
    "company_id": "2231479f-1bf3-4646-9173-abc5d31fd515",
    "vehicle": "Fund II",
    "type": "unrealized_gain_change",
-   "date": "2025-12-31",
-   "unrealized_change": 2100000,
-   "mark_share_price": 5.65,
-   "note": "Mark based on GMV growth trajectory"
+   "date": "2024-12-01",
+   "unrealized_change": 700000,
+   "note": "Adopted from journal entry \"Mark to fair value — TapFin\" (2024-12-01)."
   },
   {
    "company_id": "d08a27bc-39e4-4fb1-a624-7a286d83e929",
@@ -1681,44 +1720,47 @@
    "type": "unrealized_gain_change",
    "date": "2025-12-31",
    "unrealized_change": 1200000,
-   "mark_share_price": 4,
-   "note": "Based on latest revenue multiple"
+   "note": "Adopted from journal entry \"Mark to fair value — RouteWise, NovaTech, AdVantage, GreenLeaf Bio\" (2025-12-31)."
   },
   {
-   "company_id": "a67954cb-474b-404b-858b-49c240c22027",
-   "vehicle": "Fund I",
-   "type": "unrealized_gain_change",
-   "date": "2025-12-31",
-   "unrealized_change": 2500000,
-   "mark_share_price": 3.6,
-   "note": "Q4 2025 mark based on Series A+ term sheet"
-  },
-  {
-   "company_id": "b4870bad-ddd4-42d1-a300-7111899cf154",
-   "vehicle": "Fund I",
-   "type": "unrealized_gain_change",
-   "date": "2025-12-31",
-   "unrealized_change": 6800000,
-   "mark_share_price": 12.5,
-   "note": "Q4 2025 409A valuation"
-  },
-  {
-   "company_id": "d1263d61-e648-4906-b991-f831fb74a186",
+   "company_id": "2231479f-1bf3-4646-9173-abc5d31fd515",
    "vehicle": "Fund II",
    "type": "unrealized_gain_change",
    "date": "2025-12-31",
-   "unrealized_change": 9500000,
-   "mark_share_price": 18.82,
-   "note": "Q4 2025 mark based on $10M ARR milestone"
+   "unrealized_change": 2252500,
+   "note": "Adopted from journal entry \"Mark to fair value — Benchline, TapFin\" (2025-12-31)."
   },
   {
    "company_id": "d4fef540-f26b-426f-9aef-96144a6579ce",
    "vehicle": "Fund I",
    "type": "unrealized_gain_change",
    "date": "2025-12-31",
-   "unrealized_change": 250000,
-   "mark_share_price": 1.33,
-   "note": "Modest mark-up based on grant milestones"
+   "unrealized_change": 247500,
+   "note": "Adopted from journal entry \"Mark to fair value — RouteWise, NovaTech, AdVantage, GreenLeaf Bio\" (2025-12-31)."
+  },
+  {
+   "company_id": "a67954cb-474b-404b-858b-49c240c22027",
+   "vehicle": "Fund I",
+   "type": "unrealized_gain_change",
+   "date": "2025-12-31",
+   "unrealized_change": 2000000,
+   "note": "Adopted from journal entry \"Mark to fair value — RouteWise, NovaTech, AdVantage, GreenLeaf Bio\" (2025-12-31)."
+  },
+  {
+   "company_id": "b4870bad-ddd4-42d1-a300-7111899cf154",
+   "vehicle": "Fund I",
+   "type": "unrealized_gain_change",
+   "date": "2025-12-31",
+   "unrealized_change": 5604758.5,
+   "note": "Adopted from journal entry \"Mark to fair value — RouteWise, NovaTech, AdVantage, GreenLeaf Bio\" (2025-12-31)."
+  },
+  {
+   "company_id": "d1263d61-e648-4906-b991-f831fb74a186",
+   "vehicle": "Fund II",
+   "type": "unrealized_gain_change",
+   "date": "2025-12-31",
+   "unrealized_change": 7497000,
+   "note": "Adopted from journal entry \"Mark to fair value — Benchline, TapFin\" (2025-12-31)."
   },
   {
    "company_id": "a67954cb-474b-404b-858b-49c240c22027",
@@ -1755,26 +1797,7 @@
    "type": "unrealized_gain_change",
    "date": "2026-06-30",
    "unrealized_change": 1800000,
-   "mark_share_price": 20.82485293247322,
-   "note": "demo-seed-2026: 854ea956-a6a2-4139-a6f2-9d876eb1e8eb:1200-d1263d61"
-  },
-  {
-   "company_id": "d08a27bc-39e4-4fb1-a624-7a286d83e929",
-   "vehicle": "Fund I",
-   "type": "unrealized_gain_change",
-   "date": "2026-06-30",
-   "unrealized_change": -200000,
-   "mark_share_price": 3.75,
-   "note": "demo-seed-2026: bc5bd9de-0986-4984-ba05-eeca2cf5c3fe:1200-d08a27bc"
-  },
-  {
-   "company_id": "2231479f-1bf3-4646-9173-abc5d31fd515",
-   "vehicle": "Fund II",
-   "type": "unrealized_gain_change",
-   "date": "2026-06-30",
-   "unrealized_change": 350000,
-   "mark_share_price": 6.061764705882353,
-   "note": "demo-seed-2026: 854ea956-a6a2-4139-a6f2-9d876eb1e8eb:1200-2231479f"
+   "note": "Adopted from journal entry \"Mark to fair value — Benchline Series C, Lattis, TapFin\" (2026-06-30)."
   },
   {
    "company_id": "8b396e22-1612-4737-8d09-5dbf593bb08f",
@@ -1782,17 +1805,7 @@
    "type": "unrealized_gain_change",
    "date": "2026-06-30",
    "unrealized_change": -100000,
-   "mark_share_price": 0.6,
-   "note": "demo-seed-2026: 854ea956-a6a2-4139-a6f2-9d876eb1e8eb:1200-8b396e22"
-  },
-  {
-   "company_id": "b4870bad-ddd4-42d1-a300-7111899cf154",
-   "vehicle": "Fund I",
-   "type": "unrealized_gain_change",
-   "date": "2026-06-30",
-   "unrealized_change": 425000,
-   "mark_share_price": 12.91705632811833,
-   "note": "demo-seed-2026: bc5bd9de-0986-4984-ba05-eeca2cf5c3fe:1200-b4870bad"
+   "note": "Adopted from journal entry \"Mark to fair value — Benchline Series C, Lattis, TapFin\" (2026-06-30)."
   },
   {
    "company_id": "a67954cb-474b-404b-858b-49c240c22027",
@@ -1800,8 +1813,31 @@
    "type": "unrealized_gain_change",
    "date": "2026-06-30",
    "unrealized_change": 750000,
-   "mark_share_price": 4.090909090909091,
-   "note": "demo-seed-2026: bc5bd9de-0986-4984-ba05-eeca2cf5c3fe:1200-a67954cb"
+   "note": "Adopted from journal entry \"Mark to fair value — NovaTech Series B, AdVantage, RouteWise\" (2026-06-30)."
+  },
+  {
+   "company_id": "b4870bad-ddd4-42d1-a300-7111899cf154",
+   "vehicle": "Fund I",
+   "type": "unrealized_gain_change",
+   "date": "2026-06-30",
+   "unrealized_change": 425000,
+   "note": "Adopted from journal entry \"Mark to fair value — NovaTech Series B, AdVantage, RouteWise\" (2026-06-30)."
+  },
+  {
+   "company_id": "d08a27bc-39e4-4fb1-a624-7a286d83e929",
+   "vehicle": "Fund I",
+   "type": "unrealized_gain_change",
+   "date": "2026-06-30",
+   "unrealized_change": -200000,
+   "note": "Adopted from journal entry \"Mark to fair value — NovaTech Series B, AdVantage, RouteWise\" (2026-06-30)."
+  },
+  {
+   "company_id": "2231479f-1bf3-4646-9173-abc5d31fd515",
+   "vehicle": "Fund II",
+   "type": "unrealized_gain_change",
+   "date": "2026-06-30",
+   "unrealized_change": 350000,
+   "note": "Adopted from journal entry \"Mark to fair value — Benchline Series C, Lattis, TapFin\" (2026-06-30)."
   }
  ]
 }

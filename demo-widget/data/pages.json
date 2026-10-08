@@ -1,6 +1,6 @@
 {
  "schemaVersion": 2,
- "generatedAt": "2026-10-06",
+ "generatedAt": "2026-10-08",
  "pages": {
   "/dashboard": {
    "companies": [
@@ -9,6 +9,7 @@
      "name": "AdVantage",
      "stage": "Series A",
      "status": "active",
+     "createdAt": "2026-03-08T16:29:22.513151+00:00",
      "tags": [],
      "industry": [
       "AdTech"
@@ -49,6 +50,7 @@
      "name": "Benchline",
      "stage": "Series B",
      "status": "active",
+     "createdAt": "2026-03-08T16:29:25.66158+00:00",
      "tags": [],
      "industry": [
       "Data Analytics"
@@ -105,6 +107,7 @@
      "name": "GreenLeaf Bio",
      "stage": "Seed",
      "status": "active",
+     "createdAt": "2026-03-08T16:29:20.554227+00:00",
      "tags": [],
      "industry": [
       "Biotech"
@@ -145,6 +148,7 @@
      "name": "Lattis",
      "stage": "Pre-Seed",
      "status": "active",
+     "createdAt": "2026-03-08T16:29:27.007706+00:00",
      "tags": [],
      "industry": [
       "AI / ML"
@@ -185,6 +189,7 @@
      "name": "NovaTech",
      "stage": "Series A",
      "status": "active",
+     "createdAt": "2026-03-08T16:29:18.104274+00:00",
      "tags": [],
      "industry": [
       "SaaS"
@@ -241,6 +246,7 @@
      "name": "RouteWise",
      "stage": "Series B",
      "status": "active",
+     "createdAt": "2026-03-08T16:29:21.335355+00:00",
      "tags": [],
      "industry": [
       "Logistics",
@@ -290,6 +296,7 @@
      "name": "TapFin",
      "stage": "Series A",
      "status": "active",
+     "createdAt": "2026-03-08T16:29:24.164826+00:00",
      "tags": [],
      "industry": [
       "Fintech"
@@ -346,6 +353,7 @@
      "name": "Verdant",
      "stage": "Seed",
      "status": "active",
+     "createdAt": "2026-03-08T16:29:23.337662+00:00",
      "tags": [],
      "industry": [
       "Climate Tech"
@@ -390,10 +398,24 @@
      "unrealizedValue": null
     }
    ],
-   "allGroups": [
-    "Fund I",
-    "Fund II"
+   "entityOptions": [
+    {
+     "id": "061ee98b-cea1-465e-a73c-d597df4afaba",
+     "name": "Fund I",
+     "names": [
+      "Fund I"
+     ]
+    },
+    {
+     "id": "d73f3df5-5a2f-4c34-b431-e6c8d71fd4e9",
+     "name": "Fund II",
+     "names": [
+      "Fund II"
+     ]
+    }
    ],
+   "initialExcluded": [],
+   "hasSavedSelection": false,
    "canAdd": false,
    "isAdmin": false,
    "userId": "e95bae2f-0a73-483c-9e9c-f64992e8054a"
@@ -429,6 +451,8 @@
     "country": null,
     "holding_type": "company"
    },
+   "holdingType": "company",
+   "entities": [],
    "userId": "e95bae2f-0a73-483c-9e9c-f64992e8054a",
    "isAdmin": false,
    "fundCurrency": "USD",
@@ -600,6 +624,8 @@
     "country": null,
     "holding_type": "company"
    },
+   "holdingType": "company",
+   "entities": [],
    "userId": "e95bae2f-0a73-483c-9e9c-f64992e8054a",
    "isAdmin": false,
    "fundCurrency": "USD",
@@ -722,6 +748,8 @@
     "country": null,
     "holding_type": "company"
    },
+   "holdingType": "company",
+   "entities": [],
    "userId": "e95bae2f-0a73-483c-9e9c-f64992e8054a",
    "isAdmin": false,
    "fundCurrency": "USD",
@@ -839,6 +867,8 @@
     "country": null,
     "holding_type": "company"
    },
+   "holdingType": "company",
+   "entities": [],
    "userId": "e95bae2f-0a73-483c-9e9c-f64992e8054a",
    "isAdmin": false,
    "fundCurrency": "USD",
@@ -959,6 +989,8 @@
     "country": null,
     "holding_type": "company"
    },
+   "holdingType": "company",
+   "entities": [],
    "userId": "e95bae2f-0a73-483c-9e9c-f64992e8054a",
    "isAdmin": false,
    "fundCurrency": "USD",
@@ -1095,6 +1127,8 @@
     "country": null,
     "holding_type": "company"
    },
+   "holdingType": "company",
+   "entities": [],
    "userId": "e95bae2f-0a73-483c-9e9c-f64992e8054a",
    "isAdmin": false,
    "fundCurrency": "USD",
@@ -1248,6 +1282,8 @@
     "country": null,
     "holding_type": "company"
    },
+   "holdingType": "company",
+   "entities": [],
    "userId": "e95bae2f-0a73-483c-9e9c-f64992e8054a",
    "isAdmin": false,
    "fundCurrency": "USD",
@@ -1400,6 +1436,8 @@
     "country": null,
     "holding_type": "company"
    },
+   "holdingType": "company",
+   "entities": [],
    "userId": "e95bae2f-0a73-483c-9e9c-f64992e8054a",
    "isAdmin": false,
    "fundCurrency": "USD",
@@ -1945,6 +1983,7 @@
    "initialDeals": [
     {
      "id": "24729968-7f2b-4159-948b-7f68411d7231",
+     "vehicle_id": null,
      "email_id": "0d576326-16f6-4292-87a0-619780395f3a",
      "company_name": "Haptiq",
      "company_url": "https://haptiq.dev",
@@ -1963,6 +2002,7 @@
     },
     {
      "id": "41bd7a9a-2d35-400a-a650-f70aa9cec24d",
+     "vehicle_id": null,
      "email_id": "7bdf93fe-37c5-46e5-bf83-7bb148d183d2",
      "company_name": "Lattice",
      "company_url": "https://latticeag.com",
@@ -1981,6 +2021,7 @@
     },
     {
      "id": "323ba75b-04f8-474f-adfd-7ae039d7aa88",
+     "vehicle_id": null,
      "email_id": "59665bbb-d5e6-4319-9005-d597e93342dc",
      "company_name": "Stellate",
      "company_url": "https://stellate.dev",
@@ -2042,7 +2083,8 @@
     "research_findings": null,
     "research_sources": null,
     "research_error": null,
-    "researched_at": null
+    "researched_at": null,
+    "vehicle_id": null
    },
    "email": {
     "id": "59665bbb-d5e6-4319-9005-d597e93342dc",
@@ -2097,7 +2139,8 @@
     "research_findings": null,
     "research_sources": null,
     "research_error": null,
-    "researched_at": null
+    "researched_at": null,
+    "vehicle_id": null
    },
    "email": {
     "id": "c7289d93-33e1-43c1-be4b-fb8878e57696",
@@ -2158,7 +2201,8 @@
     "research_findings": null,
     "research_sources": null,
     "research_error": null,
-    "researched_at": null
+    "researched_at": null,
+    "vehicle_id": null
    },
    "email": {
     "id": "7bdf93fe-37c5-46e5-bf83-7bb148d183d2",
@@ -2213,7 +2257,8 @@
     "research_findings": null,
     "research_sources": null,
     "research_error": null,
-    "researched_at": null
+    "researched_at": null,
+    "vehicle_id": null
    },
    "email": {
     "id": "28cfe29c-1c24-4df2-bea0-d7364c712d2b",
@@ -2268,7 +2313,8 @@
     "research_findings": null,
     "research_sources": null,
     "research_error": null,
-    "researched_at": null
+    "researched_at": null,
+    "vehicle_id": null
    },
    "email": {
     "id": "0d576326-16f6-4292-87a0-619780395f3a",
@@ -2354,7 +2400,8 @@
     "affinity_organization_id": null,
     "affinity_opportunity_id": null,
     "affinity_linked_by": null,
-    "affinity_last_synced_at": null
+    "affinity_last_synced_at": null,
+    "vehicle_id": null
    },
    "initialDocuments": [
     {
@@ -2451,7 +2498,8 @@
     "affinity_organization_id": null,
     "affinity_opportunity_id": null,
     "affinity_linked_by": null,
-    "affinity_last_synced_at": null
+    "affinity_last_synced_at": null,
+    "vehicle_id": null
    },
    "initialDocuments": [
     {
@@ -2524,7 +2572,8 @@
     "affinity_organization_id": null,
     "affinity_opportunity_id": null,
     "affinity_linked_by": null,
-    "affinity_last_synced_at": null
+    "affinity_last_synced_at": null,
+    "vehicle_id": null
    },
    "initialDocuments": [
     {

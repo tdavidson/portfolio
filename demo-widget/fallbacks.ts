@@ -61,8 +61,10 @@ function dashboard(snapshot: DemoSnapshot) {
       moic: null, grossIrr: null, totalInvested: null, totalRealized: null, unrealizedValue: null,
     }
   })
-  const allGroups = Array.from(new Set(companies.flatMap(c => c.portfolioGroup ?? []))).sort()
-  return { companies, allGroups, canAdd: false, isAdmin: false, userId: 'demo-viewer' }
+  // The entity picker (DashboardPageView): every entity the companies are held in, none excluded.
+  const groups = Array.from(new Set(companies.flatMap(c => c.portfolioGroup ?? []))).sort()
+  const entityOptions = groups.map(name => ({ id: name, name, names: [name] }))
+  return { companies, entityOptions, initialExcluded: [] as string[], hasSavedSelection: false, canAdd: false, isAdmin: false, userId: 'demo-viewer' }
 }
 
 function company(snapshot: DemoSnapshot, id: string) {

@@ -71,7 +71,9 @@ export function HoldingPriceFeed({ companyId, kind, initialAsOf = null, highligh
     const current = guard.begin()
     setRefreshing(true)
     try {
-      const res = await fetch(`${url}?asOf=${asOf}`)
+      // Today is the route's default: leave it off so the request is the same every day (the
+      // public demo answers recorded requests by their exact URL).
+      const res = await fetch(asOf === today() ? url : `${url}?asOf=${asOf}`)
       const data = await res.json().catch(() => null)
       if (!current()) return
       if (!res.ok || !data) {
