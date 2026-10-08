@@ -152,6 +152,25 @@ describe('an untagged legacy wallet on a holding one entity holds', () => {
     expect(june.wallets).toEqual([])
   })
 
+  it('decides an action at today, so a wallet the list shows is not refused for a purchase dated later', async () => {
+    // Fund II's purchase is in the future: today the untagged wallet is Fund I's alone, and the
+    // list shows it to a Fund I member — so verify and record-balance must accept it too.
+    const future = { ...inv('i2', 'Fund II', 20), transaction_date: '2999-01-01' }
+    s.m = seed({ crypto_wallets: [{ ...untagged }], investment_transactions: [inv('i1', 'Fund I', 10), future] })
+    expect((await (await GET(req('GET'), ctx)).json()).wallets).toEqual([expect.objectContaining({ id: 'wu' })])
+    expect((await POST(req('POST', { action: 'verify', walletId: 'wu', method: 'signed_message' }), ctx)).status).toBe(200)
+    expect((await POST(req('POST', { action: 'record-balance', walletId: 'wu', asOfDate: '2026-03-31', units: 3 }), ctx)).status).toBe(200)
+  })
+
+  it("decides a recorded balance at the reading's own date", async () => {
+    // Fund II bought in on 5 May: a reading dated after that describes a wallet two entities hold.
+    const late = { ...inv('i2', 'Fund II', 20), transaction_date: '2026-05-05' }
+    s.m = seed({ crypto_wallets: [{ ...untagged }], investment_transactions: [inv('i1', 'Fund I', 10), late] })
+    const rec = (asOfDate: string) => POST(req('POST', { action: 'record-balance', walletId: 'wu', asOfDate, units: 3 }), ctx)
+    expect((await rec('2026-03-31')).status).toBe(200)
+    expect((await rec('2026-06-30')).status).toBe(404)
+  })
+
   it("decides the holder from the whole fund's transactions, not the caller's", async () => {
     // Fund II's purchase is invisible to the caller; it must still make the wallet shared.
     s.m = seed({ crypto_wallets: [{ ...untagged }] })

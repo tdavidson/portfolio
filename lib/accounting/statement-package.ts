@@ -163,9 +163,21 @@ export async function loadLedgerData(
     walletRowsKept = ((walletRows as any[]) ?? []).filter(w => !w.portfolio_group || w.portfolio_group === group)
     // Readings by wallet id, never fund-wide: PostgREST's row cap would silently truncate them.
     if (walletRowsKept.length > 0) {
-      const { data: balanceRows, error: balancesError } = await (admin as any).from('crypto_wallet_balances').select('*')
-        .in('wallet_id', walletRowsKept.map(w => w.id))
-      if (balancesError) throw new Error(`crypto_wallet_balances read failed: ${balancesError.message}`)
+      // Paged in a stable order, stopping on an EMPTY page: a read past the API row cap would
+      // otherwise drop readings, and with them the one a period end needs.
+      const balanceRows: any[] = []
+      const walletIds = walletRowsKept.map(w => w.id)
+      for (let from = 0; ; ) {
+        const { data, error: balancesError } = await (admin as any).from('crypto_wallet_balances').select('*')
+          .in('wallet_id', walletIds)
+          .order('as_of_date', { ascending: true }).order('wallet_id', { ascending: true })
+          .range(from, from + 999)
+        if (balancesError) throw new Error(`crypto_wallet_balances read failed: ${balancesError.message}`)
+        const page = (data as any[]) ?? []
+        if (page.length === 0) break
+        balanceRows.push(...page)
+        from += page.length
+      }
       balances = ((balanceRows as any[]) ?? []).map(balanceFromRow)
     }
   } catch (e) {

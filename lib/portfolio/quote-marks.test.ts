@@ -164,6 +164,24 @@ describe('bookQuoteMark', () => {
     expect(await bookQuoteMark(m.admin, 'f', 'u', 'co', 'Fund II', '2026-03-31')).toMatchObject({ booked: true })
   })
 
+  it.each(['mark', 'nav'])('refuses a mark dated before a later manual %s mark, which would count the same change twice', async (source) => {
+    const observations = [
+      { fund_id: 'f', feed_id: 'pf', as_of_date: '2026-03-31', price: 150, basis: 'close' },
+    ]
+    const m = seed({ observations })
+    m.tables.investment_transactions.push({
+      id: 'mk', fund_id: 'f', company_id: 'co', transaction_type: 'unrealized_gain_change', transaction_date: '2026-06-30',
+      portfolio_group: 'Fund I', valuation_change_source: source, unrealized_value_change: 500,
+    })
+    const res = await bookQuoteMark(m.admin, 'f', 'u', 'co', 'Fund I', '2026-03-31')
+    expect(res.booked).toBe(false)
+    expect((res as any).reason).toContain('2026-06-30')
+    expect(quoteMarks(m)).toHaveLength(1)
+    // An FX revaluation is a different figure and does not block it, nor does another entity's mark.
+    m.tables.investment_transactions.find((t: any) => t.id === 'mk')!.valuation_change_source = 'fx'
+    expect(await bookQuoteMark(m.admin, 'f', 'u', 'co', 'Fund I', '2026-03-31')).toMatchObject({ booked: true })
+  })
+
   it('refuses a quote in another currency rather than booking pence as pounds', async () => {
     const m = seed({ currency: 'USD', quoteCurrency: 'GBP' })
     expect(await bookQuoteMark(m.admin, 'f', 'u', 'co', 'Fund I', '2026-03-31'))

@@ -48,14 +48,17 @@ export async function allQuotes(
 ): Promise<PriceObservation[]> {
   if (feedIds.length === 0) return []
   const out: PriceObservation[] = []
-  for (let from = 0; ; from += PAGE) {
+  // Stops on an EMPTY page, not a short one: a deployment whose max_rows is below PAGE returns a
+  // short page that is not the last, and stopping there would drop the latest quotes silently.
+  for (let from = 0; ; ) {
     const { data, error } = await (admin as any).from('price_observations').select(COLUMNS)
       .eq('fund_id', fundId).in('feed_id', feedIds)
       .order('as_of_date', { ascending: true }).order('feed_id', { ascending: true })
       .range(from, from + PAGE - 1)
     if (error) throw new Error(`quotes read failed: ${error.message}`)
     const rows = (data as any[]) ?? []
+    if (rows.length === 0) return out
     out.push(...rows.map(observationFromRow))
-    if (rows.length < PAGE) return out
+    from += rows.length
   }
 }

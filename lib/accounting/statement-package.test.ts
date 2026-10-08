@@ -112,8 +112,22 @@ describe('loadLedgerData — on-chain balances', () => {
     }
     const data = await loadLedgerData(admin as any, 'F', 'Fund I')
     // Never Fund II's tagged w2; the untagged w3 is read because whose it is depends on the date.
-    expect(seen).toEqual([['wallet_id', ['w1', 'w3', 'w4']]])
+    expect(seen.length).toBeGreaterThan(0)
+    for (const call of seen) expect(call).toEqual(['wallet_id', ['w1', 'w3', 'w4']])
     expect(data.balances!.map(b => b.walletId).sort()).toEqual(['w1', 'w4'])
+  })
+
+  it('keeps every reading when more exist than the API row cap returns per request', async () => {
+    const base = seed()
+    // 1,200 daily readings for w1, the latest (the one a period end needs) last.
+    const readings = Array.from({ length: 1200 }, (_, i) => ({
+      fund_id: 'F', wallet_id: 'w1', as_of_date: new Date(Date.UTC(2023, 0, 1) + i * 86_400_000).toISOString().slice(0, 10), units: i,
+    }))
+    const { admin } = memoryAdmin({ ...base, crypto_wallet_balances: readings }, { maxRows: 500 })
+    const data = await loadLedgerData(admin as any, 'F', 'Fund I')
+    expect(data.chainWarning).toBeUndefined()
+    expect(data.balances).toHaveLength(1200)
+    expect(Math.max(...data.balances!.map(b => b.units))).toBe(1199)
   })
 
   it('degrades with a warning when the wallet read fails, rather than failing the package', async () => {

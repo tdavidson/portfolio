@@ -147,21 +147,31 @@ export async function bookQuoteMark(
   // And none BEFORE a mark already booked: the delta is struck against the ledger as of `asOf`,
   // which does not yet carry the later mark, so booking it would count that change twice — once in
   // the later mark and again in this one.
+  //
+  // A manual mark ('mark') or a fund NAV ('nav') dated on or after `asOf` counts the same way: it
+  // moved the holding's value from a ledger that did not yet carry this quote, so beneath it this
+  // mark would book that change again. (An 'fx' revaluation is a different figure and does not.)
   const { data: existing, error: existingError } = await (admin as any)
-    .from('investment_transactions').select('transaction_date')
+    .from('investment_transactions').select('transaction_date, valuation_change_source')
     .eq('fund_id', fundId).eq('company_id', companyId).eq('portfolio_group', group)
     .gte('transaction_date', asOf).eq('transaction_type', 'unrealized_gain_change')
-    .eq('valuation_change_source', 'quote').order('transaction_date', { ascending: false })
+    .order('transaction_date', { ascending: false })
   if (existingError) return { booked: false, reason: `Could not read the holding's marks: ${existingError.message}` }
-  const dates = ((existing as { transaction_date: string }[]) ?? []).map(r => r.transaction_date)
-  if (dates.includes(asOf)) {
+  const marks = ((existing as { transaction_date: string; valuation_change_source: string | null }[]) ?? [])
+    .filter(r => r.valuation_change_source !== 'fx')
+  if (marks.some(r => r.transaction_date === asOf && r.valuation_change_source === 'quote')) {
     return { booked: false, reason: `A quoted mark is already booked for ${group} on ${asOf}.` }
   }
-  if (dates.length > 0) {
+  if (marks.length > 0) {
     // Latest first: marks come off in the reverse of the order they went on.
+    const latest = marks[0]
+    const kind = latest.valuation_change_source === 'quote' ? 'quoted mark'
+      : latest.valuation_change_source === 'nav' ? 'NAV mark' : 'mark'
     return {
       booked: false,
-      reason: `${group} already has a quoted mark dated after ${asOf}. Reverse the ${dates[0]} mark first.`,
+      reason: latest.valuation_change_source === 'quote'
+        ? `${group} already has a quoted mark dated after ${asOf}. Reverse the ${latest.transaction_date} mark first.`
+        : `${group} already has a ${kind} dated ${latest.transaction_date === asOf ? 'on' : 'after'} ${asOf}, which this quote would count a second time. Remove the ${latest.transaction_date} ${kind} first, or mark by hand.`,
     }
   }
 

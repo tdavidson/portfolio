@@ -65,7 +65,7 @@ async function walletVisibility(
 
 /** A wallet on this holding the caller may act on: `{ wallet }`, `{ wallet: null }`, or a 500. */
 async function visibleWallet(
-  admin: any, gate: { fundId: string }, companyId: string, ctx: HoldingContext, walletId: unknown,
+  admin: any, gate: { fundId: string }, companyId: string, ctx: HoldingContext, walletId: unknown, asOf: string,
 ): Promise<{ wallet: any } | NextResponse> {
   if (typeof walletId !== 'string' || !walletId) return { wallet: null }
   const { data, error } = await admin.from('crypto_wallets').select('*')
@@ -74,8 +74,10 @@ async function visibleWallet(
   if (!data) return { wallet: null }
   const txns = await holdingTxns(admin, gate.fundId, companyId)
   if (!txns) return unread("the holding's transactions")
-  // An action is taken now, so the wallet belongs to whoever holds the asset now.
-  const visible = await walletVisibility(admin, gate.fundId, companyId, ctx, holdersAsOf(txns, null))
+  // The wallet belongs to whoever held the asset on the date the action speaks for — today, or the
+  // reading's own date — the same rule the list applies, so a wallet the list shows is never
+  // refused here. Not all of time: that would count a future-dated purchase as a holder.
+  const visible = await walletVisibility(admin, gate.fundId, companyId, ctx, holdersAsOf(txns, asOf))
   if (!visible) return unread("the holding's entities")
   return { wallet: visible(data) ? data : null }
 }
@@ -160,15 +162,15 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const body = await req.json().catch(() => ({}))
 
   if (body?.action === 'record-balance') {
-    const found = await visibleWallet(admin, gate, id, ctx, body.walletId)
-    if (found instanceof NextResponse) return found
-    const wallet = found.wallet
-    if (!wallet) return notFound()
     const units = body.units == null || body.units === '' ? NaN : Number(body.units)
     if (!Number.isFinite(units) || units < 0) return bad('units must be a non-negative number.')
     if (!body.asOfDate) return bad('asOfDate is required — the date this balance describes.')
     if (!isRealDate(body.asOfDate)) return bad('asOfDate must be a real date written YYYY-MM-DD.')
     if (body.asOfDate > today()) return bad('That date is in the future — a balance cannot describe a block that has not been produced.')
+    const found = await visibleWallet(admin, gate, id, ctx, body.walletId, body.asOfDate)
+    if (found instanceof NextResponse) return found
+    const wallet = found.wallet
+    if (!wallet) return notFound()
     const height = body.blockHeight == null || body.blockHeight === '' ? null : Number(body.blockHeight)
     if (height !== null && (!Number.isInteger(height) || height < 0)) return bad('blockHeight must be a whole, non-negative number.')
     const { data: balance, error } = await (admin as any)
@@ -184,7 +186,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   }
 
   if (body?.action === 'verify') {
-    const found = await visibleWallet(admin, gate, id, ctx, body.walletId)
+    const found = await visibleWallet(admin, gate, id, ctx, body.walletId, today())
     if (found instanceof NextResponse) return found
     const wallet = found.wallet
     if (!wallet) return notFound()
@@ -252,7 +254,7 @@ export async function DELETE(req: NextRequest, props: { params: Promise<{ id: st
 
   const walletId = req.nextUrl.searchParams.get('walletId')
   if (!walletId) return bad('walletId is required.')
-  const found = await visibleWallet(admin, gate, id, ctx, walletId)
+  const found = await visibleWallet(admin, gate, id, ctx, walletId, today())
   if (found instanceof NextResponse) return found
   if (!found.wallet) return notFound()
   const { error } = await (admin as any).from('crypto_wallets').delete().eq('id', walletId).eq('fund_id', gate.fundId)
