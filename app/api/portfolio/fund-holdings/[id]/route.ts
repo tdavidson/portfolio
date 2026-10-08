@@ -69,12 +69,14 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
 
   // What the manager's emails propose for this holding, waiting for review — the shown entity's,
   // and unassigned ones for a caller who may assign them (scopeFundReviews).
-  const { data: reviewRows } = await (admin as any).from('parsing_reviews')
+  const { data: reviewRows, error: reviewsError } = await (admin as any).from('parsing_reviews')
     .select('id, issue_type, payload, vehicle_id, context_snippet, created_at')
     .eq('fund_id', gate.fundId).eq('company_id', params.id).is('resolution', null)
     .in('issue_type', [...FUND_REVIEW_TYPES]).order('created_at', { ascending: false })
   const reviews = scopeFundReviews(((reviewRows as any[]) ?? []), access)
     .filter(r => r.vehicle_id == null || r.vehicle_id === selected)
+  // A failed lookup is not "nothing to review": the panel says so instead of showing an empty list.
+  if (reviewsError) console.error('[fund-holdings-id] reviews lookup failed:', reviewsError.message)
 
   return NextResponse.json({
     holding: holding.data,
@@ -87,6 +89,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     vehicles: entities,
     /** Open manager-email proposals for this holding (api/review/[id]/resolve approves them). */
     reviews,
+    ...(reviewsError ? { reviewsWarning: 'The manager-email proposals for this holding could not be loaded.' } : {}),
   })
 }
 

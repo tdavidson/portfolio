@@ -105,6 +105,7 @@ export function EmailReviewModal({
   // Approve state
   const [approvingAll, setApprovingAll] = useState(false)
   const [approveSuccess, setApproveSuccess] = useState(false)
+  const [approveLeftOpen, setApproveLeftOpen] = useState(0)
 
   // Reprocess state
   const [reprocessing, setReprocessing] = useState(false)
@@ -199,6 +200,7 @@ export function EmailReviewModal({
     if (open && emailId) {
       loadAll()
       setShowEmailBody(false)
+      setApproveLeftOpen(0)
       setShowCompanyForm(false)
       setShowMetricForm(false)
       setMetricsAdded(0)
@@ -215,6 +217,7 @@ export function EmailReviewModal({
       setMetrics([])
       setCompanies([])
       setShowEmailBody(false)
+      setApproveLeftOpen(0)
       setShowCompanyForm(false)
       setShowMetricForm(false)
       setMetricsAdded(0)
@@ -343,6 +346,15 @@ export function EmailReviewModal({
       if (!res.ok) {
         const d = await res.json()
         throw new Error(d.error ?? 'Failed to approve')
+      }
+      // Fund reviews are not approved in bulk (api/emails/[id]/reviews): they stay open, and so does
+      // this modal, so they can be approved one at a time.
+      const json = await res.json().catch(() => ({}))
+      const n = Number(json?.leftOpen ?? 0)
+      if (n > 0) {
+        setApproveLeftOpen(n)
+        await loadAll()
+        return
       }
       setApproveSuccess(true)
       setTimeout(() => onOpenChange(false), 1500)
@@ -799,6 +811,14 @@ export function EmailReviewModal({
                     <p className="text-xs text-muted-foreground mb-3">
                       Accept all outstanding reviews and mark this email as successfully processed without reprocessing.
                     </p>
+                    {approveLeftOpen > 0 && (() => {
+                      const n = approveLeftOpen
+                      return (
+                        <p role="status" className="text-sm text-warning mb-3">
+                          {`${n === 1 ? 'A fund review is' : `${n} fund reviews are`} still open. Approve ${n === 1 ? 'it' : 'each'} on its own, so the NAV or notice is saved with its entity.`}
+                        </p>
+                      )
+                    })()}
                     <Button
                       size="sm"
                       variant="outline"

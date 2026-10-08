@@ -103,27 +103,48 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   // Approving a fund proposal writes the register row it proposes — a NAV statement, which books its
   // mark, or a draft notice. Dismissing writes nothing. A refusal reopens the review.
   let fund: Extract<FundApproval, { ok: true }> | null = null
+  let vehicleWarning: string | null = null
   if (isFund && access && resolution !== 'rejected') {
-    const approved: FundApproval = await approveFundReview(admin, { fundId: writeCheck.fundId, userId: user.id, access }, review, {
-      vehicleId: body.vehicleId, edits: body.edits,
-    }).catch((e: unknown) => {
+    let approved: FundApproval
+    try {
+      approved = await approveFundReview(admin, { fundId: writeCheck.fundId, userId: user.id, access }, review, {
+        vehicleId: body.vehicleId, edits: body.edits,
+      })
+    } catch (e) {
+      // A throw may follow a committed write (the NAV or notice saved, then something after it failed),
+      // so the review stays resolved rather than inviting a second save.
       console.error('[review-id-resolve] fund approval failed:', e)
-      return { ok: false as const, status: 500, error: 'The proposal could not be saved.' }
-    })
+      return NextResponse.json({
+        error: 'Something went wrong while saving this proposal, and it may have been saved. '
+             + 'Check the holding\'s statements and notices before entering it again.',
+      }, { status: 500 })
+    }
     if (!approved.ok) {
-      await admin
+      // A clean refusal wrote nothing: reopen the review so it can be corrected and approved.
+      const { error: reopenError } = await admin
         .from('parsing_reviews')
         .update({ resolution: null, resolved_value: null, resolved_at: null })
         .eq('id', params.id)
         .eq('fund_id', writeCheck.fundId)
+      if (reopenError) {
+        console.error('[review-id-resolve] could not reopen review:', reopenError.message)
+        return NextResponse.json({
+          error: `${approved.error} Nothing was saved, but the review could not be reopened — reload and try again.`,
+        }, { status: approved.status })
+      }
       return NextResponse.json({ error: approved.error }, { status: approved.status })
     }
     fund = approved
-    await admin
+    const { error: vehicleError } = await admin
       .from('parsing_reviews')
       .update({ vehicle_id: fund.vehicleId })
       .eq('id', params.id)
       .eq('fund_id', writeCheck.fundId)
+    if (vehicleError) {
+      // The register row is written; only the review's record of its entity is missing.
+      console.error('[review-id-resolve] could not record the review\'s entity:', vehicleError.message)
+      vehicleWarning = 'Saved, but the review could not record which entity it was approved for.'
+    }
   }
 
   // Write to metric_values for issue types where the pipeline skipped writing.
@@ -249,6 +270,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     ...(fund ? {
       message: fund.message, booking: fund.booking ?? null, eventId: fund.eventId ?? null,
       ...(fund.later ? { later: fund.later } : {}),
+      ...(vehicleWarning ? { warning: vehicleWarning } : {}),
     } : {}),
   })
 }

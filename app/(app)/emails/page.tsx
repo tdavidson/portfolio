@@ -128,6 +128,7 @@ export default function EmailsPage() {
   // Review modal
   const [reviewModalEmailId, setReviewModalEmailId] = useState<string | null>(null)
   const [dismissing, setDismissing] = useState<Record<string, boolean>>({})
+  const [bulkNotice, setBulkNotice] = useState<string | null>(null)
 
   const abortRef = useRef<AbortController | null>(null)
 
@@ -190,7 +191,13 @@ export default function EmailsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'dismiss_all' }),
       })
-      if (res.ok) load(page)
+      if (res.ok) {
+        // Reviews this action could not resolve (api/emails/[id]/reviews) stay open; say so.
+        const json = await res.json().catch(() => ({}))
+        const n = Number(json?.leftOpen ?? 0)
+        setBulkNotice(n > 0 ? `${n === 1 ? 'A fund review is' : `${n} fund reviews are`} still open. Approve ${n === 1 ? 'it' : 'each'} on its own, so the NAV or notice is saved with its entity.` : null)
+        load(page)
+      }
     } catch {
       // ignore
     } finally {
@@ -385,6 +392,10 @@ export default function EmailsPage() {
           <AlertCircle className="h-4 w-4" />
           <AlertDescription>{error}</AlertDescription>
         </Alert>
+      )}
+
+      {bulkNotice && (
+        <p role="status" className="mb-4 text-sm text-warning">{bulkNotice}</p>
       )}
 
       {/* Table */}

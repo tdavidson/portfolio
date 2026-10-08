@@ -68,4 +68,15 @@ describe('one fund holding, for one entity', () => {
     s.access = { vehicles: { all: false, ids: ['v1'] } }
     expect((await get()).reviews.map((r: any) => r.id)).toEqual(['r1'])
   })
+
+  it('says the reviews could not be loaded rather than showing none', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const from = s.m.admin.from
+    s.m.admin.from = (t: string) => t === 'parsing_reviews'
+      ? { select: () => { const q: any = { eq: () => q, is: () => q, in: () => q, order: async () => ({ data: null, error: { message: 'timeout' } }) }; return q } }
+      : from(t)
+    const json = await get()
+    expect(json.reviews).toEqual([])
+    expect(json.reviewsWarning).toMatch(/could not be loaded/)
+  })
 })

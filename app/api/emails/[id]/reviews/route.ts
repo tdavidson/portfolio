@@ -105,11 +105,13 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const fundId = userFundId
 
   // A fund-holding proposal is approved by writing the register (api/review/[id]/resolve), one at a
-  // time with its entity. A bulk "accept" would mark it approved with nothing saved, so it is left
-  // open — and so is the email, until it is resolved.
+  // time with its entity. A bulk "accept" would mark it approved with nothing saved, so approve-all
+  // leaves it open — and so the email, until it is resolved. Dismissing writes nothing to the
+  // register, so dismiss-all resolves it with the rest (RLS already limited `rows` to the caller's).
   const rows = (reviews ?? []) as unknown as { id: string; issue_type: string }[]
-  const leftOpen = rows.filter(r => isFundReviewType(r.issue_type)).length
-  const bulk = rows.filter(r => !isFundReviewType(r.issue_type))
+  const skip = (r: { issue_type: string }) => action === 'approve_all' && isFundReviewType(r.issue_type)
+  const leftOpen = rows.filter(skip).length
+  const bulk = rows.filter(r => !skip(r))
 
   if (bulk.length > 0) {
     const reviewIds = bulk.map(r => r.id)
@@ -138,8 +140,17 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     }
   }
 
-  // Promote email status to success (scoped to fund)
-  if (fundId && leftOpen === 0) {
+  // Promote email status to success (scoped to fund) once NOTHING on it is open — counted with the
+  // admin client, so a review the caller cannot see (another entity's) still holds the email in review.
+  const { count: unresolvedCount, error: countError } = await admin
+    .from('parsing_reviews')
+    .select('id', { count: 'exact', head: true })
+    .eq('email_id', params.id)
+    .eq('fund_id', fundId)
+    .is('resolution', null)
+  if (countError) return dbError(countError, 'emails-id-reviews')
+
+  if (fundId && unresolvedCount === 0) {
     await admin
       .from('inbound_emails')
       .update({ processing_status: 'success', processing_error: null })

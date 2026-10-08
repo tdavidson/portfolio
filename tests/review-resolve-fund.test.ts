@@ -124,11 +124,42 @@ describe('approving twice', () => {
 })
 
 describe('an approval that fails outright', () => {
-  it('reopens the review', async () => {
+  it('leaves the review resolved — the write may have committed — and says to check the holding', async () => {
     s.approve.mockRejectedValue(new Error('connection reset'))
     vi.spyOn(console, 'error').mockImplementation(() => {})
     const res = await post({ resolution: 'accepted' })
     expect(res.status).toBe(500)
-    expect(s.m.tables.parsing_reviews[0]).toMatchObject({ resolution: null, resolved_at: null })
+    expect((await res.json()).error).toMatch(/Check the holding/)
+    expect(s.m.tables.parsing_reviews[0].resolution).toBe('accepted')
+  })
+
+  it('a refusal whose reopen fails says the review could not be reopened', async () => {
+    s.approve.mockResolvedValue({ ok: false, status: 400, error: 'Choose which entity holds this fund.' })
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    // The first update is the claim; the second, the reopen.
+    s.m = memoryAdmin({ ...s.m.tables }, {
+      before: (table: string, op: string) => {
+        if (table === 'parsing_reviews' && op === 'update' && s.m.tables.parsing_reviews[0].resolution !== null) {
+          s.m.failNext('parsing_reviews', 'update', 'connection reset')
+        }
+      },
+    })
+    const res = await post({ resolution: 'accepted' })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/could not be reopened/)
+  })
+
+  it('an approval whose entity cannot be recorded still reports the save, with a warning', async () => {
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    s.m = memoryAdmin({ ...s.m.tables }, {
+      before: (table: string, op: string, payload: any) => {
+        if (table === 'parsing_reviews' && op === 'update' && payload && 'vehicle_id' in payload) {
+          s.m.failNext('parsing_reviews', 'update', 'connection reset')
+        }
+      },
+    })
+    const res = await post({ resolution: 'accepted', vehicleId: 'v1' })
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ message: expect.stringMatching(/posted/), warning: expect.stringMatching(/entity/) })
   })
 })
