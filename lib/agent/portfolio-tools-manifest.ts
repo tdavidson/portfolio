@@ -176,7 +176,7 @@ export const PORTFOLIO_TOOL_MANIFEST: AgentToolMeta[] = [
         current_share_price: { type: 'number' },
         cost_basis_exited: { type: 'number', description: 'proceeds: cost basis coming off the books' },
         proceeds_received: { type: 'number', description: 'proceeds: cash received' },
-        valuation_change_source: { type: 'string', enum: ['mark', 'fx'], description: "'fx' books the change as a currency translation, not investment performance" },
+        valuation_change_source: { type: 'string', enum: ['mark', 'fx', 'quote', 'nav'], description: "'fx' books the change as a currency translation, not investment performance; 'quote' and 'nav' are a quoted price and a manager's NAV, booked as a mark" },
         original_currency: { type: 'string' },
         fx_rate: { type: 'number' },
         prior_fx_rate: { type: 'number' },

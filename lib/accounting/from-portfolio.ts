@@ -560,6 +560,8 @@ export async function draftEntryForTransaction(
 
     // ---- A valuation change: either the company moved, or the currency did. -
     else if (txn.transaction_type === 'unrealized_gain_change') {
+      // Only 'fx' is a rate move. 'mark', 'quote' (a price feed) and 'nav' (a manager's statement)
+      // are all a change in the investment's own value, and book to 1200/4200.
       const isFx = txn.valuation_change_source === 'fx'
       const delta = num(isFx ? (txn.fx_value_change ?? txn.unrealized_value_change) : txn.unrealized_value_change)
       if (delta === 0) return skip('The valuation did not change — nothing to book.')
