@@ -75,8 +75,9 @@ describe('Company Update dual-write capture', () => {
     // Each artifact carries a title chunk (weight A) ahead of its content chunks.
     expect(call.p_artifacts[0].chunks.map((chunk: any) => chunk.chunk_kind)).toEqual(['artifact_title', 'attachment'])
     expect(call.p_artifacts[0].chunks[0].content).toBe('update.txt')
-    // The subject is its own searchable chunk, then the two body representations.
-    expect(call.p_body_chunks.map((chunk: any) => chunk.chunk_kind)).toEqual(['subject', 'body_original', 'body_current'])
+    // The subject is its own searchable chunk, then the current message. The original adds nothing
+    // here (no quoted history beyond the current message), so it is not indexed a second time.
+    expect(call.p_body_chunks.map((chunk: any) => chunk.chunk_kind)).toEqual(['subject', 'body_current'])
     expect(call.p_body_chunks[0].content).toBe('Canonical database subject')
     expect(call.p_body_chunks.every((chunk: any) => chunk.parser_version === BODY_CLEANER_VERSION)).toBe(true)
     expect(result?.artifacts.map(a => a.id)).toEqual(['artifact-0', 'artifact-1'])

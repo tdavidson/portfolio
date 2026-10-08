@@ -63,6 +63,10 @@ describe('verification corpus — email bodies', () => {
     expect(body.current).toBe('Thanks — noted on the hiring plan.')
     expect(body.original).toContain('Churn was 1.1%')
     expect(body.cleaningStatus).toBe('complete')
+    // The quoted history is searchable as original chunks; the new reply text is not duplicated there.
+    const originalText = body.originalChunks.map(c => c.text).join('\n')
+    expect(originalText).toContain('Churn was 1.1%')
+    expect(originalText).not.toContain('Thanks — noted on the hiring plan.')
   })
 
   it('Outlook reply: the From/Sent header block marks the quote boundary', () => {
@@ -75,6 +79,9 @@ describe('verification corpus — email bodies', () => {
     const body = extractEmailBody(EMAIL_BODIES.forwarded)
     expect(body.forwardedSender).toEqual({ name: 'Ada Founder', email: 'ada@example.test' })
     expect(body.current).toContain('Customer retention rose to 96 percent')
+    // current already holds the forwarded content, so indexing the original too would duplicate it.
+    expect(body.originalChunks).toEqual([])
+    expect(body.original).toContain('Customer retention rose to 96 percent')
   })
 
   it('wholly quoted message: cleaning is uncertain and keeps everything rather than emptying it', () => {
@@ -82,6 +89,12 @@ describe('verification corpus — email bodies', () => {
     expect(body.cleaningStatus).toBe('uncertain')
     expect(body.current).toContain('Retention 96 percent')
     expect(body.warnings.join(' ')).toMatch(/uncertain/)
+    expect(body.originalChunks).toEqual([])
+    expect(body.currentChunks.length).toBeGreaterThan(0)
+  })
+
+  it('bumps the cleaner version so backfill treats v1 captures as stale', () => {
+    expect(extractEmailBody(EMAIL_BODIES.plain).cleanerVersion).toBe('company-updates-body-v2')
   })
 })
 

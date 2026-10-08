@@ -40,7 +40,7 @@ export interface ExtractedAttachment {
 }
 
 export const ARTIFACT_PARSER_VERSION = 'company-updates-artifact-v2'
-export const BODY_CLEANER_VERSION = 'company-updates-body-v1'
+export const BODY_CLEANER_VERSION = 'company-updates-body-v2'
 /**
  * Version of the whole capture (body cleaner + every artifact parser). Stored on the update row so
  * a backfill can tell "captured by an older release" from "captured by this one". Bump whenever
@@ -72,6 +72,27 @@ type ArtifactInput = {
 
 export type ParsedContent = Omit<ExtractedArtifact, 'parserVersion'>
 
+/** Fewer non-whitespace characters than this left over is a separator, not history worth indexing. */
+const MIN_HISTORY_CHARS = 40
+
+/**
+ * The text to index as `body_original`: only the quoted history the current message does not
+ * already contain. Forwards and uncertain cleanings keep the whole body in `current`, so chunking
+ * `original` too would index every passage twice and search would return both. The stored
+ * `original` column is unchanged; only what gets chunked differs.
+ */
+function quotedHistory(original: string, current: string): string {
+  const needle = current.trim()
+  if (!needle) return original
+  const tokens = needle.split(/\s+/).map(t => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'))
+  const match = new RegExp(tokens.join('\\s+')).exec(original)
+  if (!match) return original // no containment: keep indexing the whole original
+  const rest = (original.slice(0, match.index) + '\n' + original.slice(match.index + match[0].length))
+    .replace(/^[\s\-_=*>]*(?:-{2,}\s*)?(?:forwarded message|original message)?[\s\-_=*]*$/gim, '')
+    .trim()
+  return rest.replace(/\s/g, '').length > MIN_HISTORY_CHARS ? rest : ''
+}
+
 /** Normalize both faithful and retrieval-oriented email body representations. */
 export function extractEmailBody(payload: EmailBodyPayload): ExtractedBody {
   const plain = normalizePlainText(payload.TextBody ?? '')
@@ -92,7 +113,7 @@ export function extractEmailBody(payload: EmailBodyPayload): ExtractedBody {
     cleanerVersion: BODY_CLEANER_VERSION,
     warnings,
     forwardedSender: findForwardedSender(original),
-    originalChunks: chunkText(original, { section: 'email_body', representation: 'original' }),
+    originalChunks: chunkText(quotedHistory(original, cleaned.text), { section: 'email_body', representation: 'original' }),
     currentChunks: chunkText(cleaned.text, { section: 'email_body', representation: 'current' }),
   }
 }
