@@ -8,6 +8,7 @@ import { Label } from '@/components/ui/label'
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog'
+import { investingEntities } from '@/lib/portfolio/investing-entities'
 
 /**
  * Adds a holding that is itself a FUND.
@@ -30,14 +31,11 @@ export function AddFundHoldingButton({ onCreated }: { onCreated?: () => void }) 
   useEffect(() => {
     if (!open) return
     let cancelled = false
-    fetch('/api/accounting/vehicle-index')
+    // The caller's own entities (portfolio domain) — not the accounting vehicle index, which a
+    // member without accounting access cannot read.
+    fetch('/api/entities')
       .then(r => (r.ok ? r.json() : []))
-      .then(rows => {
-        if (cancelled) return
-        setVehicles((Array.isArray(rows) ? rows : [])
-          .filter((v: { id?: string; name?: string }) => v?.id && v?.name)
-          .map((v: { id: string; name: string }) => ({ id: v.id, name: v.name })))
-      })
+      .then(rows => { if (!cancelled) setVehicles(investingEntities(rows)) })
       .catch(() => { if (!cancelled) setVehicles([]) })
     return () => { cancelled = true }
   }, [open])

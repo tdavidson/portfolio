@@ -30,6 +30,9 @@ interface FundPosition {
   rvpi: number | null
   tvpi: number | null
   netIrr: number | null
+  vehicleId: string | null
+  vehicleName: string | null
+  key: string
 }
 
 /** Managers report 45-90 days late, so past roughly one quarter is worth flagging. */
@@ -44,7 +47,7 @@ export default function FundHoldingsPage() {
   const [positions, setPositions] = useState<FundPosition[]>([])
   const [loading, setLoading] = useState(true)
   const [asOf, setAsOf] = useState(() => new Date().toISOString().slice(0, 10))
-  const [openHolding, setOpenHolding] = useState<string | null>(null)
+  const [openHolding, setOpenHolding] = useState<{ companyId: string; vehicleId: string | null } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -73,6 +76,8 @@ export default function FundHoldingsPage() {
   // Totals from TOTALS, never averaged across rows — averaging 60% and 100% called gives 80%
   // when the truth for a 5-of-7 portfolio is 71.4%.
   const totalPctCalled = total.commitment > 0 ? total.contributed / total.commitment : null
+  // Two entities holding the same fund are two rows; name the entity once there is more than one.
+  const multiEntity = new Set(positions.map(p => p.vehicleId)).size > 1
   const totalTvpi = total.contributed > 0 ? (total.distributed + total.carrying) / total.contributed : null
 
   return (
@@ -109,6 +114,7 @@ export default function FundHoldingsPage() {
               <TableHeader>
                 <TableRow>
                   <TableHead>Fund</TableHead>
+                  {multiEntity && <TableHead>Entity</TableHead>}
                   <TableHead>Vintage</TableHead>
                   <TableHead className="text-right">Commitment</TableHead>
                   <TableHead className="text-right">Called</TableHead>
@@ -124,14 +130,15 @@ export default function FundHoldingsPage() {
               <TableBody>
                 {positions.map(p => (
                   <TableRow
-                    key={p.companyId}
+                    key={p.key}
                     className="cursor-pointer"
-                    onClick={() => setOpenHolding(p.companyId)}
+                    onClick={() => setOpenHolding({ companyId: p.companyId, vehicleId: p.vehicleId })}
                   >
                     <TableCell className="font-medium">
                       {p.name}
                       {p.managerName && <span className="block text-xs text-muted-foreground">{p.managerName}</span>}
                     </TableCell>
+                    {multiEntity && <TableCell className="text-sm">{p.vehicleName ?? 'No entity yet'}</TableCell>}
                     <TableCell className="tabular-nums">{p.vintageYear ?? dash}</TableCell>
                     <TableCell className="text-right tabular-nums">{fmt(p.commitment)}</TableCell>
                     <TableCell className="text-right tabular-nums">{fmt(p.contributed)}</TableCell>
@@ -161,6 +168,7 @@ export default function FundHoldingsPage() {
               <TableFooter>
                 <TableRow>
                   <TableCell className="font-medium">Total</TableCell>
+                  {multiEntity && <TableCell />}
                   <TableCell />
                   <TableCell className="text-right tabular-nums">{fmt(total.commitment)}</TableCell>
                   <TableCell className="text-right tabular-nums">{fmt(total.contributed)}</TableCell>
@@ -181,7 +189,8 @@ export default function FundHoldingsPage() {
 
       {openHolding && (
         <FundHoldingDetail
-          companyId={openHolding}
+          companyId={openHolding.companyId}
+          vehicleId={openHolding.vehicleId}
           onClose={() => setOpenHolding(null)}
           onChanged={() => void load()}
         />
