@@ -124,7 +124,27 @@ describe('fofCloseIssues', () => {
     expect(blockers).toHaveLength(1)
     expect(blockers[0]).toMatch(/Acme Ventures III/)
     expect(blockers[0]).toMatch(/3600000\.00|3,600,000|3600000/)
-    expect(blockers[0]).toMatch(/mark/i)
+    expect(blockers[0]).toMatch(/manager's statement.*confirm the notices/i)
+  })
+
+  it('warns, not blocks, when the only gap is cash flows dated after the newest statement', () => {
+    // Ledger carries the statement (4.0m); a 0.5m call since is in the register but the manager has
+    // not reported past it, so the position values at 4.5m. Nothing is unbooked.
+    const { blockers, warnings } = fofCloseIssues(
+      [pos({ carryingValue: 4_500_000 })],
+      new Map([['f1', 4_000_000]]),
+      '2025-12-31',
+    )
+    expect(blockers).toEqual([])
+    expect(warnings).toContain(
+      "Waiting on the manager's statement for Acme Ventures III — its value is the last statement plus the flows since.",
+    )
+  })
+
+  it('still blocks when the ledger carries neither the statement nor the rolled-forward value', () => {
+    const { blockers } = fofCloseIssues([pos({ carryingValue: 4_500_000 })], new Map([['f1', 3_000_000]]), '2025-12-31')
+    expect(blockers).toHaveLength(1)
+    expect(blockers[0]).toMatch(/Record the manager's statement for this period, or confirm the notices since it\./)
   })
 
   it('warns — does not block — on a NAV more than one quarter stale', () => {

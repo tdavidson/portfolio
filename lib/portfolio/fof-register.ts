@@ -91,10 +91,9 @@ export function transactionForEvent(
 /**
  * The mark a NAV statement implies, dated AT the statement's as-of date.
  *
- * No roll-forward here, deliberately: at the as-of date itself there are no later cash flows
- * to roll, so marking to the reported NAV is exact. The rolled-forward figure from
- * fof-metrics.ts is what a PERIOD-END mark uses when the newest statement is older than the
- * period — that mark is derived at close and belongs to Plan 2.
+ * No roll-forward here, deliberately: at the as-of date itself there are no later cash flows to
+ * roll, so marking to the reported NAV is exact. lib/portfolio/fof-nav.ts calls this when a
+ * statement is saved, with the ledger's carrying value at that date.
  */
 export function transactionForNav(
   n: RegisterNav,
@@ -214,11 +213,10 @@ function toRegisterEvent(row: any): RegisterEvent {
 /**
  * Which of our entities holds this fund, from its register OR its ledger accounts.
  *
- * A fund holding belongs to exactly one vehicle, and the schema says so: `fund_holding_terms` is
- * unique per company and `fund_nav_statements` is unique on (company_id, as_of_date). So after the
- * first notice names the entity, every later notice and NAV can infer it rather than asking again
- * — and nothing can land with a null vehicle, which is what made these holdings unconfirmable and
- * unscopeable.
+ * A fund holding can be held by several of our entities (terms per (company, vehicle), NAVs per
+ * (company, vehicle, date)). When it has exactly one, every later notice and NAV can infer it rather
+ * than asking again; with none or several, the caller must say — nothing lands with a null vehicle,
+ * which is what made these holdings unconfirmable and unscopeable.
  *
  * Returns every distinct vehicle found, so a caller can tell "none yet" from "ambiguous".
  */

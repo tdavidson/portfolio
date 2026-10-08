@@ -3,12 +3,12 @@ import type { FundPosition, NavBasis } from './fof-metrics'
 /**
  * Period-end valuation for a fund of funds. Pure.
  *
- * WHY THE MARK IS DERIVED AT CLOSE rather than booked when a NAV is entered. The manager's
- * statement arrives mid-quarter and is entered then; a call notice for the same fund can
- * arrive a week later, dated before the period end. A mark computed at entry time would be
- * stale the moment that call lands. Recomputing the whole position at close — reported NAV
- * rolled forward for every cash flow since its as-of date, less what the ledger carries —
- * makes the order of arrival irrelevant.
+ * The mark is BOOKED WHEN A NAV IS SAVED (lib/portfolio/fof-nav.ts) — at the statement's as-of date,
+ * against what the ledger carries then — and RE-BOOKED when something later changes that carrying
+ * value: a call confirmed after the statement but dated before it, or an edit to an earlier
+ * statement. This module computes the marks and, for the close, the blockers: a position whose
+ * ledger value disagrees with its rolled-forward NAV at period end means a statement was never
+ * booked or a notice is still unconfirmed.
  */
 
 const CENT = 0.005
@@ -61,7 +61,8 @@ export function periodEndMarks(
  * its existing `blockers` / `warnings` arrays. No new rule engine: `closeThrough` already
  * refuses to close when `blockers` is non-empty.
  *
- * The severity split is the whole point. An unbooked mark BLOCKS, because the ledger is the
+ * The severity split is the whole point. A value the ledger does not carry BLOCKS (a statement
+ * never saved, or a notice still unconfirmed), because the ledger is the
  * control total for the schedule of investments and closing without it publishes a NAV no
  * posting supports. A stale manager NAV only WARNS, because reporting 45-90 days late is
  * normal — blocking on it would make a fund of funds unclosable by construction.
@@ -74,10 +75,22 @@ export function fofCloseIssues(
   const blockers: string[] = []
   const warnings: string[] = []
 
+  const byId = new Map(positions.map(p => [p.companyId, p]))
   for (const m of periodEndMarks(positions, ledgerCarrying, periodEnd)) {
+    const p = byId.get(m.companyId)
+    // The ledger carries exactly the newest statement, and the whole gap is the cash flow dated
+    // after it: nothing is unbooked, the manager just has not reported past that flow yet.
+    // Blocking would make every quarter-end with a late statement unclosable.
+    if (p && p.reportedNav !== null && Math.abs(m.ledgerCarrying - p.reportedNav) < CENT) {
+      warnings.push(
+        `Waiting on the manager's statement for ${m.name} — its value is the last statement plus the flows since.`,
+      )
+      continue
+    }
     blockers.push(
       `${m.name}: the ledger carries ${m.ledgerCarrying.toFixed(2)} but the position values `
-      + `at ${m.derivedCarrying.toFixed(2)} as of ${periodEnd}. Book the period-end mark first.`,
+      + `at ${m.derivedCarrying.toFixed(2)} as of ${periodEnd}. `
+      + `Record the manager's statement for this period, or confirm the notices since it.`,
     )
   }
 

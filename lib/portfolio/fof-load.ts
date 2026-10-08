@@ -44,12 +44,11 @@ export async function loadFofRaw(
    * takes, resolved here so no caller has to. Omit it only for the firm-wide holdings register,
    * which is deliberately cross-vehicle.
    *
-   * `companies` carries no vehicle for a fund holding and `fund_holding_terms` is unique per
-   * company, so the vehicle lives on the ACTIVITY: `fund_capital_events.vehicle_id`, which
-   * `confirmFundCapitalEvent` refuses to post without. That makes it the same rule the direct
-   * schedule of investments already uses — a holding belongs to this vehicle if this vehicle's
-   * activity is against it (`buildSoiPositions` keys off
-   * `investment_transactions.portfolio_group`, which confirmation sets from this very column).
+   * `companies` carries no vehicle for a fund holding, and one holding can be held by several of
+   * our entities — terms are per (company, vehicle), NAVs per (company, vehicle, as-of date). So the
+   * vehicle lives on the ACTIVITY: notices, NAVs, terms and ledger accounts naming this vehicle. That
+   * is the rule the direct schedule of investments uses too (`buildSoiPositions` keys off
+   * `investment_transactions.portfolio_group`, which confirmation sets from `vehicle_id`).
    *
    * Scoping by fund alone is what made these figures firm-wide: one vehicle's report listed every
    * other vehicle's holdings, and the LP statement PDF carried them too.
@@ -91,11 +90,15 @@ export async function loadFofRaw(
   // A holding is this vehicle's if this vehicle's ACTIVITY is against it, or if its terms say so —
   // a fund committed to but not yet called has no events at all, and leaving it out would hide a
   // real unfunded obligation from the schedule of investments.
+  // A manager NAV recorded for this vehicle is activity too: a fund whose first document was its
+  // statement (no notice yet, no ledger accounts) is still this vehicle's, and leaving it out made
+  // the statement's mark compute against no position at all.
   const held = vehicleId
     ? new Set([
         ...eventRows.map(e => e.company_id as string),
         ...termRows.filter(t => t.vehicle_id === vehicleId).map(t => t.company_id as string),
         ...((ledgerAccounts as any[]) ?? []).map(a => a.company_id as string),
+        ...((navs as any[]) ?? []).map(n => n.company_id as string),
       ])
     : null
   const scopedHoldings = held ? holdingRows.filter(h => held.has(h.id as string)) : holdingRows
