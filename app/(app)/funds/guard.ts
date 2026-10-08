@@ -1,4 +1,4 @@
-import { redirect } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolvePageAccess, canViewPage } from '@/lib/access/page-gate'
@@ -94,8 +94,9 @@ export async function requireVehicleAccess(
 
   // One of THEIR entities? An admin sees every entity; a member only those granted
   // (fund_member_vehicles). A legacy entity with no registry row cannot be granted, so only a caller
-  // who sees everything reaches it. Sent to the entity list, which shows only theirs.
-  if (!canSeeVehicle(page.access, resolved.vehicleId)) redirect('/funds')
+  // who sees everything reaches it. Not found, rather than a silent bounce: a shared link or stale
+  // bookmark should say it isn't available, without confirming the entity exists.
+  if (!canSeeVehicle(page.access, resolved.vehicleId)) notFound()
 
   return { fundId: page.fundId, role: page.role, ...resolved }
 }

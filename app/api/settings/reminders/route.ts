@@ -5,7 +5,20 @@ import { assertAdminAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
 import { loadReminderSettings } from '@/lib/reminders/load'
 import { fundAdminEmails } from '@/lib/reminders/run'
-import { parseRecipients } from '@/lib/reminders/settings'
+import { parseRecipients, scopedRecipients } from '@/lib/reminders/settings'
+
+/** The fund's members by email, and whether each sees every entity — to flag scoped recipients. */
+async function memberVisibility(admin: ReturnType<typeof createAdminClient>, fundId: string) {
+  // '*': all_entities exists once the entity migration has run (before it, everyone is unscoped).
+  const { data: members } = await (admin as any).from('fund_members').select('*').eq('fund_id', fundId)
+  return Promise.all(((members as any[]) ?? []).map(async m => {
+    const { data } = await admin.auth.admin.getUserById(m.user_id)
+    return {
+      email: data?.user?.email ?? '',
+      unscoped: m.role === 'admin' || m.role === 'viewer' || !('all_entities' in m) || m.all_entities === true,
+    }
+  }))
+}
 
 export async function GET() {
   const supabase = await createClient()
@@ -30,6 +43,8 @@ export async function GET() {
     recipients: s.recipients,
     asksSendOffsetDays: s.asksSendOffsetDays,
     adminEmails,
+    // Members on the list who don't see every entity: the digest covers them all.
+    scopedRecipients: scopedRecipients(s.recipients, await memberVisibility(admin, gate.fundId)),
   })
 }
 
@@ -62,5 +77,9 @@ export async function PATCH(req: NextRequest) {
 
   const { error } = await (admin as any).from('fund_settings').update(updates).eq('fund_id', gate.fundId)
   if (error) return dbError(error, 'settings-reminders')
-  return NextResponse.json({ ok: true })
+  const saved = (updates.reminder_recipients as string[] | undefined)
+  return NextResponse.json({
+    ok: true,
+    ...(saved ? { scopedRecipients: scopedRecipients(saved, await memberVisibility(admin, gate.fundId)) } : {}),
+  })
 }

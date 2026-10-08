@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest'
 const loadEntityScopeForUser = vi.hoisted(() => vi.fn())
 vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScopeForUser }))
 
-import { companiesForSender, acceptedCompanyId } from './processEmail'
+import { companiesForSender, acceptedCompanyId, companyNamed } from './processEmail'
 
 const companies = [{ id: 'c1', name: 'Acme', aliases: [] }, { id: 'c2', name: 'Beta', aliases: [] }]
 const supabase = {
@@ -41,5 +41,17 @@ describe('acceptedCompanyId — the model\'s pick must be one it was offered', (
   it('drops an id it was not offered — steered by the email text, or invented', () => {
     expect(acceptedCompanyId(offered, 'c2')).toBeNull()
     expect(acceptedCompanyId(offered, null)).toBeNull()
+  })
+})
+
+describe('companyNamed — a "new" company the forwarder cannot see may already exist', () => {
+  const all = [{ id: 'c1', name: 'Acme Corp', aliases: ['Acme'] }, { id: 'c2', name: 'Beta', aliases: null }] as any
+  it('matches a name or an alias, ignoring case and spacing', () => {
+    expect(companyNamed(all, ' acme ')).toBe(true)
+    expect(companyNamed(all, 'BETA')).toBe(true)
+  })
+  it('does not match a genuinely new company, or nothing', () => {
+    expect(companyNamed(all, 'Gamma')).toBe(false)
+    expect(companyNamed(all, '  ')).toBe(false)
   })
 })

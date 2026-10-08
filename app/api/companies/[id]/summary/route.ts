@@ -150,6 +150,9 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const ctx = await buildCompanyContext(admin, params.id, {
     includeTeamNotes: hasAccess(ctxAccess, 'relationships', 'read', 'notes'),
     scope: await entityScopeFor(admin, ctxAccess),
+    // The summary is stored on the company and shown to everyone who can see it: company-level
+    // inputs only, never one entity's positions or notes.
+    companyLevelOnly: true,
   })
   if (!ctx) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 

@@ -104,7 +104,7 @@ const NAV_ITEMS: NavItem[] = [
       { href: '/investments',  label: 'Investments',  featureKey: 'investments' },
       // One fund's or SPV's holdings — companies, funds, digital assets. A portfolio view, so it
       // lives here rather than with the entities' books.
-      { href: '/portfolio',    label: 'By entity',    featureKey: 'investments' },
+      { href: '/portfolio',    label: 'Holdings by entity', featureKey: 'investments' },
       { href: '/fund-holdings', label: 'Underlying funds', featureKey: 'investments', requiresFof: true },
       { href: '/requests',     label: 'Asks',         featureKey: 'asks' },
       { href: '/interactions', label: 'Interactions', featureKey: 'interactions' },

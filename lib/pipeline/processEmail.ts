@@ -213,8 +213,7 @@ export async function runPipeline(
     // entity "new". Proposing to create it would invite a duplicate: file it as unidentified instead,
     // for an admin to assign.
     const knownElsewhere = !!identification.new_company_name && !!fundMember
-      && (await getCompanies(supabase, fundId)).some(c => [c.name, ...((c as any).aliases ?? [])]
-        .some((n: string) => n?.trim().toLowerCase() === identification.new_company_name!.trim().toLowerCase()))
+      && companyNamed(await getCompanies(supabase, fundId), identification.new_company_name)
     if (knownElsewhere) {
       await createReview(supabase, {
         fund_id: fundId,
@@ -636,6 +635,13 @@ export async function companiesForSender(
  */
 export function acceptedCompanyId(offered: CompanyRef[], id: string | null | undefined): string | null {
   return id && offered.some(c => c.id === id) ? id : null
+}
+
+/** Whether any of these companies is called `name` (or carries it as an alias), ignoring case. */
+export function companyNamed(companies: CompanyRef[], name: string): boolean {
+  const wanted = name.trim().toLowerCase()
+  return !!wanted && companies.some(c => [c.name, ...((c.aliases as string[] | null) ?? [])]
+    .some(n => !!n && n.trim().toLowerCase() === wanted))
 }
 
 export async function getMetrics(supabase: Supabase, companyId: string): Promise<MetricDef[]> {

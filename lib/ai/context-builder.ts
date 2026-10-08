@@ -32,6 +32,12 @@ export interface ContextOptions {
    * it, so a prompt never carries another entity's data. See lib/access/entity-scope.ts.
    */
   scope: Pick<EntityScope, 'access' | 'vehicleNames' | 'companyIds'>
+  /**
+   * Company-level data only: no positions, no portfolio peers, no team notes. For output stored on
+   * the company and shown to everyone who can see it (the AI summary) — those parts are per entity,
+   * so they must not be read at all, not merely left out of the prompt.
+   */
+  companyLevelOnly?: boolean
 }
 
 export async function buildPortfolioContext(
@@ -227,29 +233,30 @@ export async function buildCompanyContext(
     .limit(3) as { data: { summary_text: string; period_label: string | null; created_at: string }[] | null }
 
   // --- Investment transactions --- (a shared company: only the caller's entities' side)
-  const { data: companyTransactions } = await admin
+  const entityData = !options.companyLevelOnly
+  const { data: companyTransactions } = entityData ? await admin
     .from('investment_transactions')
     .select('transaction_type, transaction_date, round_name, investment_cost, shares_acquired, share_price, proceeds_received, proceeds_escrow, current_share_price, unrealized_value_change, portfolio_group')
     .eq('company_id', companyId)
-    .order('transaction_date', { ascending: true })
+    .order('transaction_date', { ascending: true }) : { data: null }
   const transactions = companyTransactions ? scopeTransactions(companyTransactions, options.scope.vehicleNames) : null
 
   // --- Portfolio-wide lightweight data --- (peers: the caller's companies only)
-  const { data: allCompanies } = await filterByCompany(admin
+  const { data: allCompanies } = entityData ? await filterByCompany(admin
     .from('companies')
     .select('id, name, status')
     .eq('fund_id', company.fund_id)
     .eq('holding_type', 'company'),   // fund holdings have their own surfaces
-    options.scope.companyIds, { column: 'id' })
+    options.scope.companyIds, { column: 'id' }) : { data: null }
 
-  const { data: fundTransactions } = await admin
+  const { data: fundTransactions } = entityData ? await admin
     .from('investment_transactions')
     .select('company_id, transaction_type, investment_cost, proceeds_received, proceeds_escrow, current_share_price, shares_acquired, unrealized_value_change, portfolio_group')
-    .eq('fund_id', company.fund_id)
+    .eq('fund_id', company.fund_id) : { data: null }
   const allTransactions = fundTransactions ? scopeTransactions(fundTransactions, options.scope.vehicleNames) : null
 
   // --- Team discussion notes --- (relationships domain; see ContextOptions)
-  const { data: teamNotes } = options.includeTeamNotes
+  const { data: teamNotes } = options.includeTeamNotes && entityData
     ? await scopeNotesQuery(admin
         .from('company_notes')
         .select('content, user_id, created_at')

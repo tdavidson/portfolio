@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { fromHeader, parseRecipients } from './settings'
+import { fromHeader, parseRecipients, scopedRecipients } from './settings'
 
 describe('parseRecipients', () => {
   it('splits and trims a comma/semicolon list', () => {
@@ -29,5 +29,19 @@ describe('fromHeader', () => {
   it('is undefined without a system address, so the provider default applies', () => {
     expect(fromHeader({ name: 'Acme Ops', address: null }, 'Acme Fund I')).toBeUndefined()
     expect(fromHeader({ name: null, address: '  ' }, 'Acme Fund I')).toBeUndefined()
+  })
+})
+
+
+describe('scopedRecipients — reminder recipients who are not cleared for every entity', () => {
+  const members = [
+    { email: 'Ann@fund.com', unscoped: true },
+    { email: 'bob@fund.com', unscoped: false },
+  ]
+  it('names members limited to some entities, case-insensitively; outsiders and unscoped members pass', () => {
+    expect(scopedRecipients(['ann@fund.com', 'BOB@fund.com', 'admin@fundadmin.co'], members)).toEqual(['BOB@fund.com'])
+  })
+  it('an empty list (all admins) flags no one', () => {
+    expect(scopedRecipients([], members)).toEqual([])
   })
 })

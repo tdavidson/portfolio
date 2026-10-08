@@ -13,6 +13,7 @@ interface ReminderSettings {
   recipients: string[]
   asksSendOffsetDays: number
   adminEmails: string[]
+  scopedRecipients?: string[]
 }
 
 export function RemindersSection() {
@@ -52,6 +53,8 @@ export function RemindersSection() {
       setError(data.error || 'Failed to save')
       return
     }
+    const body = await res.json().catch(() => ({}))
+    if (Array.isArray(body.scopedRecipients)) setLoaded(l => (l ? { ...l, scopedRecipients: body.scopedRecipients } : l))
     setSaved(true)
     setTimeout(() => setSaved(false), 2000)
   }
@@ -93,8 +96,14 @@ export function RemindersSection() {
           />
           <p className="text-xs text-muted-foreground mt-1">
             Separate addresses with commas. Can include people outside the app, such as your fund
-            administrator. Leave empty to send to all fund admins.
+            administrator. Leave empty to send to all fund admins. The reminder covers every entity.
           </p>
+          {(loaded.scopedRecipients ?? []).length > 0 && (
+            <p className="text-sm text-warning mt-1">
+              {(loaded.scopedRecipients ?? []).join(', ')} can only see some entities, but this reminder
+              lists items for all of them.
+            </p>
+          )}
         </div>
 
         <div>

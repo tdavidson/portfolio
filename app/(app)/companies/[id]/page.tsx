@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { redirect } from 'next/navigation'
+import { notFound, redirect } from 'next/navigation'
 import { createClient, getUser } from '@/lib/supabase/server'
 import { resolvePageAccess, canViewPage } from '@/lib/access/page-gate'
 
@@ -40,6 +40,7 @@ export default async function CompanyDetailPage(
   if (!page || !canViewPage(page, 'portfolio')) redirect('/dashboard')
 
   const data = await loadCompanyPage({ supabase, admin, user, page }, params)
-  if (!data) redirect('/dashboard')
+  // Not one of the viewer's companies (or no such company): the same neutral page either way.
+  if (!data) notFound()
   return <CompanyPageView {...data} />
 }
