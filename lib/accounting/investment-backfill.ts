@@ -18,7 +18,7 @@ import { postExistingEntryWithAllocation } from './continuous-allocation'
 import { vehicleIdByName } from './vehicle-id'
 import { readAll } from './bank-quickbooks-match'
 import { ACTUAL_BOOK } from './books'
-import { isInvestmentAccount, loadVehicleChart } from './investment-accounts'
+import { isInvestmentAccount, isPooledInvestmentAccount, loadVehicleChart } from './investment-accounts'
 import { adoptEntry, adoptedEntryIds } from './adoption'
 import { derivedOwnedIds, linkOpenBankRow } from './investment-bank-match'
 import { listVehiclesWithId } from './load'
@@ -46,7 +46,9 @@ export interface BackfillResult {
   refused: string[]
   /**
    * Companies carried by BOTH sides: unowned posted entries on their investment accounts AND
-   * tracker rows with no entry. A legacy replay, bootstrap, mark or QuickBooks import built those
+   * tracker rows not yet posted to the ledger (no entry, or a derived entry still a draft). An
+   * unowned entry on a POOLED investment account conflicts every company with such rows, reported
+   * as one line for the vehicle. A legacy replay, bootstrap, mark or QuickBooks import built those
    * entries from (or alongside) the tracker rows, so adopting one side and deriving the other
    * would book the position twice. Neither happens for these; they are reconciled by hand.
    */
@@ -182,8 +184,12 @@ export async function backfillDerivedEntries(
   if (!vehicleId) return out
 
   // 0. Which companies are carried by both sides? Read before anything is written.
+  //    The tracker side is every row not yet on the ledger as a POSTED entry: rows with no entry,
+  //    and rows whose derived entry is still a draft (posting it would book what an unowned entry
+  //    already carries, and adopting that entry would create a second tracker row besides).
   const chart = await loadVehicleChart(admin, fundId, vehicleId)
   const companyOfAccount = new Map(chart.filter(a => isInvestmentAccount(a) && a.companyId).map(a => [a.id, a.companyId as string]))
+  const pooledAccounts = new Map(chart.filter(isPooledInvestmentAccount).map(a => [a.id, a.code]))
   const entryCompanies = (e: any) => new Set(((e.journal_postings ?? []) as any[])
     .filter(p => n(p.amount) !== 0 && companyOfAccount.has(p.account_id)).map(p => companyOfAccount.get(p.account_id) as string))
   const unowned = await unownedInvestmentEntries(admin, fundId, vehicleId, chart)
@@ -191,20 +197,40 @@ export async function backfillDerivedEntries(
   const before = await loadPending(admin, fundId, vehicleId, names)
   const onLedger = new Map<string, number>()
   for (const e of unowned) for (const c of entryCompanies(e)) onLedger.set(c, (onLedger.get(c) ?? 0) + 1)
-  const conflicted = new Set(before.pending.map(t => t.company_id as string).filter(c => onLedger.has(c)))
+  const companyOfTxn = new Map(before.txns.map(t => [t.id as string, t.company_id as string]))
+  const draftCompany = (e: any) => companyOfTxn.get(String(e.source_ref).slice(TXN_REF_PREFIX.length))
+  const trackerSide = new Set([
+    ...before.pending.map(t => t.company_id as string),
+    ...before.drafts.map(draftCompany).filter((c): c is string => !!c),
+  ])
+  // A pooled investment account (no company) can't be keyed to a position, so an unowned entry on
+  // one may carry any of the vehicle's holdings: every company with tracker-side rows is conflicted.
+  const pooledEntries = unowned.filter(e => ((e.journal_postings ?? []) as any[]).some(p => n(p.amount) !== 0 && pooledAccounts.has(p.account_id)))
+  const pooledBlocked = pooledEntries.length > 0 && trackerSide.size > 0
+  const keyed = new Set(Array.from(trackerSide).filter(c => onLedger.has(c)))
+  const conflicted = pooledBlocked ? trackerSide : keyed
   const { data: companies, error: companiesError } = await admin.from('companies' as any).select('id, name').eq('fund_id', fundId)
   if (companiesError) throw new Error(`The holdings could not be read: ${companiesError.message}`)
   const nameOf = new Map(((companies as any[]) ?? []).map(c => [c.id as string, c.name as string]))
-  out.conflicted = Array.from(conflicted).map(c => {
+  out.conflicted = Array.from(keyed).map(c => {
     const k = onLedger.get(c)!
     return `${nameOf.get(c) ?? 'Investment'}: carried by both the tracker and ${k} journal ${k === 1 ? 'entry' : 'entries'} — reconcile by hand`
   }).sort()
+  if (pooledBlocked) {
+    const codes = Array.from(new Set(pooledEntries.flatMap(e => ((e.journal_postings ?? []) as any[])
+      .filter(p => n(p.amount) !== 0 && pooledAccounts.has(p.account_id)).map(p => pooledAccounts.get(p.account_id) as string)))).sort()
+    const k = pooledEntries.length
+    out.conflicted.unshift(`${group}: the pooled investment ${codes.length === 1 ? 'account' : 'accounts'} ${codes.join(', ')} `
+      + `${codes.length === 1 ? 'carries' : 'carry'} ${k} journal ${k === 1 ? 'entry' : 'entries'} — reconcile by hand before deriving`)
+  }
 
   // 1. Adopt — an entry touching any conflicted company is skipped whole. When it also carries a
   //    clean company, that company's value stays unowned with no tracker row behind it, and nothing
   //    else would ever flag it (it has no pending transactions): name every company it touches.
   const toAdopt: any[] = []
+  const pooledIds = new Set(pooledEntries.map(e => e.id as string))
   for (const e of unowned) {
+    if (pooledBlocked && pooledIds.has(e.id)) continue // named in conflicted above
     const touched = Array.from(entryCompanies(e))
     const blocked = touched.filter(c => conflicted.has(c))
     if (blocked.length === 0) { toAdopt.push(e); continue }
@@ -229,9 +255,17 @@ export async function backfillDerivedEntries(
   }
 
   // 2. Derive — read AFTER adopting, so adopted transactions are not derived a second time.
-  //    A conflicted company's rows are not derived either.
-  const { txns, pending: allPending, alreadyDerived, drafts } = opts.dryRun ? before : await loadPending(admin, fundId, vehicleId, names)
-  const pending = allPending.filter(t => !conflicted.has(t.company_id))
+  //    A conflicted company's rows are not derived, nor its drafts posted; behind a pooled
+  //    account, nothing in the vehicle is.
+  const { txns, pending: allPending, alreadyDerived, drafts: allDrafts } = opts.dryRun ? before : await loadPending(admin, fundId, vehicleId, names)
+  const txnById = new Map(txns.map(t => [t.id as string, t]))
+  const txnOf = (e: any) => txnById.get(String(e.source_ref).slice(TXN_REF_PREFIX.length))
+  const pending = pooledBlocked ? [] : allPending.filter(t => !conflicted.has(t.company_id))
+  const drafts = allDrafts.filter(e => {
+    const t = txnOf(e)
+    if (!t) return true // orphaned: never posted, reported below
+    return !pooledBlocked && !conflicted.has(t.company_id)
+  })
   out.toDerive = pending.length
   out.alreadyDerived = alreadyDerived
   out.toPost = drafts.length
@@ -245,9 +279,8 @@ export async function backfillDerivedEntries(
   }
 
   // 3. Post what waits, and link the bank row that paid it.
-  const txnById = new Map(txns.map(t => [t.id as string, t]))
   for (const e of drafts) {
-    const t = txnById.get(String(e.source_ref).slice(TXN_REF_PREFIX.length))
+    const t = txnOf(e)
     if (!t) { out.refused.push(`Draft entry of ${e.entry_date} belongs to a transaction that no longer exists — void it from the journal.`); continue }
     const r = await postExistingEntryWithAllocation(admin, fundId, group, userId, e.id)
     if ('error' in r) { out.refused.push(`${nameOf.get(t.company_id) ?? 'Investment'}, ${e.entry_date}: ${r.error}`); continue }

@@ -15,6 +15,7 @@ const chart = [
   { id: 'a1100', fund_id: 'f', vehicle_id: 'v', code: '1100-a', type: 'asset', subtype: 'investment', company_id: 'co' },
   { id: 'b1100', fund_id: 'f', vehicle_id: 'v', code: '1100-b', type: 'asset', subtype: 'investment', company_id: 'co2' },
   { id: 'p4200', fund_id: 'f', vehicle_id: 'v', code: '4200', type: 'income', subtype: 'unrealized', company_id: null },
+  { id: 'p1100', fund_id: 'f', vehicle_id: 'v', code: '1100', type: 'asset', subtype: 'investment', company_id: null },
 ]
 const entry = (id: string, over: any = {}) => ({ id, fund_id: 'f', vehicle_id: 'v', book: 'actual', status: 'posted', entry_date: '2026-01-15', memo: id, source_ref: null, reversed_by: null, ...over })
 const line = (entryId: string, account_id: string, amount: number) => ({ journal_entry_id: entryId, book: 'actual', fund_id: 'f', account_id, amount })
@@ -153,6 +154,55 @@ describe('backfillDerivedEntries: a position carried by both the tracker and the
     const m = seed({ investment_transactions: [txn('a')], journal_entries: [entry('replay')], journal_postings: [line('replay', 'a1100', 100)] })
     expect((await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')).refused).toEqual([])
   })
+})
+
+describe('backfillDerivedEntries: tracker rows behind a pooled account or a waiting draft', () => {
+  // Production: an unowned "Investment in Ocrolus at cost" on pooled 1100 (no company) could not be
+  // adopted, so the company-keyed check missed it and the tracker purchase was derived — cost twice.
+  const pooled = () => seed({
+    investment_transactions: [txn('a', { investment_cost: 400001.04 }), txn('b', { company_id: 'co2' })],
+    journal_entries: [entry('legacy', { memo: 'Investment in Ocrolus at cost' }), entry('d', { status: 'draft', source_ref: 'txn:b' })],
+    journal_postings: [line('legacy', 'p1100', 400001.04), line('legacy', 'cash', -400001.04)],
+  })
+  const pooledLine = 'Fund I: the pooled investment account 1100 carries 1 journal entry — reconcile by hand before deriving'
+  for (const dryRun of [true, false]) {
+    it(`an unowned entry on a pooled investment account holds back every company (${dryRun ? 'dry run' : 'live'})`, async () => {
+      const m = pooled()
+      const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u', { dryRun })
+      expect(r.conflicted).toEqual([pooledLine])
+      expect(r).toMatchObject({ toAdopt: 0, toDerive: 0, toPost: 0, adopted: 0, posted: 0 })
+      expect(h.adopt).not.toHaveBeenCalled()
+      expect(h.derive).not.toHaveBeenCalled()
+      expect(h.post).not.toHaveBeenCalled()
+    })
+  }
+  it('a pooled entry with no tracker rows waiting conflicts nothing', async () => {
+    const m = seed({ journal_entries: [entry('legacy')], journal_postings: [line('legacy', 'p1100', 100), line('legacy', 'cash', -100)] })
+    const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')
+    expect(r.conflicted).toEqual([])
+    expect(h.adopt.mock.calls.map(c => c[2].entryId)).toEqual(['legacy'])
+  })
+
+  // Production: the tracker purchase's derived entry was a draft (so not "pending"), and an unowned
+  // legacy entry carried the same purchase — it was adopted AND the draft posted, doubling both sides.
+  const drafted = () => seed({
+    investment_transactions: [txn('a'), txn('b', { company_id: 'co2' })],
+    journal_entries: [entry('d', { status: 'draft', source_ref: 'txn:a' }), entry('legacy')],
+    journal_postings: [line('d', 'a1100', 100), line('d', 'cash', -100), line('legacy', 'a1100', 100), line('legacy', 'cash', -100)],
+  })
+  for (const dryRun of [true, false]) {
+    it(`a derived draft plus an unowned entry for the same company: neither adopted nor posted (${dryRun ? 'dry run' : 'live'})`, async () => {
+      const m = drafted()
+      const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u', { dryRun })
+      expect(r.conflicted).toEqual(['Acme: carried by both the tracker and 1 journal entry — reconcile by hand'])
+      expect(h.adopt).not.toHaveBeenCalled()
+      expect(h.post).not.toHaveBeenCalled()
+      expect(r).toMatchObject({ toAdopt: 0, toPost: 0, toDerive: 1, adopted: 0 })
+      // The clean company is still derived.
+      if (!dryRun) expect(h.derive.mock.calls.map(c => c[3].id)).toEqual(['b'])
+      else expect(h.derive).not.toHaveBeenCalled()
+    })
+  }
 })
 
 describe('backfillDerivedEntries on a failed read', () => {
