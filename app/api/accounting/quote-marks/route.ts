@@ -16,7 +16,7 @@ import {
 /**
  * The period-end marks a quoted book still owes, and the action that books them.
  *
- * This is the quoted twin of /api/accounting/fof-marks, and deliberately so: the close blocks
+ * This is the quoted twin of a fund holding's NAV mark (lib/portfolio/fof-nav.ts): the close blocks
  * on an unbooked mark, and a blocker with no button is a dead end. Same derive-at-close reason
  * too — a quote entered on the 3rd for the 31st, a split announced afterwards, and a trade that
  * settles late all change what the position should carry, and recomputing the whole thing here

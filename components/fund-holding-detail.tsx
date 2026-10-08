@@ -52,8 +52,6 @@ export function FundHoldingDetail({
 
   const [eventForm, setEventForm] = useState({ kind: 'call', eventDate: '', amount: '' })
   const [navForm, setNavForm] = useState({ asOfDate: '', reportedNav: '', basis: 'final' })
-  /** The period-end mark this holding's newest NAV implies but the ledger has not booked. */
-  const [pendingMark, setPendingMark] = useState<{ delta: number; ledgerCarrying: number; derivedCarrying: number } | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -63,13 +61,6 @@ export function FundHoldingDetail({
       setName(json?.holding?.name ?? '')
       setEvents(json?.events ?? [])
       setNavs(json?.navStatements ?? [])
-      // What the ledger would need to post for this holding to carry its newest NAV. Scoped to
-      // this holding, so booking it is a per-position action like recording the NAV itself,
-      // rather than a quarter-wide batch on a separate sheet.
-      const markRes = await fetch(`/api/accounting/fof-marks?asOf=${new Date().toISOString().slice(0, 10)}`).catch(() => null)
-      const markJson = markRes && markRes.ok ? await markRes.json().catch(() => null) : null
-      const mine = (markJson?.marks ?? []).find((m: { companyId: string }) => m.companyId === companyId)
-      setPendingMark(mine ? { delta: mine.delta, ledgerCarrying: mine.ledgerCarrying, derivedCarrying: mine.derivedCarrying } : null)
       const held: string | null = json?.vehicleId ?? null
       setVehicleId(held)
       setVehicleName(held ? (json?.vehicles ?? []).find((v: any) => v.id === held)?.name ?? null : null)
@@ -130,24 +121,6 @@ export function FundHoldingDetail({
     } finally { setBusy(false) }
   }
 
-  // Post the mark this holding's NAV implies. The period close refuses to run until each
-  // holding's ledger carrying value agrees with its statement (fofCloseIssues), and this is the
-  // action that makes it agree — next to the NAV that caused it, not on a separate sheet.
-  async function bookMark() {
-    setBusy(true); setNotice(null)
-    try {
-      const res = await fetch('/api/accounting/fof-marks', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ companyId, asOf: new Date().toISOString().slice(0, 10) }),
-      })
-      const json = await res.json()
-      if (!res.ok) { setNotice(json?.error ?? 'Could not book the mark.'); return }
-      setNotice(json?.errors?.length ? `Not booked: ${json.errors.join('; ')}` : json?.posted ? `Posted ${json.posted} mark${json.posted === 1 ? '' : 's'} to the ledger.` : 'Nothing to book.')
-      await load(); onChanged?.()
-    } finally { setBusy(false) }
-  }
-
   async function addNav() {
     if (!navForm.asOfDate || !navForm.reportedNav) { setNotice('A valuation date and a NAV are required.'); return }
     setBusy(true); setNotice(null)
@@ -164,6 +137,7 @@ export function FundHoldingDetail({
       const json = await res.json()
       if (!res.ok) { setNotice(json?.error ?? 'Could not record the statement.'); return }
       setNavForm({ asOfDate: '', reportedNav: '', basis: 'final' })
+      setNotice([json?.booking?.message, json?.later?.message ? `Newer statement: ${json.later.message}` : null].filter(Boolean).join(' ') || null)
       await load(); onChanged?.()
     } finally { setBusy(false) }
   }
@@ -301,21 +275,6 @@ export function FundHoldingDetail({
                 </div>
                 <Button size="sm" onClick={addNav} disabled={busy}>Record</Button>
               </div>
-
-              {pendingMark && (
-                <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 p-3 text-sm">
-                  <div className="min-w-0 flex-1">
-                    <p className="font-medium">The ledger has not caught up to this statement.</p>
-                    <p className="text-xs text-muted-foreground">
-                      It carries <span className="tabular-nums">{fmt(pendingMark.ledgerCarrying)}</span>; the statement values the
-                      position at <span className="tabular-nums">{fmt(pendingMark.derivedCarrying)}</span>. Booking posts the
-                      <span className="tabular-nums"> {fmt(pendingMark.delta)}</span> difference as a draft entry for review.
-                      The period close is blocked until it does.
-                    </p>
-                  </div>
-                  <Button size="sm" onClick={bookMark} disabled={busy}>Book mark</Button>
-                </div>
-              )}
 
               {navs.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No statements received — the position carries at cost.</p>
