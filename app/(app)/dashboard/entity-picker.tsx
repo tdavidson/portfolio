@@ -48,7 +48,9 @@ export function EntityPicker({ options, excluded, hasSaved, onChange }: {
     }).catch(() => null)
     setSaving(false)
     if (!res?.ok) { setError('Could not save your selection.'); return }
-    onChange(nextExcluded, true)
+    // The read-only demo applies the selection for this visit only (the route answers saved: false).
+    const { saved } = await res.json().catch(() => ({ saved: true }))
+    onChange(nextExcluded, saved !== false)
     setOpen(false)
   }
 

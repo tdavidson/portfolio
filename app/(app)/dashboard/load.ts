@@ -187,7 +187,9 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
   // digital assets), and the selection in force — their saved one, else the fund default, else all.
   const [entityOptions, savedExcluded, fundDefaultExcluded] = await Promise.all([
     loadActiveEntityOptions(admin, page.access),
-    loadSavedExcluded(admin, page.fundId, user.id),
+    // The read-only demo shares one login, so a row saved for it (e.g. straight through the Data
+    // API) would be every visitor's selection. The demo always starts from the fund default.
+    page.role === 'viewer' ? Promise.resolve(null) : loadSavedExcluded(admin, page.fundId, user.id),
     loadFundDefaultExcluded(admin, page.fundId),
   ])
   const selection = resolveExcluded({ options: entityOptions, saved: savedExcluded, fundDefault: fundDefaultExcluded })

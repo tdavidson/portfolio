@@ -89,6 +89,10 @@ export function transactionRowError(row: Record<string, unknown>): string | null
   if (!positive('prior_fx_rate')) return 'prior_fx_rate must be positive.'
   if (row.income_amount != null && Number(row.income_amount) < 0) return 'income_amount cannot be negative.'
   if (row.fee_amount != null && Number(row.fee_amount) < 0) return 'fee_amount cannot be negative.'
+  for (const k of ['interest_rate', 'dividend_rate']) {
+    const r = row[k]
+    if (r != null && (Number(r) < 0 || Number(r) >= 1)) return `${k} is a fraction from 0 up to 1 (8% = 0.08).`
+  }
   if (row.income_kind != null && !INCOME_KINDS.includes(row.income_kind as string)) {
     return `income_kind must be one of: ${INCOME_KINDS.join(', ')}.`
   }
