@@ -11,6 +11,11 @@ import { vehicleIdByName } from './vehicle-id'
 import { isBalanced } from './ledger'
 import { reviewImport, type ImportReview } from './import-review'
 import { ACTUAL_BOOK } from './books'
+import { adoptedEntryIds } from './adoption'
+
+/** An adopted manual entry has no source_ref; its export carries this ref instead. */
+const ADOPTED = 'adopted:'
+const CHUNK = 200
 
 async function loadAccounts(admin: SupabaseClient, fundId: string, group: string): Promise<Account[]> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
@@ -32,12 +37,16 @@ export async function exportLedgerText(admin: SupabaseClient, fundId: string, gr
     .neq('status', 'void')
   if (asOf) q = q.lte('entry_date', asOf)
   const { data } = await q.order('entry_date', { ascending: true }).limit(2000)
+  const rows = (data as any[]) ?? []
+  // An entry adopted by investment transactions owns them without a source_ref; re-importing it
+  // would adopt it a second time. Its ref names the entry, which the import checks is live.
+  const adopted = await adoptedEntryIds(admin, fundId, rows.filter(e => !e.source_ref).map(e => e.id))
 
-  const entries: TextEntryInput[] = ((data as any[]) ?? []).map(e => ({
+  const entries: TextEntryInput[] = rows.map(e => ({
     entryDate: e.entry_date,
     memo: e.memo,
     sourceType: e.source_type,
-    sourceRef: e.source_ref,
+    sourceRef: e.source_ref ?? (adopted.has(e.id) ? `${ADOPTED}${e.id}` : null),
     status: e.status,
     postings: (e.journal_postings ?? []).map((p: any) => ({ accountId: p.account_id, amount: Number(p.amount), currency: p.currency ?? 'USD' })),
   }))
@@ -83,12 +92,31 @@ export async function postLedgerText(
   if (errors.length || unknownAccounts.size) return { posted: 0, errors, unknownAccounts: Array.from(unknownAccounts) }
   // An exported ledger re-imported must not book its entries twice — least of all derived and
   // adopted ones, which posting would otherwise adopt as new transactions.
-  const refs = entries.map(e => e.ref).filter((r): r is string => !!r)
+  // A failed read refuses the whole import: it must never look like "not in the books".
+  const refs = Array.from(new Set(entries.map(e => e.ref).filter((r): r is string => !!r)))
   if (refs.length > 0) {
     const vehicleId = await vehicleIdByName(admin, fundId, group)
-    const { data: live } = await admin.from('journal_entries' as any).select('source_ref')
-      .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('vehicle_id', vehicleId).neq('status', 'void').in('source_ref', refs)
-    const already = new Set(((live as any[]) ?? []).map(r => r.source_ref as string))
+    const already = new Set<string>()
+    const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+    const adoptedIds = refs.filter(r => r.startsWith(ADOPTED)).map(r => r.slice(ADOPTED.length)).filter(id => UUID.test(id))
+    const sourceRefs = refs.filter(r => !r.startsWith(ADOPTED))
+    try {
+      for (let i = 0; i < sourceRefs.length; i += CHUNK) {
+        const { data, error } = await admin.from('journal_entries' as any).select('source_ref')
+          .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('vehicle_id', vehicleId).neq('status', 'void').in('source_ref', sourceRefs.slice(i, i + CHUNK))
+        if (error) throw error
+        for (const r of (data as any[]) ?? []) already.add(r.source_ref as string)
+      }
+      for (let i = 0; i < adoptedIds.length; i += CHUNK) {
+        const { data, error } = await admin.from('journal_entries' as any).select('id')
+          .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('vehicle_id', vehicleId).neq('status', 'void').in('id', adoptedIds.slice(i, i + CHUNK))
+        if (error) throw error
+        for (const r of (data as any[]) ?? []) already.add(`${ADOPTED}${r.id}`)
+      }
+    } catch (e) {
+      errors.push(`Could not check for entries already in the books: ${(e as { message?: string })?.message ?? String(e)}`)
+      return { posted: 0, errors, unknownAccounts: [] }
+    }
     for (const e of entries) if (e.ref && already.has(e.ref)) errors.push(`Entry ${e.date} "${e.narration}" is already in the books (${e.ref}). Remove it from the text, or void the original first.`)
     if (errors.length) return { posted: 0, errors, unknownAccounts: [] }
   }
