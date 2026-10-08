@@ -14,7 +14,9 @@ import {
 import { CompanyForm } from '@/components/company-form'
 import type { Company } from '@/lib/types/database'
 
-export function CompanyEditButton({ company }: { company: Company }) {
+const TITLE = { company: 'Edit company', fund: 'Edit fund holding', crypto: 'Edit digital asset' } as const
+
+export function CompanyEditButton({ company, holdingType = 'company' }: { company: Company; holdingType?: 'company' | 'fund' | 'crypto' }) {
   const [open, setOpen] = useState(false)
   const router = useRouter()
 
@@ -27,17 +29,20 @@ export function CompanyEditButton({ company }: { company: Company }) {
       </DialogTrigger>
       <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Edit Company</DialogTitle>
+          <DialogTitle>{TITLE[holdingType]}</DialogTitle>
         </DialogHeader>
         <CompanyForm
           company={company}
+          holdingType={holdingType}
           onSuccess={() => {
             setOpen(false)
             router.refresh()
           }}
           onDeleted={() => {
             setOpen(false)
-            router.push('/dashboard')
+            // Back to where the page's own back link goes: companies live on the dashboard, fund
+            // holdings and digital assets on Investments.
+            router.push(holdingType === 'company' ? '/dashboard' : '/investments')
             router.refresh()
           }}
           onCancel={() => setOpen(false)}

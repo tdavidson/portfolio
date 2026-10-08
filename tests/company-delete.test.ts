@@ -23,10 +23,15 @@ const mocks = vi.hoisted(() => ({
 
 function query(table: string) {
   let operation = 'select'
+  // The holding kinds the lookup admits, as `.in('holding_type', …)` narrows it.
+  let kinds: unknown[] | null = null
 
   const result = () => {
     mocks.operations.push({ table, operation })
-    if (table === 'companies' && operation === 'select') return { data: mocks.company, error: null }
+    if (table === 'companies' && operation === 'select') {
+      const c = mocks.company
+      return { data: c && (kinds === null || kinds.includes(c.holding_type)) ? c : null, error: null }
+    }
     if (table === 'investment_transactions') return { data: null, count: mocks.investmentCount, error: null }
     if (table === 'chart_of_accounts' && operation === 'select') return { data: [{ id: 'account-1' }], error: null }
     if (table === 'journal_postings') return { data: null, count: mocks.postingCount, error: null }
@@ -40,7 +45,7 @@ function query(table: string) {
   const chain: any = {
     select: () => chain,
     eq: () => chain,
-    in: () => chain,
+    in: (column: string, values: unknown[]) => { if (column === 'holding_type') kinds = values; return chain },
     delete: () => { operation = 'delete'; return chain },
     maybeSingle: async () => result(),
     then: (resolve: (value: unknown) => unknown, reject: (reason: unknown) => unknown) =>
@@ -147,6 +152,41 @@ describe('DELETE /api/companies/[id]', () => {
 
     expect(response.status).toBe(404)
     expect(await response.json()).toEqual({ error: 'Company not found' })
+  })
+})
+
+describe('DELETE /api/companies/[id] by kind of holding', () => {
+  it('deletes a digital asset, whose wallets and price feed cascade with it', async () => {
+    mocks.company = { id: 'company-1', name: 'Ether', fund_id: 'fund-1', holding_type: 'crypto' }
+    const response = await DELETE(request, props)
+    expect(response.status).toBe(200)
+    expect(mocks.operations).toContainEqual({ table: 'companies', operation: 'delete' })
+  })
+
+  it('still refuses a digital asset with transactions, naming it as one', async () => {
+    mocks.company = { id: 'company-1', name: 'Ether', fund_id: 'fund-1', holding_type: 'crypto' }
+    mocks.investmentCount = 1
+    const response = await DELETE(request, props)
+    expect(response.status).toBe(409)
+    expect((await response.json()).error).toBe("Delete this digital asset's 1 investment transaction first so its accounting entries can be retracted safely.")
+    expect(mocks.operations).not.toContainEqual({ table: 'companies', operation: 'delete' })
+  })
+
+  it('leaves a fund holding to its own route, which checks the register', async () => {
+    mocks.company = { id: 'company-1', name: 'Acme Ventures III', fund_id: 'fund-1', holding_type: 'fund' }
+    const response = await DELETE(request, props)
+    expect(response.status).toBe(404)
+    expect(mocks.operations).not.toContainEqual({ table: 'companies', operation: 'delete' })
+  })
+})
+
+describe('where the holding page sends its delete', () => {
+  it('sends a fund holding to the fund-holdings route and everything else to the companies route', async () => {
+    const { holdingDeletePath } = await import('@/lib/portfolio/holding-href')
+    expect(holdingDeletePath('k1', 'fund')).toBe('/api/portfolio/fund-holdings/k1')
+    expect(holdingDeletePath('k1', 'crypto')).toBe('/api/companies/k1')
+    expect(holdingDeletePath('k1', 'company')).toBe('/api/companies/k1')
+    expect(holdingDeletePath('k1', null)).toBe('/api/companies/k1')
   })
 })
 

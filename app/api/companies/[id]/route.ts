@@ -129,14 +129,17 @@ export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: s
   const writeCheck = await assertWriteAccess(admin, user.id)
   if (writeCheck instanceof NextResponse) return writeCheck
 
-  // Scope the lookup to the caller's fund and to ordinary portfolio companies. Fund holdings
-  // share the companies table but have a separate delete route with stricter register checks.
+  // Scope the lookup to the caller's fund, and to companies and digital assets — both carry their
+  // value in investment transactions and their own accounts, which the checks below cover (a
+  // digital asset's wallets and price feed cascade with it). Fund holdings share the companies
+  // table but have their own delete route with the register checks
+  // (DELETE /api/portfolio/fund-holdings/[id]); the holding page's form sends them there.
   const { data: company, error: companyError } = await admin
     .from('companies' as any)
     .select('id, name, fund_id, holding_type')
     .eq('id', params.id)
     .eq('fund_id', writeCheck.fundId)
-    .eq('holding_type', 'company')
+    .in('holding_type', ['company', 'crypto'])
     .maybeSingle() as {
       data: { id: string; name: string; fund_id: string; holding_type: string | null } | null
       error: { message: string } | null
@@ -144,6 +147,7 @@ export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: s
 
   if (companyError) return dbError(companyError, 'companies-id-delete-lookup')
   if (!company) return NextResponse.json({ error: 'Company not found' }, { status: 404 })
+  const noun = company.holding_type === 'crypto' ? 'digital asset' : 'company'
 
   // Deleting removes it for every entity, so a member may delete only a company wholly theirs.
   const deleteDenied = await companyDeleteDenial(admin, await loadEntityScope(admin, writeCheck), company.id)
@@ -161,7 +165,7 @@ export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: s
   if (investmentError) return dbError(investmentError, 'companies-id-delete-investments')
   if ((investmentCount ?? 0) > 0) {
     return NextResponse.json({
-      error: `Delete this company's ${investmentCount} investment transaction${investmentCount === 1 ? '' : 's'} first so its accounting entries can be retracted safely.`,
+      error: `Delete this ${noun}'s ${investmentCount} investment transaction${investmentCount === 1 ? '' : 's'} first so its accounting entries can be retracted safely.`,
     }, { status: 409 })
   }
 
@@ -189,7 +193,7 @@ export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: s
     if (postingError) return dbError(postingError, 'companies-id-delete-postings')
     if ((postingCount ?? 0) > 0) {
       return NextResponse.json({
-        error: `This company's accounts still carry ${postingCount} ledger posting${postingCount === 1 ? '' : 's'}. Reverse those entries before deleting the company.`,
+        error: `This ${noun}'s accounts still carry ${postingCount} ledger posting${postingCount === 1 ? '' : 's'}. Reverse those entries before deleting the ${noun}.`,
       }, { status: 409 })
     }
   }

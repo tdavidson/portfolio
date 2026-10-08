@@ -19,6 +19,7 @@ import {
 } from '@/components/ui/dialog'
 import { Trash2, X } from 'lucide-react'
 import type { Company } from '@/lib/types/database'
+import { holdingDeletePath } from '@/lib/portfolio/holding-href'
 
 interface Props {
   company?: Company
@@ -26,7 +27,13 @@ interface Props {
   onSuccess: (company: Company) => void
   onCancel: () => void
   onDeleted?: () => void
+  /** The kind of holding being edited. A fund holding or a digital asset has no stage, industry,
+   *  founders or metrics, and a fund holding is deleted through its own route. Omitted = company. */
+  holdingType?: 'company' | 'fund' | 'crypto'
 }
+
+/** What the form calls the holding, in its labels. */
+const NOUN = { company: 'company', fund: 'fund holding', crypto: 'digital asset' } as const
 
 /** A fund-wide default metric template, as returned by GET /api/default-metrics. */
 interface DefaultMetric {
@@ -50,8 +57,11 @@ interface Vehicle {
   active: boolean
 }
 
-export function CompanyForm({ company, initialName, onSuccess, onCancel, onDeleted }: Props) {
+export function CompanyForm({ company, initialName, onSuccess, onCancel, onDeleted, holdingType = 'company' }: Props) {
   const isEdit = !!company
+  // Stage, industry, founders and metrics describe an operating company, not a fund or a token.
+  const isCompany = holdingType === 'company'
+  const noun = NOUN[holdingType]
 
   const [name, setName] = useState(company?.name ?? initialName ?? '')
   const [aliases, setAliases] = useState<string[]>(company?.aliases ?? [])
@@ -262,18 +272,22 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
           name: name.trim(),
           aliases: aliases.length > 0 ? aliases : null,
           tags: tags.length > 0 ? tags : [],
-          stage: stage.trim() || null,
-          industry: industries.length > 0 ? industries : null,
+          // Not sent for a fund holding or digital asset: the form does not show them, so it must
+          // not write them either.
+          ...(isCompany ? {
+            stage: stage.trim() || null,
+            industry: industries.length > 0 ? industries : null,
+            founders: founders.trim() || null,
+          } : {}),
           notes: notes.trim() || null,
           overview: overview.trim() || null,
-          founders: founders.trim() || null,
           why_invested: whyInvested.trim() || null,
           current_update: currentUpdate.trim() || null,
           contact_email: contactEmails.length > 0 ? contactEmails : null,
           portfolio_group: portfolioGroups.length > 0 ? portfolioGroups : null,
           ...(isEdit
             ? { status }
-            : {
+            : !isCompany ? {} : {
                 // Only send a selection once the defaults have loaded — otherwise omit both keys
                 // and the server seeds every active default, the long-standing behaviour.
                 ...(defaults ? { default_metric_ids: Array.from(keptDefaults) } : {}),
@@ -304,12 +318,12 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
     setDeleting(true)
 
     try {
-      const res = await fetch(`/api/companies/${company.id}`, { method: 'DELETE' })
+      const res = await fetch(holdingDeletePath(company.id, holdingType), { method: 'DELETE' })
       const data = await res.json().catch(() => ({}))
-      if (!res.ok) throw new Error(data.error ?? 'Failed to delete company')
+      if (!res.ok) throw new Error(data.error ?? `Failed to delete the ${noun}`)
       onDeleted()
     } catch (err) {
-      setDeleteError(err instanceof Error ? err.message : 'Failed to delete company')
+      setDeleteError(err instanceof Error ? err.message : `Failed to delete the ${noun}`)
     } finally {
       setDeleting(false)
     }
@@ -393,6 +407,7 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
         </p>
       </div>
 
+      {isCompany && (<>
       <div className="space-y-2">
         <Label htmlFor="stage">Stage</Label>
         <Input
@@ -429,6 +444,7 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
           onBlur={addIndustry}
         />
       </div>
+      </>)}
 
       <div className="space-y-2">
         <Label>Entities</Label>
@@ -480,15 +496,17 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
         </p>
       </div>
 
-      <div className="space-y-2">
-        <Label htmlFor="founders">Founders</Label>
-        <Input
-          id="founders"
-          placeholder="Jane Doe, John Smith"
-          value={founders}
-          onChange={e => setFounders(e.target.value)}
-        />
-      </div>
+      {isCompany && (
+        <div className="space-y-2">
+          <Label htmlFor="founders">Founders</Label>
+          <Input
+            id="founders"
+            placeholder="Jane Doe, John Smith"
+            value={founders}
+            onChange={e => setFounders(e.target.value)}
+          />
+        </div>
+      )}
 
       <div className="space-y-2">
         <Label>Contact Emails</Label>
@@ -578,7 +596,7 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
         />
       </div>
 
-      {!isEdit && (
+      {!isEdit && isCompany && (
         <div className="space-y-2 border-t pt-4">
           <Label>Metrics</Label>
           {defaults === null ? (
@@ -662,16 +680,18 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
             <DialogTrigger asChild>
               <Button variant="destructive" disabled={saving || deleting}>
                 <Trash2 />
-                Delete company
+                Delete {noun}
               </Button>
             </DialogTrigger>
             <DialogContent>
               <DialogHeader>
                 <DialogTitle>Delete {company.name}?</DialogTitle>
                 <DialogDescription>
-                  This permanently deletes the company and its metrics, updates, notes, documents,
-                  and other company-owned data. Reporting emails and diligence history are retained
-                  but unlinked. This action cannot be undone.
+                  {holdingType === 'fund'
+                    ? 'This permanently deletes the fund holding with its terms, register and NAV statements, and its notes and documents. This action cannot be undone.'
+                    : holdingType === 'crypto'
+                      ? 'This permanently deletes the digital asset with its watched wallets and price feed, and its notes and documents. This action cannot be undone.'
+                      : 'This permanently deletes the company and its metrics, updates, notes, documents, and other company-owned data. Reporting emails and diligence history are retained but unlinked. This action cannot be undone.'}
                 </DialogDescription>
               </DialogHeader>
               {deleteError && (
@@ -684,7 +704,7 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
                   Cancel
                 </Button>
                 <Button variant="destructive" onClick={deleteCompany} disabled={deleting}>
-                  {deleting ? 'Deleting…' : 'Delete company'}
+                  {deleting ? 'Deleting…' : `Delete ${noun}`}
                 </Button>
               </DialogFooter>
             </DialogContent>

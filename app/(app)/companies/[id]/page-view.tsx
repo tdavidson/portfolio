@@ -73,7 +73,7 @@ export function CompanyPageView({
 
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-2xl font-semibold tracking-tight">{company.name}</h1>
-          <CompanyEditButton company={company} />
+          <CompanyEditButton company={company} holdingType={holdingType} />
           {holdingType === 'fund' && <Badge variant="outline">Fund holding</Badge>}
           {holdingType === 'crypto' && <Badge variant="outline">Digital asset</Badge>}
           {(company.portfolio_group ?? []).map((pg) => (

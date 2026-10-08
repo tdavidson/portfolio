@@ -18,3 +18,13 @@ export function holdingHref(companyId: string, vehicleId?: string | null, asOf?:
 export function soiRowHref(row: { companyId?: string }, vehicleId?: string | null): string | null {
   return row.companyId ? holdingHref(row.companyId, vehicleId) : null
 }
+
+/**
+ * Where a holding is deleted. A fund holding has its own route, which checks its register (capital
+ * events and NAV statements on the ledger); a company or a digital asset goes through the
+ * companies route, which checks its transactions and postings.
+ */
+export function holdingDeletePath(companyId: string, holdingType: 'company' | 'fund' | 'crypto' | null | undefined): string {
+  const id = encodeURIComponent(companyId)
+  return holdingType === 'fund' ? `/api/portfolio/fund-holdings/${id}` : `/api/companies/${id}`
+}
