@@ -1,7 +1,7 @@
 // app/(app)/companies/[id]/holding-wallets.tsx
 'use client'
 
-import { Fragment, useCallback, useEffect, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, Plus, Trash2, AlertTriangle, Check, ShieldCheck } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -37,9 +37,7 @@ export function HoldingWallets({ companyId, entities }: { companyId: string; ent
   const canWrite = useCanWrite('portfolio', 'investments')
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const guardRef = useRef<ReturnType<typeof latestOnly> | null>(null)
-  if (!guardRef.current) guardRef.current = latestOnly()
-  const guard = guardRef.current
+  const guard = useMemo(() => latestOnly(), [])
   const [loaded, setLoaded] = useState(false)
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)

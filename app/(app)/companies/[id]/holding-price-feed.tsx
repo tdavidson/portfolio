@@ -1,7 +1,7 @@
 // app/(app)/companies/[id]/holding-price-feed.tsx
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import { Loader2, Plus, Trash2, AlertTriangle, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -47,9 +47,7 @@ export function HoldingPriceFeed({ companyId, kind }: { companyId: string; kind:
   const [canEditFeed, setCanEditFeed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const guardRef = useRef<ReturnType<typeof latestOnly> | null>(null)
-  if (!guardRef.current) guardRef.current = latestOnly()
-  const guard = guardRef.current
+  const guard = useMemo(() => latestOnly(), [])
   const [loaded, setLoaded] = useState(false)
   const [refreshing, setRefreshing] = useState(false)
   const [marksAsOf, setMarksAsOf] = useState<string | null>(null)
