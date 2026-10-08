@@ -41,6 +41,7 @@ interface SoiRow {
 }
 interface SoiGroup { name: string; cost: number; fairValue: number; pctOfNetAssets: number }
 interface Soi {
+  chainWarning?: string
   rows: SoiRow[]
   totalCost: number
   totalFairValue: number
@@ -132,6 +133,7 @@ export function ScheduleOfInvestmentsView() {
 
     return (
       <>
+      {soi.chainWarning && <p className="text-sm text-warning">{soi.chainWarning}</p>}
       {/* Every derived entry posts when recorded, so a schedule that does not tie is a real
           disagreement — see lib/accounting/tie-out-state.ts. */}
       {(() => {
@@ -269,7 +271,7 @@ export function ScheduleOfInvestmentsView() {
                   <td className="px-3 py-2 text-right tabular-nums text-xs">
                     {!r.chain ? <span className="text-muted-foreground">—</span>
                       : r.chain.agrees ? <span className="text-muted-foreground" title={`Read ${r.chain.asOf}`}>agrees</span>
-                      : <span className="text-warning" title={`Chain ${num(r.chain.observedUnits, 4)}, read ${r.chain.asOf}`}>{r.chain.delta > 0 ? '+' : '−'}{num(Math.abs(r.chain.delta), 4)}</span>}
+                      : <span className="text-sm text-warning" title={`Chain ${num(r.chain.observedUnits, 4)}, read ${r.chain.asOf}`}>{r.chain.delta > 0 ? '+' : '−'}{num(Math.abs(r.chain.delta), 4)}</span>}
                   </td>
                 )}
                 <td className="px-3 py-2 text-right tabular-nums text-xs">{r.sharePrice == null ? '—' : formatSharePrice(r.sharePrice, currency)}</td>

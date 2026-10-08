@@ -100,6 +100,8 @@ export interface LedgerData {
    *  digital-asset rows. Both empty for an entity holding no digital assets. */
   wallets?: Wallet[]
   balances?: WalletBalance[]
+  /** Set when the wallet read failed, so the schedule can say the chain column is missing. */
+  chainWarning?: string
   /** Min entryDate across postings — the inception bound for comparison stepping. */
   earliest: string | null
   /** The vehicle's kind, for the words a statement uses (lib/accounting/vocab.ts). Null for a
@@ -143,19 +145,30 @@ export async function loadLedgerData(
     vehicleKindByName(admin, fundId, group),
     (admin as any).from('crypto_wallets').select('*').eq('fund_id', fundId),
   ])
-  if (walletsError) throw new Error(`crypto_wallets read failed: ${walletsError.message}`)
-  // Holders come from the FULL fund's transactions (txns is not entity-filtered), so an untagged
-  // wallet on a holding two entities hold counts for neither. Only the wallets that speak for THIS
-  // entity are kept, so a shared token's chain balance is never reported twice.
-  const holders = holdersFromTransactions((txns as any[]) ?? [])
-  const wallets = walletsForEntity((walletRows as any[]) ?? [], group, holders).map(walletFromRow)
-  // Readings by wallet id, never fund-wide: PostgREST's row cap would silently truncate them.
+  // The chain column is informational: a failed wallet read must not take the statements, PDF,
+  // exports or tax package down with it. Degrade to no column and say so (the close, which gates
+  // on these readings, stays fail-closed in its own path).
+  let wallets: Wallet[] = []
   let balances: WalletBalance[] = []
-  if (wallets.length > 0) {
-    const { data: balanceRows, error: balancesError } = await (admin as any).from('crypto_wallet_balances').select('*')
-      .in('wallet_id', wallets.map(w => w.id))
-    if (balancesError) throw new Error(`crypto_wallet_balances read failed: ${balancesError.message}`)
-    balances = ((balanceRows as any[]) ?? []).map(balanceFromRow)
+  let chainWarning: string | undefined
+  try {
+    if (walletsError) throw new Error(`crypto_wallets read failed: ${walletsError.message}`)
+    // Holders come from the FULL fund's transactions (txns is not entity-filtered), so an untagged
+    // wallet on a holding two entities hold counts for neither.
+    const holders = holdersFromTransactions((txns as any[]) ?? [])
+    wallets = walletsForEntity((walletRows as any[]) ?? [], group, holders).map(walletFromRow)
+    // Readings by wallet id, never fund-wide: PostgREST's row cap would silently truncate them.
+    if (wallets.length > 0) {
+      const { data: balanceRows, error: balancesError } = await (admin as any).from('crypto_wallet_balances').select('*')
+        .in('wallet_id', wallets.map(w => w.id))
+      if (balancesError) throw new Error(`crypto_wallet_balances read failed: ${balancesError.message}`)
+      balances = ((balanceRows as any[]) ?? []).map(balanceFromRow)
+    }
+  } catch (e) {
+    console.error('[statement-package] on-chain balances unavailable:', e)
+    wallets = []
+    balances = []
+    chainWarning = 'On-chain balances could not be read.'
   }
   return {
     accounts, postings, capitalPostings, sourcedPostings, names,
@@ -180,7 +193,7 @@ export async function loadLedgerData(
       price: Number(o.price),
       basis: o.basis,
     })) as PriceObservation[],
-    wallets, balances,
+    wallets, balances, chainWarning,
     txns: (txns as any[]) ?? [],
     companies: (companies as any[]) ?? [],
     group,
@@ -245,6 +258,7 @@ export function computePayload(data: LedgerData, period: StatementPeriod): State
     scheduleOfInvestments: {
       ...scheduleOfInvestments(data.accounts, cumulative, nav, positions, data.companies as SoiCompany[]),
       realizedRows,
+      ...(data.chainWarning ? { chainWarning: data.chainWarning } : {}),
     },
     changesInPartnersCapital: changesInPartnersCapital(capitalAccounts, data.names, gpEnding),
     // Absent for a fund holding no funds, so a non-FoF package is unchanged.

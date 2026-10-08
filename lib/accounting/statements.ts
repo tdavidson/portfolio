@@ -268,6 +268,8 @@ export interface ScheduleOfInvestments {
    * `scheduleOfInvestments()` itself always returns it empty.
    */
   realizedRows: SoiRow[]
+  /** Set when the digital assets' on-chain balances could not be read. */
+  chainWarning?: string
   totalCost: number
   totalFairValue: number
   netAssets: number
