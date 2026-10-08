@@ -66,7 +66,7 @@ create table crypto_wallets (id uuid primary key default gen_random_uuid(), fund
   company_id uuid not null references companies(id) on delete cascade, portfolio_group text, address text not null);
 create table inbound_deals (id uuid primary key default gen_random_uuid(), fund_id uuid not null references funds(id));
 create table journal_entries (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, memo text);
-create table company_notes (id uuid primary key default gen_random_uuid(), fund_id uuid not null, company_id uuid, content text, mentioned_groups text[] default '{}', created_at timestamptz not null default now());
+create table company_notes (id uuid primary key default gen_random_uuid(), fund_id uuid not null, company_id uuid, content text, mentioned_groups text[] default '{}', created_at timestamptz not null default now(), user_id uuid default '00000000-0000-0000-0000-0000000000a1');
 create table interactions (id uuid primary key default gen_random_uuid(), fund_id uuid not null, company_id uuid, subject text);
 create table lp_investors (id uuid primary key default gen_random_uuid(), fund_id uuid not null, name text);
 create table lp_entities (id uuid primary key default gen_random_uuid(), fund_id uuid not null, investor_id uuid, entity_name text);
@@ -101,6 +101,8 @@ grant select on storage.objects to authenticated;
 alter table storage.objects enable row level security;
 create policy "members" on storage.objects for select to authenticated using (true);
 create table inbound_emails (id uuid primary key default gen_random_uuid(), fund_id uuid not null, company_id uuid);
+create table note_reads (user_id uuid, note_id uuid);
+create table pending_actions (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, action_type text);
 -- The LP portal's own identity: an LP account sees its investor's rows.
 create table lp_account_links (user_id uuid, lp_investor_id uuid);
 create function get_my_lp_investor_ids() returns uuid[] language sql stable security definer set search_path = public as
@@ -112,7 +114,7 @@ grant select on all tables in schema public to authenticated;
 do $$ declare t text; begin
   foreach t in array array['companies','investment_transactions','journal_entries','company_notes','interactions','fund_vehicles','inbound_deals','crypto_wallets','fund_holding_terms','chart_of_accounts',
     'lp_investors','lp_entities','lp_investments','commitment_events','lp_letters','lp_documents','lp_document_shares','lp_letter_shares','lp_access_events','lp_deliveries','vehicle_closings','vehicle_closing_members',
-    'diligence_deals','diligence_notes'] loop
+    'diligence_deals','diligence_notes','inbound_emails','pending_actions'] loop
     execute format('alter table %I enable row level security', t);
     execute format('create policy "members" on %I for select to authenticated using (fund_id in (select fund_id from fund_members where user_id = auth.uid()))', t);
   end loop;
@@ -173,18 +175,20 @@ try {
           ('${OTHER_F}', null, 'legacy elsewhere', '{}')`)
 
   for (const m of MIGRATIONS) applyFile(join('supabase/migrations', m))
+  // Staged until its release ships (supabase/pending-deploy/); checked here as it will be applied.
+  applyFile('supabase/pending-deploy/notes_entity_required.sql')
 
   // ---- Backfill: nobody loses access on deploy. ----
-  check('backfill grants an existing member every vehicle in their fund',
-    psql(`select string_agg(vehicle_id::text, ',' order by vehicle_id::text) from fund_member_vehicles where user_id = '${MEMBER}'`),
-    `${V1},${V2}`)
+  check('backfill gives every existing member the explicit "All entities" grant',
+    psql(`select string_agg(all_entities::text, ',' order by user_id) from fund_members where fund_id = '${F}'`), 'true,true,true')
 
   // ---- access_context: the gate's one round trip. ----
   check('a member\'s access_context lists their granted vehicles',
     psql(`select ${sortedIds(`array(select jsonb_array_elements_text(access_context('${MEMBER}')->'vehicles')::uuid)`)}`),
     `${V1},${V2}`)
 
-  psql(`delete from fund_member_vehicles where user_id = '${MEMBER}' and vehicle_id = '${V2}'`)
+  psql(`update fund_members set all_entities = false where user_id = '${MEMBER}';
+        insert into fund_member_vehicles (fund_id, user_id, vehicle_id) values ('${F}', '${MEMBER}', '${V1}')`)
   check('narrowing a member\'s grants narrows access_context',
     psql(`select ${sortedIds(`array(select jsonb_array_elements_text(access_context('${MEMBER}')->'vehicles')::uuid)`)}`),
     V1)
@@ -197,9 +201,19 @@ try {
     psql(`select jsonb_array_length(access_context('${LATE}')->'vehicles')`),
     '0')
 
-  // ---- A member granted EVERY entity is unscoped, like an admin: nobody loses access on push. ----
-  check('a member granted every entity is reported as seeing all of them',
-    psql(`select access_context('${ADMIN}')->>'vehicles_all'`) + ',' + psql(`select access_context('${LATE}')->>'vehicles_all'`), 'true,false')
+  // ---- "All entities" is explicit: an admin or a member holding it is unscoped; nobody else. ----
+  check('admins and All-entities members are unscoped; others are not',
+    [ADMIN, FULL, MEMBER, LATE].map(u => psql(`select access_context('${u}')->>'vehicles_all'`)).join(','), 'true,true,false,false')
+  // Holding every entity's grant row is NOT the same as "All entities": a new entity would narrow it.
+  psql(`insert into fund_member_vehicles (fund_id, user_id, vehicle_id) values ('${F}', '${LATE}', '${V1}'), ('${F}', '${LATE}', '${V2}')`)
+  check('a member granted each entity one by one is still scoped',
+    psql(`select access_context('${LATE}')->>'vehicles_all'`), 'false')
+  psql(`delete from fund_member_vehicles where user_id = '${LATE}'`)
+  const V3 = '00000000-0000-0000-0000-000000000103'
+  psql(`insert into fund_vehicles (id, fund_id, name) values ('${V3}', '${F}', 'Fund III')`)
+  check('creating an entity does not narrow an All-entities member, and it sees the new one',
+    psql(`select (access_context('${FULL}')->>'vehicles_all') || ',' || jsonb_array_length(access_context('${FULL}')->'vehicles')`), 'true,3')
+  psql(`delete from fund_vehicles where id = '${V3}'`)
 
   // ---- vehicle_ids_readable(): the RLS mirror, as the signed-in caller. ----
   check('vehicle_ids_readable() returns the caller\'s own visible vehicles',
@@ -295,6 +309,8 @@ try {
     psql(`select string_agg(content, ',' order by content) from company_notes`, { as: MEMBER }), 'fund i,fund i on acme,legacy about Fund I')
   check('notes: an admin reads them all, unattributed included',
     psql(`select count(*) from company_notes where fund_id = '${F}'`, { as: ADMIN }), '6')
+  check('notes: the unread badge counts only notes the user may read',
+    psql(`select count_unread_notes('${MEMBER}')`) + ',' + psql(`select count_unread_notes('${LATE}')`), '3,0')
   let unattributed = 'accepted'
   try { psql(`insert into company_notes (fund_id, content) values ('${F}', 'no entity')`) } catch { unattributed = 'refused' }
   check('notes: a new note with no entity is refused', unattributed, 'refused')
@@ -430,10 +446,41 @@ try {
   psql(`update investment_transactions set portfolio_group = 'Fund I' where portfolio_group = 'Fund One'`)
   psql(`update companies set portfolio_group = array_replace(portfolio_group, 'Fund One', 'Fund I')`)
 
+  // ---- Writes through the Data API cannot reach another entity. ----
+  psql(`create policy "test writes" on investment_transactions for insert to authenticated with check (true);
+        create policy "test writes" on companies for update to authenticated using (true) with check (true);
+        grant insert on investment_transactions to authenticated; grant update on companies to authenticated`)
+  const tryAs = (sql, as) => { try { psql(sql, { as }); return 'accepted' } catch { return 'refused' } }
+  check('a member cannot write a row in their entity against a company they cannot see (it would link it to them)',
+    tryAs(`insert into investment_transactions (fund_id, company_id, portfolio_group, transaction_type) values ('${F}', '${E}', 'Fund I', 'investment')`, MEMBER), 'refused')
+  check('…but can for a company of theirs',
+    tryAs(`insert into investment_transactions (fund_id, company_id, portfolio_group, transaction_type) values ('${F}', '${D}', 'Fund I', 'investment')`, MEMBER), 'accepted')
+  check('a member cannot write a company-wide (entity-less) price row',
+    tryAs(`insert into investment_transactions (fund_id, company_id, portfolio_group, transaction_type) values ('${F}', '${D}', null, 'round_info')`, MEMBER), 'refused')
+  check('a member cannot drop another entity\'s tag from a shared company',
+    tryAs(`update companies set portfolio_group = array['Fund I'] where id = '${C}'`, MEMBER), 'refused')
+  check('an admin can',
+    tryAs(`update companies set portfolio_group = portfolio_group where id = '${C}'`, ADMIN), 'accepted')
+
+  // The diligence trigger runs with definer rights: it must stay inside the deal's fund.
+  const DD4 = '00000000-0000-0000-0000-00000000dd04'
+  psql(`insert into diligence_deals (id, fund_id, name) values ('${DD4}', '${OTHER_F}', 'Other tenant');
+        insert into inbound_deals (fund_id, vehicle_id, promoted_diligence_id) values ('${F}', '${V1}', '${DD4}')`)
+  check('promoting a deal cannot stamp an entity on another tenant\'s diligence record',
+    psql(`select coalesce(vehicle_id::text, 'none') from diligence_deals where id = '${DD4}'`), 'none')
+
+  // Staged AI/agent actions, and mail matched to no company.
+  psql(`insert into pending_actions (fund_id, vehicle_id, action_type) values ('${F}', '${V1}', 'a'), ('${F}', '${V2}', 'b'), ('${F}', null, 'c');
+        insert into inbound_emails (fund_id, company_id) values ('${F}', null)`)
+  check('pending actions: a member sees only their entity\'s',
+    psql(`select string_agg(action_type, ',') from pending_actions`, { as: MEMBER }), 'a')
+  check('unmatched mail (no company) is for unscoped callers to triage',
+    psql(`select count(*) from inbound_emails where company_id is null`, { as: MEMBER }) + ',' + psql(`select count(*) from inbound_emails where company_id is null`, { as: ADMIN }), '0,1')
+
   // ---- Re-runnable. ----
   for (const m of MIGRATIONS.slice(1)) applyFile(join('supabase/migrations', m))
   check('re-running the migration does not re-grant what was narrowed',
-    psql(`select count(*) from fund_member_vehicles where user_id = '${MEMBER}'`), '1')
+    psql(`select (select count(*) from fund_member_vehicles where user_id = '${MEMBER}') || ',' || (select all_entities from fund_members where user_id = '${MEMBER}')`), '1,false')
 } catch (e) {
   failures++
   console.error(String(e.stderr ?? e.message ?? e))

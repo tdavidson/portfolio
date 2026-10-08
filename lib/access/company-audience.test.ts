@@ -25,13 +25,12 @@ const base = {
     { user_id: 'admin', role: 'admin' },
     { user_id: 'mine', role: 'member' },
     { user_id: 'other', role: 'member' },
-    { user_id: 'all', role: 'member' },
+    { user_id: 'all', role: 'member', all_entities: true },
   ],
   fund_vehicles: [{ id: 'v1' }, { id: 'v2' }],
   fund_member_vehicles: [
     { user_id: 'mine', vehicle_id: 'v1' },
     { user_id: 'other', vehicle_id: 'v2' },
-    { user_id: 'all', vehicle_id: 'v1' }, { user_id: 'all', vehicle_id: 'v2' },
   ],
   company_vehicles: [{ company_id: 'c1', vehicle_id: 'v1' }],
 }
@@ -48,8 +47,12 @@ describe('membersWhoCanSeeCompany — who a company\'s notifications may go to',
   it('before the entity migration (no grants table): null — everyone, as before', async () => {
     expect(await membersWhoCanSeeCompany(admin({ ...base, fund_member_vehicles: { error: 'relation does not exist' } }), 'f1', 'c1')).toBeNull()
   })
-  it('fails closed when the entity list cannot be read: nobody, rather than everybody', async () => {
-    expect(await membersWhoCanSeeCompany(admin({ ...base, fund_vehicles: { error: 'timeout' } }), 'f1', 'c1')).toEqual(new Set())
+  it('fails closed when the members cannot be read: nobody, rather than everybody', async () => {
+    expect(await membersWhoCanSeeCompany(admin({ ...base, fund_members: { error: 'timeout' } }), 'f1', 'c1')).toEqual(new Set())
+  })
+  it('holding every entity one by one is not "All entities"', async () => {
+    const t = { ...base, fund_member_vehicles: [...(base.fund_member_vehicles as any[]), { user_id: 'mine', vehicle_id: 'v2' }] }
+    expect(Array.from((await membersWhoCanSeeCompany(admin(t), 'f1', 'c9'))!).sort()).toEqual(['admin', 'all'])
   })
 })
 

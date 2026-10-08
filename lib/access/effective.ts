@@ -144,7 +144,7 @@ interface AccessContextRow {
   defaults: Record<string, string> | null
   /** Absent before 20261007100000_entity_access_grants.sql — see vehicleScopeFromRow. */
   vehicles?: unknown
-  /** True for an admin or a member granted every entity — see vehicleScopeFromRow. */
+  /** True for an admin or a member holding "All entities" — see vehicleScopeFromRow. */
   vehicles_all?: unknown
 }
 

@@ -4,12 +4,15 @@
 -- holdings, anyone with `accounting` every entity's books. One platform hosts entities managed by
 -- different people, so a member is now granted ENTITIES as well as domains, and sees only those.
 --
--- Admins see every entity without grants. A non-admin sees only what is granted here. Every member
--- who exists when this runs is granted every entity that exists, so nobody loses access on deploy;
--- admins narrow from there. See plans/spec-entity-access-and-portfolio.md.
+-- Admins see every entity without grants. A non-admin sees what is granted here — or everything,
+-- when they hold the explicit "All entities" grant (fund_members.all_entities), which also covers
+-- entities created later. Every member who exists when this runs gets "All entities", so nobody
+-- loses access on deploy; admins narrow from there. See plans/spec-entity-access-and-portfolio.md.
 
 -- ---------------------------------------------------------------------------
 -- 1. The grants. Created and backfilled ONCE: a re-run must not restore grants an admin removed.
+--    "All entities" is an explicit grant, not "holds every row that happens to exist": inferring it
+--    made creating any new entity silently narrow every such member.
 -- ---------------------------------------------------------------------------
 do $$
 begin
@@ -24,13 +27,14 @@ begin
       primary key (fund_id, user_id, vehicle_id)
     );
 
-    insert into public.fund_member_vehicles (fund_id, user_id, vehicle_id)
-    select m.fund_id, m.user_id, v.id
-      from public.fund_members m
-      join public.fund_vehicles v on v.fund_id = m.fund_id
-    on conflict do nothing;
+    alter table public.fund_members add column if not exists all_entities boolean not null default false;
+    -- Everyone who is a member when this is pushed keeps seeing everything.
+    update public.fund_members set all_entities = true;
   end if;
 end $$;
+
+-- New members default to no entities: an admin chooses theirs on approval.
+alter table public.fund_members add column if not exists all_entities boolean not null default false;
 
 create index if not exists fund_member_vehicles_vehicle_idx on public.fund_member_vehicles (vehicle_id);
 
@@ -60,7 +64,7 @@ as $$
     from fund_members m
     join fund_vehicles v on v.fund_id = m.fund_id
    where m.user_id = auth.uid()
-     and (m.role = 'admin'
+     and (m.role = 'admin' or m.all_entities
           or exists (select 1 from fund_member_vehicles g
                       where g.fund_id = m.fund_id and g.user_id = m.user_id and g.vehicle_id = v.id));
 $$;
@@ -115,17 +119,13 @@ begin
       (select jsonb_agg(v.id order by v.id)
          from fund_vehicles v
         where v.fund_id = m.fund_id
-          and (m.role = 'admin'
+          and (m.role = 'admin' or m.all_entities
                or exists (select 1 from fund_member_vehicles g
                            where g.fund_id = m.fund_id and g.user_id = m.user_id and g.vehicle_id = v.id))),
       '[]'::jsonb),
-    -- Unscoped: an admin, or a member granted EVERY entity in the fund. Such a member sees what an
-    -- admin sees — unassigned companies, rows with no entity — so granting everything (as the
-    -- backfill does) changes nothing for them.
-    'vehicles_all', m.role = 'admin' or not exists (
-      select 1 from fund_vehicles v where v.fund_id = m.fund_id
-         and not exists (select 1 from fund_member_vehicles g
-                          where g.fund_id = m.fund_id and g.user_id = m.user_id and g.vehicle_id = v.id))
+    -- Unscoped: an admin, or a member holding the "All entities" grant. Such a member sees what an
+    -- admin sees — unassigned companies, rows with no entity, and entities created later.
+    'vehicles_all', m.role = 'admin' or m.all_entities
   )
   into v_result
   from fund_members m

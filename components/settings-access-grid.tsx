@@ -18,7 +18,7 @@ import type { FeatureVisibilityMap } from '@/lib/types/features'
 type Level = 'none' | 'read' | 'write'
 
 interface DomainInfo { key: Domain; label: string; description: string }
-interface MemberAccess { userId: string; email: string; role: string; grants: Record<string, Level>; entities?: string[] }
+interface MemberAccess { userId: string; email: string; role: string; grants: Record<string, Level>; entities?: string[]; allEntities?: boolean }
 interface EntityInfo { id: string; name: string; kind: string; active: boolean }
 
 /**
@@ -111,6 +111,11 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
       ? { ...m, entities: granted ? [...(m.entities ?? []), vehicleId] : (m.entities ?? []).filter(id => id !== vehicleId) }
       : m)))
     save({ userId, vehicleId, granted }, `${userId}:entity:${vehicleId}`)
+  }
+
+  function setAllEntities(userId: string, allEntities: boolean) {
+    setMembers(prev => prev.map(m => (m.userId === userId ? { ...m, allEntities } : m)))
+    save({ userId, allEntities }, `${userId}:all-entities`)
   }
 
   function setRole(userId: string, role: string) {
@@ -228,23 +233,36 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
                   {m.role === 'admin' || m.role === 'viewer' ? (
                     <span className={`${STATIC_CELL} gap-1`}><Shield className="h-2.5 w-2.5" />All</span>
                   ) : (
-                    <div className="flex max-w-[260px] flex-wrap gap-1">
-                      {entities.map(e => {
+                    <div className="flex max-w-[260px] flex-col gap-1 text-xs">
+                      {/* "All entities" is a stored grant: it covers entities created later and
+                          items assigned to none (new pitches, legacy notes). Per-entity boxes apply
+                          only without it. */}
+                      <label className="inline-flex items-center gap-1.5 font-medium">
+                        <input
+                          type="checkbox"
+                          checked={!!m.allEntities}
+                          disabled={saving === `${m.userId}:all-entities`}
+                          onChange={ev => setAllEntities(m.userId, ev.target.checked)}
+                        />
+                        All entities <span className="font-normal text-muted-foreground">(incl. future)</span>
+                      </label>
+                      {!m.allEntities && entities.map(e => {
                         const on = (m.entities ?? []).includes(e.id)
                         return (
-                          <button
-                            key={e.id}
-                            type="button"
-                            aria-pressed={on}
-                            disabled={saving === `${m.userId}:entity:${e.id}`}
-                            onClick={() => setEntity(m.userId, e.id, !on)}
-                            className={`rounded border px-1.5 py-0.5 text-[11px] ${on ? 'border-primary/40 bg-primary/10 text-foreground' : 'text-muted-foreground hover:text-foreground'}`}
-                          >
-                            {e.name}
-                          </button>
+                          <label key={e.id} className={`inline-flex items-center gap-1.5 ${e.active ? '' : 'text-muted-foreground'}`}>
+                            <input
+                              type="checkbox"
+                              checked={on}
+                              disabled={saving === `${m.userId}:entity:${e.id}`}
+                              onChange={() => setEntity(m.userId, e.id, !on)}
+                            />
+                            {e.name}{!e.active && ' (inactive)'}
+                          </label>
                         )
                       })}
-                      {entities.length === 0 && <span className={STATIC_CELL}>No entities yet</span>}
+                      {!m.allEntities && (m.entities ?? []).length === 0 && (
+                        <span className="text-muted-foreground">Sees no entity data yet</span>
+                      )}
                     </div>
                   )}
                 </td>

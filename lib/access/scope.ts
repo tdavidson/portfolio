@@ -33,8 +33,8 @@ export interface VehicleScope {
 export function vehicleScopeFromRow(role: FundRole, vehicles: unknown, vehiclesAll?: unknown): VehicleScope {
   const ids = Array.isArray(vehicles) ? vehicles.filter((v): v is string => typeof v === 'string') : []
   const enforced = vehicles !== undefined
-  // An admin, or a member granted every entity (`vehicles_all`): unscoped, so granting everything —
-  // as the rollout backfill does — changes nothing for them.
+  // An admin, or a member holding the explicit "All entities" grant (`vehicles_all`): unscoped —
+  // including entities created later. The rollout gives every existing member that grant.
   if (role === 'admin' || !enforced || vehiclesAll === true) return { all: true, ids, enforced }
   return { all: false, ids, enforced }
 }
@@ -170,7 +170,7 @@ export function filterByCompany<Q extends { in: Function; is: Function; or: Func
  * strings, aliases) is how a member's entities find their rows — so a member who could rename an
  * entity, add an alias, create one named like a legacy string, or merge one into another could widen
  * their own sight to rows that are not theirs. Only an unscoped caller (an admin, or a member
- * granted every entity) changes those.
+ * holding "All entities") changes those.
  */
 export function entityIdentityChangeDenial(
   access: Pick<AccessContext, 'vehicles'>,

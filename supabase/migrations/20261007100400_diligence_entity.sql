@@ -38,9 +38,12 @@ security definer
 set search_path = public
 as $$
 begin
-  if new.promoted_diligence_id is not null and new.vehicle_id is not null then
+  -- Only within the deal's own fund, and only with an entity of that fund: the deal's columns come
+  -- from its writer, and this function runs with definer rights.
+  if new.promoted_diligence_id is not null and new.vehicle_id is not null
+     and exists (select 1 from fund_vehicles v where v.id = new.vehicle_id and v.fund_id = new.fund_id) then
     update diligence_deals set vehicle_id = new.vehicle_id
-     where id = new.promoted_diligence_id and vehicle_id is null;
+     where id = new.promoted_diligence_id and vehicle_id is null and fund_id = new.fund_id;
   end if;
   return null;
 end;
@@ -83,7 +86,9 @@ begin
     if to_regclass('public.' || t) is null then
       continue;
     end if;
-    pred := case when t = 'diligence_deals'
+    -- Unscoped callers first: it short-circuits the id list, and lets an admin insert a new record
+    -- (whose id is not in that list yet).
+    pred := 'fund_id = any((select public.unscoped_fund_ids())::uuid[]) or ' || case when t = 'diligence_deals'
       then 'id = any((select public.diligence_ids_readable())::uuid[])'
       else 'deal_id = any((select public.diligence_ids_readable())::uuid[])'
     end;

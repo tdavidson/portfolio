@@ -5,7 +5,8 @@ import { assertAdminAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
 import { expireTag } from '@/lib/cache/tags'
 import { DOMAINS, DOMAIN_META, type Domain } from '@/lib/access/domains'
-import { entityGrantProblem } from '@/lib/access/entity-grants'
+import { allEntitiesProblem, entityGrantProblem } from '@/lib/access/entity-grants'
+import { logActivity } from '@/lib/activity'
 
 // Per-user, per-domain access grants, and the fund's per-domain default for new members.
 //
@@ -33,7 +34,8 @@ export async function GET() {
   if (gate instanceof NextResponse) return gate
 
   const [{ data: members, error }, { data: grants }, { data: defaults }, { data: vehicles }, { data: entityGrants }] = await Promise.all([
-    admin.from('fund_members').select('user_id, role').eq('fund_id', gate.fundId),
+    // '*': all_entities exists once the entity migration has run.
+    admin.from('fund_members').select('*').eq('fund_id', gate.fundId),
     admin.from('fund_member_access' as any).select('user_id, domain, level').eq('fund_id', gate.fundId),
     admin.from('fund_domain_defaults' as any).select('domain, level').eq('fund_id', gate.fundId),
     admin.from('fund_vehicles' as any).select('id, name, kind, active').eq('fund_id', gate.fundId).order('name'),
@@ -56,6 +58,8 @@ export async function GET() {
         ),
         // The entities this member may see. Admins see every entity, so theirs is not listed.
         entities: entityRows.filter(g => g.user_id === m.user_id).map(g => g.vehicle_id),
+        // "All entities": everything, including entities created later and unassigned items.
+        allEntities: (m as any).all_entities === true,
       }
     }),
   )
@@ -134,6 +138,20 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: true })
   }
 
+  // --- "All entities" on or off (fund_members.all_entities) ---
+  if (body?.allEntities !== undefined) {
+    const targetId = String(body.userId ?? '')
+    const { data: target } = await admin.from('fund_members').select('user_id, role').eq('fund_id', gate.fundId).eq('user_id', targetId).maybeSingle()
+    const problem = allEntitiesProblem({ target: target as any, allEntities: body.allEntities })
+    if (problem) return NextResponse.json({ error: problem.error }, { status: problem.status })
+    const { error } = await admin.from('fund_members').update({ all_entities: body.allEntities } as any)
+      .eq('fund_id', gate.fundId).eq('user_id', targetId)
+    if (error) return dbError(error, 'settings-access-all-entities')
+    logActivity(admin, gate.fundId, user.id, 'access.all_entities', { member: targetId, allEntities: body.allEntities })
+    expireTag('domain-grants')
+    return NextResponse.json({ ok: true })
+  }
+
   // --- Grant or revoke an entity (fund_member_vehicles) ---
   if (body?.vehicleId !== undefined) {
     const targetId = String(body.userId ?? '')
@@ -152,6 +170,9 @@ export async function PATCH(req: NextRequest) {
       : await admin.from('fund_member_vehicles' as any).delete()
           .eq('fund_id', gate.fundId).eq('user_id', targetId).eq('vehicle_id', String(body.vehicleId))
     if (error) return dbError(error, 'settings-access-entity')
+    // Who changed whose entities: the grant row is gone on revoke, so the log is the record.
+    logActivity(admin, gate.fundId, user.id, body.granted ? 'access.entity_granted' : 'access.entity_revoked',
+      { member: targetId, vehicleId: String(body.vehicleId) })
     expireTag('domain-grants')
     return NextResponse.json({ ok: true })
   }

@@ -25,8 +25,8 @@
 -- through RLS. A helper taking row arguments would run its subqueries for every row scanned, admins
 -- included.
 -- ---------------------------------------------------------------------------
--- The funds whose data the caller sees unscoped: where they are an admin, or a member granted every
--- entity (the same rule as access_context's `vehicles_all`).
+-- The funds whose data the caller sees unscoped: where they are an admin, or a member holding the
+-- "All entities" grant (the same rule as access_context's `vehicles_all`).
 create or replace function public.unscoped_fund_ids()
 returns uuid[]
 language sql
@@ -35,11 +35,7 @@ security definer
 set search_path = public
 as $$
   select coalesce(array_agg(m.fund_id), '{}'::uuid[]) from fund_members m
-   where m.user_id = auth.uid()
-     and (m.role = 'admin' or not exists (
-       select 1 from fund_vehicles v where v.fund_id = m.fund_id
-          and not exists (select 1 from fund_member_vehicles g
-                           where g.fund_id = m.fund_id and g.user_id = m.user_id and g.vehicle_id = v.id)));
+   where m.user_id = auth.uid() and (m.role = 'admin' or m.all_entities);
 $$;
 
 revoke execute on function public.unscoped_fund_ids() from public, anon;
@@ -103,6 +99,7 @@ declare
   t text;
   cols text[];
   pred text;
+  wpred text;
   tables text[] := array[
     -- portfolio
     'companies', 'company_documents', 'company_summaries', 'company_updates', 'company_update_artifacts',
@@ -116,6 +113,8 @@ declare
     'close_allocation_rounding', 'journal_entry_allocations',
     -- relationships: an interaction about a company is that company's
     'interactions',
+    -- staged AI/agent writes: an action on an entity is that entity's
+    'pending_actions',
     -- the entities themselves, and deals
     'fund_vehicles', 'inbound_deals'
   ];
@@ -137,7 +136,14 @@ begin
 
     pred := case
       when t = 'fund_vehicles' then
-        'id = any((select public.vehicle_ids_readable())::uuid[])'
+        'fund_id = any((select public.unscoped_fund_ids())::uuid[]) or id = any((select public.vehicle_ids_readable())::uuid[])'
+      -- Mail and parsing reviews about no company: unmatched, possibly about anyone's company — for
+      -- unscoped callers to triage, as in the app (and the email-attachments storage rule).
+      when t in ('inbound_emails', 'parsing_reviews') then
+        'fund_id = any((select public.unscoped_fund_ids())::uuid[]) or company_id = any((select public.company_ids_readable())::uuid[])'
+      -- Update requests are fund-wide mailings naming every company's contacts.
+      when t = 'email_requests' then
+        'fund_id = any((select public.unscoped_fund_ids())::uuid[])'
       when t = 'companies' then
         'fund_id = any((select public.unscoped_fund_ids())::uuid[]) or id = any((select public.company_ids_readable())::uuid[])'
       when t = 'inbound_deals' then
@@ -157,12 +163,64 @@ begin
     end;
 
     if pred is null then
-      continue;
+      -- A listed table with no column to decide by is a mistake in this list, not a table to skip.
+      raise exception 'entity RLS: no predicate for listed table %', t;
+    end if;
+
+    -- Writes also may not reach a company the caller cannot see: a row in their entity pointing at
+    -- another entity's company would link that company to them (company_vehicles) and so reveal it.
+    -- And a scoped member writes no company-wide (entity-less) price rows, as in the app.
+    wpred := pred;
+    if 'company_id' = any(cols) and t <> 'companies' then
+      wpred := '(' || pred || ') and (fund_id = any((select public.unscoped_fund_ids())::uuid[]) '
+        || 'or company_id is null or company_id = any((select public.company_ids_readable())::uuid[]))';
+    end if;
+    if 'portfolio_group' = any(cols) and 'company_id' = any(cols) then
+      wpred := '(' || wpred || ') and (fund_id = any((select public.unscoped_fund_ids())::uuid[]) or portfolio_group is not null)';
     end if;
 
     execute format('drop policy if exists "Only the caller''s entities" on public.%I', t);
     execute format(
       'create policy "Only the caller''s entities" on public.%I as restrictive for all to authenticated using (%s) with check (%s)',
-      t, pred, pred);
+      t, pred, wpred);
   end loop;
 end $$;
+
+-- ---------------------------------------------------------------------------
+-- A company's entity tags (companies.portfolio_group) decide which entities it is assigned to
+-- (company_vehicles). A scoped member who can see a shared company may change only THEIR entities'
+-- tags on it: dropping another entity's tag would unlink the company from that entity, and adding
+-- one would push it into an entity that is not theirs. Unscoped callers and the service role (no
+-- JWT, auth.uid() null) are unaffected; so is the derived rewrite the link triggers make
+-- (pg_trigger_depth() > 1), which recomputes tags from holdings rather than from the request.
+-- ---------------------------------------------------------------------------
+create or replace function public.companies_entity_tags_guard()
+returns trigger
+language plpgsql
+security definer
+set search_path = public
+as $$
+begin
+  if auth.uid() is null or pg_trigger_depth() > 1 or new.fund_id = any(public.unscoped_fund_ids()) then
+    return new;
+  end if;
+  if exists (
+    select 1 from (
+      (select unnest(coalesce(new.portfolio_group, '{}')) except select unnest(coalesce(old.portfolio_group, '{}')))
+      union
+      (select unnest(coalesce(old.portfolio_group, '{}')) except select unnest(coalesce(new.portfolio_group, '{}')))
+    ) changed(g)
+    where not changed.g = any(public.group_names_readable())
+  ) then
+    raise exception 'You can only change your own entities on a company' using errcode = '42501';
+  end if;
+  return new;
+end;
+$$;
+
+revoke execute on function public.companies_entity_tags_guard() from public, anon, authenticated;
+
+drop trigger if exists companies_entity_tags_guard on public.companies;
+create trigger companies_entity_tags_guard
+  before update of portfolio_group on public.companies
+  for each row execute function public.companies_entity_tags_guard();

@@ -42,15 +42,34 @@ export function TeamSection({ isAdmin, featureVisibility }: { isAdmin: boolean; 
 
   useEffect(() => { load() }, [load])
 
+  // Approving chooses what the new member sees — All entities, or some of the fund's.
+  const [approving, setApproving] = useState<string | null>(null)
+  const [choice, setChoice] = useState<{ all: boolean; ids: string[] }>({ all: false, ids: [] })
+  const [fundEntities, setFundEntities] = useState<Array<{ id: string; name: string; active: boolean }>>([])
+  const [requestError, setRequestError] = useState<string | null>(null)
+
+  const startApproving = (requestId: string) => {
+    setApproving(requestId)
+    setChoice({ all: false, ids: [] })
+    setRequestError(null)
+    fetch('/api/entities').then(r => (r.ok ? r.json() : [])).then(rows => setFundEntities(rows ?? [])).catch(() => setFundEntities([]))
+  }
+
   const handleRequest = async (requestId: string, action: 'approve' | 'reject') => {
     setProcessingId(requestId)
+    setRequestError(null)
     const res = await fetch(`/api/settings/members/${requestId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action }),
+      body: JSON.stringify(action === 'approve' ? { action, entities: choice } : { action }),
     })
     setProcessingId(null)
-    if (res.ok) load()
+    if (res.ok) {
+      setApproving(null)
+      load()
+    } else {
+      setRequestError((await res.json().catch(() => ({}))).error ?? 'Could not update the request.')
+    }
   }
 
   const handleRemove = async (memberId: string) => {
@@ -126,7 +145,8 @@ export function TeamSection({ isAdmin, featureVisibility }: { isAdmin: boolean; 
               <p className="text-xs font-medium mb-2">Pending requests</p>
               <div className="border rounded-lg divide-y">
                 {pendingRequests.map(r => (
-                  <div key={r.id} className="flex items-center justify-between px-3 py-2">
+                  <div key={r.id} className="px-3 py-2">
+                  <div className="flex items-center justify-between">
                     <div>
                       <span className="text-sm">{r.email}</span>
                       <span className="text-xs text-muted-foreground ml-2">
@@ -145,13 +165,34 @@ export function TeamSection({ isAdmin, featureVisibility }: { isAdmin: boolean; 
                       </Button>
                       <Button
                         size="sm"
-                        onClick={() => handleRequest(r.id, 'approve')}
-                        disabled={processingId === r.id}
+                        onClick={() => (approving === r.id ? handleRequest(r.id, 'approve') : startApproving(r.id))}
+                        disabled={processingId === r.id || (approving === r.id && !choice.all && choice.ids.length === 0)}
                         className="h-7 text-xs"
                       >
-                        {processingId === r.id ? <Loader2 className="h-3 w-3 animate-spin" /> : 'Approve'}
+                        {processingId === r.id ? <Loader2 className="h-3 w-3 animate-spin" /> : approving === r.id ? 'Confirm' : 'Approve'}
                       </Button>
                     </div>
+                  </div>
+                  {approving === r.id && (
+                    <div className="mt-2 space-y-1 text-xs">
+                      <p className="text-muted-foreground">Which entities can they see?</p>
+                      <label className="flex items-center gap-1.5 font-medium">
+                        <input type="checkbox" checked={choice.all} onChange={e => setChoice({ all: e.target.checked, ids: [] })} />
+                        All entities <span className="font-normal text-muted-foreground">(incl. future)</span>
+                      </label>
+                      {!choice.all && fundEntities.map(e => (
+                        <label key={e.id} className={`flex items-center gap-1.5 ${e.active ? '' : 'text-muted-foreground'}`}>
+                          <input
+                            type="checkbox"
+                            checked={choice.ids.includes(e.id)}
+                            onChange={ev => setChoice(c => ({ all: false, ids: ev.target.checked ? [...c.ids, e.id] : c.ids.filter(id => id !== e.id) }))}
+                          />
+                          {e.name}{!e.active && ' (inactive)'}
+                        </label>
+                      ))}
+                      {requestError && <p className="text-sm text-destructive">{requestError}</p>}
+                    </div>
+                  )}
                   </div>
                 ))}
               </div>

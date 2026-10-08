@@ -2,7 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 
 // Who can see something — for fan-out (note notifications, digests), where the question is asked
 // about many people at once rather than about the caller. The same rule as `access_context` and the
-// RLS helpers: an admin, or a member granted every entity, sees everything; anyone else sees what
+// RLS helpers: an admin, or a member holding "All entities", sees everything; anyone else sees what
 // their granted entities reach.
 
 interface Audience {
@@ -16,18 +16,16 @@ interface Audience {
  * when something else cannot be read — an empty entity list would make every member look unscoped.
  */
 async function loadAudience(admin: SupabaseClient, fundId: string, companyId: string | null): Promise<Audience | null | 'closed'> {
-  const [members, vehicles, grants, links] = await Promise.all([
-    (admin as any).from('fund_members').select('user_id, role').eq('fund_id', fundId),
-    (admin as any).from('fund_vehicles').select('id').eq('fund_id', fundId),
+  const [members, grants, links] = await Promise.all([
+    (admin as any).from('fund_members').select('user_id, role, all_entities').eq('fund_id', fundId),
     (admin as any).from('fund_member_vehicles').select('user_id, vehicle_id').eq('fund_id', fundId),
     companyId
       ? (admin as any).from('company_vehicles').select('vehicle_id').eq('company_id', companyId)
       : Promise.resolve({ data: [], error: null }),
   ])
   if (grants.error || links.error) return null
-  if (members.error || vehicles.error) return 'closed'
+  if (members.error) return 'closed'
 
-  const allVehicles = ((vehicles.data as any[]) ?? []).map(v => v.id as string)
   const granted = new Map<string, Set<string>>()
   for (const g of (grants.data as any[]) ?? []) {
     if (!granted.has(g.user_id)) granted.set(g.user_id, new Set())
@@ -36,7 +34,7 @@ async function loadAudience(admin: SupabaseClient, fundId: string, companyId: st
   return {
     members: ((members.data as any[]) ?? []).map(m => {
       const mine = granted.get(m.user_id) ?? new Set<string>()
-      return { userId: m.user_id as string, unscoped: m.role === 'admin' || allVehicles.every(v => mine.has(v)), granted: mine }
+      return { userId: m.user_id as string, unscoped: m.role === 'admin' || m.all_entities === true, granted: mine }
     }),
     holding: new Set(((links.data as any[]) ?? []).map(l => l.vehicle_id as string)),
   }

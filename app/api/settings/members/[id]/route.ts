@@ -5,6 +5,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { sendApprovalEmail } from '@/lib/email'
 import { dbError } from '@/lib/api-error'
+import { parseApprovalEntities } from '@/lib/access/entity-grants'
+import { logActivity } from '@/lib/activity'
 
 export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -28,7 +30,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     return NextResponse.json({ error: 'Only fund administrators can manage members' }, { status: 403 })
   }
 
-  const { action } = await req.json()
+  const { action, entities } = await req.json()
   if (!['approve', 'reject'].includes(action)) {
     return NextResponse.json({ error: 'Invalid action' }, { status: 400 })
   }
@@ -47,6 +49,12 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
   }
 
   if (action === 'approve') {
+    // Approving chooses what they see: All entities, or some of the fund's. A member approved with
+    // nothing would land on empty pages with buttons that fail.
+    const { data: fundVehicles } = await admin.from('fund_vehicles' as any).select('id').eq('fund_id', request.fund_id)
+    const choice = parseApprovalEntities(entities, ((fundVehicles as any[]) ?? []).map(v => v.id as string))
+    if ('error' in choice) return NextResponse.json({ error: choice.error }, { status: 400 })
+
     // Add as fund member
     const { error: memberError } = await admin
       .from('fund_members')
@@ -55,11 +63,17 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
         user_id: request.user_id,
         invited_by: user.id,
         role: 'member',
-      })
-
+        all_entities: choice.all,
+      } as any)
     if (memberError) {
       return dbError(memberError, 'settings-members')
     }
+    if (choice.ids.length > 0) {
+      const { error: grantError } = await admin.from('fund_member_vehicles' as any).insert(
+        choice.ids.map(id => ({ fund_id: request.fund_id, user_id: request.user_id, vehicle_id: id, granted_by: user.id })))
+      if (grantError) return dbError(grantError, 'settings-members-entities')
+    }
+    logActivity(admin, request.fund_id, user.id, 'access.member_approved', { member: request.user_id, allEntities: choice.all, vehicleIds: choice.ids })
   }
 
   // Update the request status

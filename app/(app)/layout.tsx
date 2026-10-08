@@ -46,6 +46,24 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   ])
 
   const isAdmin = membership?.role === 'admin'
+
+  // A member scoped to some entities: badges count only what they can open, read with their own
+  // client so RLS applies both the domain and the entity rule (the cached counts above are
+  // fund-wide, right only for unscoped users). '*': all_entities exists once the migration ran.
+  const { data: ownMembership } = isAdmin
+    ? { data: null }
+    : await supabase.from('fund_members').select('*').eq('user_id', user.id).maybeSingle()
+  const scoped = !isAdmin && !!ownMembership && 'all_entities' in (ownMembership as object)
+    && (ownMembership as { all_entities: boolean }).all_entities !== true
+  const scopedCounts = scoped
+    ? await Promise.all([
+        supabase.from('fund_vehicles').select('id', { count: 'exact', head: true }).eq('fund_id', fund.id),
+        supabase.from('parsing_reviews').select('id', { count: 'exact', head: true }).is('resolution', null).eq('fund_id', fund.id),
+        supabase.from('inbound_emails').select('id', { count: 'exact', head: true }).eq('processing_status', 'needs_review').eq('fund_id', fund.id),
+        (supabase as any).from('pending_actions').select('domain').eq('status', 'pending').eq('fund_id', fund.id),
+      ])
+    : null
+  const noEntities = !!scopedCounts && (scopedCounts[0].count ?? 0) === 0
   const [pendingRequestCount, updateAvailable, pendingActionCounts] = await Promise.all([
     isAdmin ? getPendingRequests(fund.id) : Promise.resolve(0),
     isAdmin ? getUpdateAvailable() : Promise.resolve(false),
@@ -83,7 +101,13 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   // Resolved AFTER the access context exists, because the whole point is that the number matches
   // what the queue will actually show this person.
-  const pendingActionsBadge = pendingActionsBadgeFor(pendingActionCounts, domain =>
+  const visibleActionCounts: Record<string, number> = scopedCounts
+    ? (((scopedCounts[3].data as { domain: string | null }[] | null) ?? [])).reduce<Record<string, number>>((acc, r) => {
+        if (r.domain) acc[r.domain] = (acc[r.domain] ?? 0) + 1
+        return acc
+      }, {})
+    : pendingActionCounts
+  const pendingActionsBadge = pendingActionsBadgeFor(visibleActionCounts, domain =>
     hasAccess(accessContext, domain, 'read'),
   )
 
@@ -111,7 +135,7 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           fundName={fundName}
           fundLogo={fundLogo}
           userEmail={user.email ?? ''}
-          reviewBadge={reviewBadge}
+          reviewBadge={scopedCounts ? (scopedCounts[1].count ?? 0) + (scopedCounts[2].count ?? 0) : reviewBadge}
           settingsBadge={pendingRequestCount}
           notesBadge={notesBadge}
           pendingActionsBadge={pendingActionsBadge}
@@ -125,6 +149,12 @@ export default async function AppLayout({ children }: { children: React.ReactNod
           domainAccess={domainAccess}
           fofActive={fofActive}
         >
+          {noEntities && (
+            <div className="mb-4 rounded-card border bg-warning-subtle px-4 py-3 text-sm">
+              You haven&apos;t been given access to any of the fund&apos;s entities yet, so there&apos;s nothing to
+              show here. Ask an admin to choose yours in Settings → Team.
+            </div>
+          )}
           {children}
         </AppShell>
       </div>

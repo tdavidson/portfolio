@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { entityGrantProblem } from './entity-grants'
+import { allEntitiesProblem, entityGrantProblem, parseApprovalEntities } from './entity-grants'
 
 describe('entityGrantProblem — granting a member an entity', () => {
   const member = { user_id: 'u2', role: 'member' }
@@ -24,5 +24,28 @@ describe('entityGrantProblem — granting a member an entity', () => {
 
   it('requires a yes or no', () => {
     expect(entityGrantProblem({ fundId: 'f1', target: member, vehicle, granted: 'yes' as any })).toMatchObject({ status: 400 })
+  })
+})
+
+
+describe('allEntitiesProblem — the explicit "All entities" grant', () => {
+  it('is set on members only, as a boolean', () => {
+    expect(allEntitiesProblem({ target: { user_id: 'u', role: 'member' }, allEntities: true })).toBeNull()
+    expect(allEntitiesProblem({ target: { user_id: 'u', role: 'member' }, allEntities: 'yes' })).toMatchObject({ status: 400 })
+    expect(allEntitiesProblem({ target: null, allEntities: true })).toMatchObject({ status: 404 })
+    expect(allEntitiesProblem({ target: { user_id: 'u', role: 'admin' }, allEntities: false })).toMatchObject({ status: 400 })
+  })
+})
+
+describe('parseApprovalEntities — approving a member chooses what they see', () => {
+  const fund = ['v1', 'v2']
+  it('accepts All, or a non-empty list of the fund\'s entities', () => {
+    expect(parseApprovalEntities({ all: true }, fund)).toEqual({ all: true, ids: [] })
+    expect(parseApprovalEntities({ ids: ['v2', 'v2'] }, fund)).toEqual({ all: false, ids: ['v2'] })
+  })
+  it('refuses no choice, an empty list, or another fund\'s entity', () => {
+    expect(parseApprovalEntities(undefined, fund)).toMatchObject({ error: expect.stringMatching(/Choose/) })
+    expect(parseApprovalEntities({ ids: [] }, fund)).toMatchObject({ error: expect.stringMatching(/Choose/) })
+    expect(parseApprovalEntities({ ids: ['v9'] }, fund)).toMatchObject({ error: expect.stringMatching(/not found/) })
   })
 })
