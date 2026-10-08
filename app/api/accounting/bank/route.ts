@@ -13,6 +13,7 @@ import { closedPeriodRanges, dateInAnyClosedPeriod } from '@/lib/accounting/peri
 import { dbError } from '@/lib/api-error'
 import { ACTUAL_BOOK } from '@/lib/accounting/books'
 import { postExistingEntryWithAllocation, setGeneratedAllocationStatus } from '@/lib/accounting/continuous-allocation'
+import { underReview } from '@/lib/accounting/bank-review'
 import { loadQuickBooksCashEntries, quickBooksCandidates, quickBooksAlreadyClaimed, readAll } from '@/lib/accounting/bank-quickbooks-match'
 
 // GET — list a vehicle's staged bank transactions.
@@ -214,8 +215,8 @@ export async function POST(req: NextRequest) {
     .maybeSingle()
   if (!txn) return NextResponse.json({ error: 'Transaction not found' }, { status: 404 })
   const entryId = (txn as any).journal_entry_id
-  if (entryId && (txn as any).raw?.quickbooksReview) {
-    return NextResponse.json({ error: 'This bank row is linked to an existing QuickBooks entry. Manage that entry from the Journal.' }, { status: 400 })
+  if (entryId && underReview((txn as any).raw)) {
+    return NextResponse.json({ error: 'This bank row is linked to an existing journal entry. Manage that entry from the Journal.' }, { status: 400 })
   }
 
   // Override the suggested account before posting: re-point the draft entry's
@@ -296,7 +297,7 @@ export async function POST(req: NextRequest) {
   // Restore: bring an ignored transaction back to draft (un-void its entry) so it
   // can be edited/posted again. Refused if the entry is in a closed period.
   if (action === 'restore') {
-    if ((txn as any).raw?.quickbooksReview && !entryId) {
+    if (underReview((txn as any).raw) && !entryId) {
       const { error } = await admin.from('bank_transactions' as any).update({ status: 'unmatched' }).eq('id', id).eq('fund_id', gate.fundId)
       if (error) return dbError(error, 'bank-restore-review')
       return NextResponse.json({ ok: true, status: 'unmatched' })

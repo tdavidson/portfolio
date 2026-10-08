@@ -9,6 +9,7 @@ import { vehicleIdByName } from './vehicle-id'
 import { parseTransactionsCsv, dedupHash, legacyDedupHash, suggestCategory, bankEntryPostings } from './bank'
 import type { JournalEntry } from './types'
 import { vendorResolver } from './vendors'
+import { loadOwnedCashEntries, ownedCandidates, type OwnedCashEntry } from './investment-bank-match'
 import { clearQuickBooksMatch, loadQuickBooksCashEntries, quickBooksCandidates, quickBooksClaimHash, quickBooksAlreadyClaimed, readAll } from './bank-quickbooks-match'
 
 export interface ImportResult {
@@ -51,10 +52,12 @@ export async function importBankTransactions(
   if (!vehicleId) return { error: 'Unknown vehicle' }
   let existing: any[]
   let qbEntries: Awaited<ReturnType<typeof loadQuickBooksCashEntries>>
+  let owned: OwnedCashEntry[]
   try {
     existing = await readAll<any>((from, to) => admin.from('bank_transactions' as any)
       .select('dedup_hash, journal_entry_id, raw').eq('fund_id', fundId).eq('vehicle_id', vehicleId).order('id').range(from, to))
     qbEntries = await loadQuickBooksCashEntries(admin, fundId, vehicleId, cashId, rows.map(r => r.date))
+    owned = await loadOwnedCashEntries(admin, fundId, vehicleId, cashId, rows.map(r => r.date))
   } catch (e) { return { error: `Could not check for existing transactions: ${(e as Error).message}` } }
   const seen = new Set(existing.flatMap(r => [r.dedup_hash, r.raw?.bankImportHash].filter(Boolean)))
   const claimed = new Set<string>()
@@ -66,6 +69,15 @@ export async function importBankTransactions(
       demand.set(key, (demand.get(key) ?? 0) + 1)
     }
   }
+  // INVESTMENTS FIRST. A wire the tracker already booked is an owned, posted entry: the row
+  // reconciles to it instead of drafting the payment again (plans/spec-ledger-one-writer.md §2).
+  // One entry explains one row — counted across the file, and the unique index on
+  // bank_transactions.journal_entry_id is the final claim.
+  const linked = new Set<string>(existing.map(r => r.journal_entry_id).filter(Boolean))
+  const investmentDemand = new Map<string, number>()
+  for (const row of rows) for (const e of ownedCandidates(row, owned, linked)) investmentDemand.set(e.id, (investmentDemand.get(e.id) ?? 0) + 1)
+  const differencesFor = (date: string) => importReview.differences.filter(d => d.date === date)
+    .map(d => d.domain === 'lp' ? { ...d, name: 'Partner match needed', recorded: null, difference: null } : d)
   let matched = 0
   let needsReview = 0
 
@@ -94,6 +106,29 @@ export async function importBankTransactions(
       skippedRows.push(`${row.date} ${row.description || ''} ${row.amount.toFixed(2)} — already imported`)
       continue
     }
+    const investment = ownedCandidates(row, owned, linked)
+    if (investment.length > 0) {
+      const only = investment.length === 1 && investmentDemand.get(investment[0].id) === 1 ? investment[0] : null
+      const base = {
+        fund_id: fundId, portfolio_group: group, vehicle_id: vehicleId, source, dedup_hash: hash,
+        txn_date: row.date, amount: row.amount, description: row.description, counterparty: row.counterparty ?? null,
+        imported_by: userId, raw: { ...row, importDifferences: differencesFor(row.date), bankImportHash: hash, investmentReview: true },
+      }
+      let held = !only
+      let { error } = await admin.from('bank_transactions' as any)
+        .insert({ ...base, status: only ? 'reconciled' : 'unmatched', journal_entry_id: only?.id ?? null })
+      if (error && only && /duplicate|unique/i.test(error.message)) {
+        // Another row claimed the entry first (a concurrent import). Hold this one for review.
+        held = true
+        ;({ error } = await admin.from('bank_transactions' as any).insert({ ...base, status: 'unmatched', journal_entry_id: null }))
+      }
+      if (error) { errors.push(`${row.date} ${row.description}: ${error.message}`); continue }
+      seen.add(hash)
+      imported++
+      if (held) needsReview++
+      else { matched++; linked.add(only!.id) }
+      continue
+    }
     const candidates = quickBooksCandidates(row, qbEntries)
     const confident = clearQuickBooksMatch(row, candidates)
     const claimKey = confident ? quickBooksClaimHash(confident.id, confident.amount) : ''
@@ -105,7 +140,7 @@ export async function importBankTransactions(
         txn_date: row.date, amount: row.amount, description: row.description,
         counterparty: row.counterparty ?? null, status: match ? 'reconciled' : 'unmatched',
         journal_entry_id: match?.id ?? null, imported_by: userId,
-        raw: { ...row, importDifferences: importReview.differences.filter(d => d.date === row.date).map(d => d.domain === 'lp' ? { ...d, name: 'Partner match needed', recorded: null, difference: null } : d), bankImportHash: hash, quickbooksReview: true, quickbooksCashAmount: match?.amount ?? null },
+        raw: { ...row, importDifferences: differencesFor(row.date), bankImportHash: hash, quickbooksReview: true, quickbooksCashAmount: match?.amount ?? null },
       })
       if (error) { errors.push(`${row.date} ${row.description}: ${error.message}`); continue }
       seen.add(hash)
@@ -143,7 +178,7 @@ export async function importBankTransactions(
       journal_entry_id: result.entryId,
       suggested_account_code: cat.accountCode,
       imported_by: userId,
-      raw: { ...row, importDifferences: importReview.differences.filter(d => d.date === row.date).map(d => d.domain === 'lp' ? { ...d, name: 'Partner match needed', recorded: null, difference: null } : d) },
+      raw: { ...row, importDifferences: differencesFor(row.date) },
     })
     if (insErr) {
       // The entry exists but its bank transaction doesn't — most often because a concurrent

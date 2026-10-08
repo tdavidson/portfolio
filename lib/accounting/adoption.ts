@@ -140,3 +140,14 @@ export async function settleLostRace(admin: SupabaseClient, fundId: string, entr
   const others = ((data as any[]) ?? []).filter(r => !mine.includes(r.id))
   return others.length > 0 ? removeAdopted(admin, fundId, mine) : {}
 }
+
+/** Of these entries, the ones some investment transaction was adopted from. */
+export async function adoptedEntryIds(admin: SupabaseClient, fundId: string, entryIds: string[]): Promise<Set<string>> {
+  const out = new Set<string>()
+  for (let i = 0; i < entryIds.length; i += 200) {
+    const { data } = await admin.from('investment_transactions' as any)
+      .select('adopted_entry_id').eq('fund_id', fundId).in('adopted_entry_id', entryIds.slice(i, i + 200))
+    for (const r of (data as any[]) ?? []) if (r.adopted_entry_id) out.add(r.adopted_entry_id)
+  }
+  return out
+}

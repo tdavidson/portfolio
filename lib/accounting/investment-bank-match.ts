@@ -22,6 +22,9 @@ import { postExistingEntryWithAllocation } from './continuous-allocation'
 import { ACTUAL_BOOK } from './books'
 import { roundCents } from './ledger'
 import { txnRef } from './from-portfolio'
+import { readAll, CLEARING_DAYS } from './bank-quickbooks-match'
+import { adoptedEntryIds } from './adoption'
+import { underReview } from './bank-review'
 
 const CASH = '1000'
 const TXN_REF_PREFIX = txnRef('')
@@ -50,7 +53,7 @@ export function checkInvestmentMatch(args: {
   if (entry.status !== 'draft') {
     return entry.status === 'posted' ? 'That entry is already posted.' : 'That entry was voided — re-save the transaction to derive it again.'
   }
-  if (bank.raw?.quickbooksReview) return 'Review the QuickBooks match on the bank page before matching this transaction.'
+  if (underReview(bank.raw)) return 'Review the QuickBooks match on the bank page before matching this transaction.'
   const claimedElsewhere = claimedBy && (claimedBy.status !== 'draft' || (claimedBy.source_ref ?? '').startsWith(TXN_REF_PREFIX))
   if (!OPEN_BANK_STATUSES.includes(bank.status) || claimedElsewhere) {
     return 'That bank transaction is already matched to another entry.'
@@ -69,8 +72,43 @@ export function rankBankCandidates<T extends Pick<BankRow, 'amount' | 'txn_date'
 ): T[] {
   const days = (d: string) => Math.abs(Date.parse(d) - Date.parse(entryDate)) / 86_400_000
   return rows
-    .filter(r => OPEN_BANK_STATUSES.includes(r.status) && !r.raw?.quickbooksReview && sameAmount(roundCents(Number(r.amount)), cash))
+    .filter(r => OPEN_BANK_STATUSES.includes(r.status) && !underReview(r.raw) && sameAmount(roundCents(Number(r.amount)), cash))
     .sort((a, b) => days(a.txn_date) - days(b.txn_date))
+}
+
+export interface OwnedCashEntry { id: string; date: string; amount: number; memo: string; status: 'draft' | 'posted' }
+
+const DAY = 86_400_000
+const shift = (date: string, days: number) => new Date(Date.parse(date) + days * DAY).toISOString().slice(0, 10)
+
+/**
+ * Owned investment entries in this vehicle whose cash leg could be one of these bank rows: posted
+ * ones, and derived drafts kept back when their partner allocation failed — those are linked, not
+ * posted, so the wire is not booked twice when the draft posts later.
+ */
+export async function loadOwnedCashEntries(
+  admin: SupabaseClient, fundId: string, vehicleId: string, cashId: string, dates: string[],
+): Promise<OwnedCashEntry[]> {
+  if (dates.length === 0) return []
+  const sorted = [...dates].sort()
+  const rows = await readAll<any>((from, to) => admin.from('journal_entries' as any)
+    .select('id, entry_date, memo, status, source_ref, journal_postings(account_id, amount)')
+    .eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('book', ACTUAL_BOOK).in('status', ['posted', 'draft'])
+    .gte('entry_date', shift(sorted[0], -CLEARING_DAYS)).lte('entry_date', shift(sorted[sorted.length - 1], CLEARING_DAYS))
+    .order('id').range(from, to))
+  const adopted = await adoptedEntryIds(admin, fundId, rows.filter(e => e.status === 'posted').map(e => e.id))
+  return rows.flatMap(e => {
+    const derived = String(e.source_ref ?? '').startsWith(TXN_REF_PREFIX)
+    if (!(derived || (e.status === 'posted' && adopted.has(e.id)))) return []
+    const amount = roundCents((e.journal_postings ?? []).filter((p: any) => p.account_id === cashId).reduce((s: number, p: any) => s + Number(p.amount), 0))
+    return amount === 0 ? [] : [{ id: e.id, date: e.entry_date, amount, memo: e.memo ?? '', status: e.status }]
+  })
+}
+
+/** Same amount to the cent, within the clearing window, and not already linked to a bank row. */
+export function ownedCandidates(row: { date: string; amount: number }, entries: OwnedCashEntry[], linked: Set<string>): OwnedCashEntry[] {
+  return entries.filter(e => !linked.has(e.id) && sameAmount(e.amount, roundCents(row.amount)) && roundCents(row.amount) !== 0
+    && Math.abs(Date.parse(e.date) - Date.parse(row.date)) <= CLEARING_DAYS * DAY)
 }
 
 /** The draft-or-posted entry this transaction derived, in this vehicle. Voided history is skipped. */

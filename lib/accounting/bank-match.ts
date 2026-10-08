@@ -19,6 +19,7 @@ import { closedPeriodRanges, dateInAnyClosedPeriod } from './periods'
 import type { JournalEntry } from './types'
 import { ACTUAL_BOOK } from './books'
 import { postExistingEntryWithAllocation } from './continuous-allocation'
+import { underReview } from './bank-review'
 
 async function getTxn(admin: SupabaseClient, fundId: string, group: string, txnId: string) {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
@@ -50,7 +51,7 @@ export async function bookCapitalCallFromInflow(
 ): Promise<{ entryId: string } | { error: string }> {
   const txn = await getTxn(admin, fundId, group, txnId)
   if (!txn) return { error: 'Transaction not found' }
-  if (txn.raw?.quickbooksReview) return { error: 'Review the QuickBooks match on the bank page before booking another entry.' }
+  if (underReview(txn.raw)) return { error: 'This bank transaction is linked to, or awaiting a match with, an existing entry. Resolve it on the bank page before booking another.' }
   const total = Number(txn.amount)
   if (total <= 0) return { error: 'Only an inflow (deposit) can be booked as a capital call' }
 
@@ -224,7 +225,7 @@ export async function bookDistributionFromOutflow(
 ): Promise<{ entryId: string } | { error: string }> {
   const txn = await getTxn(admin, fundId, group, txnId)
   if (!txn) return { error: 'Transaction not found' }
-  if (txn.raw?.quickbooksReview) return { error: 'Review the QuickBooks match on the bank page before booking another entry.' }
+  if (underReview(txn.raw)) return { error: 'This bank transaction is linked to, or awaiting a match with, an existing entry. Resolve it on the bank page before booking another.' }
   const amount = Number(txn.amount)
   if (amount >= 0) return { error: 'Only an outflow (withdrawal) can be booked as a distribution' }
   const total = Math.abs(amount)
@@ -296,7 +297,7 @@ export async function linkInflowToEntry(
 ): Promise<{ ok: true } | { error: string }> {
   const txn = await getTxn(admin, fundId, group, txnId)
   if (!txn) return { error: 'Transaction not found' }
-  if (txn.raw?.quickbooksReview) return { error: 'Review the QuickBooks match on the bank page before booking another entry.' }
+  if (underReview(txn.raw)) return { error: 'This bank transaction is linked to, or awaiting a match with, an existing entry. Resolve it on the bank page before booking another.' }
 
   const vehicleId = await vehicleIdByName(admin, fundId, group)
   const { data: target } = await admin

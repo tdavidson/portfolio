@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { ParsedTxn } from './bank'
 import { ACTUAL_BOOK } from './books'
+import { adoptedEntryIds } from './adoption'
 
 export interface QuickBooksCashEntry {
   id: string
@@ -54,7 +55,11 @@ export async function loadQuickBooksCashEntries(
     .gte('entry_date', offset(sorted[0], -CLEARING_DAYS))
     .lte('entry_date', offset(sorted[sorted.length - 1], CLEARING_DAYS))
     .order('id').range(from, to))
+  // An ADOPTED QuickBooks entry is an owned investment entry: it is matched by the investment path
+  // (investment-bank-match.ts), never held as a possible QuickBooks duplicate as well.
+  const adopted = await adoptedEntryIds(admin, fundId, rows.map(e => e.id))
   return rows.flatMap(e => {
+    if (adopted.has(e.id)) return []
     const cash = (e.journal_postings ?? []).filter((p: any) => p.account_id === cashId)
     if (!cash.length) return []
     // Preserve both sides of a transfer between bank accounts mapped to pooled cash.
