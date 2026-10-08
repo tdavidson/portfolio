@@ -346,3 +346,25 @@ export function withFairValueLevels<T extends { companyId: string }>(
     return { ...p, valuationLevel: fairValueLevel(feed, obs, asOf) }
   })
 }
+
+/** A price_feeds row in the shape the valuation reads. */
+export function feedFromRow(f: any): PriceFeed {
+  return {
+    id: f.id,
+    companyId: f.company_id,
+    kind: f.kind,
+    symbol: f.symbol,
+    exchange: f.exchange ?? null,
+    quoteCurrency: f.quote_currency,
+    quoteScale: Number(f.quote_scale ?? 1),
+    activeFrom: f.active_from,
+    activeUntil: f.active_until ?? null,
+    restrictionUntil: f.restriction_until ?? null,
+    restrictionDiscount: f.restriction_discount == null ? null : Number(f.restriction_discount),
+  }
+}
+
+/** A price_observations row in the shape the valuation reads. */
+export function observationFromRow(o: any): PriceObservation {
+  return { feedId: o.feed_id, asOfDate: o.as_of_date, price: Number(o.price), basis: o.basis }
+}
