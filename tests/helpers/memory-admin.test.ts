@@ -8,9 +8,9 @@ describe('memoryAdmin', () => {
       journal_postings: [{ id: 'p1', journal_entry_id: 'e1', account_id: 'a', amount: 5 }],
     })
     const { data } = await admin.from('journal_entries').select('id, journal_postings(account_id, amount)')
-      .eq('fund_id', 'f').like('source_ref', 'txn:%').neq('status', 'void')
+      .eq('book', 'actual').eq('fund_id', 'f').like('source_ref', 'txn:%').neq('status', 'void')
     expect(data).toEqual([{ id: 'e1', fund_id: 'f', book: 'actual', status: 'posted', source_ref: 'txn:1', journal_postings: [{ id: 'p1', journal_entry_id: 'e1', account_id: 'a', amount: 5 }] }])
-    const { data: none } = await admin.from('journal_entries').select('id').is('source_ref', null).range(1, 5)
+    const { data: none } = await admin.from('journal_entries').select('id').eq('book', 'actual').is('source_ref', null).range(1, 5)
     expect(none).toEqual([])
   })
 
