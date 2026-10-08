@@ -83,6 +83,8 @@ export const TABLE_RULES: Record<string, TableRule> = {
   company_update_chunks: { scope: 'fund', domain: 'portfolio' },
   company_update_backfill_jobs: { scope: 'service', note: 'Operator backfill jobs; status is served by fund-scoped API routes.' },
   company_update_backfill_items: { scope: 'service', note: 'Per-email backfill progress; worker-only.' },
+  entity_documents: { scope: 'service', note: 'An entity\'s governing documents; served by routes that check the caller can see the entity (lib/entity-documents).' },
+  entity_document_chunks: { scope: 'service', note: 'Searchable text of entity_documents; read through the same entity-checked routes and the Analyst tool.' },
   metrics: { scope: 'fund', domain: 'portfolio' },
   metric_values: { scope: 'fund', domain: 'portfolio' },
   default_metrics: { scope: 'fund', domain: 'portfolio' },

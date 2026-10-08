@@ -25,6 +25,7 @@ const MIGRATIONS = (process.env.ENTITY_MIGRATIONS ?? [
   '20261007100400_diligence_entity.sql',
   '20261007100500_entity_storage.sql',
   '20261007100600_notes_entity.sql',
+  '20261007100700_entity_documents.sql',
 ].join(',')).split(',')
 
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'pipe' })
@@ -94,6 +95,7 @@ alter table inbound_deals add column promoted_diligence_id uuid;
 -- Supabase Storage, reduced to what the policies read.
 create schema storage;
 create table storage.objects (id uuid primary key default gen_random_uuid(), bucket_id text not null, name text not null);
+create table storage.buckets (id text primary key, name text, public boolean, file_size_limit bigint);
 create function storage.foldername(name text) returns text[] language sql immutable as
   $$ select (string_to_array(name, '/'))[1:array_length(string_to_array(name, '/'), 1) - 1] $$;
 grant usage on schema storage to authenticated;
@@ -509,6 +511,19 @@ try {
     psql(`select string_agg(name, ',') from lp_investors where fund_id = '${F}'`, { as: ELSE_MEMBER }), 'Bob')
   check('the read-only demo viewer sees every entity',
     psql(`select access_context('${VIEWER}')->>'vehicles_all'`), 'true')
+
+  // ---- Entity governing documents: service role only; search finds clause text. ----
+  psql(`insert into entity_documents (id, fund_id, vehicle_id, kind, title, file_name, storage_path)
+          values ('00000000-0000-0000-0000-0000000ed001', '${F}', '${V1}', 'lpa', 'Fund I LPA', 'lpa.pdf', 'x');
+        insert into entity_document_chunks (fund_id, vehicle_id, document_id, ordinal, locator, text)
+          values ('${F}', '${V1}', '00000000-0000-0000-0000-0000000ed001', 0, '{"page": 12}', 'The Management Fee shall equal two percent of Commitments during the Investment Period.')`)
+  check('entity documents: the search finds a clause, with its page',
+    psql(`select title || ':' || (locator->>'page') from entity_document_search('${F}', array['${V1}']::uuid[], 'management fee', 5)`), 'Fund I LPA:12')
+  check('…and only in the entities passed',
+    psql(`select count(*) from entity_document_search('${F}', array['${V2}']::uuid[], 'management fee', 5)`), '0')
+  let docsDenied = 'readable'
+  try { psql(`select count(*) from entity_documents`, { as: ADMIN }) } catch { docsDenied = 'denied' }
+  check('entity documents are not readable through the Data API, even by an admin', docsDenied, 'denied')
 
   // ---- Re-runnable. ----
   for (const m of MIGRATIONS.slice(1)) applyFile(join('supabase/migrations', m))
