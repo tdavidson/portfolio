@@ -1,10 +1,9 @@
--- supabase/pending-deploy/investment_ownership_trigger.sql
+-- supabase/migrations/20261009300000_investment_ownership_trigger.sql
 --
--- STAGED — DO NOT MOVE INTO supabase/migrations/ UNTIL a release built from main at commit
--- 27fddb55 or later (the ledger-one-writer set: adoption at posting) is deployed. Until then every
--- QuickBooks or manual post to an investment account would be refused, because nothing adopts
--- it. When moving it, rename it to a current timestamp (CLAUDE.md, "A migration that must wait
--- for a deploy"). Tested where it stands by scripts/check-investment-ownership.mjs.
+-- Staged in supabase/pending-deploy/ until a release built from main at commit 27fddb55 or later
+-- (the ledger-one-writer set: adoption at posting) was deployed — before that, every QuickBooks or
+-- manual post to an investment account would have been refused, because nothing adopted it.
+-- Tested by scripts/check-investment-ownership.mjs.
 --
 -- THE BACKSTOP FOR "ONE WRITER OF INVESTMENT VALUE". A posted entry on the actual book may carry
 -- a line on an investment account only if an investment transaction owns it: derived from one

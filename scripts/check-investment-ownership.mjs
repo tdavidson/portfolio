@@ -1,6 +1,6 @@
 // scripts/check-investment-ownership.mjs
 //
-// The investment-ownership backstop (supabase/pending-deploy/investment_ownership_trigger.sql):
+// The investment-ownership backstop (supabase/migrations/20261009300000_investment_ownership_trigger.sql):
 // no posted actual-book entry may carry a line on an investment account that no investment
 // transaction owns. Applied from pending-deploy directly — it is tested before it moves, the way
 // check-entity-access.mjs tested notes_entity_required.sql.
@@ -49,7 +49,7 @@ create table public.investment_transactions (
     check (valuation_change_source is null or valuation_change_source in ('mark', 'fx'))
 );
 `
-const STAGED = readFileSync(new URL('../supabase/pending-deploy/investment_ownership_trigger.sql', import.meta.url), 'utf8')
+const STAGED = readFileSync(new URL('../supabase/migrations/20261009300000_investment_ownership_trigger.sql', import.meta.url), 'utf8')
 
 const db = await openDb()
 const i = IDS

@@ -2,7 +2,7 @@
 //
 // Adoption at posting: the I/O around the pure reader (adopt.ts). Called by the two posting choke
 // points — persistEntry and postExistingEntryWithAllocation — before an actual-book entry becomes
-// `posted`, so the ownership trigger (supabase/pending-deploy/investment_ownership_trigger.sql)
+// `posted`, so the ownership trigger (supabase/migrations/20261009300000_investment_ownership_trigger.sql)
 // always finds an owner. See plans/spec-ledger-one-writer.md §1.
 //
 // THE LEDGER WINS. This writes investment_transactions (portfolio domain) on behalf of an
