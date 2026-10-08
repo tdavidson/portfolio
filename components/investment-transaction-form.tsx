@@ -176,6 +176,8 @@ export interface LedgerResult {
   amount?: number
   vehicle?: string
   reason?: string
+  /** Something next to the entry went wrong (an adopted entry's split) — shown ahead of everything. */
+  warning?: string
 }
 
 /** The API's response to a save: the row, plus what happened on the ledger. */
@@ -208,6 +210,18 @@ const LEDGER_KIND_LABEL: Record<string, string> = {
 export function LedgerSaveNote({ ledger, onDismiss }: { ledger: LedgerResult | null; onDismiss: () => void }) {
   const canReadAccounting = useCanRead('accounting')
   if (!canReadAccounting || !ledger) return null
+
+  if (ledger.warning) {
+    return (
+      <div className="mb-3 flex flex-wrap items-center gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
+        <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
+        <span>{ledger.warning}</span>
+        <button onClick={onDismiss} className="ml-auto text-muted-foreground hover:text-foreground" aria-label="Dismiss">
+          <X className="h-3.5 w-3.5" />
+        </button>
+      </div>
+    )
+  }
 
   // Posted — the normal case. Said, quietly.
   if (ledger.drafted && ledger.posted) {

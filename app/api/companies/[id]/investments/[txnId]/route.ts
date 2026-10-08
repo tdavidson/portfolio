@@ -32,10 +32,10 @@ export async function PATCH(
   // Verify transaction exists and belongs to this company
   const { data: existing } = await admin
     .from('investment_transactions' as any)
-    .select('id, company_id, fund_id, transaction_type, portfolio_group')
+    .select('*')
     .eq('id', params.txnId)
     .eq('company_id', params.id)
-    .maybeSingle() as { data: { id: string; company_id: string; fund_id: string; transaction_type: string; portfolio_group: string | null } | null }
+    .maybeSingle() as { data: { id: string; company_id: string; fund_id: string; transaction_type: string; portfolio_group: string | null; [key: string]: any } | null }
 
   if (!existing) return NextResponse.json({ error: 'Transaction not found' }, { status: 404 })
 
@@ -170,7 +170,7 @@ export async function PATCH(
     .maybeSingle() as { data: { name: string } | null }
 
   const ledger = await redraftEntryForTransaction(
-    admin, existing.fund_id, user.id, txn, company?.name ?? 'Investment'
+    admin, existing.fund_id, user.id, txn, company?.name ?? 'Investment', existing
   )
 
   return NextResponse.json({ ...(txn as object), ledger })
@@ -232,7 +232,7 @@ export async function DELETE(
   // whole delete — otherwise the tracker would lose a transaction the books still carry, and
   // the two would disagree with nothing to explain why. Deleting the tracker row first and
   // then failing here would leave exactly that mess.
-  const ledger = await retractEntriesForTransaction(admin, existing.fund_id, params.txnId)
+  const ledger = await retractEntriesForTransaction(admin, existing.fund_id, params.txnId, { userId: user.id })
   if (ledger.reason) {
     return NextResponse.json({ error: `Can't delete this transaction. ${ledger.reason}` }, { status: 400 })
   }

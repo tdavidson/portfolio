@@ -56,6 +56,8 @@ export interface LedgerDraftResult {
   vehicle?: string
   /** Why nothing was drafted — always set when `drafted` is false. */
   reason?: string
+  /** Something next to the entry went wrong and the user should hear it — see retract-adopted.ts. */
+  warning?: string
 }
 
 const skip = (reason: string): LedgerDraftResult => ({ drafted: false, reason })
@@ -80,6 +82,8 @@ export interface LedgerRetractResult {
   retracted: number
   /** Set when an entry could NOT be retracted — the caller must tell the user. */
   reason?: string
+  /** The retract happened, but part of an adopted entry's split could not be re-posted. */
+  warning?: string
 }
 
 /**
@@ -95,9 +99,20 @@ export interface LedgerRetractResult {
 export async function retractEntriesForTransaction(
   admin: SupabaseClient,
   fundId: string,
-  txnId: string
+  txnId: string,
+  opts: { userId?: string | null; original?: any } = {},
 ): Promise<LedgerRetractResult> {
   try {
+    // An ADOPTED transaction's entry may own other transactions too — split it (retract-adopted.ts).
+    const { data: self } = await admin.from('investment_transactions' as any)
+      .select('*').eq('fund_id', fundId).eq('id', txnId).maybeSingle()
+    if ((self as any)?.adopted_entry_id) {
+      const { retractAdoptedEntry } = await import('./retract-adopted')
+      return retractAdoptedEntry(admin, fundId, {
+        txnId, entryId: (self as any).adopted_entry_id, original: opts.original ?? self, userId: opts.userId ?? null,
+      })
+    }
+
     const { data: entries } = await admin
       .from('journal_entries' as any)
       .select('id, status, entry_date, portfolio_group')
@@ -155,19 +170,21 @@ export async function retractEntriesForTransaction(
 }
 
 /**
- * Re-mirror an edited transaction: retract whatever it drafted before, then draft afresh
- * from its new values.
+ * Re-mirror an edited transaction: retract whatever it booked before, then derive afresh.
+ * `original` is the row as it was BEFORE the edit — an adopted entry is split against it.
  */
 export async function redraftEntryForTransaction(
   admin: SupabaseClient,
   fundId: string,
   userId: string | null,
   txn: any,
-  companyName: string
+  companyName: string,
+  original?: any,
 ): Promise<LedgerDraftResult> {
-  const retracted = await retractEntriesForTransaction(admin, fundId, txn.id)
+  const retracted = await retractEntriesForTransaction(admin, fundId, txn.id, { userId, original })
   if (retracted.reason) return skip(retracted.reason)
-  return draftEntryForTransaction(admin, fundId, userId, txn, companyName)
+  const derived = await draftEntryForTransaction(admin, fundId, userId, txn, companyName)
+  return retracted.warning ? { ...derived, warning: retracted.warning } : derived
 }
 
 export interface ExitInputs {

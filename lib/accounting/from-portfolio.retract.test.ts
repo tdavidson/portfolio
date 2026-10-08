@@ -21,6 +21,8 @@ function fakeAdmin(entries: any[]) {
       delete: () => { w.op = 'delete'; writes.push(w); return chain },
       eq: (k: string, v: any) => { w.filters.push([k, v]); return chain },
       neq: () => chain,
+      // The adopted-entry self lookup: any of the rows will do — none carries adopted_entry_id.
+      maybeSingle: async () => ({ data: entries[0] ?? null, error: null }),
       then: (res: any) => res({ data: w.op === 'select' ? entries : null, error: null }),
     }
     return chain
