@@ -2,7 +2,6 @@ import { CompanyPageView } from '@/app/(app)/companies/[id]/page-view'
 import { CompanyUpdatesPageView } from '@/app/(app)/company-updates/page-view'
 import ImportPage from '@/app/(app)/import/page'
 import InvestmentsPage from '@/app/(app)/investments/page'
-import FundHoldingsPage from '@/app/(app)/fund-holdings/page'
 import RequestsPage from '@/app/(app)/requests/page'
 import { InteractionsContent } from '@/app/(app)/interactions/interactions-content'
 import LettersPage from '@/app/(app)/letters/page'
@@ -19,7 +18,6 @@ export const renders: Record<string, RouteRender> = {
   '/company-updates': withData(d => <CompanyUpdatesPageView {...(d as any)} />),
   '/import': () => <ImportPage />,
   '/investments': () => <InvestmentsPage />,
-  '/fund-holdings': () => <FundHoldingsPage />,
   '/requests': () => <RequestsPage />,
   '/interactions': withData(d => <InteractionsContent {...(d as any)} />),
   '/letters': () => <LettersPage />,

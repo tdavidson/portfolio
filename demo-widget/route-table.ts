@@ -33,7 +33,6 @@ export const ROUTES: DemoRoute[] = [
   { pattern: '/company-updates', section: 'portfolio' },
   { pattern: '/import', section: 'portfolio' },
   { pattern: '/investments', section: 'portfolio' },
-  { pattern: '/fund-holdings', section: 'portfolio' },
   { pattern: '/requests', section: 'portfolio' },
   { pattern: '/interactions', section: 'portfolio' },
   { pattern: '/letters', section: 'portfolio' },

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { holdingHref } from '@/lib/portfolio/holding-href'
 import { Loader2 } from 'lucide-react'
 import { useCurrency, formatCurrencyPrice } from '@/components/currency-context'
 import type { PortfolioSheet, SheetRow } from '@/lib/portfolio/sheet'
@@ -49,11 +50,8 @@ export function PortfolioSheetView({ group, exclude, sections = ['companies', 'f
   }
 
   const multi = !group && data.vehicles.length > 1
-  const link = (r: SheetRow) => {
-    if (!r.companyId) return null
-    const vehicle = group ? `?vehicle=${encodeURIComponent(group)}` : ''
-    return r.kind === 'fund' ? `/fund-holdings?holding=${r.companyId}` : `/companies/${r.companyId}${vehicle}`
-  }
+  // Every kind of holding — company, fund holding, digital asset — lives on its own page.
+  const link = (r: SheetRow) => (r.companyId ? holdingHref(r.companyId) : null)
   const name = (r: SheetRow) => {
     const href = link(r)
     return href ? <Link href={href} className="hover:underline underline-offset-2">{r.name}</Link> : r.name

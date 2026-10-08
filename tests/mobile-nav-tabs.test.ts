@@ -199,11 +199,10 @@ describe('visibleChildrenFor', () => {
     expect(firmWide).toContain('Capital accounts')
   })
 
-  it('offers the fund-of-funds pages only once the fund holds a fund', () => {
-    const without = visibleChildrenFor(section('/dashboard'), true, allowAll).map(c => c.href)
+  it('has no separate fund-holdings page — fund holdings are on the Investments list', () => {
     const with_ = visibleChildrenFor(section('/dashboard'), true, allowAll, { fofActive: true }).map(c => c.href)
-    expect(without).not.toContain('/fund-holdings')
-    expect(with_).toContain('/fund-holdings')
+    expect(with_).not.toContain('/fund-holdings')
+    expect(with_).toContain('/investments')
   })
 })
 

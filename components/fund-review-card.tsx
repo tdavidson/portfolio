@@ -3,6 +3,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
+import { holdingHref } from '@/lib/portfolio/holding-href'
 import { Check, Pencil, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -73,7 +74,7 @@ export function FundReviewCard({ item, entities, busy, showHolding = true, readO
       <div className="flex flex-wrap items-center gap-2">
         <span className="inline-flex items-center rounded-md border px-2 py-0.5 text-xs font-medium bg-info-subtle text-info border-info">{label}</span>
         {showHolding && item.company && (
-          <Link href={`/companies/${item.company.id}`} className="text-sm font-medium hover:underline">{item.company.name}</Link>
+          <Link href={holdingHref(item.company.id, item.vehicle?.id)} className="text-sm font-medium hover:underline">{item.company.name}</Link>
         )}
         {item.vehicle && <span className="text-sm text-muted-foreground">· {item.vehicle.name}</span>}
         {p.confidence === 'low' && <span className="text-sm text-warning">Low confidence</span>}

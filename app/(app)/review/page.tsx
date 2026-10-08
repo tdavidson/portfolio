@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
+import { holdingHref } from '@/lib/portfolio/holding-href'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -258,7 +259,7 @@ export default function ReviewPage() {
                   </span>
                   {item.company && (
                     <Link
-                      href={`/companies/${item.company.id}`}
+                      href={holdingHref(item.company.id, item.vehicle?.id)}
                       className="text-sm font-medium hover:underline"
                       onClick={e => e.stopPropagation()}
                     >
