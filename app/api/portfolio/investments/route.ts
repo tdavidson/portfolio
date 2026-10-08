@@ -46,12 +46,13 @@ export async function GET(req: NextRequest) {
   if (txnError) return dbError(txnError, 'portfolio-investments')
 
   // Fetch companies for names, statuses, and portfolio groups
+  // Every holding — companies, fund holdings and digital assets — with its kind. All three are
+  // investments on the schedule (plans/spec-ledger-one-writer.md §6), and each opens on its own
+  // /companies/[id] page.
   const { data: companies, error: compError } = await admin
     .from('companies')
-    .select('id, name, status, portfolio_group')
-    .eq('fund_id', fundId)
-    // fund holdings have their own surfaces
-    .eq('holding_type', 'company') as { data: { id: string; name: string; status: CompanyStatus; portfolio_group: string[] | null }[] | null; error: { message: string } | null }
+    .select('id, name, status, portfolio_group, holding_type')
+    .eq('fund_id', fundId) as { data: { id: string; name: string; status: CompanyStatus; portfolio_group: string[] | null; holding_type: 'company' | 'fund' | 'crypto' | null }[] | null; error: { message: string } | null }
 
   if (compError) return dbError(compError, 'portfolio-investments-companies')
 
@@ -70,6 +71,12 @@ export async function GET(req: NextRequest) {
     byCompany.set(txn.company_id, list)
   }
 
+  // A fund holding or digital asset with no transactions yet (just created, nothing bought) still
+  // belongs on the list, with zero figures — otherwise it appears on no list at all.
+  for (const c of Array.from(companyMap.values())) {
+    if ((c.holding_type === 'fund' || c.holding_type === 'crypto') && !byCompany.has(c.id)) byCompany.set(c.id, [])
+  }
+
   let portfolioInvested = 0
   let portfolioRealized = 0
   let portfolioUnrealized = 0
@@ -84,6 +91,7 @@ export async function GET(req: NextRequest) {
     companyId: string
     companyName: string
     status: CompanyStatus
+    holdingType: 'company' | 'fund' | 'crypto'
     portfolioGroup: string[]
     totalInvested: number
     totalRealized: number
@@ -101,6 +109,8 @@ export async function GET(req: NextRequest) {
     if (!company) continue
 
     const companyDefaultGroup = company.portfolio_group?.[0] ?? ''
+    // A fund holding's NAV marks carry no round: each moves the whole position (its 1200-<id>).
+    const isFund = company.holding_type === 'fund'
 
     // First pass: determine company-wide latestSharePrice from unrealized_gain_change and round_info
     let latestSharePrice: number | null = null
@@ -151,6 +161,13 @@ export async function GET(req: NextRequest) {
         list.push(txn)
         groupTxns.set(group, list)
       }
+      // …so a fund's marks are bucketed by entity alongside its calls and distributions.
+      else if (txn.transaction_type === 'unrealized_gain_change' && isFund) {
+        const group = txn.portfolio_group ?? companyDefaultGroup
+        const list = groupTxns.get(group) ?? []
+        list.push(txn)
+        groupTxns.set(group, list)
+      }
     }
 
     // If no investment/proceeds transactions at all, create a single empty-group entry
@@ -166,6 +183,7 @@ export async function GET(req: NextRequest) {
       let proceedsReceived = 0
       let proceedsEscrow = 0
       let totalCostBasisExited = 0
+      let navMarks = 0
 
       const groupCashFlows: CashFlow[] = []
       const roundMap = new Map<string, { investmentCost: number; sharesAcquired: number; unrealizedValueChange: number; costBasisExited: number }>()
@@ -220,6 +238,8 @@ export async function GET(req: NextRequest) {
           if (txn.round_name && txn.unrealized_value_change != null) {
             const round = roundMap.get(txn.round_name)
             if (round) round.unrealizedValueChange += txn.unrealized_value_change
+          } else if (isFund) {
+            navMarks += txn.unrealized_value_change ?? 0
           }
         }
       }
@@ -238,6 +258,9 @@ export async function GET(req: NextRequest) {
           unrealizedValue += remainingBasis + round.unrealizedValueChange
         }
       }
+      // A fund holding is carried at remaining cost plus its NAV marks — the 1100-<id> + 1200-<id>
+      // the ledger carries — never at cost alone.
+      if (isFund) unrealizedValue = Math.max(0, totalInvested - totalCostBasisExited + navMarks)
       let fmv: number
       if (company.status === 'exited') {
         fmv = totalRealized
@@ -276,6 +299,7 @@ export async function GET(req: NextRequest) {
         companyId,
         companyName: company.name,
         status: company.status,
+        holdingType: company.holding_type ?? 'company',
         portfolioGroup: [group].filter(Boolean),
         totalInvested,
         totalRealized,

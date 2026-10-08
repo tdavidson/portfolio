@@ -9,6 +9,9 @@ import type { CompanyStatus } from '@/lib/types/database'
 import { AnalystToggleButton } from '@/components/analyst-button'
 import { AddCompanyButton } from '@/components/add-company-button'
 import { AddVehicleButton } from '@/components/add-vehicle-button'
+import { AddFundHoldingButton } from '@/components/add-fund-holding-button'
+import { AddDigitalAssetButton } from '@/components/add-digital-asset-button'
+import { holdingHref } from '@/lib/portfolio/holding-href'
 import { VehicleEditModal, VehicleLinkModal, type EditableVehicle } from '@/components/vehicle-edit-modal'
 import { InvestmentVehicleFilters } from '@/components/investments-vehicle-filters'
 import { AnalystPanel } from '@/components/analyst-panel'
@@ -19,6 +22,7 @@ interface CompanySummary {
   companyId: string
   companyName: string
   status: CompanyStatus
+  holdingType: 'company' | 'fund' | 'crypto'
   portfolioGroup: string[]
   totalInvested: number
   totalRealized: number
@@ -29,6 +33,12 @@ interface CompanySummary {
   proceedsReceived: number
   proceedsEscrow: number
   totalCostBasisExited: number
+}
+
+const KIND_LABELS: Record<CompanySummary['holdingType'], string> = {
+  company: 'Company',
+  fund: 'Fund',
+  crypto: 'Digital asset',
 }
 
 interface GroupSummary {
@@ -418,9 +428,11 @@ export default function InvestmentsPage() {
         <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">{fv.investments === 'admin' && <Lock className="h-4 w-4 text-warning" />}Investments</h1>
         <div className="flex items-center gap-2"><PortfolioNotesButton /><AnalystToggleButton /></div>
       </div>
-      <p className="text-sm text-muted-foreground">Portfolio-level investment positions and returns</p>
+      <p className="text-sm text-muted-foreground">Every holding — companies, fund holdings and digital assets — at cost and value</p>
       <div className="flex items-center gap-2 pt-3">
         <AddCompanyButton />
+        <AddFundHoldingButton onCreated={() => setRefreshKey(k => k + 1)} />
+        <AddDigitalAssetButton />
         <AddVehicleButton onCreated={() => setRefreshKey(k => k + 1)} />
         <div className="ml-auto flex items-center gap-2">
           <InvestmentVehicleFilters
@@ -608,9 +620,10 @@ export default function InvestmentsPage() {
             <tr className="border-b bg-muted">
               <th className="text-left px-3 py-2 font-medium sticky left-0 bg-muted z-10">
                 <button onClick={() => handleSort('companyName')} className="hover:text-foreground">
-                  Company<SortIcon col="companyName" />
+                  Holding<SortIcon col="companyName" />
                 </button>
               </th>
+              <th className="text-left px-3 py-2 font-medium">Kind</th>
               <th className="text-left px-3 py-2 font-medium">
                 <button onClick={() => handleSort('status')} className="hover:text-foreground">
                   Status<SortIcon col="status" />
@@ -638,12 +651,13 @@ export default function InvestmentsPage() {
               <tr key={`${c.companyId}-${c.portfolioGroup.join('')}`} className="border-b last:border-b-0 hover:bg-muted/30">
                 <td className="px-3 py-2 sticky left-0 bg-background z-10">
                   <Link
-                    href={`/companies/${c.companyId}`}
+                    href={holdingHref(c.companyId)}
                     className="font-medium hover:underline"
                   >
                     {c.companyName}
                   </Link>
                 </td>
+                <td className="px-3 py-2 text-xs text-muted-foreground">{KIND_LABELS[c.holdingType ?? 'company']}</td>
                 <td className="px-3 py-2">
                   <span className={`text-xs capitalize ${STATUS_COLORS[c.status]}`}>
                     {c.status}
@@ -667,6 +681,7 @@ export default function InvestmentsPage() {
           <tfoot>
             <tr className="border-t bg-muted font-medium">
               <td className="px-3 py-2 sticky left-0 bg-muted z-10">Total ({filtered.length})</td>
+              <td className="px-3 py-2" />
               <td className="px-3 py-2" />
               <td className="px-3 py-2" />
               {companyColumns.map(col => {
