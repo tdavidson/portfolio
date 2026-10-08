@@ -6,7 +6,7 @@ import type { FeatureVisibilityMap } from '@/lib/types/features'
 import { entityScopeFor } from '@/lib/access/entity-scope'
 import { scopeGroups } from '@/lib/access/scope'
 import { holdingEntities } from '@/lib/portfolio/holding-entities'
-import type { HoldingKind } from './holding-panels'
+import { needsEntities, type HoldingKind } from './holding-panels'
 
 export type CompanyPageData = NonNullable<Awaited<ReturnType<typeof loadCompanyPage>>>
 
@@ -33,8 +33,12 @@ export async function loadCompanyPage({ supabase, admin, user, page }: PageConte
   // follows the kind (holding-panels.ts). `holding_type` is not on the generated Company type.
   const rawType = (found as { holding_type?: string | null }).holding_type
   const holdingType: HoldingKind = rawType === 'fund' || rawType === 'crypto' ? rawType : 'company'
-  // The viewer's entities that hold it — the fund register and the wallets are kept per entity.
-  const entities = await holdingEntities(admin, company.fund_id, company.id, page.access)
+  // The viewer's entities that hold it — the fund register and the wallets are kept per entity, and
+  // nothing else on the page reads them. So a company's page skips the read: a failed read there
+  // would take down a page that never needed it.
+  const entities = needsEntities(holdingType)
+    ? await holdingEntities(admin, company.fund_id, company.id, page.access)
+    : []
 
   const isAdmin = page.isAdmin
 

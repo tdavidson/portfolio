@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { holdingHref } from '@/lib/portfolio/holding-href'
+import { soiRowHref } from '@/lib/portfolio/holding-href'
 import { Loader2 } from 'lucide-react'
 import { useCurrency, formatCurrencyPrice } from '@/components/currency-context'
 import type { PortfolioSheet, SheetRow } from '@/lib/portfolio/sheet'
@@ -26,7 +26,7 @@ export function PortfolioSheetView({ group, exclude, sections = ['companies', 'f
 }) {
   const currency = useCurrency()
   const fmt = (v: number) => formatCurrencyPrice(v, currency)
-  const [data, setData] = useState<{ vehicles: string[]; sheet: PortfolioSheet } | null>(null)
+  const [data, setData] = useState<{ vehicles: string[]; vehicleId?: string | null; sheet: PortfolioSheet } | null>(null)
   const [error, setError] = useState<string | null>(null)
 
   // Entity names can hold commas, so each is its own `exclude` parameter.
@@ -50,8 +50,9 @@ export function PortfolioSheetView({ group, exclude, sections = ['companies', 'f
   }
 
   const multi = !group && data.vehicles.length > 1
-  // Every kind of holding — company, fund holding, digital asset — lives on its own page.
-  const link = (r: SheetRow) => (r.companyId ? holdingHref(r.companyId) : null)
+  // Every kind of holding — company, fund holding, digital asset — lives on its own page; on one
+  // entity's sheet, opened on that entity's view of it.
+  const link = (r: SheetRow) => soiRowHref(r, group ? data.vehicleId : null)
   const name = (r: SheetRow) => {
     const href = link(r)
     return href ? <Link href={href} className="hover:underline underline-offset-2">{r.name}</Link> : r.name

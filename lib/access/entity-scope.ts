@@ -26,10 +26,13 @@ export async function entityScopeFor(admin: SupabaseClient, access: AccessContex
   const ids = visibleVehicleIds(access)
   if (ids === null) return { access, vehicleNames: null, companyIds: null }
   if (ids.length === 0) return { access, vehicleNames: [], companyIds: [] }
-  const [{ data: vehicles }, companyIds] = await Promise.all([
+  const [{ data: vehicles, error }, companyIds] = await Promise.all([
     (admin as any).from('fund_vehicles').select('name, aliases').eq('fund_id', access.fundId).in('id', ids),
     visibleCompanyIds(admin, access),
   ])
+  // THROWS: a failed read is not "no entity names" — that would show a scoped member an empty
+  // portfolio and refuse their writes as if they had no entity.
+  if (error) throw new Error(`fund_vehicles read failed: ${error.message}`)
   const vehicleNames = Array.from(new Set(((vehicles as any[]) ?? [])
     .flatMap(v => [v.name as string, ...((v.aliases as string[] | null) ?? [])]))).sort()
   return { access, vehicleNames, companyIds }

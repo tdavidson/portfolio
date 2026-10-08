@@ -15,7 +15,7 @@ export function holdingHref(companyId: string, vehicleId?: string | null, asOf?:
 
 /** A schedule-of-investments row's link, on the entity the schedule is for. Null for a pooled
  *  ledger-only row, which names no holding. */
-export function soiRowHref(row: { companyId?: string }, vehicleId?: string | null): string | null {
+export function soiRowHref(row: { companyId?: string | null }, vehicleId?: string | null): string | null {
   return row.companyId ? holdingHref(row.companyId, vehicleId) : null
 }
 

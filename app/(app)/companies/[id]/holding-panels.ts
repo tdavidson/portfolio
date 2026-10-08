@@ -31,6 +31,13 @@ export function holdingPanels(kind: HoldingKind | null | undefined): HoldingPane
   }
 }
 
+/** Whether the page needs the viewer's entities of the holding: only the per-entity panels (the
+ *  fund register, the wallets) read them. */
+export function needsEntities(kind: HoldingKind | null | undefined): boolean {
+  const p = holdingPanels(kind)
+  return p.register || p.wallets
+}
+
 /** The entity the page opens on: the one a link named, if the viewer has it; else the only one. */
 export function initialEntity(entities: { id: string }[], requested: string | null | undefined): string | null {
   if (requested && entities.some(e => e.id === requested)) return requested

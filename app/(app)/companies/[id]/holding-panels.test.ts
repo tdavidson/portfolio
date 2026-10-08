@@ -1,6 +1,6 @@
 // app/(app)/companies/[id]/holding-panels.test.ts
 import { describe, it, expect } from 'vitest'
-import { holdingPanels, initialEntity, initialAsOf, quoteBasisNote, chainVarianceText } from './holding-panels'
+import { holdingPanels, needsEntities, initialEntity, initialAsOf, quoteBasisNote, chainVarianceText } from './holding-panels'
 
 describe('holdingPanels', () => {
   it('a company keeps its profile and may carry a price feed', () => {
@@ -14,6 +14,15 @@ describe('holdingPanels', () => {
   })
   it('a row from before the discriminator reads as a company', () => {
     expect(holdingPanels(undefined)).toEqual(holdingPanels('company'))
+  })
+})
+
+describe('needsEntities', () => {
+  it('reads the entities only for the per-entity panels — never for a company', () => {
+    expect(needsEntities('company')).toBe(false)
+    expect(needsEntities(null)).toBe(false)
+    expect(needsEntities('fund')).toBe(true)
+    expect(needsEntities('crypto')).toBe(true)
   })
 })
 
