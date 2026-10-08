@@ -25,8 +25,8 @@ describe('adoptEntry', () => {
     })])
   })
   it('adopts nothing from a derived entry', async () => {
-    const m = memoryAdmin({ chart_of_accounts: chart, investment_transactions: [{ id: 't1', fund_id: 'f' }] })
-    expect(await adoptEntry(m.admin, 'f', args({ sourceRef: 'txn:t1' }))).toEqual({ adoptedIds: [] })
+    const m = memoryAdmin({ chart_of_accounts: chart, investment_transactions: [{ id: '11111111-1111-4111-8111-111111111111', fund_id: 'f' }] })
+    expect(await adoptEntry(m.admin, 'f', args({ sourceRef: 'txn:11111111-1111-4111-8111-111111111111' }))).toEqual({ adoptedIds: [] })
     expect(m.tables.investment_transactions).toHaveLength(1)
   })
   it('adopts nothing when no line is on an investment account', async () => {
@@ -43,22 +43,22 @@ describe('adoptEntry', () => {
 
 describe('entryIsOwned', () => {
   const seed = () => memoryAdmin({
-    investment_transactions: [{ id: 't1', fund_id: 'f', adopted_entry_id: null }, { id: 't2', fund_id: 'f', adopted_entry_id: 'e-adopted' }],
+    investment_transactions: [{ id: '11111111-1111-4111-8111-111111111111', fund_id: 'f', adopted_entry_id: null }, { id: 't2', fund_id: 'f', adopted_entry_id: 'e-adopted' }],
     journal_entries: [
-      { id: 'orig', fund_id: 'f', book: 'actual', status: 'posted', reversed_by: null },
-      { id: 'reversed', fund_id: 'f', book: 'actual', status: 'posted', reversed_by: 'someone-else' },
+      { id: '33333333-3333-4333-8333-333333333333', fund_id: 'f', book: 'actual', status: 'posted', reversed_by: null },
+      { id: '44444444-4444-4444-8444-444444444444', fund_id: 'f', book: 'actual', status: 'posted', reversed_by: 'someone-else' },
     ],
   })
   it('derived, adopted and a live reversal pair are owned', async () => {
     const { admin } = seed()
-    expect(await entryIsOwned(admin, 'f', { id: 'x', sourceRef: 'txn:t1' })).toBe(true)
+    expect(await entryIsOwned(admin, 'f', { id: 'x', sourceRef: 'txn:11111111-1111-4111-8111-111111111111' })).toBe(true)
     expect(await entryIsOwned(admin, 'f', { id: 'e-adopted', sourceRef: null })).toBe(true)
-    expect(await entryIsOwned(admin, 'f', { id: 'r', sourceRef: 'reversal:orig' })).toBe(true)
+    expect(await entryIsOwned(admin, 'f', { id: 'r', sourceRef: 'reversal:33333333-3333-4333-8333-333333333333' })).toBe(true)
   })
   it('a dangling txn: reference, a second reversal, and nothing at all are not', async () => {
     const { admin } = seed()
-    expect(await entryIsOwned(admin, 'f', { id: 'x', sourceRef: 'txn:gone' })).toBe(false)
-    expect(await entryIsOwned(admin, 'f', { id: 'r2', sourceRef: 'reversal:reversed' })).toBe(false)
+    expect(await entryIsOwned(admin, 'f', { id: 'x', sourceRef: 'txn:22222222-2222-4222-8222-222222222222' })).toBe(false)
+    expect(await entryIsOwned(admin, 'f', { id: 'r2', sourceRef: 'reversal:44444444-4444-4444-8444-444444444444' })).toBe(false)
     expect(await entryIsOwned(admin, 'f', { id: 'x', sourceRef: null })).toBe(false)
   })
 })
@@ -96,16 +96,52 @@ describe('rulings', () => {
   })
   it('a reversal whose original was reversed by a void entry is still owned', async () => {
     const { admin } = memoryAdmin({ journal_entries: [
-      { id: 'orig', fund_id: 'f', book: 'actual', status: 'posted', reversed_by: 'rev1' },
+      { id: '33333333-3333-4333-8333-333333333333', fund_id: 'f', book: 'actual', status: 'posted', reversed_by: 'rev1' },
       { id: 'rev1', fund_id: 'f', book: 'actual', status: 'void', reversed_by: null },
     ] })
-    expect(await entryIsOwned(admin, 'f', { id: 'rev2', sourceRef: 'reversal:orig' })).toBe(true)
+    expect(await entryIsOwned(admin, 'f', { id: 'rev2', sourceRef: 'reversal:33333333-3333-4333-8333-333333333333' })).toBe(true)
   })
   it('but not when that reversal is posted', async () => {
     const { admin } = memoryAdmin({ journal_entries: [
-      { id: 'orig', fund_id: 'f', book: 'actual', status: 'posted', reversed_by: 'rev1' },
+      { id: '33333333-3333-4333-8333-333333333333', fund_id: 'f', book: 'actual', status: 'posted', reversed_by: 'rev1' },
       { id: 'rev1', fund_id: 'f', book: 'actual', status: 'posted', reversed_by: null },
     ] })
-    expect(await entryIsOwned(admin, 'f', { id: 'rev2', sourceRef: 'reversal:orig' })).toBe(false)
+    expect(await entryIsOwned(admin, 'f', { id: 'rev2', sourceRef: 'reversal:33333333-3333-4333-8333-333333333333' })).toBe(false)
+  })
+})
+
+describe('failure handling', () => {
+  const failing = (table: string) => {
+    const m = memoryAdmin({ chart_of_accounts: chart })
+    const admin = { from: (t: string) => t === table
+      ? { select: () => { const q: any = { eq: () => q, limit: () => q, maybeSingle: () => q, then: (res: any) => res({ data: null, error: { message: 'boom' } }) }; return q } }
+      : m.admin.from(t) } as any
+    return admin
+  }
+  it('entryIsOwned rejects when a read errors', async () => {
+    await expect(entryIsOwned(failing('investment_transactions'), 'f', { id: 'e1', sourceRef: null })).rejects.toThrow(/Ownership could not be checked: boom/)
+  })
+  it('adoptEntry refuses rather than risk duplicating when the ownership read errors', async () => {
+    expect(await adoptEntry(failing('investment_transactions'), 'f', args())).toEqual({ refused: expect.stringMatching(/not posted.*boom/) })
+  })
+  it('a non-uuid txn: or reversal: ref is not ownership and is never looked up', async () => {
+    const seen: string[] = []
+    const admin = { from: (t: string) => { seen.push(t); const q: any = { select: () => q, eq: (c: string) => { seen.push(c); return q }, limit: () => q, then: (res: any) => res({ data: [], error: null }) }; return q } } as any
+    expect(await entryIsOwned(admin, 'f', { id: 'e', sourceRef: 'txn:not-a-uuid' })).toBe(false)
+    expect(await entryIsOwned(admin, 'f', { id: 'e', sourceRef: 'reversal:nope' })).toBe(false)
+    expect(seen).not.toContain('journal_entries')
+    expect(seen).not.toContain('id')
+  })
+  it('refuses when the insert errors', async () => {
+    const m = memoryAdmin({ chart_of_accounts: chart })
+    m.failNext('investment_transactions', 'insert', 'boom')
+    expect(await adoptEntry(m.admin, 'f', args())).toEqual({ refused: expect.stringMatching(/could not be recorded.*boom/) })
+  })
+  it('refuses when the vehicle name cannot be resolved', async () => {
+    const { vehicleNameById } = await import('./vehicle-id')
+    vi.mocked(vehicleNameById).mockResolvedValueOnce(null as any)
+    const m = memoryAdmin({ chart_of_accounts: chart })
+    expect(await adoptEntry(m.admin, 'f', args())).toEqual({ refused: expect.stringMatching(/entity could not be found/) })
+    expect(m.tables.investment_transactions ?? []).toEqual([])
   })
 })

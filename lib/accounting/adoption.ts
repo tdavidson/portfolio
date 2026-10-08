@@ -31,35 +31,58 @@ export interface AdoptArgs {
   postings: { accountId: string; amount: number }[]
 }
 
-/** Mirrors public.investment_entry_owned. Keep the two in step. */
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+function checked<T>(res: { data: T; error: { message: string } | null }): T {
+  if (res.error) throw new Error(`Ownership could not be checked: ${res.error.message}`)
+  return res.data
+}
+
+/**
+ * Mirrors public.investment_entry_owned, deliberately stricter: every lookup is fund-scoped and
+ * journal reads are book = actual. A malformed txn:/reversal: suffix is simply not that kind of
+ * ownership (as in the SQL's uuid guard). THROWS on a failed read — a failed read must never
+ * look like "not owned", or adoption would duplicate an owned entry's transactions.
+ */
 export async function entryIsOwned(
   admin: SupabaseClient, fundId: string, entry: { id: string; sourceRef: string | null },
 ): Promise<boolean> {
   const ref = entry.sourceRef ?? ''
-  if (ref.startsWith(TXN)) {
-    const { data } = await admin.from('investment_transactions' as any)
-      .select('id').eq('fund_id', fundId).eq('id', ref.slice(TXN.length)).maybeSingle()
+  if (ref.startsWith(TXN) && UUID.test(ref.slice(TXN.length))) {
+    const data = checked(await admin.from('investment_transactions' as any)
+      .select('id').eq('fund_id', fundId).eq('id', ref.slice(TXN.length)).maybeSingle() as any)
     if (data) return true
   }
-  const { data: adopted } = await admin.from('investment_transactions' as any)
-    .select('id').eq('fund_id', fundId).eq('adopted_entry_id', entry.id).limit(1)
+  const adopted = checked(await admin.from('investment_transactions' as any)
+    .select('id').eq('fund_id', fundId).eq('adopted_entry_id', entry.id).limit(1) as any)
   if (((adopted as any[]) ?? []).length > 0) return true
-  if (ref.startsWith(REVERSAL)) {
-    const { data: original } = await admin.from('journal_entries' as any)
-      .select('status, reversed_by').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', ref.slice(REVERSAL.length)).maybeSingle()
+  if (ref.startsWith(REVERSAL) && UUID.test(ref.slice(REVERSAL.length))) {
+    const original = checked(await admin.from('journal_entries' as any)
+      .select('status, reversed_by').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', ref.slice(REVERSAL.length)).maybeSingle() as any)
     const o = original as any
     if (o && o.status === 'posted') {
       if (o.reversed_by == null || o.reversed_by === entry.id) return true
       // A reversal that was discarded (void) frees the original to be reversed again.
-      const { data: prior } = await admin.from('journal_entries' as any)
-        .select('status').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', o.reversed_by).maybeSingle()
+      const prior = checked(await admin.from('journal_entries' as any)
+        .select('status').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', o.reversed_by).maybeSingle() as any)
       if ((prior as any)?.status === 'void') return true
     }
   }
   return false
 }
 
+/** Never throws: its callers are the posting choke points. */
 export async function adoptEntry(
+  admin: SupabaseClient, fundId: string, args: AdoptArgs,
+): Promise<{ adoptedIds: string[] } | { refused: string }> {
+  try {
+    return await adoptEntryUnguarded(admin, fundId, args)
+  } catch (e) {
+    return { refused: `This entry was not posted: ${e instanceof Error ? e.message : String(e)}` }
+  }
+}
+
+async function adoptEntryUnguarded(
   admin: SupabaseClient, fundId: string, args: AdoptArgs,
 ): Promise<{ adoptedIds: string[] } | { refused: string }> {
   // Callers are the posting choke points: never throw into them.
