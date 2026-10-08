@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { Fragment, useCallback, useEffect, useState } from 'react'
 import { Loader2, Lock, Unlock, AlertTriangle, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -31,6 +32,7 @@ interface Readiness {
   draftEntries: { count: number; earliest: string | null }
   unpostedBankTxns: { count: number; total: number }
   blockers: string[]
+  blockerLinks?: Record<string, string>
   warnings: string[]
 }
 interface SuggestedEntry { id: string; basis: 'schedule' | 'recurring_pattern'; title: string; detail: string; entryDate: string; required: boolean; postings: { amount: number }[] }
@@ -198,7 +200,13 @@ export function PeriodsView() {
               P&L, and the lock then prevents posting it into the period. */}
           {preview.readiness.blockers.map((b, i) => (
             <p key={`b${i}`} className="px-4 py-2 text-sm text-destructive flex items-start gap-1.5 border-b bg-destructive/5">
-              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />{b}
+              <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
+              <span>
+                {b}
+                {preview.readiness.blockerLinks?.[b] && (
+                  <>{' '}<Link href={preview.readiness.blockerLinks[b]} className="underline underline-offset-2">Open the holding</Link></>
+                )}
+              </span>
             </p>
           ))}
 

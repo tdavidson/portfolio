@@ -205,7 +205,7 @@ describe('quoteCloseIssues', () => {
 
   it('ignores a position with no feed — an ordinary private holding', () => {
     const issues = quoteCloseIssues([position({ companyId: 'private' })], [], [], '2026-03-31', 'USD')
-    expect(issues).toEqual({ blockers: [], warnings: [] })
+    expect(issues).toEqual({ blockers: [], warnings: [], links: {} })
   })
 })
 
@@ -234,5 +234,11 @@ describe('discountAppliesOn', () => {
     const locked = feed({ restrictionUntil: '2026-09-30' })
     expect(discountAppliesOn(locked, '2026-09-30')).toBe(true)
     expect(discountAppliesOn(locked, '2026-10-01')).toBe(false)
+  })
+  it('links each position blocker to the holding page, where the quote and the mark are entered', () => {
+    const unbooked = quoteCloseIssues([position({ ledgerCarrying: 180_000 })], [feed()], [obs()], '2026-03-31', 'USD')
+    expect(unbooked.links).toEqual({ [unbooked.blockers[0]]: '/companies/c1' })
+    const missing = quoteCloseIssues([position()], [feed()], [], '2026-03-31', 'USD')
+    expect(missing.links[missing.blockers[0]]).toBe('/companies/c1')
   })
 })

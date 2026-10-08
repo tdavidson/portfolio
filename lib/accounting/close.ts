@@ -29,7 +29,8 @@ import type { FundPosition } from '@/lib/portfolio/fof-metrics'
 import { loadFofData, ledgerCarryingByHolding } from '@/lib/portfolio/fof-load'
 import { fofCloseIssues, companiesWithPendingNotices } from '@/lib/portfolio/fof-valuation'
 import { quoteCloseIssues, type PriceFeed, type PriceObservation, type QuotedPosition } from '@/lib/portfolio/quotes'
-import { walletCloseIssues, type Wallet, type WalletBalance } from '@/lib/portfolio/wallets'
+import { walletCloseIssues, walletFromRow, balanceFromRow, type Wallet, type WalletBalance } from '@/lib/portfolio/wallets'
+import { holdersFromTransactions, walletsForEntity } from '@/lib/portfolio/holding-entities'
 import { lotIssues, isLotMethod, type LotMethod } from '@/lib/portfolio/lots'
 import { buildSoiPositions, type SoiCompany } from './soi'
 import { fundCurrency } from './currency'
@@ -398,6 +399,8 @@ export interface CloseReadiness {
   unpostedBankTxns: { count: number; total: number }
   bank: { tiesOut: boolean; difference: number } | null
   blockers: string[]
+  /** Blocker text → the page that clears it (a quoted holding's page). Absent on older reviews. */
+  blockerLinks?: Record<string, string>
   warnings: string[]
 }
 
@@ -561,39 +564,39 @@ async function loadWalletCloseInputs(
   wallets: Wallet[]
   balances: WalletBalance[]
 } | null> {
-  const { data: walletRows } = await (admin as any)
+  const { data: walletRows, error: walletError } = await (admin as any)
     .from('crypto_wallets').select('*').eq('fund_id', fundId)
-  const rows = ((walletRows as any[]) ?? [])
-  if (rows.length === 0) return null
+  if (walletError) throw new Error(`wallets read failed: ${walletError.message}`)
+  if (((walletRows as any[]) ?? []).length === 0) return null
 
-  const wallets: Wallet[] = rows.map(w => ({
-    id: w.id,
-    companyId: w.company_id,
-    chain: w.chain,
-    address: w.address,
-    label: w.label,
-    active: w.active !== false,
-    verifiedAt: w.verified_at,
-    verificationMethod: w.verification_method,
-  }))
-
-  const [{ data: balRows }, { data: txnRows }, { data: companyRows }] = await Promise.all([
-    (admin as any).from('crypto_wallet_balances').select('*').eq('fund_id', fundId).lte('as_of_date', asOf),
+  const [{ data: txnRows, error: txnError }, { data: companyRows, error: companyError }] = await Promise.all([
     (admin as any).from('investment_transactions').select('*').eq('fund_id', fundId),
     (admin as any).from('companies').select('*').eq('fund_id', fundId),
   ])
-
-  const balances: WalletBalance[] = ((balRows as any[]) ?? []).map(b => ({
-    walletId: b.wallet_id,
-    asOfDate: b.as_of_date,
-    units: Number(b.units),
-    blockHeight: b.block_height,
-  }))
+  if (txnError) throw new Error(`transactions read failed: ${txnError.message}`)
+  if (companyError) throw new Error(`holdings read failed: ${companyError.message}`)
 
   // Cut the history at the period end, then read the units through the same roll-up everything
   // else uses — so the quantity compared against the chain is SPLIT-ADJUSTED and matches what
   // the schedule of investments reports for the same date.
   const upTo = ((txnRows as any[]) ?? []).filter(t => !t.transaction_date || t.transaction_date <= asOf)
+
+  // This entity's wallets only: one entity's close does not report another's chain balance, and
+  // an untagged wallet speaks for a holding only when one entity held it by the period end.
+  // Holders are fund-wide (never narrowed to this entity), so a holding two entities hold leaves
+  // an untagged wallet counting for neither (holding-entities.ts).
+  const holders = holdersFromTransactions(upTo)
+  const mine = walletsForEntity((walletRows as any[]) ?? [], group, holders)
+  if (mine.length === 0) return null
+  const wallets: Wallet[] = mine.map(walletFromRow)
+
+  // Balances for these wallets only. A fund-wide read is silently truncated at PostgREST's
+  // max_rows, and a missing balance reads as "not observed". Fail closed on an error.
+  const { data: balRows, error: balError } = await (admin as any)
+    .from('crypto_wallet_balances').select('*').in('wallet_id', wallets.map(w => w.id)).lte('as_of_date', asOf)
+  if (balError) throw new Error(`wallet balances read failed: ${balError.message}`)
+  const balances: WalletBalance[] = ((balRows as any[]) ?? []).map(balanceFromRow)
+
   const soi = buildSoiPositions(upTo, ((companyRows as any[]) ?? []) as SoiCompany[], group, new Date(asOf))
   const positions = soi.map(p => ({ companyId: p.companyId, name: p.name, units: p.shares ?? 0 }))
 
@@ -673,6 +676,7 @@ async function checkReadiness(
 
   const blockers: string[] = []
   const warnings: string[] = []
+  const blockerLinks: Record<string, string> = {}
 
   if (draftRows.length > 0) {
     const earliest = draftRows.map(d => d.entry_date).sort()[0]
@@ -721,11 +725,19 @@ async function checkReadiness(
     )
     blockers.push(...issues.blockers)
     warnings.push(...issues.warnings)
+    Object.assign(blockerLinks, issues.links)
   }
 
   // Watched wallets. Warnings only, never blockers — see lib/portfolio/wallets.ts for why a
   // quantity disagreement is a decision the fund makes rather than a stop.
-  const walletInputs = await loadWalletCloseInputs(admin, fundId, group, end)
+  // A wallet read that fails is a blocker, not "no wallets": closing on it would lock a period
+  // whose chain balances nobody could see.
+  let walletInputs: Awaited<ReturnType<typeof loadWalletCloseInputs>> = null
+  try {
+    walletInputs = await loadWalletCloseInputs(admin, fundId, group, end)
+  } catch (e) {
+    blockers.push(`The watched wallets could not be read: ${(e as Error).message}. Try again before closing.`)
+  }
   if (walletInputs) {
     const issues = walletCloseIssues(
       walletInputs.positions, walletInputs.wallets, walletInputs.balances, end,
@@ -756,6 +768,7 @@ async function checkReadiness(
     bank: null,
     blockers,
     warnings,
+    blockerLinks,
   }
 }
 

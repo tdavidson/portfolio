@@ -1,3 +1,4 @@
+import { holdingHref } from './holding-href'
 // Quoted positions — period-end valuation from an observable price, and the ASC 820 level
 // that price earns.
 //
@@ -241,9 +242,13 @@ export function quoteCloseIssues(
   observations: PriceObservation[],
   periodEnd: string,
   fundCurrency: string,
-): { blockers: string[]; warnings: string[] } {
+): { blockers: string[]; warnings: string[]; links: Record<string, string> } {
   const blockers: string[] = []
   const warnings: string[] = []
+  // Each position's blocker names the page where it is cleared: the holding's own, which carries
+  // its feed, its quotes and the mark to book (plans/spec-ledger-one-writer.md §6).
+  const links: Record<string, string> = {}
+  const block = (companyId: string, text: string) => { blockers.push(text); links[text] = holdingHref(companyId) }
   const byCompany = new Map(feeds.map(f => [f.companyId, f]))
   // Positions whose feed is unusable. They are reported ONCE, as the blocker below, and then
   // held back from the mark pass — otherwise the same position also produces a derived mark
@@ -257,7 +262,7 @@ export function quoteCloseIssues(
 
     if (feed.quoteCurrency !== fundCurrency) {
       unusable.add(p.companyId)
-      blockers.push(
+      block(p.companyId,
         `${p.name} (${feed.symbol}) is quoted in ${feed.quoteCurrency} but the fund reports in `
         + `${fundCurrency}. Translating a quote is not yet supported — remove the feed and mark `
         + `this position by hand for now.`
@@ -267,7 +272,7 @@ export function quoteCloseIssues(
 
     const obs = quoteAsOf(observations, feed.id, periodEnd)
     if (!obs) {
-      blockers.push(
+      block(p.companyId,
         `${p.name} (${feed.symbol}) has no quote on or before ${periodEnd}. A quoted position `
         + `cannot be marked at its last round — enter the closing price for the period.`
       )
@@ -291,14 +296,14 @@ export function quoteCloseIssues(
 
   const markable = positions.filter(p => !unusable.has(p.companyId))
   for (const m of periodEndQuoteMarks(markable, feeds, observations, periodEnd)) {
-    blockers.push(
+    block(m.companyId,
       `${m.name} (${m.symbol}): the ledger carries ${m.ledgerCarrying.toFixed(2)} but `
       + `${m.shares.toLocaleString('en-US')} units at ${m.price} on ${m.quoteDate} value at `
       + `${m.derivedCarrying.toFixed(2)}. Book the period-end mark first.`
     )
   }
 
-  return { blockers, warnings }
+  return { blockers, warnings, links }
 }
 
 const an = (basis: string) => (basis === 'intraday' ? 'an intraday' : 'an indicative')
