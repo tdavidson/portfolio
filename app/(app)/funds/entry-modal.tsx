@@ -15,7 +15,7 @@ interface Line { key: string; accountId: string; debit: string; credit: string; 
 interface VendorOpt { id: string; name: string }
 const NEW_VENDOR = '__new__'
 
-interface Meta { status: string; postedAt: string | null; sourceRef: string | null; reversedBy: string | null }
+interface Meta { status: string; postedAt: string | null; sourceRef: string | null; reversedBy: string | null; ownedBy: { id: string; company: string; type: string; date: string | null }[] }
 
 let seq = 0
 const newLine = (): Line => ({ key: `l${seq++}`, accountId: '', debit: '', credit: '', lpEntityId: null })
@@ -104,7 +104,7 @@ export function EntryModal({
         setVendorId(entry.vendor_id ?? null)
         setAdjusting(entry.adjusting === true)
         setSourceType(entry.source_type || 'manual')
-        setMeta({ status: entry.status, postedAt: entry.posted_at ?? null, sourceRef: entry.source_ref ?? null, reversedBy: entry.reversed_by ?? null })
+        setMeta({ status: entry.status, postedAt: entry.posted_at ?? null, sourceRef: entry.source_ref ?? null, reversedBy: entry.reversed_by ?? null, ownedBy: entry.owned_by ?? [] })
         setLines((entry.journal_postings ?? []).map((p: PostingRow) => {
           const amt = Number(p.amount)
           return { key: `l${seq++}`, accountId: p.account_id, debit: amt > 0 ? String(amt) : '', credit: amt < 0 ? String(-amt) : '', lpEntityId: p.lp_entity_id }
@@ -248,9 +248,10 @@ export function EntryModal({
    */
   async function voidEntry() {
     if (!id) return
-    const question = meta?.status === 'posted'
+    let question = meta?.status === 'posted'
       ? 'Void this posted entry? It drops off the ledger as if never posted. If a statement or a close already included it, reverse it instead so the correction is on the books.'
       : 'Discard this draft? It’s marked void and drops off the journal — pick “Voided” in the status filter to see it again.'
+    if (meta?.ownedBy?.length) question += ` It also deletes the investment transaction${meta.ownedBy.length === 1 ? '' : 's'} it records.`
     if (!window.confirm(question)) return
     setSaving(true); setError(null)
     const res = txnId
@@ -445,6 +446,13 @@ export function EntryModal({
                 </div>
               ) : (
                 <div className="flex flex-wrap items-center justify-end gap-2">
+                  {meta?.ownedBy && meta.ownedBy.length > 0 && (
+                    <p className="text-xs text-muted-foreground basis-full">
+                      Recorded as {meta.ownedBy.length === 1 ? 'an investment transaction' : `${meta.ownedBy.length} investment transactions`}{' '}
+                      ({Array.from(new Set(meta.ownedBy.map(o => o.company))).join(', ')}). Unposting, voiding or reversing this entry
+                      deletes {meta.ownedBy.length === 1 ? 'it' : 'them'}; edit the transaction on its company page to change it instead.
+                    </p>
+                  )}
                   <Button
                     size="sm" variant="ghost" onClick={voidEntry} disabled={saving}
                     title="Drop the entry from the ledger as if never posted — prefer Reverse for anything already reported"

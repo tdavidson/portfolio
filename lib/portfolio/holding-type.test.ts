@@ -14,6 +14,7 @@ import { join } from 'path'
 
 // Call sites that legitimately do NOT filter, each with the reason it does not.
 const ALLOWLIST = new Map<string, string>([
+  ['lib/accounting/ownership.ts', 'names for the companies of transactions already identified by id — any holding kind'],
   ['lib/portfolio/sheet-load.ts', 'metadata for every holding kind on the portfolio sheet, by ids the schedule already produced'],
   ['lib/accounting/investment-backfill.ts', 'names for every holding type — funds and crypto backfill alongside companies'],
   // By-id lookups: the id already identifies one holding, and the detail routes serve both kinds.

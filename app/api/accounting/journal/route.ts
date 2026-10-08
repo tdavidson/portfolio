@@ -17,6 +17,7 @@ import { vendorInFund } from '@/lib/accounting/vendors'
 import { ACTUAL_BOOK, isLedgerBook, type LedgerBook } from '@/lib/accounting/books'
 import { reversalOf, reversalDateError } from '@/lib/accounting/reversal'
 import { postExistingEntryWithAllocation, setGeneratedAllocationStatus } from '@/lib/accounting/continuous-allocation'
+import { owningTransactions, releaseOwnership } from '@/lib/accounting/ownership'
 import { entriesAwaitingBankMatch, AWAITING_BANK_MATCH_REASON } from '@/lib/accounting/investment-bank-match'
 
 // GET — the vehicle's journal entries with postings, or a single entry via ?id=.
@@ -47,7 +48,9 @@ export async function GET(req: NextRequest) {
   if (id) {
     const { data, error } = await base.eq('id', id).maybeSingle()
     if (error) return dbError(error, 'accounting-journal')
-    return NextResponse.json(data ?? null)
+    if (!data) return NextResponse.json(null)
+    // The transactions that own it — the entry view names them beside void, unpost and reverse.
+    return NextResponse.json({ ...(data as object), owned_by: await owningTransactions(admin, gate.fundId, data as any) })
   }
 
   // List path: resolve the period window (default YTD), then hand filtering + pagination
@@ -109,7 +112,7 @@ export async function PUT(req: NextRequest) {
 
   const { data: existing } = await admin
     .from('journal_entries' as any)
-    .select('id, status, entry_date, source_type')
+    .select('id, status, entry_date, source_type, source_ref')
     .eq('book', ACTUAL_BOOK)
     .eq('id', id).eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId)
     .maybeSingle()
@@ -139,6 +142,11 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'That date falls in a closed period — reopen it to edit.' }, { status: 400 })
   }
 
+  // A derived draft (the allocation-failure fallback) edited by hand no longer says what its
+  // transaction says: delete the transaction, and the edited lines are adopted when it posts.
+  const released = await releaseOwnership(admin, gate.fundId, existing as any)
+  if ('error' in released) return NextResponse.json({ error: released.error }, { status: 400 })
+
   // Insert the new postings first, then drop the old ones — so a failure never
   // leaves the entry without lines.
   const { data: oldRows } = await admin.from('journal_postings' as any).select('id').eq('book', ACTUAL_BOOK).eq('journal_entry_id', id)
@@ -152,7 +160,7 @@ export async function PUT(req: NextRequest) {
   await admin.from('journal_entries' as any).update({ entry_date: newDate, memo: memo ?? null, source_type: sourceType, reference, ...adjustingPatch, ...vendorPatch }).eq('id', id).eq('fund_id', gate.fundId)
 
   const { data: full } = await admin.from('journal_entries' as any).select('*, journal_postings(*)').eq('id', id).eq('book', ACTUAL_BOOK).single()
-  return NextResponse.json(full ?? { id })
+  return NextResponse.json({ ...((full ?? { id }) as object), removedTransactions: released.removed })
 }
 
 // POST — create a balanced journal entry with its postings.
@@ -219,13 +227,15 @@ export async function PATCH(req: NextRequest) {
 
   const { data: existing } = await admin
     .from('journal_entries' as any)
-    .select('id, status, entry_date, memo, source_type, reference, reversed_by, adjusting')
+    .select('id, status, entry_date, memo, source_type, reference, reversed_by, adjusting, source_ref')
     .eq('book', ACTUAL_BOOK)
     .eq('id', id).eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId)
     .maybeSingle()
   if (!existing) return NextResponse.json({ error: 'Entry not found' }, { status: 404 })
 
   const status = (existing as any).status
+  // Void, unpost and reverse on an OWNED entry delete the transactions that own it (spec §1).
+  const release = async () => releaseOwnership(admin, gate.fundId, existing as any)
 
   // reverse → a dated contra-entry (lib/accounting/reversal.ts). The original stays posted and
   // may sit in a CLOSED period — that is the case a reversal exists for — so the closed-period
@@ -254,6 +264,8 @@ export async function PATCH(req: NextRequest) {
       .from('journal_postings' as any)
       .select('account_id, amount, currency, lp_entity_id')
       .eq('book', ACTUAL_BOOK).eq('journal_entry_id', id)
+    const released = await release()
+    if ('error' in released) return NextResponse.json({ error: released.error }, { status: 400 })
     const reversal = reversalOf({
       id, fundId: gate.fundId, entryDate: ex.entry_date, memo: ex.memo, sourceType: ex.source_type, reference: ex.reference, adjusting: ex.adjusting === true,
       postings: ((postingRows as any[]) ?? []).map(p => ({ accountId: p.account_id, amount: Number(p.amount), currency: p.currency ?? 'USD', lpEntityId: p.lp_entity_id ?? null })),
@@ -262,7 +274,7 @@ export async function PATCH(req: NextRequest) {
     const result = await persistEntry(admin, gate.fundId, group, user.id, reversal, reversalStatus)
     if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
     await admin.from('journal_entries' as any).update({ reversed_by: result.entryId }).eq('id', id).eq('fund_id', gate.fundId)
-    return NextResponse.json({ ok: true, reversalId: result.entryId, status: reversalStatus, reverseDate })
+    return NextResponse.json({ ok: true, reversalId: result.entryId, status: reversalStatus, reverseDate, removedTransactions: released.removed })
   }
   if (action === 'post' && status !== 'draft') {
     return NextResponse.json({ error: 'Only a draft entry can be posted' }, { status: 400 })
@@ -299,21 +311,25 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (action === 'unpost') {
+    const released = await release()
+    if ('error' in released) return NextResponse.json({ error: released.error }, { status: 400 })
     const linked = await setGeneratedAllocationStatus(admin, gate.fundId, id, 'draft')
     if (linked.error) return NextResponse.json({ error: linked.error }, { status: 400 })
     const { error } = await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null }).eq('id', id).eq('fund_id', gate.fundId)
     if (error) return dbError(error, 'journal-unpost')
     // Keep any bank transaction that points at this entry in step.
     await admin.from('bank_transactions' as any).update({ status: 'drafted' }).eq('journal_entry_id', id).eq('fund_id', gate.fundId)
-    return NextResponse.json({ ok: true, status: 'draft' })
+    return NextResponse.json({ ok: true, status: 'draft', removedTransactions: released.removed })
   }
 
   // `posted_at: null` matches what the bank page's Ignore writes, so an entry voided from
   // either surface looks identical afterwards.
+  const released = await release()
+  if ('error' in released) return NextResponse.json({ error: released.error }, { status: 400 })
   const linked = await setGeneratedAllocationStatus(admin, gate.fundId, id, 'void')
   if (linked.error) return NextResponse.json({ error: linked.error }, { status: 400 })
   const { error } = await admin.from('journal_entries' as any).update({ status: 'void', posted_at: null }).eq('id', id).eq('fund_id', gate.fundId)
   if (error) return dbError(error, 'journal-void')
   await admin.from('bank_transactions' as any).update({ status: 'ignored' }).eq('journal_entry_id', id).eq('fund_id', gate.fundId)
-  return NextResponse.json({ ok: true, status: 'void' })
+  return NextResponse.json({ ok: true, status: 'void', removedTransactions: released.removed })
 }

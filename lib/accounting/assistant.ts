@@ -13,6 +13,8 @@ import { accountIdByCode, persistEntry } from './persist'
 import { closedPeriodRanges, dateInAnyClosedPeriod } from './periods'
 import { fundCurrency } from './currency'
 import { vehicleIdByName } from './vehicle-id'
+import { releaseOwnership } from './ownership'
+import { setGeneratedAllocationStatus } from './continuous-allocation'
 import { lpCapitalSummary } from './capital-calls'
 import { ENTRY_SOURCE_TYPES } from './source-types'
 import { loadVehicleGpLinks } from './gp-links'
@@ -259,7 +261,7 @@ export async function applyProposal(
     if (!vehicleId) return { error: `Unknown vehicle "${group}".` }
 
     const { data: existing } = await admin.from('journal_entries' as any)
-      .select('id, status, entry_date').eq('id', proposal.entryId).eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('book', ACTUAL_BOOK).maybeSingle()
+      .select('id, status, entry_date, source_ref').eq('id', proposal.entryId).eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('book', ACTUAL_BOOK).maybeSingle()
     if (!existing) return { error: 'Entry to edit not found' }
 
     // THE GUARDS THE CREATE PATH GETS FOR FREE FROM persistEntry, AND THIS PATH USED TO SKIP.
@@ -286,8 +288,15 @@ export async function applyProposal(
       return { error: `That entry is dated ${currentDate}, inside a closed period — reopen it to amend it.` }
     }
 
-    // Bring a posted entry back to draft first (and any bank txn that points at it).
+    // An owned entry being edited no longer says what its transactions say: delete them (the
+    // edited lines are adopted when it posts again). And bring a posted entry back to draft WITH
+    // its generated partner allocation — leaving that posted credited partners for an entry that
+    // is no longer on the books.
+    const released = await releaseOwnership(admin, fundId, existing as any)
+    if ('error' in released) return { error: released.error }
     if ((existing as any).status !== 'draft') {
+      const allocation = await setGeneratedAllocationStatus(admin, fundId, proposal.entryId, 'draft')
+      if (allocation.error) return { error: allocation.error }
       await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null }).eq('id', proposal.entryId).eq('fund_id', fundId)
       await admin.from('bank_transactions' as any).update({ status: 'drafted' }).eq('journal_entry_id', proposal.entryId).eq('fund_id', fundId)
     }

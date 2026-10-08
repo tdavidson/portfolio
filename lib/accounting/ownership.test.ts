@@ -1,78 +1,56 @@
 import { describe, it, expect } from 'vitest'
-import { currentOwnership, type InvestmentRow } from './load'
+import { memoryAdmin } from '@/tests/helpers/memory-admin'
+import { owningTransactions, releaseOwnership } from './ownership'
 
-/**
- * `lp_investments` holds one row per LP *per snapshot*, each carrying that snapshot's
- * cumulative-to-date figures. Summing them multiplied every commitment by the fund's
- * snapshot count, which fed capital-call pro-rata, management-fee basis, the close's
- * allocation basis, and published LP statements. These tests pin the dedupe.
- */
-describe('currentOwnership', () => {
-  const snap = (as_of_date: string, created_at = '2026-01-01T00:00:00Z') => ({ as_of_date, created_at })
+const seed = (extra: Record<string, any[]> = {}) => memoryAdmin({
+  companies: [{ id: 'co-a', fund_id: 'f', name: 'Acme' }],
+  investment_transactions: [
+    { id: 't1', fund_id: 'f', company_id: 'co-a', transaction_type: 'investment', transaction_date: '2026-03-01', adopted_entry_id: null },
+    { id: 't2', fund_id: 'f', company_id: 'co-a', transaction_type: 'investment', transaction_date: '2026-03-01', adopted_entry_id: 'e-adopted' },
+    { id: 't3', fund_id: 'f', company_id: 'co-a', transaction_type: 'unrealized_gain_change', transaction_date: '2026-03-01', adopted_entry_id: 'e-adopted' },
+  ],
+  journal_entries: [{ id: 'e-derived', fund_id: 'f', book: 'actual', source_ref: 'txn:t1' }],
+  fund_capital_events: [], fund_nav_statements: [],
+  ...extra,
+})
 
-  it('takes the latest snapshot rather than summing across snapshots', () => {
-    const rows: InvestmentRow[] = [
-      { entity_id: 'a', commitment: 1_000_000, paid_in_capital: 250_000, distributions: 0, snapshot_id: 's1', lp_snapshots: snap('2026-03-31') },
-      { entity_id: 'a', commitment: 1_000_000, paid_in_capital: 500_000, distributions: 50_000, snapshot_id: 's2', lp_snapshots: snap('2026-06-30') },
-    ]
-    expect(currentOwnership(rows)).toEqual([
-      { lpEntityId: 'a', commitment: 1_000_000, paidIn: 500_000, distributions: 50_000 },
-    ])
+describe('owningTransactions', () => {
+  it('names a derived entry\'s transaction and every adopted one', async () => {
+    const { admin } = seed()
+    expect((await owningTransactions(admin, 'f', { id: 'e-derived', source_ref: 'txn:t1' })).map(t => t.id)).toEqual(['t1'])
+    expect((await owningTransactions(admin, 'f', { id: 'e-adopted', source_ref: null })).map(t => t.id)).toEqual(['t2', 't3'])
+    expect((await owningTransactions(admin, 'f', { id: 'e-adopted', source_ref: null }))[0]).toMatchObject({ company: 'Acme', type: 'investment' })
   })
+})
 
-  it('does not care what order the rows arrive in', () => {
-    const rows: InvestmentRow[] = [
-      { entity_id: 'a', commitment: 900_000, snapshot_id: 's3', lp_snapshots: snap('2026-09-30') },
-      { entity_id: 'a', commitment: 500_000, snapshot_id: 's1', lp_snapshots: snap('2026-03-31') },
-      { entity_id: 'a', commitment: 700_000, snapshot_id: 's2', lp_snapshots: snap('2026-06-30') },
-    ]
-    expect(currentOwnership(rows)[0].commitment).toBe(900_000)
+describe('releaseOwnership', () => {
+  it('deletes a derived entry\'s transaction and clears its source_ref', async () => {
+    const m = seed()
+    expect(await releaseOwnership(m.admin, 'f', { id: 'e-derived', source_ref: 'txn:t1' })).toMatchObject({ removed: [{ id: 't1' }], unlinked: [] })
+    expect(m.tables.investment_transactions.map(t => t.id)).toEqual(['t2', 't3'])
+    expect(m.tables.journal_entries[0].source_ref).toBeNull()
   })
-
-  it('picks up a commitment increase recorded on the newer snapshot', () => {
-    const rows: InvestmentRow[] = [
-      { entity_id: 'a', commitment: 1_000_000, snapshot_id: 's1', lp_snapshots: snap('2026-03-31') },
-      { entity_id: 'a', commitment: 1_500_000, snapshot_id: 's2', lp_snapshots: snap('2026-06-30') },
-    ]
-    expect(currentOwnership(rows)[0].commitment).toBe(1_500_000)
+  it('deletes every transaction an adopted entry owns', async () => {
+    const m = seed()
+    await releaseOwnership(m.admin, 'f', { id: 'e-adopted', source_ref: null })
+    expect(m.tables.investment_transactions.map(t => t.id)).toEqual(['t1'])
   })
-
-  it('breaks a same-as_of_date tie on the snapshot created_at', () => {
-    const rows: InvestmentRow[] = [
-      { entity_id: 'a', commitment: 100, snapshot_id: 's1', lp_snapshots: snap('2026-06-30', '2026-07-01T00:00:00Z') },
-      { entity_id: 'a', commitment: 200, snapshot_id: 's2', lp_snapshots: snap('2026-06-30', '2026-07-02T00:00:00Z') },
-    ]
-    expect(currentOwnership(rows)[0].commitment).toBe(200)
+  it('refuses when a conversion depends on one of them, deleting nothing', async () => {
+    const m = seed()
+    m.tables.investment_transactions.push({ id: 'conv', fund_id: 'f', company_id: 'co-a', converts_from_txn_id: 't1' })
+    expect(await releaseOwnership(m.admin, 'f', { id: 'e-derived', source_ref: 'txn:t1' })).toEqual({ error: expect.stringMatching(/conversion/) })
+    expect(m.tables.investment_transactions).toHaveLength(4)
   })
-
-  it('prefers a snapshotted row over an unsnapshotted one', () => {
-    const rows: InvestmentRow[] = [
-      { entity_id: 'a', commitment: 999, snapshot_id: null, updated_at: '2026-12-31T00:00:00Z' },
-      { entity_id: 'a', commitment: 1_000_000, snapshot_id: 's1', lp_snapshots: snap('2026-03-31') },
-    ]
-    expect(currentOwnership(rows)[0].commitment).toBe(1_000_000)
+  it('says which register rows lose their link', async () => {
+    const m = seed({
+      fund_capital_events: [{ id: 'ev', fund_id: 'f', kind: 'call', event_date: '2026-03-01', investment_transaction_id: 't1' }],
+      fund_nav_statements: [{ id: 'nav', fund_id: 'f', as_of_date: '2026-03-31', investment_transaction_id: 't1' }],
+    })
+    expect(await releaseOwnership(m.admin, 'f', { id: 'e-derived', source_ref: 'txn:t1' }))
+      .toMatchObject({ unlinked: ['the call of 2026-03-01', 'the NAV as of 2026-03-31'] })
   })
-
-  it('falls back to the most recent unsnapshotted row when the entity has no snapshotted one', () => {
-    // The accounting Add-LP path writes an unsnapshotted row when the fund has no snapshots.
-    const rows: InvestmentRow[] = [
-      { entity_id: 'a', commitment: 300, snapshot_id: null, updated_at: '2026-05-01T00:00:00Z' },
-      { entity_id: 'a', commitment: 400, snapshot_id: null, updated_at: '2026-06-01T00:00:00Z' },
-    ]
-    expect(currentOwnership(rows)[0].commitment).toBe(400)
-  })
-
-  it('keeps entities separate and tolerates Supabase returning the join as an array', () => {
-    const rows: InvestmentRow[] = [
-      { entity_id: 'a', commitment: 600_000, snapshot_id: 's1', lp_snapshots: [snap('2026-06-30')] },
-      { entity_id: 'b', commitment: 400_000, snapshot_id: 's1', lp_snapshots: [snap('2026-06-30')] },
-    ]
-    const out = currentOwnership(rows).sort((x, y) => x.lpEntityId.localeCompare(y.lpEntityId))
-    expect(out.map(o => o.commitment)).toEqual([600_000, 400_000])
-  })
-
-  it('treats missing money columns as zero, not NaN', () => {
-    const rows: InvestmentRow[] = [{ entity_id: 'a', snapshot_id: 's1', lp_snapshots: snap('2026-06-30') }]
-    expect(currentOwnership(rows)).toEqual([{ lpEntityId: 'a', commitment: 0, paidIn: 0, distributions: 0 }])
+  it('an unowned entry releases nothing', async () => {
+    const m = seed()
+    expect(await releaseOwnership(m.admin, 'f', { id: 'other', source_ref: null })).toEqual({ removed: [], unlinked: [] })
   })
 })
