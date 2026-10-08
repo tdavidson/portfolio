@@ -24,3 +24,15 @@ describe('a holding\'s NAV statements', () => {
     expect(render([])).toContain('carries at cost')
   })
 })
+
+describe('a read-only member', () => {
+  it('sees the statements without edit or delete', () => {
+    const html = renderToStaticMarkup(createElement(FundHoldingNavs, {
+      navs: [{ id: 'n1', as_of_date: '2026-03-31', reported_nav: 1000, basis: 'final', investment_transaction_id: null }],
+      busy: false, readOnly: true, onEdit: () => {}, onDelete: () => {},
+    }))
+    expect(html).toContain('2026-03-31')
+    expect(html).not.toContain('>Edit<')
+    expect(html).not.toContain('>Delete<')
+  })
+})

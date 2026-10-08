@@ -20,10 +20,13 @@ export interface NavStatementRow {
  * A holding's manager NAV statements, newest first, each editable and deletable. The valuation date
  * is not editable: a statement for another date is another statement — delete it and record it again.
  */
-export function FundHoldingNavs({ navs, busy, onEdit, onDelete }: {
+export function FundHoldingNavs({ navs, busy, readOnly = false, onEdit, onDelete }: {
   navs: NavStatementRow[]
   busy: boolean
-  onEdit: (navId: string, fields: { reportedNav: number; basis: string }) => void
+  /** Hides edit and delete for a member who can only read. */
+  readOnly?: boolean
+  /** Resolves true when the server accepted the change; the edit row closes only then. */
+  onEdit: (navId: string, fields: { reportedNav: number; basis: string }) => void | boolean | Promise<void | boolean>
   onDelete: (navId: string) => void
 }) {
   const currency = useCurrency()
@@ -35,11 +38,11 @@ export function FundHoldingNavs({ navs, busy, onEdit, onDelete }: {
   }
 
   const start = (n: NavStatementRow) => { setEditing(n.id); setForm({ reportedNav: String(n.reported_nav), basis: n.basis }) }
-  const save = (id: string) => {
+  const save = async (id: string) => {
     const reportedNav = Number(form.reportedNav)
     if (form.reportedNav === '' || !Number.isFinite(reportedNav)) return
-    onEdit(id, { reportedNav, basis: form.basis })
-    setEditing(null)
+    const ok = await onEdit(id, { reportedNav, basis: form.basis })
+    if (ok !== false) setEditing(null)
   }
 
   return (
@@ -86,8 +89,8 @@ export function FundHoldingNavs({ navs, busy, onEdit, onDelete }: {
             <TableCell className="capitalize">{n.basis}</TableCell>
             <TableCell className="text-xs text-muted-foreground">{n.investment_transaction_id ? 'Mark booked' : 'No mark'}</TableCell>
             <TableCell className="text-right space-x-2 whitespace-nowrap">
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => start(n)}>Edit</Button>
-              <Button size="sm" variant="outline" disabled={busy} onClick={() => onDelete(n.id)}>Delete</Button>
+              {!readOnly && <Button size="sm" variant="outline" disabled={busy} onClick={() => start(n)}>Edit</Button>}
+              {!readOnly && <Button size="sm" variant="outline" disabled={busy} onClick={() => onDelete(n.id)}>Delete</Button>}
             </TableCell>
           </TableRow>
         ))}

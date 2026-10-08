@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -9,6 +9,8 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/u
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { useCurrency, formatCurrency } from '@/components/currency-context'
 import { FundHoldingNavs, type NavStatementRow } from '@/components/fund-holding-navs'
+import { useCanWrite } from '@/components/access-context'
+import { latestOnly } from '@/lib/portfolio/latest-only'
 import { investingEntities, type EntityChoice } from '@/lib/portfolio/investing-entities'
 
 interface RegisterEvent {
@@ -65,24 +67,39 @@ export function FundHoldingDetail({
   const [eventForm, setEventForm] = useState({ kind: 'call', eventDate: '', amount: '' })
   const [navForm, setNavForm] = useState({ asOfDate: '', reportedNav: '', basis: 'final' })
 
-  const load = useCallback(async () => {
-    setLoading(true)
+  const canWrite = useCanWrite('portfolio', 'investments')
+  const guard = useMemo(() => latestOnly(), [])
+  /** The entity the shown data was loaded for, so a load that names it does not trigger a second one. */
+  const loadedFor = useRef<string | null | undefined>(undefined)
+
+  /** Loads the register for `ent`. Only the first load shows the full loading state. */
+  const load = useCallback(async (ent: string | null) => {
+    const current = guard.begin()
+    if (loadedFor.current === undefined) setLoading(true)
     try {
-      const qs = entity ? `?entity=${encodeURIComponent(entity)}` : ''
+      const qs = ent ? `?entity=${encodeURIComponent(ent)}` : ''
       const res = await fetch(`/api/portfolio/fund-holdings/${companyId}${qs}`)
       const json = await res.json()
+      if (!current()) return
       setName(json?.holding?.name ?? '')
       setEvents(json?.events ?? [])
       setNavs(json?.navStatements ?? [])
       setHeld(json?.vehicles ?? [])
       const shown: string | null = json?.vehicleId ?? null
-      if (shown !== entity) setEntity(shown)
+      loadedFor.current = shown
+      setEntity(shown)
     } finally {
-      setLoading(false)
+      if (current()) setLoading(false)
     }
-  }, [companyId, entity])
+  }, [companyId, guard])
 
-  useEffect(() => { void load() }, [load])
+  // The prop can change on a mounted instance (Plan C mounts this on a company page).
+  useEffect(() => { setEntity(vehicleId) }, [vehicleId])
+
+  useEffect(() => {
+    if (loadedFor.current !== undefined && entity === loadedFor.current) return
+    void load(entity)
+  }, [entity, load])
 
   useEffect(() => {
     let cancelled = false
@@ -119,8 +136,7 @@ export function FundHoldingDetail({
     })
     if (!json) return
     setEventForm({ kind: 'call', eventDate: '', amount: '' })
-    if (!entity) setEntity(target)
-    await load(); onChanged?.()
+    await load(target); onChanged?.()
   }
 
   async function confirmEvent(eventId: string) {
@@ -133,7 +149,7 @@ export function FundHoldingDetail({
         .map((b: any) => b?.message).filter(Boolean).map((m: string) => `NAV re-booked: ${m}`),
     ].filter(Boolean)
     setNotice(said.length ? said.join(' ') : null)
-    await load(); onChanged?.()
+    await load(entity); onChanged?.()
   }
 
   async function addNav() {
@@ -146,15 +162,15 @@ export function FundHoldingDetail({
     if (!json) return
     setNavForm({ asOfDate: '', reportedNav: '', basis: 'final' })
     setNotice(bookingText(json))
-    if (!entity) setEntity(target)
-    await load(); onChanged?.()
+    await load(target); onChanged?.()
   }
 
-  async function editNav(navId: string, fields: { reportedNav: number; basis: string }) {
+  async function editNav(navId: string, fields: { reportedNav: number; basis: string }): Promise<boolean> {
     const json = await send(`/api/portfolio/fund-holdings/${companyId}/nav`, { method: 'PATCH', body: JSON.stringify({ navId, ...fields }) })
-    if (!json) return
+    if (!json) return false
     setNotice(bookingText(json))
-    await load(); onChanged?.()
+    await load(entity); onChanged?.()
+    return true
   }
 
   async function deleteNav(navId: string) {
@@ -162,7 +178,7 @@ export function FundHoldingDetail({
     const json = await send(`/api/portfolio/fund-holdings/${companyId}/nav?navId=${encodeURIComponent(navId)}`, { method: 'DELETE' })
     if (!json) return
     setNotice(bookingText(json) ?? 'Statement deleted; its mark is off the ledger.')
-    await load(); onChanged?.()
+    await load(entity); onChanged?.()
   }
 
   return (
@@ -235,7 +251,7 @@ export function FundHoldingDetail({
                   <Input id="ev-amount" type="number" className="tabular-nums" value={eventForm.amount}
                          onChange={e => setEventForm(f => ({ ...f, amount: e.target.value }))} />
                 </div>
-                <Button size="sm" onClick={addEvent} disabled={busy}>Record</Button>
+                {canWrite && <Button size="sm" onClick={addEvent} disabled={busy}>Record</Button>}
               </div>
 
               {events.length === 0 ? (
@@ -263,7 +279,7 @@ export function FundHoldingDetail({
                             : 'Draft'}
                         </TableCell>
                         <TableCell className="text-right">
-                          {e.status === 'draft' && (
+                          {canWrite && e.status === 'draft' && (
                             <Button size="sm" variant="outline" disabled={busy} onClick={() => confirmEvent(e.id)}>
                               Confirm
                             </Button>
@@ -306,10 +322,10 @@ export function FundHoldingDetail({
                     <option value="estimate">Estimate</option>
                   </select>
                 </div>
-                <Button size="sm" onClick={addNav} disabled={busy}>Record</Button>
+                {canWrite && <Button size="sm" onClick={addNav} disabled={busy}>Record</Button>}
               </div>
 
-              <FundHoldingNavs navs={navs} busy={busy} onEdit={editNav} onDelete={deleteNav} />
+              <FundHoldingNavs navs={navs} busy={busy} readOnly={!canWrite} onEdit={editNav} onDelete={deleteNav} />
             </section>
           </div>
         )}
