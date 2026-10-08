@@ -234,6 +234,7 @@ export default function SettingsPage() {
               thesis={settings.dealThesis}
               prompt={settings.dealScreeningPrompt}
               intakeEnabled={settings.dealIntakeEnabled}
+              defaultVehicleId={settings.dealsDefaultVehicleId}
               hasSubmissionToken={settings.hasSubmissionToken}
               onSaved={load}
             />

@@ -60,6 +60,7 @@ export interface SettingsData {
   dealThesis: string | null
   dealScreeningPrompt: string | null
   dealIntakeEnabled: boolean
+  dealsDefaultVehicleId: string | null
   hasSubmissionToken: boolean
   lpPortalEnabled: boolean
 }

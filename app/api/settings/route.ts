@@ -125,6 +125,7 @@ export async function GET() {
     dealThesis: settings?.deal_thesis ?? null,
     dealScreeningPrompt: settings?.deal_screening_prompt ?? null,
     dealIntakeEnabled: settings?.deal_intake_enabled ?? false,
+    dealsDefaultVehicleId: settings?.deals_default_vehicle_id ?? null,
     // Only the hash is stored, so the token itself can't be shown after minting — expose whether
     // one is active; the plaintext URL is surfaced once, from the mint response.
     hasSubmissionToken: !!settings?.deal_submission_token,
@@ -160,7 +161,7 @@ export async function PATCH(req: NextRequest) {
   if (!membership) return NextResponse.json({ error: 'No fund found' }, { status: 404 })
 
   const body = await req.json()
-  const { fundName, fundLogo, fundAddress, signInLogo, signInTitle, postmarkInboundAddress, claudeApiKey, claudeModel, retainResolvedReviews, resolvedReviewsTtlDays, googleClientId, googleClientSecret, aiSummaryPrompt, displayName, outboundEmailProvider, asksEmailProvider, approvalEmailSubject, approvalEmailBody, systemEmailFromName, systemEmailFromAddress, resendApiKey, postmarkServerToken, inboundEmailProvider, mailgunInboundDomain, mailgunSigningKey, mailgunApiKey, mailgunSendingDomain, fileStorageProvider, openaiApiKey, openaiModel, defaultAIProvider, openrouterApiKey, openrouterModel, openrouterBaseUrl, analyticsFathomSiteId, analyticsGaMeasurementId, analyticsCustomHeadScript, currency, lotMethod, disableUserTracking, featureVisibility, dealThesis, dealScreeningPrompt, dealIntakeEnabled, lpPortalEnabled, affinityMcpEnabled, agentApiEnabled } = body
+  const { fundName, fundLogo, fundAddress, signInLogo, signInTitle, postmarkInboundAddress, claudeApiKey, claudeModel, retainResolvedReviews, resolvedReviewsTtlDays, googleClientId, googleClientSecret, aiSummaryPrompt, displayName, outboundEmailProvider, asksEmailProvider, approvalEmailSubject, approvalEmailBody, systemEmailFromName, systemEmailFromAddress, resendApiKey, postmarkServerToken, inboundEmailProvider, mailgunInboundDomain, mailgunSigningKey, mailgunApiKey, mailgunSendingDomain, fileStorageProvider, openaiApiKey, openaiModel, defaultAIProvider, openrouterApiKey, openrouterModel, openrouterBaseUrl, analyticsFathomSiteId, analyticsGaMeasurementId, analyticsCustomHeadScript, currency, lotMethod, disableUserTracking, featureVisibility, dealThesis, dealScreeningPrompt, dealIntakeEnabled, dealsDefaultVehicleId, lpPortalEnabled, affinityMcpEnabled, agentApiEnabled } = body
 
   // Update display name on fund_members (any user can do this)
   if (displayName !== undefined) {
@@ -184,7 +185,7 @@ export async function PATCH(req: NextRequest) {
     analyticsCustomHeadScript !== undefined || currency !== undefined || lotMethod !== undefined ||
     disableUserTracking !== undefined || featureVisibility !== undefined ||
     dealThesis !== undefined || dealScreeningPrompt !== undefined ||
-    dealIntakeEnabled !== undefined || lpPortalEnabled !== undefined || affinityMcpEnabled !== undefined ||
+    dealIntakeEnabled !== undefined || dealsDefaultVehicleId !== undefined || lpPortalEnabled !== undefined || affinityMcpEnabled !== undefined ||
     agentApiEnabled !== undefined
 
   if (hasAdminFields && membership.role !== 'admin') {
@@ -551,6 +552,14 @@ export async function PATCH(req: NextRequest) {
   }
   if (dealIntakeEnabled !== undefined) {
     settingsUpdates.deal_intake_enabled = !!dealIntakeEnabled
+  }
+  if (dealsDefaultVehicleId !== undefined) {
+    // One of this fund's entities, or null (unassigned: admins triage).
+    if (dealsDefaultVehicleId !== null) {
+      const { data: v } = await (admin as any).from('fund_vehicles').select('id').eq('id', String(dealsDefaultVehicleId)).eq('fund_id', membership.fund_id).maybeSingle()
+      if (!v) return NextResponse.json({ error: 'Entity not found' }, { status: 400 })
+    }
+    settingsUpdates.deals_default_vehicle_id = dealsDefaultVehicleId === null ? null : String(dealsDefaultVehicleId)
   }
   if (lpPortalEnabled !== undefined) {
     settingsUpdates.lp_portal_enabled = !!lpPortalEnabled

@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Check, Loader2, Copy } from 'lucide-react'
 import { Section } from '@/components/settings/section'
+import { EntityPicker } from '@/components/entity-picker'
 
 // ──────────────────────────── Deals ────────────────────────────
 
@@ -24,16 +25,18 @@ For the inbound email and any attached materials, return structured output conta
 Be specific. Avoid hedging adjectives. If a key fact is not in the materials, say so
 explicitly rather than inferring.`
 
-export function DealScreeningSection({ thesis, prompt, intakeEnabled, hasSubmissionToken, onSaved }: {
+export function DealScreeningSection({ thesis, prompt, intakeEnabled, defaultVehicleId, hasSubmissionToken, onSaved }: {
   thesis: string | null
   prompt: string | null
   intakeEnabled: boolean
+  defaultVehicleId: string | null
   hasSubmissionToken: boolean
   onSaved: () => void
 }) {
   const [thesisVal, setThesisVal] = useState(thesis ?? '')
   const [promptVal, setPromptVal] = useState(prompt ?? DEFAULT_DEAL_SCREENING_PROMPT)
   const [intake, setIntake] = useState(intakeEnabled)
+  const [pitchEntity, setPitchEntity] = useState<string | null>(defaultVehicleId)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [previewing, setPreviewing] = useState(false)
@@ -79,6 +82,7 @@ export function DealScreeningSection({ thesis, prompt, intakeEnabled, hasSubmiss
         dealThesis: thesisVal,
         dealScreeningPrompt: promptVal,
         dealIntakeEnabled: intake,
+        dealsDefaultVehicleId: pitchEntity,
       }),
     })
     setSaving(false)
@@ -151,6 +155,15 @@ export function DealScreeningSection({ thesis, prompt, intakeEnabled, hasSubmiss
       </label>
       <p className="text-xs text-muted-foreground ml-6 mt-1">
         When off, the classifier still runs in shadow mode (results recorded on each email) but no email is routed to Deals.
+      </p>
+
+      <label className="block text-sm mt-4 mb-1" htmlFor="pitch-entity">New pitches go to</label>
+      <div className="max-w-xs">
+        <EntityPicker id="pitch-entity" value={pitchEntity} onChange={setPitchEntity} allowUnassigned />
+      </div>
+      <p className="text-xs text-muted-foreground mt-1">
+        Every pitch from the inbox or the submission form lands in this entity&apos;s deals, visible to its
+        team. Unassigned pitches wait for an admin to move them to an entity&apos;s queue.
       </p>
 
       <div className="flex items-center gap-2 mt-4">

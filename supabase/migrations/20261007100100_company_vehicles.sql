@@ -269,3 +269,15 @@ alter table public.inbound_deals
   add column if not exists vehicle_id uuid references public.fund_vehicles(id) on delete set null;
 
 create index if not exists inbound_deals_vehicle_idx on public.inbound_deals (fund_id, vehicle_id);
+
+-- Where new pitches land: the entity every pitch from the inbox or the submission form is assigned
+-- to, chosen by an admin under Deal screening. Null = unassigned, for admins to triage into an
+-- entity's queue. A fund with one entity starts with that one (most funds: there is one answer).
+alter table public.fund_settings
+  add column if not exists deals_default_vehicle_id uuid references public.fund_vehicles(id) on delete set null;
+
+update public.fund_settings s
+   set deals_default_vehicle_id = v.id
+  from public.fund_vehicles v
+ where s.deals_default_vehicle_id is null and v.fund_id = s.fund_id and v.active and v.kind <> 'manco'
+   and (select count(*) from public.fund_vehicles o where o.fund_id = s.fund_id and o.active and o.kind <> 'manco') = 1;

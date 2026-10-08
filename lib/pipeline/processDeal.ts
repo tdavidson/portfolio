@@ -90,9 +90,16 @@ export async function processDeal(params: ProcessDealParams): Promise<ProcessDea
     ? 'pending'
     : 'skipped'
 
+  // The entity new pitches land in (Settings → Deal screening); none = unassigned, for admins to
+  // triage. Only sent when set: before the entity migration the column does not exist.
+  const { data: dealsDefault } = await (supabase as any)
+    .from('fund_settings').select('deals_default_vehicle_id').eq('fund_id', fundId).maybeSingle()
+  const defaultVehicleId = ((dealsDefault as any)?.deals_default_vehicle_id as string | null) ?? null
+
   const insertResult = await supabase
     .from('inbound_deals')
     .insert({
+      ...(defaultVehicleId ? { vehicle_id: defaultVehicleId } : {}),
       email_id: emailId,
       fund_id: fundId,
       research_status: researchStatus,
