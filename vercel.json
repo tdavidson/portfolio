@@ -40,6 +40,9 @@
     "app/api/cron/company-updates-ocr/route.ts": {
       "maxDuration": 300
     },
+    "app/api/cron/entity-documents-ocr/route.ts": {
+      "maxDuration": 300
+    },
     "app/api/cron/company-updates-backfill/route.ts": {
       "maxDuration": 300
     },
@@ -69,6 +72,10 @@
     },
     {
       "path": "/api/cron/company-updates-ocr",
+      "schedule": "*/5 * * * *"
+    },
+    {
+      "path": "/api/cron/entity-documents-ocr",
       "schedule": "*/5 * * * *"
     },
     {

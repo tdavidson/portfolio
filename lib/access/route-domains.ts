@@ -294,6 +294,13 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // is a holding, and confirming a register row posts through the same investments path.
   'api/portfolio/sheet': { domain: 'portfolio' },
   'api/entities': { domain: 'portfolio', level: 'any' },
+  // An entity's governing documents: anyone who can see the entity, whatever their domain grants —
+  // the handlers check the entity (lib/entity-documents/http.ts). Level 'any' only keeps non-members
+  // and switched-off funds out at the gate.
+  'api/entities/[id]/documents': { domain: 'portfolio', level: 'any' },
+  'api/entities/[id]/documents/upload-url': { domain: 'portfolio', level: 'any' },
+  'api/entities/[id]/documents/[docId]': { domain: 'portfolio', level: 'any' },
+  'api/entities/[id]/documents/[docId]/download': { domain: 'portfolio', level: 'any' },
   'api/portfolio/fund-holdings': { domain: 'portfolio', feature: 'investments' },
   'api/portfolio/fund-holdings/[id]': { domain: 'portfolio', feature: 'investments' },
   'api/portfolio/fund-holdings/[id]/events': { domain: 'portfolio', feature: 'investments' },
@@ -533,6 +540,7 @@ export const UNGATED_ROUTES: Record<string, string> = {
   'api/cron/deals-digest': 'Cron: CRON_SECRET.',
   'api/cron/memo-agent-worker': 'Cron: CRON_SECRET.',
   'api/cron/company-updates-ocr': 'Cron: CRON_SECRET.',
+  'api/cron/entity-documents-ocr': 'Cron: CRON_SECRET.',
   'api/cron/company-updates-backfill': 'Cron: CRON_SECRET.',
   'api/cron/ops-reminders': 'Cron: CRON_SECRET.',
 
