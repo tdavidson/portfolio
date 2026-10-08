@@ -8,6 +8,7 @@
 
 export type Row = Record<string, any>
 type Op = 'insert' | 'update' | 'delete'
+type FailOp = Op | 'select'
 
 const EMBEDS: Record<string, Record<string, string>> = {
   journal_entries: { journal_postings: 'journal_entry_id' },
@@ -23,9 +24,9 @@ export function memoryAdmin(seed: Record<string, Row[]> = {}, opts: MemoryAdminO
   const tables: Record<string, Row[]> = {}
   for (const [k, v] of Object.entries(seed)) tables[k] = v.map(r => ({ ...r }))
   let serial = 0
-  const failures: { table: string; op: Op; message: string }[] = []
-  const failNext = (table: string, op: Op, message: string) => { failures.push({ table, op, message }) }
-  const takeFailure = (table: string, op: Op) => {
+  const failures: { table: string; op: FailOp; message: string }[] = []
+  const failNext = (table: string, op: FailOp, message: string) => { failures.push({ table, op, message }) }
+  const takeFailure = (table: string, op: FailOp) => {
     const i = failures.findIndex(f => f.table === table && f.op === op)
     return i < 0 ? null : failures.splice(i, 1)[0].message
   }
@@ -63,6 +64,8 @@ export function memoryAdmin(seed: Record<string, Row[]> = {}, opts: MemoryAdminO
     const run = (): { data: any; error: any; count?: number | null } => {
       tables[table] ??= []
       if (mode === 'select') {
+        const selectFailure = takeFailure(table, 'select')
+        if (selectFailure) return { data: null, error: { message: selectFailure }, count: null }
         const matched = tables[table].filter(r => filters.every(f => f(r)))
         const rows = [...matched]
         for (const o of [...order].reverse()) {

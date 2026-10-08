@@ -553,8 +553,10 @@ async function loadQuoteCloseInputs(
  *
  * Returns null for a fund with no wallets, so a book holding no digital assets runs the query
  * count it ran before. Same posture as the FoF and quoted loaders above.
+ *
+ * @internal Exported for tests only.
  */
-async function loadWalletCloseInputs(
+export async function loadWalletCloseInputs(
   admin: SupabaseClient,
   fundId: string,
   group: string,
@@ -648,7 +650,8 @@ async function loadLotIssues(
 }
 
 /** Pre-close checks over the whole span. */
-async function checkReadiness(
+/** @internal Exported for tests only. */
+export async function checkReadiness(
   admin: SupabaseClient,
   fundId: string,
   group: string,
@@ -721,7 +724,7 @@ async function checkReadiness(
   const quoted = await loadQuoteCloseInputs(admin, fundId, group, end)
   if (quoted) {
     const issues = quoteCloseIssues(
-      quoted.positions, quoted.feeds, quoted.observations, end, quoted.currency,
+      quoted.positions, quoted.feeds, quoted.observations, end, quoted.currency, vehicleId,
     )
     blockers.push(...issues.blockers)
     warnings.push(...issues.warnings)

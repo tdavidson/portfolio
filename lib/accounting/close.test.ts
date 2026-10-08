@@ -2,7 +2,8 @@ import { describe, it, expect } from 'vitest'
 import { balanceSheet } from './statements'
 import { computeCapitalAccounts, rollForwardTies } from './capital-account'
 import { allocateAmount } from './allocation'
-import { monthWindows } from './close'
+import { monthWindows, loadWalletCloseInputs, checkReadiness } from './close'
+import { memoryAdmin } from '@/tests/helpers/memory-admin'
 import type { Account, Posting } from './types'
 
 describe('monthWindows', () => {
@@ -157,5 +158,76 @@ describe('period close allocation', () => {
     const bs = balanceSheet(accounts, reopened)
     expect(bs.partnersCapital.unallocatedEarnings).toBe(400_000)
     expect(bs.check).toBe(0)
+  })
+})
+
+describe('loadWalletCloseInputs', () => {
+  const buy = (company: string, group: string, date: string) => ({
+    id: `${company}-${group}-${date}`, fund_id: 'f', company_id: company, transaction_type: 'investment',
+    portfolio_group: group, transaction_date: date, shares_acquired: 10, investment_cost: 100,
+  })
+  const wallet = (id: string, company: string, group: string | null = null) => ({
+    id, fund_id: 'f', company_id: company, chain: 'ethereum', address: `0x${id}`, portfolio_group: group, active: true,
+  })
+  const bal = (walletId: string, date: string) => ({ fund_id: 'f', wallet_id: walletId, as_of_date: date, units: '5', block_height: 1 })
+  const companies = [{ id: 'c1', fund_id: 'f', name: 'Coin' }, { id: 'c2', fund_id: 'f', name: 'Other' }]
+  const load = (seed: Record<string, any[]>, group = 'Fund I') =>
+    loadWalletCloseInputs(memoryAdmin({ companies, ...seed }).admin as any, 'f', group, '2026-03-31')
+
+  it("leaves another entity's wallet out of this entity's close", async () => {
+    const out = await load({
+      investment_transactions: [buy('c1', 'Fund I', '2026-01-05'), buy('c2', 'Fund II', '2026-01-05')],
+      crypto_wallets: [wallet('w1', 'c1', 'Fund I'), wallet('w2', 'c2', 'Fund II')],
+      crypto_wallet_balances: [bal('w1', '2026-03-30'), bal('w2', '2026-03-30')],
+    })
+    expect(out!.wallets.map(w => w.id)).toEqual(['w1'])
+    expect(out!.balances.map(b => b.walletId)).toEqual(['w1'])
+    expect(await load({
+      investment_transactions: [buy('c2', 'Fund II', '2026-01-05')],
+      crypto_wallets: [wallet('w2', 'c2', 'Fund II')],
+    })).toBeNull()
+  })
+
+  it('counts an untagged wallet for neither entity when two hold the holding', async () => {
+    const seed = {
+      investment_transactions: [buy('c1', 'Fund I', '2026-01-05'), buy('c1', 'Fund II', '2026-02-05')],
+      crypto_wallets: [wallet('w1', 'c1')],
+    }
+    expect(await load(seed, 'Fund I')).toBeNull()
+    expect(await load(seed, 'Fund II')).toBeNull()
+  })
+
+  it('still counts an untagged wallet for the first holder when the second bought after the period end', async () => {
+    const out = await load({
+      investment_transactions: [buy('c1', 'Fund I', '2026-01-05'), buy('c1', 'Fund II', '2026-05-05')],
+      crypto_wallets: [wallet('w1', 'c1')],
+    })
+    expect(out!.wallets.map(w => w.id)).toEqual(['w1'])
+  })
+
+  it('excludes a balance dated after the period end', async () => {
+    const out = await load({
+      investment_transactions: [buy('c1', 'Fund I', '2026-01-05')],
+      crypto_wallets: [wallet('w1', 'c1', 'Fund I')],
+      crypto_wallet_balances: [bal('w1', '2026-03-30'), bal('w1', '2026-04-02')],
+    })
+    expect(out!.balances.map(b => b.asOfDate)).toEqual(['2026-03-30'])
+  })
+
+  it('rejects when the balances read fails, and the close turns that into a blocker', async () => {
+    const seed = {
+      companies,
+      fund_vehicles: [{ id: 'v1', fund_id: 'f', name: 'Fund I' }],
+      investment_transactions: [buy('c1', 'Fund I', '2026-01-05')],
+      crypto_wallets: [wallet('w1', 'c1', 'Fund I')],
+    }
+    const a = memoryAdmin(seed)
+    a.failNext('crypto_wallet_balances', 'select', 'boom')
+    await expect(loadWalletCloseInputs(a.admin as any, 'f', 'Fund I', '2026-03-31')).rejects.toThrow(/boom/)
+
+    const b = memoryAdmin(seed)
+    b.failNext('crypto_wallet_balances', 'select', 'boom')
+    const readiness = await checkReadiness(b.admin as any, 'f', 'Fund I', '2026-01-01', '2026-03-31')
+    expect(readiness.blockers.some(x => x.includes('could not be read') && x.includes('boom'))).toBe(true)
   })
 })

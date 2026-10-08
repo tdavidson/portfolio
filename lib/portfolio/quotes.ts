@@ -1,4 +1,3 @@
-import { holdingHref } from './holding-href'
 // Quoted positions — period-end valuation from an observable price, and the ASC 820 level
 // that price earns.
 //
@@ -12,6 +11,7 @@ import { holdingHref } from './holding-href'
 // `unrealized_gain_change` carrying `current_share_price` and everything downstream — the
 // schedule of investments, the statements, the per-company tie-out — reads it without
 // knowing a feed exists. What this file adds is which price, on which date, and at what level.
+import { holdingHref } from './holding-href'
 
 /** ASC 820 fair value hierarchy. */
 export type FairValueLevel = 1 | 2 | 3
@@ -242,13 +242,14 @@ export function quoteCloseIssues(
   observations: PriceObservation[],
   periodEnd: string,
   fundCurrency: string,
+  vehicleId?: string | null,
 ): { blockers: string[]; warnings: string[]; links: Record<string, string> } {
   const blockers: string[] = []
   const warnings: string[] = []
   // Each position's blocker names the page where it is cleared: the holding's own, which carries
   // its feed, its quotes and the mark to book (plans/spec-ledger-one-writer.md §6).
   const links: Record<string, string> = {}
-  const block = (companyId: string, text: string) => { blockers.push(text); links[text] = holdingHref(companyId) }
+  const block = (companyId: string, text: string) => { blockers.push(text); links[text] = holdingHref(companyId, vehicleId) }
   const byCompany = new Map(feeds.map(f => [f.companyId, f]))
   // Positions whose feed is unusable. They are reported ONCE, as the blocker below, and then
   // held back from the mark pass — otherwise the same position also produces a derived mark
