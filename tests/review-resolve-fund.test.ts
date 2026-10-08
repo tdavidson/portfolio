@@ -26,8 +26,13 @@ const seed = (review = fundReview(), opts = {}) => {
   }, opts)
 }
 
+/** A member who may write the portfolio, over these entities; `over` changes the rest. */
+const ctx = (vehicles: { all: boolean; ids: string[] }, over: Record<string, unknown> = {}) => ({
+  fundId: 'f', userId: 'u', role: 'member', features: {}, grants: { portfolio: 'write' }, defaults: {}, vehicles, ...over,
+})
+
 beforeEach(() => {
-  s.access = { vehicles: { all: true, ids: [] } }
+  s.access = ctx({ all: true, ids: [] })
   s.approve.mockReset().mockResolvedValue({ ok: true, vehicleId: 'v1', message: 'Saved, and its mark posted to the ledger.', booking: { status: 'booked', message: 'Saved, and its mark posted to the ledger.' } })
   seed()
 })
@@ -38,7 +43,7 @@ describe('resolving a fund review', () => {
     const res = await post({ resolution: 'accepted', vehicleId: 'v1' })
     expect(res.status).toBe(200)
     expect((await res.json()).message).toMatch(/posted/)
-    expect(s.approve).toHaveBeenCalledWith(s.m.admin, { fundId: 'f', userId: 'u', access: { vehicles: { all: true, ids: [] } } },
+    expect(s.approve).toHaveBeenCalledWith(s.m.admin, { fundId: 'f', userId: 'u', access: s.access },
       expect.objectContaining({ id: 'r1', payload: expect.any(Object) }), { vehicleId: 'v1', edits: undefined })
     expect(s.m.tables.parsing_reviews[0]).toMatchObject({ resolution: 'accepted', vehicle_id: 'v1' })
     expect(s.m.tables.inbound_emails[0].processing_status).toBe('success')
@@ -66,7 +71,7 @@ describe('resolving a fund review', () => {
 
 describe('who may resolve a fund review', () => {
   it('a member cannot approve or dismiss another entity\'s review', async () => {
-    s.access = { vehicles: { all: false, ids: ['v1'] } }
+    s.access = ctx({ all: false, ids: ['v1'] })
     seed(fundReview({ vehicle_id: 'v2' }))
     for (const resolution of ['accepted', 'rejected']) {
       expect((await post({ resolution, vehicleId: 'v1' })).status).toBe(404)
@@ -76,7 +81,7 @@ describe('who may resolve a fund review', () => {
   })
 
   it('a member cannot resolve an unassigned fund review — assigning it is for unscoped callers', async () => {
-    s.access = { vehicles: { all: false, ids: ['v1'] } }
+    s.access = ctx({ all: false, ids: ['v1'] })
     for (const resolution of ['accepted', 'rejected']) {
       expect((await post({ resolution, vehicleId: 'v1' })).status).toBe(404)
     }
@@ -85,7 +90,7 @@ describe('who may resolve a fund review', () => {
   })
 
   it('a member approves their own entity\'s review', async () => {
-    s.access = { vehicles: { all: false, ids: ['v1'] } }
+    s.access = ctx({ all: false, ids: ['v1'] })
     seed(fundReview({ vehicle_id: 'v1' }))
     expect((await post({ resolution: 'accepted' })).status).toBe(200)
     expect(s.m.tables.parsing_reviews[0]).toMatchObject({ resolution: 'accepted', vehicle_id: 'v1' })
@@ -161,5 +166,45 @@ describe('an approval that fails outright', () => {
     const res = await post({ resolution: 'accepted', vehicleId: 'v1' })
     expect(res.status).toBe(200)
     expect(await res.json()).toMatchObject({ message: expect.stringMatching(/posted/), warning: expect.stringMatching(/entity/) })
+  })
+})
+
+describe('the generic email review modal\'s "Edit & Accept" on a fund review', () => {
+  it('is refused before anything is written: a fund proposal is corrected on its review card', async () => {
+    seed(fundReview(), {})
+    s.m.tables.fund_nav_statements = []
+    s.m.tables.fund_capital_events = []
+    // Exactly what components/email-review-modal.tsx sends: one free-text value, no edits.
+    const res = await post({ resolution: 'manually_corrected', resolved_value: '9500000' })
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toBe('Correct it on the review card.')
+    expect(s.approve).not.toHaveBeenCalled()
+    expect(s.m.tables.parsing_reviews[0]).toMatchObject({ resolution: null })
+    expect(s.m.tables.parsing_reviews[0].resolved_value ?? null).toBeNull()
+    expect(s.m.tables.fund_nav_statements).toEqual([])
+    expect(s.m.tables.fund_capital_events).toEqual([])
+    expect(s.m.tables.inbound_emails[0].processing_status).toBe('needs_review')
+  })
+})
+
+describe('the fund register\'s feature switch', () => {
+  it('a fund review cannot be resolved by a member without write on fund holdings', async () => {
+    s.access = ctx({ all: true, ids: [] }, { features: { investments: 'admin' } })
+    for (const resolution of ['accepted', 'rejected']) {
+      expect((await post({ resolution, vehicleId: 'v1' })).status).toBe(403)
+    }
+    expect(s.approve).not.toHaveBeenCalled()
+    expect(s.m.tables.parsing_reviews[0].resolution).toBeNull()
+  })
+
+  it('with fund holdings switched off, not even an admin resolves one', async () => {
+    s.access = ctx({ all: true, ids: [] }, { role: 'admin', features: { investments: 'off' } })
+    expect((await post({ resolution: 'accepted', vehicleId: 'v1' })).status).toBe(403)
+    expect(s.approve).not.toHaveBeenCalled()
+  })
+
+  it('a read-only grant on the portfolio cannot approve', async () => {
+    s.access = ctx({ all: true, ids: [] }, { grants: { portfolio: 'read' } })
+    expect((await post({ resolution: 'accepted', vehicleId: 'v1' })).status).toBe(403)
   })
 })

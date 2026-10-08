@@ -52,12 +52,22 @@ describe('a fund holding\'s email', () => {
     expect(db.statuses.at(-1)).toBe('success')
   })
 
+  it('with fund holdings switched off or hidden, the manager reader does not run and the email is filed', async () => {
+    for (const investments of ['off', 'hidden']) {
+      mocks.propose.mockClear()
+      const db = fakeDb('fund', { investments })
+      await runPipeline(db as any, 'email-3', 'fund-1', payload, null, { forcedRoute: 'reporting' })
+      expect(mocks.propose).not.toHaveBeenCalled()
+      expect(db.statuses.at(-1)).toBe('success')
+    }
+  })
+
   it('a date that is not a date falls back to today rather than throwing', () => {
     expect(emailDate({ ...payload, Date: 'not a date' })).toMatch(/^\d{4}-\d{2}-\d{2}$/)
   })
 })
 
-function fakeDb(holdingType: string) {
+function fakeDb(holdingType: string, featureVisibility: Record<string, string> | null = null) {
   const statuses: string[] = []
   return {
     statuses,
@@ -75,7 +85,10 @@ function fakeDb(holdingType: string) {
             : { data: [{ id: 'h1', name: 'Meridian Growth Partners IV', aliases: [] }], error: null }),
         }
       }
-      if (table === 'metrics' || table === 'fund_settings') return { select: () => chain({ data: table === 'metrics' ? [] : null, error: null }) }
+      if (table === 'metrics') return { select: () => chain({ data: [], error: null }) }
+      if (table === 'fund_settings') {
+        return { select: (cols: string) => chain({ data: cols.includes('feature_visibility') && featureVisibility ? { feature_visibility: featureVisibility } : null, error: null }) }
+      }
       throw new Error(`Unexpected table ${table}`)
     },
   }

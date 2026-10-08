@@ -15,6 +15,7 @@ import { CompanyForm } from '@/components/company-form'
 import { MetricForm } from '@/components/metric-form'
 import { Check, X, Pencil, Building2, Loader2, Plus, BarChart3, RefreshCw, Mail, ChevronDown, ChevronRight, Upload, FileText } from 'lucide-react'
 import type { Company } from '@/lib/types/database'
+import { isFundReviewType } from '@/lib/portfolio/fof-review-types'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -64,6 +65,9 @@ const ISSUE_LABELS: Record<string, string> = {
   company_not_identified: 'Unidentified Company',
   duplicate_period: 'Duplicate Period',
   diligence_intake_pending: 'Diligence Match',
+  fund_nav: 'Fund NAV',
+  fund_capital_call: 'Capital call',
+  fund_distribution: 'Distribution',
 }
 
 const STATUS_COLORS: Record<string, string> = {
@@ -74,6 +78,9 @@ const STATUS_COLORS: Record<string, string> = {
   company_not_identified: 'bg-destructive-subtle text-destructive border-destructive',
   duplicate_period: 'bg-warning-subtle text-warning border-warning',
   diligence_intake_pending: 'bg-info-subtle text-info border-info',
+  fund_nav: 'bg-info-subtle text-info border-info',
+  fund_capital_call: 'bg-info-subtle text-info border-info',
+  fund_distribution: 'bg-info-subtle text-info border-info',
 }
 
 // ---------------------------------------------------------------------------
@@ -892,7 +899,7 @@ export function EmailReviewModal({
 // ReviewCard
 // ---------------------------------------------------------------------------
 
-function ReviewCard({
+export function ReviewCard({
   item,
   resolving,
   editing,
@@ -920,6 +927,9 @@ function ReviewCard({
   const isUnidentified = item.issue_type === 'company_not_identified'
   const isMetricNotFound = item.issue_type === 'metric_not_found'
   const isDiligenceIntake = item.issue_type === 'diligence_intake_pending'
+  // A fund proposal is corrected field by field on its own review card (/review, or the holding);
+  // one free-text value here would approve it uncorrected, and the server refuses that.
+  const isFund = isFundReviewType(item.issue_type)
 
   return (
     <div className="rounded-card border bg-card p-4 space-y-3">
@@ -1024,7 +1034,7 @@ function ReviewCard({
                 <X className="h-3.5 w-3.5" />
                 {isMetricNotFound ? 'Dismiss' : 'Reject'}
               </Button>
-              {hasValue && (
+              {hasValue && !isFund && (
                 <Button
                   size="sm"
                   variant="outline"

@@ -5,7 +5,8 @@ import { dbError } from '@/lib/api-error'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 import { filterByCompany } from '@/lib/access/scope'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { scopeFundReviews } from '@/lib/portfolio/fof-review-types'
+import { isFundReviewType, scopeFundReviews } from '@/lib/portfolio/fof-review-types'
+import { hasAccess } from '@/lib/access/effective'
 
 type ReviewRow = Pick<
   ParsingReview,
@@ -45,7 +46,10 @@ export async function GET() {
   if (error) return dbError(error, 'review')
 
   // A fund review is one entity's: RLS already narrows it for the Data API; say the same rule here.
+  // And it writes the fund register, the investments feature's: hidden with it.
+  const fundReadable = !!scope?.access && hasAccess(scope.access, 'portfolio', 'read', 'investments')
   const rows = scopeFundReviews((data ?? []) as unknown as ReviewRow[], scope?.access ?? { vehicles: { all: false, ids: [] } })
+    .filter(r => fundReadable || !isFundReviewType(r.issue_type))
 
   // The router's diligence match names a record; keep it only when the caller can see that record
   // (read with their own client, so RLS applies the entity rule).

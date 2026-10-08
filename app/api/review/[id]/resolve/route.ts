@@ -8,7 +8,7 @@ import type { ParsingReview, Metric } from '@/lib/types/database'
 import type { ExtractMetricsResult } from '@/lib/claude/extractMetrics'
 import { logActivity } from '@/lib/activity'
 import { dbError } from '@/lib/api-error'
-import { loadAccessContext } from '@/lib/access/effective'
+import { hasAccess, loadAccessContext } from '@/lib/access/effective'
 import { approveFundReview, type FundApproval } from '@/lib/portfolio/fof-reviews'
 import { isFundReviewType, scopeFundReviews } from '@/lib/portfolio/fof-review-types'
 
@@ -80,6 +80,16 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const access = isFund ? await loadAccessContext(admin, writeCheck.fundId, writeCheck.userId, writeCheck.role) : null
   if (access && scopeFundReviews([review], access).length === 0) {
     return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+  // This route is gated on portfolio alone; a fund review writes the fund register, which is the
+  // investments feature's (the fund-holding routes' gate). Say that gate here.
+  if (access && !hasAccess(access, 'portfolio', 'write', 'investments')) {
+    return NextResponse.json({ error: 'You do not have access to fund holdings.' }, { status: 403 })
+  }
+  // A fund proposal is corrected field by field on its review card (`edits`). The generic
+  // "Edit & Accept" sends one free-text value, which would approve the UNCORRECTED proposal.
+  if (isFund && resolution === 'manually_corrected') {
+    return NextResponse.json({ error: 'Correct it on the review card.' }, { status: 400 })
   }
   const corrected = isFund && resolution !== 'rejected' && !!body.edits && Object.keys(body.edits).length > 0
   const validResolution = (corrected ? 'manually_corrected' : resolution) as 'accepted' | 'rejected' | 'manually_corrected'

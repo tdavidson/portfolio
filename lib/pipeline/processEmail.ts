@@ -26,6 +26,7 @@ import type { ContentBlock } from '@/lib/ai/types'
 import type { Json, IssueType, ProcessingStatus } from '@/lib/types/database'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 import { scopeCompanyRows, visibleVehicleIds } from '@/lib/access/scope'
+import { DEFAULT_FEATURE_VISIBILITY, type FeatureVisibilityMap } from '@/lib/types/features'
 
 type Supabase = ReturnType<typeof createAdminClient>
 
@@ -282,7 +283,7 @@ export async function runPipeline(
   if (isPortfolioReporting) {
     try {
       const { data: holdingRow } = await supabase.from('companies').select('holding_type').eq('id', companyId!).maybeSingle()
-      if ((holdingRow as { holding_type?: string } | null)?.holding_type === 'fund') {
+      if ((holdingRow as { holding_type?: string } | null)?.holding_type === 'fund' && await fundRegisterEnabled(supabase, fundId)) {
         const { proposeFundReviews } = await import('@/lib/portfolio/fof-email')
         // A forwarder's entities bound which entity can be inferred; outside mail is the fund's.
         const access = fundMember
@@ -1122,4 +1123,18 @@ async function isKnownReferrer(supabase: Supabase, fundId: string, email: string
     .eq('email', email)
     .maybeSingle()
   return !!data
+}
+
+/**
+ * Whether the fund register (the investments feature) is on for this fund. Its proposals are
+ * approved on surfaces gated by that feature, so with it off or hidden nobody could act on them —
+ * and the fund-level switch is a ceiling nobody clears (lib/access/effective.ts). Fund-level only:
+ * the pipeline acts for the fund, not a member.
+ */
+async function fundRegisterEnabled(supabase: Supabase, fundId: string): Promise<boolean> {
+  const { data, error } = await supabase.from('fund_settings').select('feature_visibility').eq('fund_id', fundId).maybeSingle()
+  if (error) throw new Error(`the fund's settings could not be read (${error.message})`)
+  const fv = (data as { feature_visibility?: Partial<FeatureVisibilityMap> | null } | null)?.feature_visibility ?? null
+  const level = fv?.investments ?? DEFAULT_FEATURE_VISIBILITY.investments
+  return level !== 'off' && level !== 'hidden'
 }
