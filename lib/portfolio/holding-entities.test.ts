@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vitest'
 import { memoryAdmin } from '@/tests/helpers/memory-admin'
-import { holdingHref } from './holding-href'
+import { holdingHref, soiRowHref } from './holding-href'
 import { holdingEntities, holdersFromTransactions, walletEntity, walletsForEntity, scopeWallets } from './holding-entities'
 import { walletFromRow, balanceFromRow } from './wallets'
 
@@ -100,5 +100,15 @@ describe('wallet row mappers', () => {
       .toEqual({ id: 'w', companyId: 'c', chain: 'ethereum', address: '0x1', label: null, active: true, verifiedAt: null, verificationMethod: null })
     expect(balanceFromRow({ wallet_id: 'w', as_of_date: '2026-03-31', units: '12.5', block_height: 7 }))
       .toEqual({ walletId: 'w', asOfDate: '2026-03-31', units: 12.5, blockHeight: 7 })
+  })
+})
+
+describe('soiRowHref', () => {
+  it("links a schedule row to its holding, on the schedule's entity", () => {
+    expect(soiRowHref({ companyId: 'f1' }, 'v1')).toBe('/companies/f1?entity=v1')
+    expect(soiRowHref({ companyId: 'c1' }, null)).toBe('/companies/c1')
+  })
+  it('has nothing to link for a pooled ledger-only row', () => {
+    expect(soiRowHref({}, 'v1')).toBeNull()
   })
 })

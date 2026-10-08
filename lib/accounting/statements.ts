@@ -8,6 +8,7 @@ import type { CapitalAccount } from './capital-account'
 import { ACTIVITY_FIELDS, emptyAccount } from './capital-account'
 import { apportionCents } from './allocation'
 import type { CompanyStatus } from '@/lib/types/database'
+import type { ChainBalance } from './soi'
 
 function r(n: number): number {
   return Math.round((n + Number.EPSILON) * 100) / 100
@@ -205,6 +206,8 @@ export interface SoiRow {
    *  otherwise unreadable. Absent on ledger-sourced rows, which know no company status. */
   status?: CompanyStatus
   assetType?: string
+  /** Digital assets only: what the entity's watched wallets say beside the recorded units. */
+  chain?: ChainBalance | null
   shares?: number | null
   sharePrice?: number | null
   unrealized?: number

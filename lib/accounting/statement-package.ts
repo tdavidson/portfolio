@@ -15,7 +15,9 @@ import {
   type ScheduleOfInvestments, type ChangesInPartnersCapital, type StatementOfCashFlows,
 } from './statements'
 import { loadPostedLedger, loadEntityNames, type SourcedPosting } from './load'
-import { buildSoiPositions, withFundHoldingFigures, type SoiCompany } from './soi'
+import { buildSoiPositions, withFundHoldingFigures, withChainBalances, type SoiCompany } from './soi'
+import { holdersFromTransactions, walletsForEntity } from '@/lib/portfolio/holding-entities'
+import { walletFromRow, balanceFromRow, type Wallet, type WalletBalance } from '@/lib/portfolio/wallets'
 import { withFairValueLevels, type PriceFeed, type PriceObservation } from '@/lib/portfolio/quotes'
 import { loadFofRaw, computeFofFromRaw, type FofRawData } from '@/lib/portfolio/fof-load'
 import { commitmentSchedule, performanceTable, type CommitmentSchedule, type PerformanceTable } from '@/lib/portfolio/fof-exhibits'
@@ -94,6 +96,10 @@ export interface LedgerData {
    *  holds nothing quoted, which levels every position at 3 — the correct answer. */
   feeds: PriceFeed[]
   observations: PriceObservation[]
+  /** This entity's watched wallets (walletsForEntity) and their readings, for the chain column on
+   *  digital-asset rows. Both empty for an entity holding no digital assets. */
+  wallets?: Wallet[]
+  balances?: WalletBalance[]
   /** Min entryDate across postings — the inception bound for comparison stepping. */
   earliest: string | null
   /** The vehicle's kind, for the words a statement uses (lib/accounting/vocab.ts). Null for a
@@ -122,6 +128,7 @@ export async function loadLedgerData(
     { accounts, postings, capitalPostings, sourcedPostings }, names,
     { data: txns }, { data: companies }, fofRaw,
     { data: feedRows }, { data: obsRows }, kind,
+    { data: walletRows, error: walletsError },
   ] = await Promise.all([
     loadPostedLedger(admin, fundId, group, undefined, undefined, undefined, booksForBasis(opts.basis ?? 'book')),
     loadEntityNames(admin, fundId, group),
@@ -134,7 +141,22 @@ export async function loadLedgerData(
     (admin as any).from('price_feeds').select('*').eq('fund_id', fundId),
     (admin as any).from('price_observations').select('*').eq('fund_id', fundId),
     vehicleKindByName(admin, fundId, group),
+    (admin as any).from('crypto_wallets').select('*').eq('fund_id', fundId),
   ])
+  if (walletsError) throw new Error(`crypto_wallets read failed: ${walletsError.message}`)
+  // Holders come from the FULL fund's transactions (txns is not entity-filtered), so an untagged
+  // wallet on a holding two entities hold counts for neither. Only the wallets that speak for THIS
+  // entity are kept, so a shared token's chain balance is never reported twice.
+  const holders = holdersFromTransactions((txns as any[]) ?? [])
+  const wallets = walletsForEntity((walletRows as any[]) ?? [], group, holders).map(walletFromRow)
+  // Readings by wallet id, never fund-wide: PostgREST's row cap would silently truncate them.
+  let balances: WalletBalance[] = []
+  if (wallets.length > 0) {
+    const { data: balanceRows, error: balancesError } = await (admin as any).from('crypto_wallet_balances').select('*')
+      .in('wallet_id', wallets.map(w => w.id))
+    if (balancesError) throw new Error(`crypto_wallet_balances read failed: ${balancesError.message}`)
+    balances = ((balanceRows as any[]) ?? []).map(balanceFromRow)
+  }
   return {
     accounts, postings, capitalPostings, sourcedPostings, names,
     kind,
@@ -158,6 +180,7 @@ export async function loadLedgerData(
       price: Number(o.price),
       basis: o.basis,
     })) as PriceObservation[],
+    wallets, balances,
     txns: (txns as any[]) ?? [],
     companies: (companies as any[]) ?? [],
     group,
@@ -201,7 +224,11 @@ export function computePayload(data: LedgerData, period: StatementPeriod): State
   const fofPositions = data.fofRaw
     ? computeFofFromRaw(data.fofRaw, period.end ?? new Date().toISOString().slice(0, 10)).positions
     : []
-  const positions = withFundHoldingFigures(allPositions.filter(p => !isRealized(p)), fofPositions)
+  const positions = withChainBalances(
+    withFundHoldingFigures(allPositions.filter(p => !isRealized(p)), fofPositions),
+    data.wallets ?? [], data.balances ?? [],
+    period.end ?? new Date().toISOString().slice(0, 10),
+  )
   // pctOfNetAssets is 0 by construction: a realized position has no fair value to be a
   // percentage of. Stated rather than left undefined, because SoiRow requires it.
   const realizedRows = allPositions.filter(isRealized).map(p => ({ ...p, pctOfNetAssets: 0 }))

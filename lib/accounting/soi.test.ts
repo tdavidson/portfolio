@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildSoiPositions, txnsForVehicle, withFundHoldingFigures, type SoiCompany } from './soi'
+import { buildSoiPositions, txnsForVehicle, withFundHoldingFigures, withChainBalances, type SoiCompany } from './soi'
 
 const co = (over: Partial<SoiCompany> = {}): SoiCompany => ({
   id: 'c1', name: 'Acme Labs, Inc.', status: 'active',
@@ -273,5 +273,29 @@ describe('withFundHoldingFigures', () => {
   it('is a no-op when there is no register at all', () => {
     const rows = [{ companyId: 'f1', holdingType: 'fund' as const, name: 'Acme Growth II' }]
     expect(withFundHoldingFigures(rows, [])).toBe(rows)
+  })
+})
+
+describe('withChainBalances', () => {
+  const wallet = { id: 'w1', companyId: 'k1', chain: 'ethereum', address: '0x1', active: true }
+  const rows = [
+    { companyId: 'k1', holdingType: 'crypto' as const, shares: 10 },
+    { companyId: 'c1', holdingType: 'company' as const, shares: 100 },
+  ]
+
+  it("puts what the chain says beside a digital asset's recorded units", () => {
+    const out = withChainBalances(rows, [wallet], [{ walletId: 'w1', asOfDate: '2026-03-31', units: 12 }], '2026-03-31')
+    expect(out[0].chain).toEqual({ observedUnits: 12, delta: 2, agrees: false, asOf: '2026-03-31' })
+    expect(out[1]).toEqual(rows[1])
+  })
+
+  it('says the chain agrees inside the tolerance the close uses', () => {
+    const out = withChainBalances(rows, [wallet], [{ walletId: 'w1', asOfDate: '2026-03-31', units: 10.0000001 }], '2026-03-31')
+    expect(out[0].chain?.agrees).toBe(true)
+  })
+
+  it('says nothing for an asset with no wallet read by the date', () => {
+    expect(withChainBalances(rows, [wallet], [], '2026-03-31')[0].chain).toBeNull()
+    expect(withChainBalances(rows, [], [], '2026-03-31')[0].chain).toBeNull()
   })
 })

@@ -11,6 +11,7 @@
 
 import { computeSummary } from '@/lib/investments'
 import { classifyNewFollowOn } from './fund-timeseries'
+import { observedByHolding, BALANCE_TOLERANCE, type Wallet, type WalletBalance } from '@/lib/portfolio/wallets'
 import type { FairValueLevel } from '@/lib/portfolio/quotes'
 import type { InvestmentTransaction, CompanyStatus } from '@/lib/types/database'
 
@@ -353,5 +354,41 @@ export function withFundHoldingFigures<T extends { companyId?: string; holdingTy
       navAsOf: position.navAsOf,
       stalenessDays: position.stalenessDays,
     }
+  })
+}
+
+/** What the watched wallets say beside a digital asset's recorded units. */
+export interface ChainBalance {
+  /** Summed latest readings of the entity's wallets on or before the date. */
+  observedUnits: number
+  /** observed - recorded. Positive: the chain holds more than the books know about. */
+  delta: number
+  /** Within BALANCE_TOLERANCE of the recorded units, the test the close applies. */
+  agrees: boolean
+  /** The oldest reading contributing to observedUnits. */
+  asOf: string
+}
+
+/**
+ * Decorate digital-asset rows with the chain's answer (lib/portfolio/wallets.ts). Pure. `wallets`
+ * must already be the schedule's entity's (walletsForEntity), so one entity's schedule never
+ * reports another's addresses. A row with no wallet read by the date gets `chain: null`; other
+ * kinds pass through untouched.
+ */
+export function withChainBalances<T extends { companyId?: string; holdingType?: 'company' | 'fund' | 'crypto'; shares?: number | null }>(
+  rows: T[],
+  wallets: Wallet[],
+  balances: WalletBalance[],
+  asOf: string,
+): (T & { chain?: ChainBalance | null })[] {
+  const observed = observedByHolding(wallets, balances, asOf)
+  return rows.map(row => {
+    if (row.holdingType !== 'crypto' || !row.companyId) return row
+    const o = observed.get(row.companyId)
+    if (!o || o.oldestAsOf === null) return { ...row, chain: null }
+    const recorded = row.shares ?? 0
+    const delta = o.observedUnits - recorded
+    const fraction = recorded === 0 ? (delta === 0 ? 0 : 1) : Math.abs(delta) / Math.abs(recorded)
+    return { ...row, chain: { observedUnits: o.observedUnits, delta, agrees: fraction <= BALANCE_TOLERANCE, asOf: o.oldestAsOf } }
   })
 }

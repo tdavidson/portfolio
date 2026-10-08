@@ -5,10 +5,11 @@ import { useCallback, useEffect, useState } from 'react'
 import { Loader2, AlertTriangle, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCurrency, formatCurrencyPrice, formatSharePrice } from '@/components/currency-context'
-import { useLedgerFetch, useVehicleBase } from '@/components/accounting-vehicle'
+import { useLedgerFetch, useVehicle, useVehicleBase } from '@/components/accounting-vehicle'
 import { PeriodPicker } from '@/components/accounting/period-picker'
 import type { PeriodPreset } from '@/lib/accounting/statement-period'
 import { EmptyState } from '@/components/ui/empty-state'
+import { soiRowHref } from '@/lib/portfolio/holding-href'
 import { tieOutState } from '@/lib/accounting/tie-out-state'
 
 interface SoiRow {
@@ -29,6 +30,7 @@ interface SoiRow {
   ledgerCost?: number
   ledgerFairValue?: number
   tiesOut?: boolean
+  chain?: { observedUnits: number; delta: number; agrees: boolean; asOf: string } | null
   // Underlying funds only (holdingType === 'fund').
   commitment?: number
   called?: number
@@ -65,6 +67,7 @@ export function ScheduleOfInvestmentsView() {
   const [asOf, setAsOf] = useState('') // '' = latest
   const lf = useLedgerFetch()
   const base = useVehicleBase()
+  const { vehicleId } = useVehicle()
 
   const load = useCallback(() => {
     setLoading(true)
@@ -95,6 +98,12 @@ export function ScheduleOfInvestmentsView() {
     // Level 3 by construction, and a column repeating "3" on every row is noise that makes the
     // one number a reader should notice harder to find.
     const showLevel = (soi.byLevel?.length ?? 0) > 0
+
+    // Every row opens its holding, where it is recorded and configured, on this entity.
+    const nameCell = (r: SoiRow) => {
+      const href = soiRowHref(r, vehicleId)
+      return href ? <Link href={href} className="hover:underline underline-offset-2">{r.name}</Link> : r.name
+    }
 
     const groupTable = (title: string, groups: SoiGroup[]) => (
       <div className="border rounded-lg overflow-x-auto">
@@ -141,10 +150,8 @@ export function ScheduleOfInvestmentsView() {
               value {fmt(soi.totalFairValue)}; the books carry {fmt(soi.ledgerCost)} / {fmt(soi.ledgerFairValue)}.
               Variance: cost <span className="tabular-nums">{fmt(soi.costVariance)}</span>, fair
               value <span className="tabular-nums">{fmt(soi.fairValueVariance)}</span>.
-              Either some transactions have never been put on the ledger, or an entry was edited after it was
-              booked.{' '}
-              <Link href={base ? `${base}/status` : '/funds/status'} className="underline underline-offset-2">Put them on the ledger</Link>, or{' '}
-              <Link href={base ? `${base}/journal` : '/funds/journal'} className="underline underline-offset-2">check the journal</Link>.
+              Either an entry was edited after it was booked, or some transactions are not on the ledger yet.{' '}
+              <Link href={base ? `${base}/journal` : '/funds/journal'} className="underline underline-offset-2">Check the journal</Link>.
             </span>
           </div>
         )
@@ -176,7 +183,7 @@ export function ScheduleOfInvestmentsView() {
               {fundRows.map((r, i) => (
                 <tr key={r.name + i} className="border-b last:border-b-0 hover:bg-muted/20">
                   <td className="px-3 py-2">
-                    {r.name}
+                    {nameCell(r)}
                     {r.tiesOut === false && (
                       <span className="ml-1.5 text-[10px] uppercase tracking-wider px-1 py-0.5 rounded bg-warning/15 text-warning">off ledger</span>
                     )}
@@ -221,7 +228,9 @@ export function ScheduleOfInvestmentsView() {
         // stage or country, so it gets its own heading rather than three blank columns.
         ['Digital assets', cryptoRows] as const,
         [(fundRows.length > 0 || cryptoRows.length > 0) ? 'Direct investments' : 'Investment', companyRows] as const,
-      ]).filter(([, rs]) => rs.length > 0).map(([heading, rs]) => (
+      ]).filter(([, rs]) => rs.length > 0).map(([heading, rs]) => {
+      const isCrypto = heading === 'Digital assets'
+      return (
       <div key={heading} className="border rounded-lg overflow-x-auto">
         <table className="w-full text-sm whitespace-nowrap">
           <thead>
@@ -231,6 +240,7 @@ export function ScheduleOfInvestmentsView() {
               <th className="text-left px-3 py-2 font-medium">Type</th>
               {showLevel && <th className="text-left px-3 py-2 font-medium">Level</th>}
               <th className="text-right px-3 py-2 font-medium">Shares</th>
+              {isCrypto && <th className="text-right px-3 py-2 font-medium">On chain</th>}
               <th className="text-right px-3 py-2 font-medium">Price</th>
               <th className="text-right px-3 py-2 font-medium">Cost</th>
               <th className="text-right px-3 py-2 font-medium">Fair value</th>
@@ -242,7 +252,7 @@ export function ScheduleOfInvestmentsView() {
             {rs.map((r, i) => (
               <tr key={r.name + i} className="border-b last:border-b-0 hover:bg-muted/20">
                 <td className="px-3 py-2">
-                  {r.name}
+                  {nameCell(r)}
                   {/* A per-company tie-out is only possible once the company has its own
                       accounts. The aggregate line can't tell you which position is off. */}
                   {r.tiesOut === false && (
@@ -255,6 +265,13 @@ export function ScheduleOfInvestmentsView() {
                   <td className="px-3 py-2 text-xs text-muted-foreground tabular-nums">{r.valuationLevel ?? 3}</td>
                 )}
                 <td className="px-3 py-2 text-right tabular-nums text-xs">{num(r.shares)}</td>
+                {isCrypto && (
+                  <td className="px-3 py-2 text-right tabular-nums text-xs">
+                    {!r.chain ? <span className="text-muted-foreground">—</span>
+                      : r.chain.agrees ? <span className="text-muted-foreground" title={`Read ${r.chain.asOf}`}>agrees</span>
+                      : <span className="text-warning" title={`Chain ${num(r.chain.observedUnits, 4)}, read ${r.chain.asOf}`}>{r.chain.delta > 0 ? '+' : '−'}{num(Math.abs(r.chain.delta), 4)}</span>}
+                  </td>
+                )}
                 <td className="px-3 py-2 text-right tabular-nums text-xs">{r.sharePrice == null ? '—' : formatSharePrice(r.sharePrice, currency)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{fmt(r.cost)}</td>
                 <td className="px-3 py-2 text-right tabular-nums">{fmt(r.fairValue)}</td>
@@ -265,7 +282,7 @@ export function ScheduleOfInvestmentsView() {
           </tbody>
           <tfoot>
             <tr className="border-t bg-muted/30 font-semibold">
-              <td className="px-3 py-2" colSpan={showLevel ? 6 : 5}>Total</td>
+              <td className="px-3 py-2" colSpan={(showLevel ? 6 : 5) + (isCrypto ? 1 : 0)}>Total</td>
               <td className="px-3 py-2 text-right tabular-nums">{fmt(rs.reduce((a, r) => a + r.cost, 0))}</td>
               <td className="px-3 py-2 text-right tabular-nums">{fmt(rs.reduce((a, r) => a + r.fairValue, 0))}</td>
               <td />
@@ -274,7 +291,8 @@ export function ScheduleOfInvestmentsView() {
           </tfoot>
         </table>
       </div>
-      ))}
+      )
+      })}
 
       {/* Every section together, against the ledger — the control total is unchanged by the split. */}
       {[fundRows, cryptoRows, companyRows].filter(rs => rs.length > 0).length > 1 && (

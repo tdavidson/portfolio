@@ -7,3 +7,9 @@ export function holdingHref(companyId: string, vehicleId?: string | null): strin
   const base = `/companies/${encodeURIComponent(companyId)}`
   return vehicleId ? `${base}?entity=${encodeURIComponent(vehicleId)}` : base
 }
+
+/** A schedule-of-investments row's link, on the entity the schedule is for. Null for a pooled
+ *  ledger-only row, which names no holding. */
+export function soiRowHref(row: { companyId?: string }, vehicleId?: string | null): string | null {
+  return row.companyId ? holdingHref(row.companyId, vehicleId) : null
+}
