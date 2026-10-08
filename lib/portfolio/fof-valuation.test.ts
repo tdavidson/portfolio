@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { periodEndMarks, valuationBasisNote, managerTieOut, fofCloseIssues, STALE_NAV_DAYS } from './fof-valuation'
+import { companiesWithPendingNotices, periodEndMarks, valuationBasisNote, managerTieOut, fofCloseIssues, STALE_NAV_DAYS } from './fof-valuation'
 import type { FundPosition } from './fof-metrics'
 
 const pos = (over: Partial<FundPosition>): FundPosition => ({
@@ -139,6 +139,31 @@ describe('fofCloseIssues', () => {
     expect(warnings).toContain(
       "Waiting on the manager's statement for Acme Ventures III — its value is the last statement plus the flows since.",
     )
+  })
+
+  it('blocks, not warns, when the gap is a draft call dated after the newest statement', () => {
+    const pending = companiesWithPendingNotices(
+      [pos({ carryingValue: 4_500_000 })],
+      [{ company_id: 'f1', event_date: '2025-11-15', status: 'draft' }],
+      '2025-12-31',
+    )
+    const { blockers, warnings } = fofCloseIssues([pos({ carryingValue: 4_500_000 })], new Map([['f1', 4_000_000]]), '2025-12-31', pending)
+    expect(blockers).toHaveLength(1)
+    expect(blockers[0]).toMatch(/confirm the notices since it/)
+    expect(warnings.some(w => /Waiting on/.test(w))).toBe(false)
+  })
+
+  it('warns when only a confirmed distribution follows the statement, and ignores drafts outside the window', () => {
+    const positions = [pos({ carryingValue: 3_800_000 })]
+    const pending = companiesWithPendingNotices(positions, [
+      { company_id: 'f1', event_date: '2025-11-15', status: 'confirmed' },
+      { company_id: 'f1', event_date: '2025-08-01', status: 'draft' },   // before the NAV
+      { company_id: 'f1', event_date: '2026-01-10', status: 'draft' },   // after the period
+    ], '2025-12-31')
+    expect(pending.size).toBe(0)
+    const { blockers, warnings } = fofCloseIssues(positions, new Map([['f1', 4_000_000]]), '2025-12-31', pending)
+    expect(blockers).toEqual([])
+    expect(warnings.some(w => /Waiting on the manager's statement/.test(w))).toBe(true)
   })
 
   it('still blocks when the ledger carries neither the statement nor the rolled-forward value', () => {

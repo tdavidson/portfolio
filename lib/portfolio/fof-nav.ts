@@ -58,7 +58,7 @@ export interface NavBooking {
 }
 
 export type NavSaveResult =
-  | { ok: true; navId: string; booking: NavBooking; later?: NavBooking }
+  | { ok: true; navId: string; booking: NavBooking; later?: NavBooking[] }
   | { ok: false; error: string }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -67,7 +67,7 @@ const NO_ENTITY = 'Saved. This statement names no entity, so no mark was booked 
 function navColumns(f: Partial<NavFields>): Record<string, unknown> {
   const out: Record<string, unknown> = {}
   if (f.reportedNav !== undefined) out.reported_nav = f.reportedNav
-  if (f.basis !== undefined) out.basis = BASES.includes(f.basis) ? f.basis : 'final'
+  if (f.basis !== undefined) out.basis = f.basis
   if (f.receivedDate !== undefined) out.received_date = f.receivedDate
   if (f.reportedContributions !== undefined) out.reported_contributions = f.reportedContributions
   if (f.reportedDistributions !== undefined) out.reported_distributions = f.reportedDistributions
@@ -77,6 +77,7 @@ function navColumns(f: Partial<NavFields>): Record<string, unknown> {
 
 function invalid(f: Partial<NavFields> & { asOfDate?: string }): string | null {
   if (f.asOfDate !== undefined && !ISO_DATE.test(f.asOfDate)) return 'asOfDate must be a date (YYYY-MM-DD).'
+  if (f.basis !== undefined && !BASES.includes(f.basis)) return 'basis must be final, preliminary or estimate.'
   if (f.reportedNav !== undefined && !Number.isFinite(f.reportedNav)) return 'reportedNav must be a number.'
   for (const k of ['reportedContributions', 'reportedDistributions', 'reportedUnfunded'] as const) {
     const v = f[k]
@@ -158,7 +159,7 @@ export async function deleteNavStatement(
   fundId: string,
   userId: string | null,
   navId: string,
-): Promise<{ ok: true; later?: NavBooking } | { ok: false; error: string }> {
+): Promise<{ ok: true; later?: NavBooking[] } | { ok: false; error: string }> {
   const { data: nav } = await (admin as any).from('fund_nav_statements')
     .select('*').eq('fund_id', fundId).eq('id', navId).maybeSingle()
   if (!nav) return { ok: false, error: 'That statement no longer exists.' }
@@ -169,9 +170,9 @@ export async function deleteNavStatement(
   const { error } = await (admin as any).from('fund_nav_statements').delete().eq('id', navId).eq('fund_id', fundId)
   if (error) return { ok: false, error: error.message }
   const later = nav.vehicle_id
-    ? await rebookLatestNav(admin, fundId, userId, { companyId: nav.company_id, vehicleId: nav.vehicle_id, since: nav.as_of_date, inclusive: false })
-    : null
-  return later ? { ok: true, later } : { ok: true }
+    ? await rebookNavsFrom(admin, fundId, userId, { companyId: nav.company_id, vehicleId: nav.vehicle_id, since: nav.as_of_date, inclusive: false })
+    : []
+  return later.length ? { ok: true, later } : { ok: true }
 }
 
 async function afterChange(
@@ -179,11 +180,11 @@ async function afterChange(
   navId: string, companyId: string, vehicleId: string | null, asOfDate: string,
 ): Promise<NavSaveResult> {
   const booking = await bookNavMark(admin, fundId, userId, navId)
-  // A newer statement was booked against a ledger that carried this one's old mark.
+  // Every newer statement was booked against a ledger that carried this one's old mark.
   const later = vehicleId
-    ? await rebookLatestNav(admin, fundId, userId, { companyId, vehicleId, since: asOfDate, inclusive: false })
-    : null
-  return { ok: true, navId, booking, ...(later ? { later } : {}) }
+    ? await rebookNavsFrom(admin, fundId, userId, { companyId, vehicleId, since: asOfDate, inclusive: false })
+    : []
+  return { ok: true, navId, booking, ...(later.length ? { later } : {}) }
 }
 
 /**
@@ -211,42 +212,73 @@ export async function bookNavMark(
   userId: string | null,
   navId: string,
 ): Promise<NavBooking> {
+  let unbooked = false
+  // After the earlier mark was taken back, every failure has to say so: the ledger now carries none.
+  const fail = (message: string): NavBooking => ({
+    status: 'refused',
+    message: unbooked ? `${message} Its earlier mark was taken back, so the ledger carries no mark for this statement.` : message,
+  })
   try {
     const { data: nav } = await (admin as any).from('fund_nav_statements')
       .select('*').eq('fund_id', fundId).eq('id', navId).maybeSingle()
     if (!nav) return { status: 'refused', message: 'That statement no longer exists.' }
 
-    if (nav.investment_transaction_id) {
-      const refused = await unbook(admin, fundId, userId, nav)
-      if (refused) return refused
-    }
-    if (!nav.vehicle_id) return { status: 'no_entity', message: NO_ENTITY }
-    const group = await vehicleNameById(admin, fundId, nav.vehicle_id)
-    if (!group) return { status: 'no_entity', message: NO_ENTITY }
-
-    const { data: settings } = await (admin as any).from('vehicle_accounting_settings')
-      .select('ledger_start_date').eq('fund_id', fundId).eq('vehicle_id', nav.vehicle_id).maybeSingle()
+    const group = nav.vehicle_id ? await vehicleNameById(admin, fundId, nav.vehicle_id) : null
+    const { data: settings } = nav.vehicle_id
+      ? await (admin as any).from('vehicle_accounting_settings')
+          .select('ledger_start_date').eq('fund_id', fundId).eq('vehicle_id', nav.vehicle_id).maybeSingle()
+      : { data: null }
     const ledgerStartDate: string | null = settings?.ledger_start_date ?? null
     const asOf: string = nav.as_of_date
-    if (ledgerStartDate && asOf < ledgerStartDate) {
-      return { status: 'before_ledger_start', message: `Saved. It is dated before this entity's ledger starts (${ledgerStartDate}), so no mark was booked.` }
+    const bookable = !!group && !(ledgerStartDate && asOf < ledgerStartDate)
+
+    // The mark this statement implies against what the ledger carries right now.
+    const compute = async () => {
+      const [fof, ledger] = await Promise.all([
+        loadFofData(admin, fundId, asOf, group!),
+        loadPostedLedger(admin, fundId, group!, asOf),
+      ])
+      const position = fof.positions.find(p => p.companyId === nav.company_id)
+      const mark = position
+        ? periodEndMarks([position], ledgerCarryingByHolding(ledger.accounts as any, ledger.postings as any), asOf)[0] ?? null
+        : null
+      const draft = mark
+        ? transactionForNav(
+            { companyId: nav.company_id, asOfDate: asOf, reportedNav: mark.derivedCarrying, basis: nav.basis },
+            { carriedValue: mark.ledgerCarrying, ledgerStartDate },
+          )
+        : null
+      return { position, draft }
     }
 
-    const [fof, ledger] = await Promise.all([
-      loadFofData(admin, fundId, asOf, group),
-      loadPostedLedger(admin, fundId, group, asOf),
-    ])
-    const position = fof.positions.find(p => p.companyId === nav.company_id)
-    const mark = position
-      ? periodEndMarks([position], ledgerCarryingByHolding(ledger.accounts as any, ledger.postings as any), asOf)[0] ?? null
-      : null
-    const draft = mark
-      ? transactionForNav(
-          { companyId: nav.company_id, asOfDate: asOf, reportedNav: mark.derivedCarrying, basis: nav.basis },
-          { carriedValue: mark.ledgerCarrying, ledgerStartDate },
-        )
-      : null
-    if (!draft) return { status: 'no_change', message: 'Saved. The ledger already carries this value, so there was no mark to book.' }
+    if (nav.investment_transaction_id) {
+      // Same reported NAV, same carrying value with the existing mark in place: it is already right.
+      // Retracting and re-posting would change nothing, and would fail in a closed period for it.
+      if (bookable) {
+        const current = await compute()
+        if (current.position && !current.draft) {
+          return { status: 'no_change', transactionId: nav.investment_transaction_id, message: 'Saved. Its mark already matches this statement, so nothing was re-booked.' }
+        }
+      }
+      const refused = await unbook(admin, fundId, userId, nav)
+      if (refused) return refused
+      unbooked = true
+    }
+    if (!group) return { status: 'no_entity', message: NO_ENTITY + (unbooked ? ' Its earlier mark was taken back.' : '') }
+    if (!bookable) {
+      return { status: 'before_ledger_start', message: `Saved. It is dated before this entity's ledger starts (${ledgerStartDate}), so no mark was booked.${unbooked ? ' Its earlier mark was taken back.' : ''}` }
+    }
+
+    const { position, draft } = await compute()
+    if (!draft) {
+      return {
+        status: 'no_change',
+        message: (position
+          ? 'Saved. The ledger already carries this value, so there was no mark to book.'
+          : 'Saved, but this entity holds no position in the fund yet, so no mark was booked.')
+          + (unbooked ? ' Its earlier mark was taken back.' : ''),
+      }
+    }
 
     const { data: holding } = await admin.from('companies')
       .select('name, holding_type').eq('id', nav.company_id).eq('fund_id', fundId).maybeSingle()
@@ -257,13 +289,13 @@ export async function bookNavMark(
       valuation_change_source: 'nav',
       notes: `Manager NAV as of ${asOf}`,
     }).select('*').single()
-    if (error || !txn) return { status: 'refused', message: `Saved, but the mark could not be recorded: ${error?.message ?? 'insert failed'}` }
+    if (error || !txn) return fail(`Saved, but the mark could not be recorded: ${error?.message ?? 'insert failed'}`)
 
     const derived = await draftEntryForTransaction(admin, fundId, userId, txn, (holding as any)?.name ?? 'Fund')
     if (!derived.drafted) {
       // No entry, no mark: a transaction left behind would be a value the ledger does not carry.
       await (admin as any).from('investment_transactions').delete().eq('id', txn.id).eq('fund_id', fundId)
-      return { status: 'refused', message: `Saved, but its mark was not booked. ${derived.reason ?? ''}`.trim() }
+      return fail(`Saved, but its mark was not booked. ${derived.reason ?? ''}`.trim())
     }
     await (admin as any).from('fund_nav_statements')
       .update({ investment_transaction_id: txn.id }).eq('id', nav.id).eq('fund_id', fundId)
@@ -276,21 +308,40 @@ export async function bookNavMark(
       message: posted ? 'Saved, and its mark posted to the ledger.' : `Saved; its mark is kept as a draft entry: ${derived.reason ?? 'the partner allocation failed'}`,
     }
   } catch (e) {
-    return { status: 'refused', message: `Saved, but its mark was not booked: ${(e as Error).message}` }
+    return fail(`Saved, but its mark was not booked: ${(e as Error).message}`)
   }
 }
 
-/** Re-book the newest statement for a holding and entity dated on (or strictly) after `since`. */
+/**
+ * Re-book EVERY statement for a holding and entity dated after `since` (or on it, when inclusive),
+ * oldest first, so each is derived against a ledger that already holds the earlier corrected marks.
+ * A refusal (a closed period) does not stop the rest; each booking is returned, refusals included.
+ */
+export async function rebookNavsFrom(
+  admin: SupabaseClient,
+  fundId: string,
+  userId: string | null,
+  at: { companyId: string; vehicleId: string; since: string; inclusive: boolean },
+): Promise<NavBooking[]> {
+  const q = (admin as any).from('fund_nav_statements').select('id')
+    .eq('fund_id', fundId).eq('company_id', at.companyId).eq('vehicle_id', at.vehicleId)
+  const { data } = await (at.inclusive ? q.gte('as_of_date', at.since) : q.gt('as_of_date', at.since))
+    .order('as_of_date', { ascending: true })
+  const out: NavBooking[] = []
+  for (const row of ((data as { id: string }[] | null) ?? [])) out.push(await bookNavMark(admin, fundId, userId, row.id))
+  return out
+}
+
+/**
+ * Single-result form kept for callers that report one outcome (Task 4's confirm path): the first
+ * refusal if any statement was refused, otherwise the newest booking; null when none is dated then.
+ */
 export async function rebookLatestNav(
   admin: SupabaseClient,
   fundId: string,
   userId: string | null,
   at: { companyId: string; vehicleId: string; since: string; inclusive: boolean },
 ): Promise<NavBooking | null> {
-  const q = (admin as any).from('fund_nav_statements').select('id')
-    .eq('fund_id', fundId).eq('company_id', at.companyId).eq('vehicle_id', at.vehicleId)
-  const { data } = await (at.inclusive ? q.gte('as_of_date', at.since) : q.gt('as_of_date', at.since))
-    .order('as_of_date', { ascending: false }).limit(1)
-  const latest = ((data as { id: string }[] | null) ?? [])[0]
-  return latest ? bookNavMark(admin, fundId, userId, latest.id) : null
+  const all = await rebookNavsFrom(admin, fundId, userId, at)
+  return all.find(b => b.status === 'refused') ?? all[all.length - 1] ?? null
 }

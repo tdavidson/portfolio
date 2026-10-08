@@ -31,7 +31,7 @@ vi.mock('@/lib/accounting/from-portfolio', () => ({
   draftEntryForTransaction: h.derive,
   retractEntriesForTransaction: h.retract,
 }))
-import { deleteNavStatement, editNavStatement, rebookLatestNav, saveNavStatement, type NavInput } from './fof-nav'
+import { deleteNavStatement, editNavStatement, rebookLatestNav, rebookNavsFrom, saveNavStatement, type NavInput } from './fof-nav'
 
 let m: ReturnType<typeof memoryAdmin>
 beforeEach(() => {
@@ -154,9 +154,63 @@ describe('editing and deleting a statement', () => {
     const q1 = await nav()                                       // +200 at March
     await nav({ asOfDate: '2026-06-30', reportedNav: 1500 })     // +300 at June
     const r = await editNavStatement(m.admin, 'f', 'u', navId(q1), { reportedNav: 1100 })
-    expect(r).toMatchObject({ ok: true, booking: { delta: 100 }, later: { status: 'booked', delta: 400 } })
+    expect(r).toMatchObject({ ok: true, booking: { delta: 100 }, later: [{ status: 'booked', delta: 400 }] })
     expect(carried('2026-03-31')).toBe(1100)
     expect(carried('2026-06-30')).toBe(1500)
+  })
+
+  it('editing the first of three statements re-books the two after it, oldest first, each correct', async () => {
+    const q1 = await nav()                                       // 1200 at March
+    await nav({ asOfDate: '2026-06-30', reportedNav: 1500 })
+    await nav({ asOfDate: '2026-09-30', reportedNav: 1800 })
+    const r = await editNavStatement(m.admin, 'f', 'u', navId(q1), { reportedNav: 1100 })
+    expect(r).toMatchObject({ ok: true, later: [{ status: 'booked', delta: 400 }, { status: 'no_change' }] })
+    expect(carried('2026-03-31')).toBe(1100)
+    expect(carried('2026-06-30')).toBe(1500)
+    expect(carried('2026-09-30')).toBe(1800)
+    expect(h.booked.size).toBe(3)
+  })
+
+  it('a closed period on a middle statement does not stop the ones after it, and is reported', async () => {
+    const q1 = await nav()
+    await nav({ asOfDate: '2026-06-30', reportedNav: 1500 })
+    await nav({ asOfDate: '2026-09-30', reportedNav: 1800 })
+    const midTxn = (m.tables.fund_nav_statements as any[]).find(n => n.as_of_date === '2026-06-30').investment_transaction_id
+    h.retract.mockImplementation(async (_a: unknown, _f: string, txnId: string) => {
+      if (txnId === midTxn) return { retracted: 0, reason: 'Its journal entry is dated 2026-06-30, inside a closed period.' }
+      h.booked.delete(txnId)
+      return { retracted: 1 }
+    })
+    const r = await editNavStatement(m.admin, 'f', 'u', navId(q1), { reportedNav: 1100 })
+    expect(r).toMatchObject({ ok: true, later: [{ status: 'refused', message: expect.stringMatching(/closed period/) }, { status: 'booked' }] })
+    expect(carried('2026-09-30')).toBe(1800)
+  })
+
+  it('re-saving identical figures, or editing only the received date, posts nothing and ignores a closed period', async () => {
+    const saved = await nav()
+    h.derive.mockClear(); h.retract.mockClear()
+    h.retractRefuses = 'Its journal entry is dated 2026-03-31, inside a closed period.'
+    const again = await nav()
+    expect(again).toMatchObject({ ok: true, booking: { status: 'no_change', transactionId: expect.any(String) } })
+    const edit = await editNavStatement(m.admin, 'f', 'u', navId(saved), { receivedDate: '2026-05-01' })
+    expect(edit).toMatchObject({ ok: true, booking: { status: 'no_change' } })
+    expect(h.derive).not.toHaveBeenCalled()
+    expect(h.retract).not.toHaveBeenCalled()
+    expect(m.tables.fund_nav_statements[0].received_date).toBe('2026-05-01')
+    expect(carried()).toBe(1200)
+  })
+
+  it('refuses an invalid basis on edit instead of coercing it', async () => {
+    const saved = await nav()
+    const r = await editNavStatement(m.admin, 'f', 'u', navId(saved), { basis: 'bogus' as any })
+    expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/basis/) })
+  })
+
+  it('says the earlier mark was taken back when the re-booking then fails', async () => {
+    const saved = await nav()
+    h.closed = '2026-03-31'
+    const r = await editNavStatement(m.admin, 'f', 'u', navId(saved), { reportedNav: 1300 })
+    expect(r).toMatchObject({ ok: true, booking: { status: 'refused', message: expect.stringMatching(/earlier mark was taken back/) } })
   })
 
   it('deleting retracts the mark and removes the transaction and the statement', async () => {
@@ -175,6 +229,12 @@ describe('editing and deleting a statement', () => {
     expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/closed period/) })
     expect(m.tables.fund_nav_statements).toHaveLength(1)
     expect(m.tables.investment_transactions).toHaveLength(1)
+  })
+})
+
+describe('rebookNavsFrom', () => {
+  it('returns an empty list when nothing is dated then', async () => {
+    expect(await rebookNavsFrom(m.admin, 'f', 'u', { companyId: 'h1', vehicleId: 'v1', since: '2026-04-01', inclusive: true })).toEqual([])
   })
 })
 

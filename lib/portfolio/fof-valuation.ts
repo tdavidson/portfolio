@@ -56,6 +56,27 @@ export function periodEndMarks(
 }
 
 /**
+ * Holdings with a DRAFT capital event dated after their newest NAV and on or before the period
+ * end. The roll-forward counts drafts, so a gap caused by one is a notice nobody confirmed — a
+ * blocker — and not just a manager who has not reported yet. `events` are raw fund_capital_events
+ * rows, already scoped to the entity.
+ */
+export function companiesWithPendingNotices(
+  positions: FundPosition[],
+  events: { company_id: string; event_date: string; status?: string | null }[],
+  periodEnd: string,
+): Set<string> {
+  const navAsOf = new Map(positions.map(p => [p.companyId, p.navAsOf]))
+  const out = new Set<string>()
+  for (const e of events) {
+    if (e.status !== 'draft' || e.event_date > periodEnd) continue
+    const nav = navAsOf.get(e.company_id)
+    if (nav && e.event_date > nav) out.add(e.company_id)
+  }
+  return out
+}
+
+/**
  * The fund-of-funds half of the pre-close check, as a PURE function so it can be exercised
  * without a database — `lib/accounting/close.ts` loads the inputs and splices the result into
  * its existing `blockers` / `warnings` arrays. No new rule engine: `closeThrough` already
@@ -71,6 +92,8 @@ export function fofCloseIssues(
   positions: FundPosition[],
   ledgerCarrying: Map<string, number>,
   periodEnd: string,
+  /** Holdings with an unconfirmed notice dated after their newest NAV — see companiesWithPendingNotices. */
+  pendingNotices: ReadonlySet<string> = new Set(),
 ): { blockers: string[]; warnings: string[] } {
   const blockers: string[] = []
   const warnings: string[] = []
@@ -81,7 +104,7 @@ export function fofCloseIssues(
     // The ledger carries exactly the newest statement, and the whole gap is the cash flow dated
     // after it: nothing is unbooked, the manager just has not reported past that flow yet.
     // Blocking would make every quarter-end with a late statement unclosable.
-    if (p && p.reportedNav !== null && Math.abs(m.ledgerCarrying - p.reportedNav) < CENT) {
+    if (p && p.reportedNav !== null && !pendingNotices.has(m.companyId) && Math.abs(m.ledgerCarrying - p.reportedNav) < CENT) {
       warnings.push(
         `Waiting on the manager's statement for ${m.name} — its value is the last statement plus the flows since.`,
       )

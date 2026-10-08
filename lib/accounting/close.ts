@@ -27,7 +27,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadPostedLedger, loadOwnership, loadEntityNames } from './load'
 import type { FundPosition } from '@/lib/portfolio/fof-metrics'
 import { loadFofData, ledgerCarryingByHolding } from '@/lib/portfolio/fof-load'
-import { fofCloseIssues } from '@/lib/portfolio/fof-valuation'
+import { fofCloseIssues, companiesWithPendingNotices } from '@/lib/portfolio/fof-valuation'
 import { quoteCloseIssues, type PriceFeed, type PriceObservation, type QuotedPosition } from '@/lib/portfolio/quotes'
 import { walletCloseIssues, type Wallet, type WalletBalance } from '@/lib/portfolio/wallets'
 import { lotIssues, isLotMethod, type LotMethod } from '@/lib/portfolio/lots'
@@ -458,7 +458,7 @@ async function loadFofCloseInputs(
   fundId: string,
   group: string,
   asOf: string,
-): Promise<{ positions: FundPosition[]; ledgerCarrying: Map<string, number> } | null> {
+): Promise<{ positions: FundPosition[]; ledgerCarrying: Map<string, number>; pendingNotices: Set<string> } | null> {
   const [fof, ledger] = await Promise.all([
     loadFofData(admin, fundId, asOf, group),
     // loadPostedLedger already paginates (a vehicle can hold more than the PostgREST 1000-row
@@ -470,6 +470,7 @@ async function loadFofCloseInputs(
   return {
     positions: fof.positions,
     ledgerCarrying: ledgerCarryingByHolding(ledger.accounts, ledger.postings),
+    pendingNotices: companiesWithPendingNotices(fof.positions, fof.events, asOf),
   }
 }
 
@@ -699,7 +700,7 @@ async function checkReadiness(
   // derived from the data, never a setting (lib/portfolio/fof.ts).
   const fof = await loadFofCloseInputs(admin, fundId, group, end)
   if (fof) {
-    const issues = fofCloseIssues(fof.positions, fof.ledgerCarrying, end)
+    const issues = fofCloseIssues(fof.positions, fof.ledgerCarrying, end, fof.pendingNotices)
     blockers.push(...issues.blockers)
     warnings.push(...issues.warnings)
   }
