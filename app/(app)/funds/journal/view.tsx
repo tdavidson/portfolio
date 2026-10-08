@@ -22,6 +22,7 @@ import { chunkIds, describeSkipped, summarizeSelection } from '@/lib/accounting/
 import { DownloadMenu } from '@/components/accounting/download-menu'
 import { EntryModal } from '../entry-modal'
 import { EmptyState } from '@/components/ui/empty-state'
+import { releaseNotice, type ReleaseReport } from '@/lib/accounting/release-notice'
 
 interface Posting { id: string; account_id: string; account_code: string | null; account_name: string | null; account_type: string | null; amount: number; currency: string | null; lp_entity_id: string | null }
 interface Entry {
@@ -198,13 +199,18 @@ export function JournalView({ onPlainText }: { onPlainText?: () => void } = {}) 
     let totalPosted = 0
     // Keyed by id so a stuck entry counts once however many pages it survives.
     const skipped: Record<string, string> = {}
+    // What posting reversal drafts released — and any release that failed after the post.
+    const released: Required<Pick<ReleaseReport, 'removedTransactions' | 'unlinkedRegisterRows' | 'warnings'>> = { removedTransactions: [], unlinkedRegisterRows: [], warnings: [] }
 
     const call = (body: Record<string, unknown>) =>
       lf(`/api/accounting/journal/bulk-${action}`, { method: 'POST', body: JSON.stringify(body) })
         .then(r => (r.ok ? r.json() : Promise.reject(new Error(`bulk-${action} failed`))))
-        .then((d: { changed?: number; skipped?: { id: string; reason: string }[]; hasMore?: boolean; cursor?: string | null }) => {
+        .then((d: { changed?: number; skipped?: { id: string; reason: string }[]; hasMore?: boolean; cursor?: string | null } & ReleaseReport) => {
           totalPosted += d.changed ?? 0
           if (Array.isArray(d.skipped)) for (const s of d.skipped) skipped[s.id] = s.reason
+          released.removedTransactions.push(...(d.removedTransactions ?? []))
+          released.unlinkedRegisterRows.push(...(d.unlinkedRegisterRows ?? []))
+          released.warnings.push(...(d.warnings ?? []))
           return d
         })
 
@@ -228,7 +234,7 @@ export function JournalView({ onPlainText }: { onPlainText?: () => void } = {}) 
         const verb = action === 'post' ? 'Posted' : 'Discarded'
         setPostMsg(failed
           ? `Could not ${action === 'post' ? 'post' : 'discard'} draft entries.`
-          : `${verb} ${totalPosted} ${totalPosted === 1 ? 'entry' : 'entries'}. ${describeSkipped(Object.keys(skipped).map(id => ({ id, reason: skipped[id] })))}`.trim())
+          : `${verb} ${totalPosted} ${totalPosted === 1 ? 'entry' : 'entries'}. ${releaseNotice(released) ?? ''} ${describeSkipped(Object.keys(skipped).map(id => ({ id, reason: skipped[id] })))}`.replace(/\s+/g, ' ').trim())
         setPosting(false)
         loadPage() // also clears the selection
       })

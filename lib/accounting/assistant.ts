@@ -13,7 +13,8 @@ import { accountIdByCode, persistEntry } from './persist'
 import { closedPeriodRanges, dateInAnyClosedPeriod } from './periods'
 import { fundCurrency } from './currency'
 import { vehicleIdByName } from './vehicle-id'
-import { releaseOwnership, type OwningTransaction } from './ownership'
+import { releaseOwnership, isLiveInvestmentReversalHalf, HALF_OF_A_PAIR, type OwningTransaction } from './ownership'
+import { isInvestmentAccount, loadVehicleChart } from './investment-accounts'
 import { setGeneratedAllocationStatus } from './continuous-allocation'
 import { lpCapitalSummary } from './capital-calls'
 import { ENTRY_SOURCE_TYPES } from './source-types'
@@ -267,7 +268,7 @@ export async function applyProposal(
     if (!vehicleId) return { error: `Unknown vehicle "${group}".` }
 
     const { data: existing } = await admin.from('journal_entries' as any)
-      .select('id, status, entry_date, source_ref').eq('id', proposal.entryId).eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('book', ACTUAL_BOOK).maybeSingle()
+      .select('id, status, entry_date, source_ref, reversed_by').eq('id', proposal.entryId).eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('book', ACTUAL_BOOK).maybeSingle()
     if (!existing) return { error: 'Entry to edit not found' }
 
     // THE GUARDS THE CREATE PATH GETS FOR FREE FROM persistEntry, AND THIS PATH USED TO SKIP.
@@ -294,6 +295,16 @@ export async function applyProposal(
       return { error: `That entry is dated ${currentDate}, inside a closed period — reopen it to amend it.` }
     }
 
+    // Either half of a live reversal pair on investment accounts: editing it breaks the pair the
+    // tracker was reconciled against, as voiding or unposting it would in the journal.
+    try {
+      const chart = await loadVehicleChart(admin, fundId, vehicleId)
+      const investment = new Set(chart.filter(isInvestmentAccount).map(a => a.id))
+      if (await isLiveInvestmentReversalHalf(admin, fundId, existing as any, investment)) return { error: HALF_OF_A_PAIR }
+    } catch (e) {
+      return { error: e instanceof Error ? e.message : String(e) }
+    }
+
     // An owned entry being edited no longer says what its transactions say: delete them (the
     // edited lines are adopted when it posts again). And bring a posted entry back to draft WITH
     // its generated partner allocation — leaving that posted credited partners for an entry that
@@ -304,8 +315,10 @@ export async function applyProposal(
     if ((existing as any).status !== 'draft') {
       const allocation = await setGeneratedAllocationStatus(admin, fundId, proposal.entryId, 'draft')
       if (allocation.error) return { error: allocation.error, ...gone }
-      await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null }).eq('id', proposal.entryId).eq('fund_id', fundId)
-      await admin.from('bank_transactions' as any).update({ status: 'drafted' }).eq('journal_entry_id', proposal.entryId).eq('fund_id', fundId)
+      const { error: unpostErr } = await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null }).eq('id', proposal.entryId).eq('fund_id', fundId)
+      if (unpostErr) return { error: `The entry could not be put back to draft for editing: ${unpostErr.message}`, ...gone }
+      const { error: bankErr } = await admin.from('bank_transactions' as any).update({ status: 'drafted' }).eq('journal_entry_id', proposal.entryId).eq('fund_id', fundId)
+      if (bankErr) return { error: `The entry is a draft again, but its bank row could not be updated: ${bankErr.message}`, ...gone }
     }
 
     const { data: oldRows } = await admin.from('journal_postings' as any).select('id').eq('book', ACTUAL_BOOK).eq('journal_entry_id', proposal.entryId)

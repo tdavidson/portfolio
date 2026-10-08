@@ -31,7 +31,8 @@ function fakeAdmin(rows: DraftRow[]) {
       eq: () => b, gt: () => b, gte: () => b, lte: () => b, order: () => b, limit: () => b,
       then: (resolve: (v: any) => void) => {
         if (mode === 'update') { updates.push({ table, patch, ids }); return resolve({ error: null }) }
-        return resolve({ data: rows, error: null })
+        // Only the candidate-draft read returns rows; the ownership reads find no owners.
+        return resolve({ data: table === 'journal_entries' ? rows : [], error: null })
       },
     }
     return b
@@ -152,5 +153,51 @@ describe('runBulkDraftAction', () => {
     }) } as any
     const res = await run(admin, 'post')
     expect(res.ok).toBe(false)
+  })
+})
+
+describe('bulk actions and investment transactions', () => {
+  const T = '00000000-0000-4000-8000-0000000000c1'
+  const seed = async () => {
+    const { memoryAdmin } = await import('@/tests/helpers/memory-admin')
+    return memoryAdmin({
+      journal_entries: [
+        { id: 'owned', fund_id: 'f1', vehicle_id: 'v1', book: 'actual', status: 'draft', entry_date: '2026-06-01', source_ref: `txn:${T}` },
+        { id: 'plain', fund_id: 'f1', vehicle_id: 'v1', book: 'actual', status: 'draft', entry_date: '2026-06-01', source_ref: null },
+      ],
+      journal_postings: [],
+      investment_transactions: [{ id: T, fund_id: 'f1', company_id: 'c', transaction_type: 'investment' }],
+      companies: [{ id: 'c', fund_id: 'f1', name: 'Acme' }],
+      bank_transactions: [],
+    })
+  }
+  it('bulk void skips a draft an investment transaction owns, and keeps the transaction', async () => {
+    const m = await seed()
+    const r = await run(m.admin, 'void')
+    expect(r.ok && r.outcome.skipped).toEqual([{ id: 'owned', reason: expect.stringMatching(/void it on its own/) }])
+    expect(m.tables.journal_entries.map((e: any) => e.status)).toEqual(['draft', 'void'])
+    expect(m.tables.investment_transactions).toHaveLength(1)
+  })
+  it('bulk void refuses a draft whose ownership cannot be read', async () => {
+    const m = await seed()
+    m.failNext('investment_transactions', 'select', 'read failed')
+    const r = await run(m.admin, 'void')
+    expect(r.ok && r.outcome.skipped.map(x => x.id)).toContain('owned')
+    expect(m.tables.journal_entries[0].status).toBe('draft')
+  })
+  it('bulk post reports what posting a reversal draft released, and any warning', async () => {
+    const { postExistingEntryWithAllocation } = await import('./continuous-allocation')
+    vi.mocked(postExistingEntryWithAllocation).mockResolvedValueOnce({
+      allocationEntryIds: [], removedTransactions: [{ id: T, companyId: 'c', company: 'Acme', type: 'investment', date: null }],
+      unlinkedRegisterRows: ['the call of 2026-03-01'], warning: 'The reversal was posted, but …',
+    })
+    const rows = [balanced('r1')]
+    const { admin } = fakeAdmin(rows)
+    const r = await run(admin, 'post')
+    expect(r.ok && r.outcome).toMatchObject({
+      changed: 1, skipped: [],
+      removedTransactions: [{ id: T }], unlinkedRegisterRows: ['the call of 2026-03-01'],
+      warnings: [{ id: 'r1', warning: 'The reversal was posted, but …' }],
+    })
   })
 })

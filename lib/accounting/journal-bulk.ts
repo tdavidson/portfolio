@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { closedPeriodRanges, dateInAnyClosedPeriod } from './periods'
 import { ACTUAL_BOOK } from './books'
 import { postExistingEntryWithAllocation } from './continuous-allocation'
+import { owningTransactions, type OwningTransaction } from './ownership'
 
 // Shared machinery behind the journal's two bulk actions — post many drafts, void many
 // drafts. Both page the same way, scope the same way and guard the same way; only the
@@ -28,6 +29,11 @@ export interface BulkOutcome {
   /** Entries that actually changed status. */
   changed: number
   skipped: { id: string; reason: string }[]
+  /** Posted, but something after the post failed (a reversal's transactions not deleted). */
+  warnings: { id: string; warning: string }[]
+  /** Posting a reversal draft deletes the transactions that owned the entry it reverses. */
+  removedTransactions: OwningTransaction[]
+  unlinkedRegisterRows: string[]
   hasMore: boolean
   cursor: string | null
 }
@@ -70,7 +76,7 @@ export async function runBulkDraftAction(
   // postings for the balance check.
   let query = (admin as any)
     .from('journal_entries')
-    .select('id, entry_date, journal_postings(amount)')
+    .select('id, entry_date, source_ref, journal_postings(amount)')
     .eq('book', ACTUAL_BOOK)
     .eq('fund_id', fundId)
     .eq('vehicle_id', vehicleId)
@@ -96,10 +102,28 @@ export async function runBulkDraftAction(
 
   const target: string[] = []
   const skipped: { id: string; reason: string }[] = []
+  const warnings: { id: string; warning: string }[] = []
+  const removedTransactions: OwningTransaction[] = []
+  const unlinkedRegisterRows: string[] = []
   for (const e of batch) {
     if (dateInAnyClosedPeriod(closed, e.entry_date)) {
       skipped.push({ id: e.id, reason: `In a closed period (${e.entry_date}) — reopen it first.` })
       continue
+    }
+    // A draft an investment transaction owns (the derived fallback kept back when its allocation
+    // failed): voiding it is deleting the transaction, which a bulk discard must not do silently.
+    if (action === 'void') {
+      let owners: OwningTransaction[]
+      try {
+        owners = await owningTransactions(admin, fundId, { id: e.id, source_ref: e.source_ref ?? null })
+      } catch {
+        skipped.push({ id: e.id, reason: 'Could not check whether an investment transaction owns it — try again.' })
+        continue
+      }
+      if (owners.length > 0) {
+        skipped.push({ id: e.id, reason: 'Records an investment transaction — void it on its own to delete the transaction too.' })
+        continue
+      }
     }
     // Balance only gates posting. A lopsided draft is precisely the kind you want to be
     // able to throw away, so refusing to void it would trap the mess it represents.
@@ -123,7 +147,10 @@ export async function runBulkDraftAction(
       // partners. A raw status flip here used to skip both.
       for (const id of target) {
         const posted = await postExistingEntryWithAllocation(admin, fundId, group, userId, id)
-        if ('error' in posted) skipped.push({ id, reason: posted.error })
+        if ('error' in posted) { skipped.push({ id, reason: posted.error }); continue }
+        removedTransactions.push(...(posted.removedTransactions ?? []))
+        unlinkedRegisterRows.push(...(posted.unlinkedRegisterRows ?? []))
+        if (posted.warning) warnings.push({ id, warning: posted.warning })
       }
     } else {
       const { error: upErr } = await (admin as any)
@@ -147,6 +174,9 @@ export async function runBulkDraftAction(
     outcome: {
       changed: target.length - skipped.filter(item => target.includes(item.id)).length,
       skipped,
+      warnings,
+      removedTransactions,
+      unlinkedRegisterRows,
       hasMore,
       cursor: batch.length ? batch[batch.length - 1].id : null,
     },

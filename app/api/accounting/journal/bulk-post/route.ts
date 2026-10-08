@@ -38,8 +38,9 @@ export async function POST(req: NextRequest) {
   })
   if (!result.ok) return dbError(result.error as any, 'journal-bulk-post')
 
-  const { changed, skipped, hasMore, cursor } = result.outcome
+  const { changed, skipped, warnings, removedTransactions, unlinkedRegisterRows, hasMore, cursor } = result.outcome
   // `changed` is the action-neutral name the client reads; `posted` is kept for clarity
-  // at the API surface.
-  return NextResponse.json({ changed, posted: changed, skipped, hasMore, cursor })
+  // at the API surface. A posted reversal draft deletes its original's transactions: say which,
+  // and say when that failed part-way (`warnings`).
+  return NextResponse.json({ changed, posted: changed, skipped, warnings, removedTransactions, unlinkedRegisterRows, hasMore, cursor })
 }

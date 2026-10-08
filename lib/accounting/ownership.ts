@@ -7,6 +7,8 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ACTUAL_BOOK } from './books'
+import { entryIsOwned } from './adoption'
+import { isInvestmentAccount, loadVehicleChart } from './investment-accounts'
 
 const TXN = 'txn:'
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
@@ -182,3 +184,22 @@ export async function isLiveInvestmentReversalHalf(
 }
 
 export const HALF_OF_A_PAIR = 'This entry is half of a reversal pair — reverse the reversal instead.'
+
+/**
+ * Does acting on this entry outside the journal touch investment value? True when investment
+ * transactions own it (derived, adopted, or a paired reversal) or it is either half of a live
+ * reversal pair on investment accounts. The bank page uses this to keep its Unpost / Ignore /
+ * Restore off such entries: there, acting on the entry is deleting the transaction (spec §1),
+ * which only the journal and the holding do. THROWS on a failed read.
+ */
+export async function entryCarriesInvestments(
+  admin: SupabaseClient, fundId: string, vehicleId: string,
+  entry: { id: string; status: string; reversed_by: string | null; source_ref: string | null },
+): Promise<boolean> {
+  if (await entryIsOwned(admin, fundId, { id: entry.id, sourceRef: entry.source_ref })) return true
+  if (!entry.reversed_by && !(entry.source_ref ?? '').startsWith(REVERSAL)) return false
+  const chart = await loadVehicleChart(admin, fundId, vehicleId)
+  return isLiveInvestmentReversalHalf(admin, fundId, entry, new Set(chart.filter(isInvestmentAccount).map(a => a.id)))
+}
+
+export const BANK_ROW_IS_AN_INVESTMENT = "This row is an investment's payment. Change the transaction on the holding, or void the entry from the Journal."

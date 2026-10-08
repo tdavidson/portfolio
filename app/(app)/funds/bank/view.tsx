@@ -12,6 +12,7 @@ import { useLedgerFetch } from '@/components/accounting-vehicle'
 import { EntryModal } from '../entry-modal'
 import { EmptyState } from '@/components/ui/empty-state'
 import { InvestmentMatchQueue } from './investment-matches'
+import { releaseNotice } from '@/lib/accounting/release-notice'
 
 interface DuplicateCandidate { id: string; date: string; amount: number; memo: string; status: string; claimed: boolean }
 interface Txn { import_differences?: import('@/lib/accounting/import-review').ImportDifference[]; duplicate_review?: boolean; quickbooks_linked?: boolean; review_kind?: 'quickbooks' | 'investment' | null; investment_linked?: boolean; duplicate_candidates?: DuplicateCandidate[]; id: string; txn_date: string; amount: number; description: string; counterparty: string | null; status: string; suggested_account_code: string | null; journal_entry_id: string | null; entry_account_code: string | null; entry_account_name: string | null; entry_is_split: boolean; settled_lp_entity_id: string | null; settled_lp_name: string | null }
@@ -134,8 +135,19 @@ export function BankView() {
     finally { setResolvingDuplicate(null) }
   }
 
+  // Say what happened: a refusal (an investment's payment can't be unposted here), a note (an
+  // investment's entry left as it is on Ignore), or what posting a reversal draft released.
+  async function reportBankAction(res: Response) {
+    const body = await res.json().catch(() => ({}))
+    if (!res.ok) { setMatchError(body.error ?? 'That could not be done.'); return }
+    const notice = [body.note, releaseNotice(body)].filter(Boolean).join(' ')
+    if (notice) setMatchError(notice)
+  }
+
   async function act(id: string, action: 'post' | 'ignore' | 'unpost' | 'restore') {
-    await lf('/api/accounting/bank', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id }) })
+    setMatchError(null)
+    const res = await lf('/api/accounting/bank', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id }) })
+    await reportBankAction(res)
     load()
   }
 
@@ -166,7 +178,9 @@ export function BankView() {
   }
   async function bulkPost() {
     if (selectedCount === 0) return
-    await lf('/api/accounting/bank', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'postMany', ids: draftedIds.filter(id => selected.has(id)) }) })
+    setMatchError(null)
+    const res = await lf('/api/accounting/bank', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'postMany', ids: draftedIds.filter(id => selected.has(id)) }) })
+    await reportBankAction(res)
     load()
   }
 

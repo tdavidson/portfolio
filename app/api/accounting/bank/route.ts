@@ -15,6 +15,7 @@ import { ACTUAL_BOOK } from '@/lib/accounting/books'
 import { postExistingEntryWithAllocation, setGeneratedAllocationStatus } from '@/lib/accounting/continuous-allocation'
 import { underReview, reviewKind } from '@/lib/accounting/bank-review'
 import { loadOwnedCashEntries, ownedCandidates } from '@/lib/accounting/investment-bank-match'
+import { entryCarriesInvestments, BANK_ROW_IS_AN_INVESTMENT } from '@/lib/accounting/ownership'
 import { loadQuickBooksCashEntries, quickBooksCandidates, quickBooksAlreadyClaimed, readAll } from '@/lib/accounting/bank-quickbooks-match'
 
 // GET — list a vehicle's staged bank transactions.
@@ -207,14 +208,20 @@ export async function POST(req: NextRequest) {
     const problem = await guardEntry(entryIds, ['draft'])
     if (problem) return NextResponse.json({ error: problem }, { status: 400 })
 
+    // Posting a reversal draft deletes the transactions that owned the entry it reverses; say which,
+    // and say when that part failed (the reversal still posted).
+    const released = { removedTransactions: [] as unknown[], unlinkedRegisterRows: [] as string[], warnings: [] as string[] }
     if (entryIds.length) {
       for (const entryId of entryIds) {
         const result = await postExistingEntryWithAllocation(admin, gate.fundId, group, user.id, entryId)
-        if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
+        if ('error' in result) return NextResponse.json({ error: result.error, ...released }, { status: 400 })
+        released.removedTransactions.push(...(result.removedTransactions ?? []))
+        released.unlinkedRegisterRows.push(...(result.unlinkedRegisterRows ?? []))
+        if (result.warning) released.warnings.push(result.warning)
       }
     }
     if (txnIds.length) await admin.from('bank_transactions' as any).update({ status: 'reconciled' }).in('id', txnIds).eq('fund_id', gate.fundId)
-    return NextResponse.json({ ok: true, posted: txnIds.length })
+    return NextResponse.json({ ok: true, posted: txnIds.length, ...released })
   }
 
   if (!id || !['post', 'ignore', 'setAccount', 'unpost', 'restore'].includes(action)) {
@@ -232,6 +239,24 @@ export async function POST(req: NextRequest) {
   const entryId = (txn as any).journal_entry_id
   if (entryId && underReview((txn as any).raw)) {
     return NextResponse.json({ error: 'This bank row is linked to an existing journal entry. Manage that entry from the Journal.' }, { status: 400 })
+  }
+
+  // An entry investment transactions own (or half of a live reversal pair on investment accounts)
+  // is not this page's to unpost, void, restore or re-point: there, acting on the entry is
+  // deleting the transaction. Read once, only for the actions that would touch the entry.
+  // Fails closed — a read that cannot tell is a refusal, not "not owned".
+  let investment = false
+  if (entryId && ['unpost', 'ignore', 'restore', 'setAccount'].includes(action)) {
+    try {
+      const { data: e, error: eErr } = await admin.from('journal_entries' as any).select('id, status, reversed_by, source_ref')
+        .eq('book', ACTUAL_BOOK).eq('fund_id', gate.fundId).eq('id', entryId).maybeSingle()
+      if (eErr) throw new Error(eErr.message)
+      investment = !!e && !!vehicleId && await entryCarriesInvestments(admin, gate.fundId, vehicleId, e as any)
+    } catch (e) {
+      console.error('[bank-entry-ownership]', e instanceof Error ? e.message : e)
+      return NextResponse.json({ error: 'Could not check whether this row is an investment payment, so nothing was changed. Try again.' }, { status: 500 })
+    }
+    if (investment && action !== 'ignore') return NextResponse.json({ error: BANK_ROW_IS_AN_INVESTMENT }, { status: 400 })
   }
 
   // Override the suggested account before posting: re-point the draft entry's
@@ -284,6 +309,12 @@ export async function POST(req: NextRequest) {
 
       const result = await postExistingEntryWithAllocation(admin, gate.fundId, group, user.id, entryId)
       if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
+      await admin.from('bank_transactions' as any).update({ status: 'reconciled' }).eq('id', id).eq('fund_id', gate.fundId)
+      return NextResponse.json({
+        ok: true, status: 'reconciled',
+        removedTransactions: result.removedTransactions ?? [], unlinkedRegisterRows: result.unlinkedRegisterRows ?? [],
+        ...(result.warning ? { warning: result.warning } : {}),
+      })
     }
     await admin.from('bank_transactions' as any).update({ status: 'reconciled' }).eq('id', id).eq('fund_id', gate.fundId)
     return NextResponse.json({ ok: true, status: 'reconciled' })
@@ -338,6 +369,13 @@ export async function POST(req: NextRequest) {
   // already-closed financials.
   if ((txn as any).status === 'ignored') {
     return NextResponse.json({ error: 'That transaction is already ignored.' }, { status: 400 })
+  }
+  // An investment's entry stays exactly as it is: the bank row only lets go of it. Voiding it here
+  // would leave the tracker carrying a position the books no longer do.
+  if (entryId && investment) {
+    const { error } = await admin.from('bank_transactions' as any).update({ status: 'ignored', journal_entry_id: null }).eq('id', id).eq('fund_id', gate.fundId)
+    if (error) return dbError(error, 'bank-ignore-unlink')
+    return NextResponse.json({ ok: true, status: 'ignored', note: 'The bank row was set aside. Its journal entry belongs to an investment transaction and was left as it is.' })
   }
   if (entryId) {
     const problem = await guardEntry([entryId], ['draft', 'posted'])
