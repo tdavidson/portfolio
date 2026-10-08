@@ -20,6 +20,13 @@ export interface WriteAction {
   accessFeature?: FeatureKey
   /** Permission required to create the draft; approval always requires write. Defaults to read. */
   stageAccess?: 'read' | 'write'
+  /**
+   * The entity (`vehicle` input) the action acts on: 'required' (a capital call, construction),
+   * 'optional' (an investment — none is a company-wide row), 'none' (a company metric). Staging
+   * resolves it ONCE, pins its name into the stored args and records pending_actions.vehicle_id, so
+   * the action can never be re-resolved to whoever later views or approves it.
+   */
+  entity: 'required' | 'optional' | 'none'
   description: string
   inputSchema: Record<string, unknown>
   preview: (deps: ActionDeps, input: any) => Promise<PreviewResult>
@@ -28,6 +35,7 @@ export interface WriteAction {
 
 export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
   update_company_metric: {
+    entity: 'none',
     domain: 'portfolio',
     description: 'Set or update a portfolio company metric value for a specific period.',
     inputSchema: {
@@ -48,6 +56,7 @@ export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
     execute: writeMetricValue,
   },
   record_investment: {
+    entity: 'optional',
     domain: 'portfolio',
     accessFeature: 'investments',
     description:
@@ -77,6 +86,7 @@ export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
     execute: executeRecordInvestment,
   },
   issue_capital_call: {
+    entity: 'required',
     domain: 'lp_capital',
     description: 'Issue a fund-wide capital call, split across LPs pro-rata by commitment.',
     inputSchema: {
@@ -93,6 +103,7 @@ export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
     execute: executeIssueCapitalCall,
   },
   update_portfolio_construction: {
+    entity: 'required',
     domain: 'accounting',
     // Unlike conversational suggestions, changing a fund plan is only draftable by a writer.
     stageAccess: 'write',

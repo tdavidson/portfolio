@@ -11,6 +11,7 @@ import { hasAccess, type AccessContext } from '@/lib/access/effective'
 import type { ToolDefinition, ToolExecutor, ToolInvocation } from '@/lib/ai/types'
 import { WRITE_ACTIONS, getWriteAction } from '@/lib/pending-actions/registry'
 import type { ActionType, PreviewResult } from '@/lib/pending-actions/types'
+import { stagedTarget } from '@/lib/pending-actions/target'
 
 /** A write the Analyst staged this turn — surfaced so the caller can render approval cards. */
 export interface StagedActionRecord {
@@ -82,14 +83,17 @@ export function buildAnalystTools(deps: AnalystToolDeps): { tools: ToolDefinitio
         if (!deps.userId) return JSON.stringify({ error: 'Sign in required to stage an action' })
         try {
           const actionDeps = { admin: deps.admin, fundId: deps.fundId, userId: deps.userId, access: deps.access }
-          const preview = await action.preview(actionDeps, call.input)
+          // Pin the entity now, with the stager's access (lib/pending-actions/target.ts).
+          const target = await stagedTarget(actionDeps, action, call.input)
+          const preview = await action.preview(actionDeps, target.input)
           const { data, error } = await deps.admin
             .from('pending_actions')
             .insert({
               fund_id: deps.fundId,
               domain: action.domain,
               action_type: call.name,
-              args: call.input,
+              args: target.input,
+              vehicle_id: target.vehicleId,
               preview,
               status: 'pending',
               created_by: deps.userId,

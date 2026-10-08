@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { hasAccess } from '@/lib/access/effective'
 import { isRestrictedCredential, type AnalystPrincipal } from '@/lib/ai/analyst/types'
 import { getWriteAction } from './registry'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -122,6 +123,10 @@ async function visibleToCaller(admin: SupabaseClient, principal: AnalystPrincipa
   if (principal.access.vehicles.all) return true
   const action = getWriteAction(row.action_type)
   if (!action) return false
+  // The entity it was staged for decides first. Re-running a preview alone is not enough: an action
+  // staged with no entity named would resolve to the VIEWER's own entity and pass.
+  if (row.vehicle_id && !canSeeVehicle(principal.access, row.vehicle_id)) return false
+  if (!row.vehicle_id && action.entity === 'required') return false
   try {
     await action.preview({ admin, fundId: principal.fundId, userId: principal.userId, access: principal.access }, row.args)
     return true

@@ -7,6 +7,7 @@ vi.mock('@/lib/pending-actions/registry', () => {
   const actions = {
     update_company_metric: {
       domain: 'portfolio',
+      entity: 'none',
       accessFeature: undefined,
       description: 'Set a metric.',
       inputSchema: { type: 'object' },
