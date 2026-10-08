@@ -698,7 +698,14 @@ async function checkReadiness(
 
   // Fund-of-funds positions. Skipped entirely for a fund holding no funds — FoF behaviour is
   // derived from the data, never a setting (lib/portfolio/fof.ts).
-  const fof = await loadFofCloseInputs(admin, fundId, group, end)
+  // A register that could not be read is a blocker, not "holds no funds": closing on it would lock
+  // a period whose fund marks nobody checked.
+  let fof: Awaited<ReturnType<typeof loadFofCloseInputs>> = null
+  try {
+    fof = await loadFofCloseInputs(admin, fundId, group, end)
+  } catch (e) {
+    blockers.push(`The fund holdings could not be checked: ${(e as Error).message}. Try again before closing.`)
+  }
   if (fof) {
     const issues = fofCloseIssues(fof.positions, fof.ledgerCarrying, end, fof.pendingNotices)
     blockers.push(...issues.blockers)

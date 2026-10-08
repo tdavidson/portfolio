@@ -124,7 +124,14 @@ describe('fofCloseIssues', () => {
     expect(blockers).toHaveLength(1)
     expect(blockers[0]).toMatch(/Acme Ventures III/)
     expect(blockers[0]).toMatch(/3600000\.00|3,600,000|3600000/)
-    expect(blockers[0]).toMatch(/manager's statement.*confirm the notices/i)
+    expect(blockers[0]).toMatch(/re-save its newest statement to re-book the mark/)
+    expect(blockers[0]).toMatch(/Re-book mark/)
+  })
+
+  it('a holding with no statement at all is told to record one', () => {
+    const { blockers } = fofCloseIssues([pos({ reportedNav: null, navAsOf: null, stalenessDays: null })], new Map([['f1', 3_600_000]]), '2025-12-31')
+    expect(blockers[0]).toMatch(/Record the manager's statement for this period, or confirm the notices since it\./)
+    expect(blockers[0]).not.toMatch(/re-book/i)
   })
 
   it('warns, not blocks, when the only gap is cash flows dated after the newest statement', () => {
@@ -169,7 +176,7 @@ describe('fofCloseIssues', () => {
   it('still blocks when the ledger carries neither the statement nor the rolled-forward value', () => {
     const { blockers } = fofCloseIssues([pos({ carryingValue: 4_500_000 })], new Map([['f1', 3_000_000]]), '2025-12-31')
     expect(blockers).toHaveLength(1)
-    expect(blockers[0]).toMatch(/Record the manager's statement for this period, or confirm the notices since it\./)
+    expect(blockers[0]).toMatch(/re-save its newest statement to re-book the mark/)
   })
 
   it('warns — does not block — on a NAV more than one quarter stale', () => {

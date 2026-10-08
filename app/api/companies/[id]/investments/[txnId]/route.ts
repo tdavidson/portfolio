@@ -11,6 +11,31 @@ import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
 import { loadEntityScope } from '@/lib/access/entity-scope'
 import { groupWriteDenial } from '@/lib/access/scope'
 
+/**
+ * A transaction the fund register booked — a manager NAV's mark, or a confirmed capital notice — is
+ * owned by that register row: it is derived from the statement or notice, and re-derived when they
+ * change. Edited or deleted here it would leave the register describing a value the ledger no longer
+ * carries, and every later NAV's mark (a delta against the ledger) stale. So it is changed there.
+ * Fails closed: a lookup that errors refuses too.
+ */
+async function fundRegisterOwner(admin: any, fundId: string, txnId: string): Promise<string | null> {
+  const [navs, events] = await Promise.all([
+    admin.from('fund_nav_statements').select('id').eq('fund_id', fundId).eq('investment_transaction_id', txnId).limit(1),
+    admin.from('fund_capital_events').select('id').eq('fund_id', fundId).eq('investment_transaction_id', txnId).limit(1),
+  ])
+  if (navs.error || events.error) {
+    return 'Could not check whether the fund register owns this transaction, so it was not changed. Try again.'
+  }
+  if ((navs.data ?? []).length > 0) {
+    return 'This is the mark of a manager NAV statement. Change or delete that statement in the fund register on the holding '
+      + '(Manager NAV statements), which re-books the mark.'
+  }
+  if ((events.data ?? []).length > 0) {
+    return 'This was booked from a capital notice in the fund register. Change it from the notice in the fund register on the holding.'
+  }
+  return null
+}
+
 // ---------------------------------------------------------------------------
 // PATCH — update a transaction
 // ---------------------------------------------------------------------------
@@ -51,6 +76,9 @@ export async function PATCH(
   const deniedHere = groupWriteDenial(scope.vehicleNames, existing.portfolio_group)
     ?? ('portfolio_group' in body ? groupWriteDenial(scope.vehicleNames, body.portfolio_group) : null)
   if (deniedHere) return NextResponse.json({ error: deniedHere }, { status: 403 })
+
+  const owned = await fundRegisterOwner(admin, writeCheck.fundId, params.txnId)
+  if (owned) return NextResponse.json({ error: owned }, { status: 409 })
 
   // A mis-typed row can be reclassified on edit (e.g. a "Round" that should be a "Valuation
   // Update"). Only the DB types are valid; the UI's "conversion" is already translated to
@@ -212,6 +240,9 @@ export async function DELETE(
   const deleteScope = await loadEntityScope(admin, writeCheck)
   const deniedDelete = groupWriteDenial(deleteScope.vehicleNames, existing.portfolio_group)
   if (deniedDelete) return NextResponse.json({ error: deniedDelete }, { status: 403 })
+
+  const owned = await fundRegisterOwner(admin, writeCheck.fundId, params.txnId)
+  if (owned) return NextResponse.json({ error: owned }, { status: 409 })
 
   // #3 — Refuse to delete an instrument that a conversion depends on. The FK is ON DELETE SET
   // NULL, so deleting it would silently orphan the conversion into a $0-cost investment (its basis

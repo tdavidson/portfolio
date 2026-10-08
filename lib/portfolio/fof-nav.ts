@@ -21,8 +21,11 @@ import { periodEndMarks } from './fof-valuation'
  * Marks are deltas against the ledger, so anything that changes what the ledger carries at a
  * statement's date leaves that statement's mark stale. Two things do: a capital event confirmed
  * after the statement but dated before it (fof-register.ts), and an edit to an earlier statement.
- * Both re-book the newest statement affected (rebookLatestNav), so the books end at the newest NAV
- * and the close (fofCloseIssues) never blocks on something nothing can clear.
+ * Both re-book every statement from the one affected onward, oldest first (rebookNavsFrom), so each
+ * is derived against a ledger that already holds the corrected marks before it, the books end at the
+ * newest NAV, and the close (fofCloseIssues) never blocks on something nothing can clear. When the
+ * ledger moves some other way (a transaction edited by hand), the holding's "Re-book mark" does the
+ * same from its newest statement.
  */
 
 const BASES: NavBasis[] = ['final', 'preliminary', 'estimate']
@@ -58,7 +61,11 @@ export interface NavBooking {
 }
 
 export type NavSaveResult =
-  | { ok: true; navId: string; booking: NavBooking; later?: NavBooking[] }
+  | {
+      ok: true; navId: string; booking: NavBooking; later?: NavBooking[]
+      /** The NAV this save replaced for the same date, when it was a different figure. */
+      replacedNav?: number
+    }
   | { ok: false; error: string }
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -98,20 +105,22 @@ export async function saveNavStatement(
 
   // One statement per holding, entity and as-of date: a corrected statement REPLACES the one for that
   // date, and its mark is re-derived below — the old link is not preserved.
-  const find = async (): Promise<string | null> => {
-    let q = (admin as any).from('fund_nav_statements').select('id')
+  const find = async (): Promise<{ id: string; reported_nav: number | string | null } | null> => {
+    let q = (admin as any).from('fund_nav_statements').select('id, reported_nav')
       .eq('fund_id', fundId).eq('company_id', input.companyId).eq('as_of_date', input.asOfDate)
     q = input.vehicleId ? q.eq('vehicle_id', input.vehicleId) : q.is('vehicle_id', null)
-    const { data } = await q.maybeSingle()
-    return (data as { id: string } | null)?.id ?? null
+    const { data, error } = await q.maybeSingle()
+    if (error) throw new Error(error.message)
+    return (data as { id: string; reported_nav: number | string | null } | null) ?? null
   }
-  const columns = navColumns({ basis: 'final', ...input })
 
-  let navId = await find()
+  let existing: Awaited<ReturnType<typeof find>>
+  try { existing = await find() } catch (e) { return { ok: false, error: (e as Error).message } }
+  let navId = existing?.id ?? null
   let inserted = false
   if (!navId) {
     const { data, error } = await (admin as any).from('fund_nav_statements').insert({
-      ...columns,
+      ...navColumns({ basis: 'final', ...input }),
       fund_id: fundId,
       company_id: input.companyId,
       vehicle_id: input.vehicleId,
@@ -121,17 +130,32 @@ export async function saveNavStatement(
     }).select('id').single()
     if (!error && data) { navId = (data as { id: string }).id; inserted = true }
     // Two saves of the same statement at once: the loser updates the winner's row.
-    else if (/duplicate|unique/i.test(error?.message ?? '')) navId = await find()
+    else if (/duplicate|unique/i.test(error?.message ?? '')) {
+      try { existing = await find() } catch (e) { return { ok: false, error: (e as Error).message } }
+      navId = existing?.id ?? null
+    }
     else return { ok: false, error: error?.message ?? 'The statement could not be saved.' }
   }
   if (!navId) return { ok: false, error: 'The statement could not be saved.' }
   if (!inserted) {
+    // Replacing a statement keeps its basis unless this save names one.
     const { error } = await (admin as any).from('fund_nav_statements')
-      .update(columns).eq('id', navId).eq('fund_id', fundId)
+      .update(navColumns(input)).eq('id', navId).eq('fund_id', fundId)
     if (error) return { ok: false, error: error.message }
   }
-  return afterChange(admin, fundId, userId, navId, input.companyId, input.vehicleId, input.asOfDate)
+  const result = await afterChange(admin, fundId, userId, navId, input.companyId, input.vehicleId, input.asOfDate)
+  const old = existing && !inserted ? Number(existing.reported_nav) : null
+  if (result.ok && old !== null && Number.isFinite(old) && Math.abs(old - input.reportedNav) >= 0.005) {
+    result.replacedNav = old
+    result.booking = {
+      ...result.booking,
+      message: `${result.booking.message} It replaced the NAV of ${formatAmount(old)} already recorded for ${input.asOfDate}.`,
+    }
+  }
+  return result
 }
+
+const formatAmount = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 2 })
 
 /** Change a statement's figures (never its date — another date is another statement). */
 export async function editNavStatement(
@@ -201,7 +225,9 @@ async function unbook(admin: SupabaseClient, fundId: string, userId: string | nu
     const { error } = await (admin as any).from('investment_transactions').delete().eq('id', txnId).eq('fund_id', fundId)
     if (error) return { status: 'refused', message: `Its earlier mark could not be removed: ${error.message}` }
   }
-  await (admin as any).from('fund_nav_statements').update({ investment_transaction_id: null }).eq('id', nav.id).eq('fund_id', fundId)
+  const { error: unlinkError } = await (admin as any).from('fund_nav_statements')
+    .update({ investment_transaction_id: null }).eq('id', nav.id).eq('fund_id', fundId)
+  if (unlinkError) return { status: 'refused', message: `Its earlier mark was taken back, but the statement could not be updated to say so: ${unlinkError.message}` }
   return null
 }
 
@@ -232,14 +258,18 @@ export async function bookNavMark(
     const asOf: string = nav.as_of_date
     const bookable = !!group && !(ledgerStartDate && asOf < ledgerStartDate)
 
-    // The mark this statement implies against what the ledger carries right now.
+    // The mark this statement implies against what the ledger carries right now. `derived` is false
+    // when the register's position does not carry THIS statement (a stale or partial load): a mark
+    // computed from it would be a delta against the wrong value.
     const compute = async () => {
       const [fof, ledger] = await Promise.all([
         loadFofData(admin, fundId, asOf, group!),
         loadPostedLedger(admin, fundId, group!, asOf),
       ])
       const position = fof.positions.find(p => p.companyId === nav.company_id)
-      const mark = position
+      const derived = !!position && position.navAsOf === asOf && position.reportedNav !== null
+        && Math.abs(position.reportedNav - Number(nav.reported_nav)) < 0.005
+      const mark = position && derived
         ? periodEndMarks([position], ledgerCarryingByHolding(ledger.accounts as any, ledger.postings as any), asOf)[0] ?? null
         : null
       const draft = mark
@@ -248,14 +278,17 @@ export async function bookNavMark(
             { carriedValue: mark.ledgerCarrying, ledgerStartDate },
           )
         : null
-      return { position, draft }
+      return { position, draft, derived }
     }
+    const UNDERIVED = 'Saved, but its mark could not be derived from the fund register; nothing was booked.'
 
     if (nav.investment_transaction_id) {
       // Same reported NAV, same carrying value with the existing mark in place: it is already right.
       // Retracting and re-posting would change nothing, and would fail in a closed period for it.
       if (bookable) {
         const current = await compute()
+        // Refuse before taking anything back: an underived mark must not cost the ledger its current one.
+        if (!current.derived) return fail(UNDERIVED)
         if (current.position && !current.draft) {
           return { status: 'no_change', transactionId: nav.investment_transaction_id, message: 'Saved. Its mark already matches this statement, so nothing was re-booked.' }
         }
@@ -269,13 +302,12 @@ export async function bookNavMark(
       return { status: 'before_ledger_start', message: `Saved. It is dated before this entity's ledger starts (${ledgerStartDate}), so no mark was booked.${unbooked ? ' Its earlier mark was taken back.' : ''}` }
     }
 
-    const { position, draft } = await compute()
+    const { draft, derived } = await compute()
+    if (!derived) return fail(UNDERIVED)
     if (!draft) {
       return {
         status: 'no_change',
-        message: (position
-          ? 'Saved. The ledger already carries this value, so there was no mark to book.'
-          : 'Saved, but this entity holds no position in the fund yet, so no mark was booked.')
+        message: 'Saved. The ledger already carries this value, so there was no mark to book.'
           + (unbooked ? ' Its earlier mark was taken back.' : ''),
       }
     }
@@ -291,21 +323,24 @@ export async function bookNavMark(
     }).select('*').single()
     if (error || !txn) return fail(`Saved, but the mark could not be recorded: ${error?.message ?? 'insert failed'}`)
 
-    const derived = await draftEntryForTransaction(admin, fundId, userId, txn, (holding as any)?.name ?? 'Fund')
-    if (!derived.drafted) {
+    const entry = await draftEntryForTransaction(admin, fundId, userId, txn, (holding as any)?.name ?? 'Fund')
+    if (!entry.drafted) {
       // No entry, no mark: a transaction left behind would be a value the ledger does not carry.
       await (admin as any).from('investment_transactions').delete().eq('id', txn.id).eq('fund_id', fundId)
-      return fail(`Saved, but its mark was not booked. ${derived.reason ?? ''}`.trim())
+      return fail(`Saved, but its mark was not booked. ${entry.reason ?? ''}`.trim())
     }
-    await (admin as any).from('fund_nav_statements')
+    const { error: linkError } = await (admin as any).from('fund_nav_statements')
       .update({ investment_transaction_id: txn.id }).eq('id', nav.id).eq('fund_id', fundId)
-    const posted = derived.posted !== false
+    const posted = entry.posted !== false
+    const unlinked = linkError
+      ? ` But the statement could not be linked to its mark (${linkError.message}), so changing or deleting the statement will not take this mark back — reverse it on the holding's transactions if you change it.`
+      : ''
     return {
       status: 'booked',
       transactionId: txn.id,
       delta: draft.unrealized_value_change,
       posted,
-      message: posted ? 'Saved, and its mark posted to the ledger.' : `Saved; its mark is kept as a draft entry: ${derived.reason ?? 'the partner allocation failed'}`,
+      message: (posted ? 'Saved, and its mark posted to the ledger.' : `Saved; its mark is kept as a draft entry: ${entry.reason ?? 'the partner allocation failed'}`) + unlinked,
     }
   } catch (e) {
     return fail(`Saved, but its mark was not booked: ${(e as Error).message}`)
@@ -325,23 +360,10 @@ export async function rebookNavsFrom(
 ): Promise<NavBooking[]> {
   const q = (admin as any).from('fund_nav_statements').select('id')
     .eq('fund_id', fundId).eq('company_id', at.companyId).eq('vehicle_id', at.vehicleId)
-  const { data } = await (at.inclusive ? q.gte('as_of_date', at.since) : q.gt('as_of_date', at.since))
+  const { data, error } = await (at.inclusive ? q.gte('as_of_date', at.since) : q.gt('as_of_date', at.since))
     .order('as_of_date', { ascending: true })
+  if (error) return [{ status: 'refused', message: `The statements after this one could not be read, so none was re-booked: ${error.message}` }]
   const out: NavBooking[] = []
   for (const row of ((data as { id: string }[] | null) ?? [])) out.push(await bookNavMark(admin, fundId, userId, row.id))
   return out
-}
-
-/**
- * Single-result form kept for callers that report one outcome (Task 4's confirm path): the first
- * refusal if any statement was refused, otherwise the newest booking; null when none is dated then.
- */
-export async function rebookLatestNav(
-  admin: SupabaseClient,
-  fundId: string,
-  userId: string | null,
-  at: { companyId: string; vehicleId: string; since: string; inclusive: boolean },
-): Promise<NavBooking | null> {
-  const all = await rebookNavsFrom(admin, fundId, userId, at)
-  return all.find(b => b.status === 'refused') ?? all[all.length - 1] ?? null
 }

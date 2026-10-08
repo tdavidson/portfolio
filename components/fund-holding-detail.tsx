@@ -182,6 +182,17 @@ export function FundHoldingDetail({
     return true
   }
 
+  /** Re-book the newest statement's mark, for one left stale by a later ledger change (the close names this). */
+  async function rebookNav() {
+    if (!entity) return
+    const json = await send(`/api/portfolio/fund-holdings/${companyId}/nav`, {
+      method: 'POST', body: JSON.stringify({ rebook: true, vehicleId: entity }),
+    })
+    if (!json) return
+    setNotice(bookingText(json))
+    await load(entity); onChanged?.()
+  }
+
   async function deleteNav(navId: string) {
     if (!window.confirm('Delete this statement? Its mark comes off the ledger.')) return
     const json = await send(`/api/portfolio/fund-holdings/${companyId}/nav?navId=${encodeURIComponent(navId)}`, { method: 'DELETE' })
@@ -355,7 +366,8 @@ export function FundHoldingDetail({
                 {canWrite && <Button size="sm" onClick={addNav} disabled={busy}>Record</Button>}
               </div>
 
-              <FundHoldingNavs navs={navs} busy={busy} readOnly={!canWrite} onEdit={editNav} onDelete={deleteNav} />
+              <FundHoldingNavs navs={navs} busy={busy} readOnly={!canWrite} onEdit={editNav} onDelete={deleteNav}
+                               onRebook={entity ? rebookNav : undefined} />
             </section>
           </div>
         )}

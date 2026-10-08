@@ -55,9 +55,12 @@ export async function loadFofRaw(
    */
   group?: string,
 ): Promise<FofRawData | null> {
-  const { data: holdings } = await admin
+  // Every query here THROWS on error rather than reading `data` as empty: these rows feed the close's
+  // check and a NAV's ledger mark (fof-nav.ts), and an empty read would compute a wrong figure, not fail.
+  const { data: holdings, error: holdingsError } = await admin
     .from('companies').select('id, name')
     .eq('fund_id', fundId).eq('holding_type', 'fund').order('name')
+  if (holdingsError) throw new Error(`Fund holdings could not be loaded: ${holdingsError.message}`)
   const holdingRows = ((holdings as any[]) ?? [])
   if (holdingRows.length === 0) return null
 
@@ -67,7 +70,7 @@ export async function loadFofRaw(
 
   const scopedEvents = (admin as any).from('fund_capital_events').select('*').eq('fund_id', fundId)
   const scopedNavs = (admin as any).from('fund_nav_statements').select('*').eq('fund_id', fundId)
-  const [{ data: terms }, { data: events }, { data: navs }, { data: ledgerAccounts }] = await Promise.all([
+  const results = await Promise.all([
     (admin as any).from('fund_holding_terms').select('*').eq('fund_id', fundId),
     (vehicleId ? scopedEvents.eq('vehicle_id', vehicleId) : scopedEvents).order('event_date'),
     (vehicleId ? scopedNavs.eq('vehicle_id', vehicleId) : scopedNavs).order('as_of_date'),
@@ -80,8 +83,11 @@ export async function loadFofRaw(
     vehicleId
       ? (admin as any).from('chart_of_accounts').select('company_id')
           .eq('fund_id', fundId).eq('vehicle_id', vehicleId).not('company_id', 'is', null)
-      : Promise.resolve({ data: [] as any[] }),
+      : Promise.resolve({ data: [] as any[], error: null }),
   ])
+  const failed = results.find(r => r.error)
+  if (failed) throw new Error(`The fund register could not be loaded: ${failed.error.message}`)
+  const [{ data: terms }, { data: events }, { data: navs }, { data: ledgerAccounts }] = results
 
   const eventRows = ((events as any[]) ?? [])
   // A holding with no activity for this vehicle is not this vehicle's holding. Terms alone are a

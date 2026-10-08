@@ -83,7 +83,7 @@ export function companiesWithPendingNotices(
  * refuses to close when `blockers` is non-empty.
  *
  * The severity split is the whole point. A value the ledger does not carry BLOCKS (a statement
- * never saved, or a notice still unconfirmed), because the ledger is the
+ * never saved, a notice still unconfirmed, or a mark left stale by a later ledger change), because the ledger is the
  * control total for the schedule of investments and closing without it publishes a NAV no
  * posting supports. A stale manager NAV only WARNS, because reporting 45-90 days late is
  * normal — blocking on it would make a fund of funds unclosable by construction.
@@ -110,10 +110,17 @@ export function fofCloseIssues(
       )
       continue
     }
+    // With no notice waiting, a ledger that disagrees with the newest statement holds a stale mark —
+    // something moved the ledger after that statement booked (a transaction edited by hand). Name the
+    // remedy that clears it rather than one that does not apply.
+    const staleMark = !!p && p.reportedNav !== null && !!p.navAsOf && !pendingNotices.has(m.companyId)
     blockers.push(
       `${m.name}: the ledger carries ${m.ledgerCarrying.toFixed(2)} but the position values `
       + `at ${m.derivedCarrying.toFixed(2)} as of ${periodEnd}. `
-      + `Record the manager's statement for this period, or confirm the notices since it.`,
+      + (staleMark
+        ? `The ledger no longer carries its newest statement (as of ${p!.navAsOf}): use "Re-book mark" on the holding, `
+          + `or re-save its newest statement to re-book the mark. Or record the manager's statement for this period.`
+        : `Record the manager's statement for this period, or confirm the notices since it.`),
     )
   }
 

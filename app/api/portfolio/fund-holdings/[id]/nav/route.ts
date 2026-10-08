@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveHoldingVehicle } from '@/lib/portfolio/fof-register'
-import { deleteNavStatement, editNavStatement, saveNavStatement, type NavFields } from '@/lib/portfolio/fof-nav'
+import { deleteNavStatement, editNavStatement, rebookNavsFrom, saveNavStatement, type NavFields } from '@/lib/portfolio/fof-nav'
 // portfolio domain, investments feature (lib/access/route-domains.ts).
 import { assertReadAccess, assertWriteAccess } from '@/lib/api-helpers'
 import { loadAccessContext } from '@/lib/access/effective'
@@ -59,6 +59,10 @@ async function navDenial(admin: any, gate: { fundId: string; userId: string; rol
 // A statement for a date already recorded for this entity REPLACES it, and its mark is re-derived:
 // the old link is not preserved, because the old mark no longer describes the statement.
 // The result's `later` is an array: every newer statement re-booked, oldest first.
+//
+// { rebook: true, vehicleId } — RE-BOOK the mark of this entity's newest statement against what the
+// ledger carries now. A mark is a delta against the ledger, so a ledger changed after it booked (a
+// transaction edited by hand) leaves it stale, and the close blocks until it is re-booked.
 export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params
   const supabase = await createClient()
@@ -69,6 +73,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   if (gate instanceof NextResponse) return gate
 
   const body = await req.json().catch(() => ({}))
+  if (body?.rebook === true) return rebook(admin, gate, params.id, body?.vehicleId, user.id)
   if (typeof body?.asOfDate !== 'string') {
     return NextResponse.json({ error: 'asOfDate is required' }, { status: 400 })
   }
@@ -140,4 +145,24 @@ export async function DELETE(req: NextRequest, props: { params: Promise<{ id: st
   const result = await deleteNavStatement(admin, gate.fundId, user.id, navId)
   if (!result.ok) return NextResponse.json({ error: result.error }, { status: 400 })
   return NextResponse.json(result)
+}
+
+async function rebook(
+  admin: any, gate: { fundId: string; userId: string; role: string }, companyId: string, vehicleId: unknown, userId: string,
+): Promise<NextResponse> {
+  if (typeof vehicleId !== 'string' || !vehicleId) return NextResponse.json({ error: 'vehicleId is required' }, { status: 400 })
+  const notFund = await notAFundHolding(admin, gate.fundId, companyId)
+  if (notFund) return notFund
+  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  if (!canSeeVehicle(access, vehicleId)) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  const { data: newest, error } = await admin.from('fund_nav_statements').select('as_of_date')
+    .eq('fund_id', gate.fundId).eq('company_id', companyId).eq('vehicle_id', vehicleId)
+    .order('as_of_date', { ascending: false }).limit(1).maybeSingle()
+  if (error) return NextResponse.json({ error: `The statements could not be read: ${error.message}` }, { status: 500 })
+  if (!newest) return NextResponse.json({ error: 'This entity has no statement for this fund to re-book.' }, { status: 400 })
+
+  const [booking] = await rebookNavsFrom(admin, gate.fundId, userId, { companyId, vehicleId, since: newest.as_of_date, inclusive: true })
+  if (!booking) return NextResponse.json({ error: 'This entity has no statement for this fund to re-book.' }, { status: 400 })
+  return NextResponse.json({ ok: true, booking })
 }

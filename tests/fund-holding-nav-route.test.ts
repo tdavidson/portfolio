@@ -5,7 +5,7 @@ import { memoryAdmin } from '@/tests/helpers/memory-admin'
 const s = vi.hoisted(() => ({
   m: null as any,
   access: { vehicles: { all: true, ids: [] as string[] } } as any,
-  save: vi.fn(), edit: vi.fn(), del: vi.fn(),
+  save: vi.fn(), edit: vi.fn(), del: vi.fn(), rebook: vi.fn(),
 }))
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: 'u' } } }) } }) }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => s.m.admin }))
@@ -15,7 +15,7 @@ vi.mock('@/lib/api-helpers', async (orig) => ({
   assertReadAccess: async () => ({ fundId: 'f', userId: 'u', role: 'member' }),
 }))
 vi.mock('@/lib/access/effective', async (orig) => ({ ...(await orig<any>()), loadAccessContext: async () => s.access }))
-vi.mock('@/lib/portfolio/fof-nav', () => ({ saveNavStatement: s.save, editNavStatement: s.edit, deleteNavStatement: s.del }))
+vi.mock('@/lib/portfolio/fof-nav', () => ({ saveNavStatement: s.save, editNavStatement: s.edit, deleteNavStatement: s.del, rebookNavsFrom: s.rebook }))
 import { DELETE, PATCH, POST } from '@/app/api/portfolio/fund-holdings/[id]/nav/route'
 
 const LATER = [
@@ -28,6 +28,7 @@ beforeEach(() => {
   s.save.mockReset().mockResolvedValue(BOOKED)
   s.edit.mockReset().mockResolvedValue(BOOKED)
   s.del.mockReset().mockResolvedValue({ ok: true, later: LATER })
+  s.rebook.mockReset().mockResolvedValue([{ status: 'booked', delta: 25, message: 'Saved, and its mark posted to the ledger.' }])
   s.m = memoryAdmin({
     companies: [
       { id: 'h1', fund_id: 'f', name: 'Acme Ventures III', holding_type: 'fund' },
@@ -94,5 +95,33 @@ describe('the NAV route', () => {
     const res = await DELETE(req('DELETE', undefined, '?navId=n1'), props())
     expect(res.status).toBe(400)
     expect((await res.json()).error).toMatch(/closed period/)
+  })
+})
+
+describe('re-booking the newest mark', () => {
+  it('re-books the entity\'s newest statement, inclusive, and says what it booked', async () => {
+    s.m.tables.fund_nav_statements.push({ id: 'n3', fund_id: 'f', company_id: 'h1', vehicle_id: 'v1', as_of_date: '2026-06-30', reported_nav: 1500 })
+    const res = await POST(req('POST', { rebook: true, vehicleId: 'v1' }), props())
+    expect(res.status).toBe(200)
+    expect(await res.json()).toMatchObject({ ok: true, booking: { status: 'booked', delta: 25 } })
+    expect(s.rebook).toHaveBeenCalledWith(s.m.admin, 'f', 'u', { companyId: 'h1', vehicleId: 'v1', since: '2026-06-30', inclusive: true })
+    expect(s.save).not.toHaveBeenCalled()
+  })
+
+  it('needs an entity, and refuses one the member cannot see, or one with no statement', async () => {
+    expect((await POST(req('POST', { rebook: true }), props())).status).toBe(400)
+    s.access = { vehicles: { all: false, ids: ['v1'] } }
+    expect((await POST(req('POST', { rebook: true, vehicleId: 'v2' }), props())).status).toBe(404)
+    s.access = { vehicles: { all: true, ids: [] } }
+    s.m.tables.fund_nav_statements = []
+    const none = await POST(req('POST', { rebook: true, vehicleId: 'v1' }), props())
+    expect(none.status).toBe(400)
+    expect((await none.json()).error).toMatch(/no statement/)
+    expect(s.rebook).not.toHaveBeenCalled()
+  })
+
+  it('refuses a holding that is not a fund', async () => {
+    expect((await POST(req('POST', { rebook: true, vehicleId: 'v1' }), props('co'))).status).toBe(404)
+    expect(s.rebook).not.toHaveBeenCalled()
   })
 })

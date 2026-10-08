@@ -14,13 +14,22 @@ export interface NavStatementRow {
   basis: 'final' | 'preliminary' | 'estimate'
   /** The mark this statement booked; null when there was nothing to book or it was refused. */
   investment_transaction_id: string | null
+  /** The entity it is for; a statement naming none is saved but never booked. */
+  vehicle_id?: string | null
+}
+
+/** What the ledger holds for a statement, as far as the row can tell. */
+function ledgerLabel(n: NavStatementRow): { text: string; title?: string } {
+  if (n.investment_transaction_id) return { text: 'Mark booked' }
+  if (n.vehicle_id === null) return { text: 'Not booked', title: 'This statement names no entity, so it books nothing.' }
+  return { text: 'No mark', title: 'Either the ledger already carried this value, or the mark was refused — the message when it was saved says which.' }
 }
 
 /**
  * A holding's manager NAV statements, newest first, each editable and deletable. The valuation date
  * is not editable: a statement for another date is another statement — delete it and record it again.
  */
-export function FundHoldingNavs({ navs, busy, readOnly = false, onEdit, onDelete }: {
+export function FundHoldingNavs({ navs, busy, readOnly = false, onEdit, onDelete, onRebook }: {
   navs: NavStatementRow[]
   busy: boolean
   /** Hides edit and delete for a member who can only read. */
@@ -28,6 +37,11 @@ export function FundHoldingNavs({ navs, busy, readOnly = false, onEdit, onDelete
   /** Resolves true when the server accepted the change; the edit row closes only then. */
   onEdit: (navId: string, fields: { reportedNav: number; basis: string }) => void | boolean | Promise<void | boolean>
   onDelete: (navId: string) => void
+  /**
+   * Re-books the newest statement's mark against what the ledger carries now — for a mark left
+   * stale by a later change to the ledger. Omitted (or read-only): no button.
+   */
+  onRebook?: () => void
 }) {
   const currency = useCurrency()
   const [editing, setEditing] = useState<string | null>(null)
@@ -57,7 +71,7 @@ export function FundHoldingNavs({ navs, busy, readOnly = false, onEdit, onDelete
         </TableRow>
       </TableHeader>
       <TableBody>
-        {navs.map(n => editing === n.id ? (
+        {navs.map((n, i) => editing === n.id ? (
           <TableRow key={n.id}>
             <TableCell className="tabular-nums">{n.as_of_date}</TableCell>
             <TableCell className="text-right">
@@ -87,8 +101,12 @@ export function FundHoldingNavs({ navs, busy, readOnly = false, onEdit, onDelete
             <TableCell className="tabular-nums">{n.as_of_date}</TableCell>
             <TableCell className="text-right tabular-nums">{formatCurrency(Number(n.reported_nav), currency)}</TableCell>
             <TableCell className="capitalize">{n.basis}</TableCell>
-            <TableCell className="text-xs text-muted-foreground">{n.investment_transaction_id ? 'Mark booked' : 'No mark'}</TableCell>
+            <TableCell className="text-xs text-muted-foreground" title={ledgerLabel(n).title}>{ledgerLabel(n).text}</TableCell>
             <TableCell className="text-right space-x-2 whitespace-nowrap">
+              {/* Newest first, so row 0 is the newest statement: the one whose mark the books end at. */}
+              {!readOnly && onRebook && i === 0 && n.vehicle_id !== null && (
+                <Button size="sm" variant="outline" disabled={busy} onClick={onRebook}>Re-book mark</Button>
+              )}
               {!readOnly && <Button size="sm" variant="outline" disabled={busy} onClick={() => start(n)}>Edit</Button>}
               {!readOnly && <Button size="sm" variant="outline" disabled={busy} onClick={() => onDelete(n.id)}>Delete</Button>}
             </TableCell>

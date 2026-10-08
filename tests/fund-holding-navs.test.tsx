@@ -36,3 +36,27 @@ describe('a read-only member', () => {
     expect(html).not.toContain('>Delete<')
   })
 })
+
+describe('the ledger column and re-booking', () => {
+  const rows = [
+    { id: 'n2', as_of_date: '2026-06-30', reported_nav: 1500, basis: 'final', investment_transaction_id: 't2', vehicle_id: 'v1' },
+    { id: 'n1', as_of_date: '2026-03-31', reported_nav: 1000, basis: 'final', investment_transaction_id: null, vehicle_id: 'v1' },
+    { id: 'n0', as_of_date: '2025-12-31', reported_nav: 900, basis: 'final', investment_transaction_id: null, vehicle_id: null },
+  ]
+  const html = (over: Record<string, unknown> = {}) => renderToStaticMarkup(createElement(FundHoldingNavs, {
+    navs: rows as any, busy: false, onEdit: () => {}, onDelete: () => {}, onRebook: () => {}, ...over,
+  }))
+
+  it('a statement naming no entity reads "Not booked"; one with no mark says why it might have none', () => {
+    const out = html()
+    expect(out).toContain('Not booked')
+    expect(out).toContain('No mark')
+    expect(out).toMatch(/title="Either the ledger already carried this value, or the mark was refused/)
+  })
+
+  it('offers "Re-book mark" once, on the newest statement, to someone who can write', () => {
+    expect(html().match(/>Re-book mark</g)).toHaveLength(1)
+    expect(html({ readOnly: true })).not.toContain('Re-book mark')
+    expect(html({ onRebook: undefined })).not.toContain('Re-book mark')
+  })
+})

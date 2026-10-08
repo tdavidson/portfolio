@@ -31,7 +31,7 @@ vi.mock('@/lib/accounting/from-portfolio', () => ({
   draftEntryForTransaction: h.derive,
   retractEntriesForTransaction: h.retract,
 }))
-import { deleteNavStatement, editNavStatement, rebookLatestNav, rebookNavsFrom, saveNavStatement, type NavInput } from './fof-nav'
+import { bookNavMark, deleteNavStatement, editNavStatement, rebookNavsFrom, saveNavStatement, type NavInput } from './fof-nav'
 
 let m: ReturnType<typeof memoryAdmin>
 beforeEach(() => {
@@ -238,17 +238,100 @@ describe('rebookNavsFrom', () => {
   })
 })
 
-describe('rebookLatestNav', () => {
-  it('re-derives the newest statement on or after a date — a call confirmed late, dated before it', async () => {
+describe('re-booking from a date', () => {
+  it('re-derives the statement on or after a date — a call confirmed late, dated before it', async () => {
     await nav()                                                          // +200 against 1000
     h.base.push({ accountId: 'cost', amount: 100, date: '2026-02-01' })  // the late call's entry
-    const r = await rebookLatestNav(m.admin, 'f', 'u', { companyId: 'h1', vehicleId: 'v1', since: '2026-02-01', inclusive: true })
-    expect(r).toMatchObject({ status: 'booked', delta: 100 })
+    const r = await rebookNavsFrom(m.admin, 'f', 'u', { companyId: 'h1', vehicleId: 'v1', since: '2026-02-01', inclusive: true })
+    expect(r).toMatchObject([{ status: 'booked', delta: 100 }])
+    expect(carried()).toBe(1200)
+  })
+})
+
+/** The admin client, with every select on `table` failing. */
+function failingReads(admin: any, table: string) {
+  const failed: any = new Proxy({}, {
+    get: (_t, k) => k === 'then'
+      ? (res: any, rej: any) => Promise.resolve({ data: null, error: { message: 'connection reset' } }).then(res, rej)
+      : () => failed,
+  })
+  return new Proxy(admin, { get: (t, k) => k === 'from' ? (name: string) => (name === table ? { select: () => failed } : t.from(name)) : t[k] })
+}
+
+describe('a mark that cannot be derived', () => {
+  it('books nothing when the register cannot be loaded, and keeps the earlier mark', async () => {
+    const saved = await nav()
+    const before = m.tables.investment_transactions[0].id
+    m.tables.fund_nav_statements[0].reported_nav = 1300
+    const r = await bookNavMark(failingReads(m.admin, 'fund_capital_events'), 'f', 'u', navId(saved))
+    expect(r).toMatchObject({ status: 'refused', message: expect.stringMatching(/not booked: The fund register could not be loaded: connection reset/) })
+    expect(h.retract).not.toHaveBeenCalled()
+    expect(m.tables.investment_transactions.map((t: any) => t.id)).toEqual([before])
     expect(carried()).toBe(1200)
   })
 
-  it('returns null when no statement is dated on or after it', async () => {
+  it('books nothing when the position does not carry this statement', async () => {
+    const saved = await nav()
+    h.retract.mockClear()
+    // The register's position values the holding off a different figure than the statement says.
+    const admin = new Proxy(m.admin, { get: (t: any, k) => k === 'from' ? (name: string) => {
+      const q = t.from(name)
+      if (name !== 'fund_nav_statements') return q
+      return { ...q, select: (...a: any[]) => {
+        const sel = q.select(...a)
+        const then = sel.then.bind(sel)
+        sel.then = (res: any, rej: any) => then((r: any) => res({ ...r, data: (r.data ?? []).map((n: any) => ({ ...n, reported_nav: 999 })) }), rej)
+        return sel
+      } }
+    } : t[k] })
+    const r = await bookNavMark(admin, 'f', 'u', navId(saved))
+    expect(r).toMatchObject({ status: 'refused', message: expect.stringMatching(/could not be derived from the fund register; nothing was booked/) })
+    expect(h.retract).not.toHaveBeenCalled()
+    expect(carried()).toBe(1200)
+  })
+})
+
+describe('replacing a recorded NAV', () => {
+  it('says which NAV it replaced, and keeps the recorded basis unless one is given', async () => {
+    await nav({ basis: 'preliminary' })
+    const r = await nav({ reportedNav: 1300 })
+    expect(r).toMatchObject({ ok: true, replacedNav: 1200, booking: { message: expect.stringMatching(/replaced the NAV of 1,200 already recorded for 2026-03-31/) } })
+    expect(m.tables.fund_nav_statements[0].basis).toBe('preliminary')
+    await nav({ reportedNav: 1300, basis: 'final' })
+    expect(m.tables.fund_nav_statements[0].basis).toBe('final')
+  })
+
+  it('says nothing about replacing when the figure is the same', async () => {
     await nav()
-    expect(await rebookLatestNav(m.admin, 'f', 'u', { companyId: 'h1', vehicleId: 'v1', since: '2026-04-01', inclusive: true })).toBeNull()
+    const r = await nav()
+    expect(r.ok && r.replacedNav).toBeFalsy()
+    expect(r.ok && r.booking.message).not.toMatch(/replaced/)
+  })
+})
+
+describe('the statement\'s link to its mark', () => {
+  it('a link that cannot be set after posting is reported, not hidden', async () => {
+    m = memoryAdmin({ ...m.tables }, {
+      before: (table, op, payload) => {
+        if (table === 'fund_nav_statements' && op === 'update' && payload?.investment_transaction_id) m.failNext(table, op, 'connection reset')
+      },
+    })
+    const r = await nav()
+    expect(r).toMatchObject({ ok: true, booking: { status: 'booked', message: expect.stringMatching(/could not be linked to its mark/) } })
+  })
+
+  it('a link that cannot be cleared after taking a mark back refuses, and says so', async () => {
+    const saved = await nav()
+    const tables = m.tables
+    m = memoryAdmin({ ...tables }, {
+      before: (table, op, payload) => {
+        if (table === 'fund_nav_statements' && op === 'update' && payload && 'investment_transaction_id' in payload && payload.investment_transaction_id === null) {
+          m.failNext(table, op, 'connection reset')
+        }
+      },
+    })
+    const r = await deleteNavStatement(m.admin, 'f', 'u', navId(saved))
+    expect(r).toMatchObject({ ok: false, error: expect.stringMatching(/could not be updated/) })
+    expect(m.tables.fund_nav_statements).toHaveLength(1)
   })
 })

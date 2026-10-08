@@ -188,7 +188,8 @@ export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: s
     .not('investment_transaction_id', 'is', null)
   if ((navCount ?? 0) > 0) {
     return NextResponse.json({
-      error: `This holding has ${navCount} posted valuation mark(s). Reverse them before deleting.`,
+      error: `This holding has ${navCount} NAV statement(s) with a mark on the ledger. `
+           + `Delete its NAV statements first — deleting one takes its mark off the ledger.`,
     }, { status: 409 })
   }
 
