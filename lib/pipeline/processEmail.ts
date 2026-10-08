@@ -22,6 +22,7 @@ import {
   removeCompanyUpdate,
   updateCompanyUpdatePeriod,
 } from '@/lib/company-updates/capture'
+import type { ContentBlock } from '@/lib/ai/types'
 import type { Json, IssueType, ProcessingStatus } from '@/lib/types/database'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 import { scopeCompanyRows, visibleVehicleIds } from '@/lib/access/scope'
@@ -274,6 +275,31 @@ export async function runPipeline(
     })
   }
 
+  // A FUND HOLDING's mail is a manager's: a capital account statement, a call notice, a distribution
+  // notice. Read it into register proposals for a person to approve (lib/portfolio/fof-email.ts).
+  // Nothing is written to the register here, and the metric pipeline below still runs.
+  let fundReviews = 0
+  if (isPortfolioReporting) {
+    try {
+      const { data: holdingRow } = await supabase.from('companies').select('holding_type').eq('id', companyId!).maybeSingle()
+      if ((holdingRow as { holding_type?: string } | null)?.holding_type === 'fund') {
+        const { proposeFundReviews } = await import('@/lib/portfolio/fof-email')
+        // A forwarder's entities bound which entity can be inferred; outside mail is the fund's.
+        const access = fundMember
+          ? (await loadEntityScopeForUser(supabase as any, fundMember.userId))?.access ?? { vehicles: { all: false, ids: [] } }
+          : { vehicles: { all: true, ids: [] } }
+        const proposed = await proposeFundReviews(supabase as any, {
+          fundId, emailId, companyId: companyId!, access, ai: { provider, model },
+          content: managerDocumentContent(extracted, payload), fallbackDate: emailDate(payload),
+        })
+        fundReviews = proposed.written
+        warnings.push(...proposed.warnings)
+      }
+    } catch (err) {
+      warnings.push(`The manager document could not be read: ${err instanceof Error ? err.message : 'unknown error'}`)
+    }
+  }
+
   // Step 6: Extract metrics
   const metrics = await getMetrics(supabase, companyId!)
 
@@ -292,7 +318,7 @@ export async function runPipeline(
     // The email was identified and filed successfully even if this company has no configured
     // metrics yet. "Skipped" is a human decision; lack of metric definitions is not a failure to
     // process and should not hide the email from the company's reporting history.
-    await finalizeEmail(supabase, emailId, { status: 'success', metricsExtracted: 0, warnings })
+    await finalizeEmail(supabase, emailId, { status: fundReviews > 0 ? 'needs_review' : 'success', metricsExtracted: 0, warnings })
     if (fundMember) {
       try {
         await maybeExtractInteraction(supabase, fundId, emailId, companyId, fundMember.userId, payload, extracted.emailBody, provider, providerType, model)
@@ -361,7 +387,7 @@ export async function runPipeline(
     warnings.push(describeStorageError(msg))
   }
 
-  const status: ProcessingStatus = reviewCount > 0 ? 'needs_review' : writtenCount > 0 ? 'success' : 'not_processed'
+  const status: ProcessingStatus = reviewCount + fundReviews > 0 ? 'needs_review' : writtenCount > 0 ? 'success' : 'not_processed'
   await finalizeEmail(supabase, emailId, { status, metricsExtracted: writtenCount, warnings })
 
   // Step 10: Extract interaction (fund member emails only)
@@ -717,6 +743,24 @@ export async function finalizeEmail(
 // ---------------------------------------------------------------------------
 // Text helpers
 // ---------------------------------------------------------------------------
+
+/** What the manager-document reader sees: PDFs as documents (tables survive), images, then the text. */
+export function managerDocumentContent(extracted: ExtractionResult, payload: PostmarkPayload): ContentBlock[] {
+  const blocks: ContentBlock[] = []
+  for (const a of extracted.attachments) {
+    if (a.skipped || !a.base64Content) continue
+    if (isPdf(a.contentType)) blocks.push({ type: 'document', mediaType: 'application/pdf', data: a.base64Content })
+    else if (isImage(a.contentType)) blocks.push({ type: 'image', mediaType: a.contentType, data: a.base64Content })
+  }
+  blocks.push({ type: 'text', text: buildCombinedText(extracted, payload) })
+  return blocks
+}
+
+/** The email's own date (YYYY-MM-DD), for a call the document gives no date for; today when it has none. */
+export function emailDate(payload: PostmarkPayload): string {
+  const d = payload.Date ? new Date(payload.Date) : null
+  return (d && !Number.isNaN(d.getTime()) ? d : new Date()).toISOString().slice(0, 10)
+}
 
 export function buildCombinedText(extracted: ExtractionResult, payload?: PostmarkPayload): string {
   const parts: string[] = []
