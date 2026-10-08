@@ -5,7 +5,7 @@ import {
   ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend, ReferenceLine,
 } from 'recharts'
-import { Loader2 } from 'lucide-react'
+import { Loader2, FileText } from 'lucide-react'
 import { useCurrency, formatCurrency, formatCurrencyFull } from '@/components/currency-context'
 import { useVehicle, FundSwitcher } from '@/components/accounting-vehicle'
 import { AccountingBody, AccountingPageHeader } from '@/components/accounting-chrome'
@@ -14,6 +14,7 @@ import { Metric as MetricBox } from '@/components/ui/metric'
 import { ChartCard, EmptyPlot, AXIS, tooltipStyle, HUE } from '@/components/fund-chart-kit'
 import { IntercompanyPanel } from '@/components/accounting/intercompany-panel'
 import Link from 'next/link'
+import { Button } from '@/components/ui/button'
 
 // The management company dashboard. Everything here is READ-ONLY and derived from the manco's own
 // ledger — see lib/accounting/manco-overview.ts for what each figure means and why.
@@ -107,9 +108,9 @@ export function MancoDetailView({
         )}</span>}
         titleAttr={vehicle}
         actions={<>
-          <Link href={`/entities/${vehicleId}/documents`} className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground whitespace-nowrap">
-            Documents
-          </Link>
+          <Button asChild size="sm" variant="outline">
+            <Link href={`/entities/${vehicleId}/documents`}><FileText className="h-3.5 w-3.5 mr-1.5" />Documents</Link>
+          </Button>
           <FundSwitcher />
         </>}
       >

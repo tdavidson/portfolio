@@ -2,12 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
+import { Button } from '@/components/ui/button'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
   CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell,
   LineChart, Line, ReferenceLine,
 } from 'recharts'
-import { Loader2, ArrowRight } from 'lucide-react'
+import { Loader2, ArrowRight, FileText } from 'lucide-react'
 import { useCurrency, formatCurrency, formatCurrencyFull } from '@/components/currency-context'
 import { useVehicle, FundSwitcher } from '@/components/accounting-vehicle'
 import { AccountingBody, AccountingPageHeader } from '@/components/accounting-chrome'
@@ -246,9 +247,9 @@ export function FundDetailView({ vehicle, vehicleId }: { vehicle: string; vehicl
         actions={<>
           {hasGpSplit && <LensToggle lens={lens} setLens={setLens} />}
           {vehicleId && (
-            <Link href={`/entities/${vehicleId}/documents`} className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground whitespace-nowrap">
-              Documents
-            </Link>
+            <Button asChild size="sm" variant="outline">
+              <Link href={`/entities/${vehicleId}/documents`}><FileText className="h-3.5 w-3.5 mr-1.5" />Documents</Link>
+            </Button>
           )}
           <FundSwitcher />
         </>}
