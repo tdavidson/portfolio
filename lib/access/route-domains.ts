@@ -262,6 +262,10 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/companies/[id]/investments/[txnId]': { domain: 'portfolio', feature: 'investments' },
   'api/companies/[id]/metrics': { domain: 'portfolio' },
   'api/companies/[id]/metrics/[metricId]/values': { domain: 'portfolio' },
+  // Configured where the holding lives (plans/spec-ledger-one-writer.md §6): the price feed any
+  // quoted holding marks from, including booking the quoted mark — which derives and posts like
+  // any recorded mark. Per-entity parts are scoped in the handler (lib/portfolio/holding-route.ts).
+  'api/companies/[id]/price-feed': { domain: 'portfolio', feature: 'investments' },
   'api/companies/[id]/summary': { domain: 'portfolio' },
   // Company Updates: the durable, searchable projection of portfolio-reporting email. Reads are the
   // company timeline, one update, one artifact's text/original file, portfolio search, and coverage
