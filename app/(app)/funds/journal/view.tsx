@@ -40,7 +40,7 @@ interface Entry {
   journal_postings: Posting[]
 }
 
-const ALLOCATION_ACTIONS: AllocationAction[] = ['management_fee', 'expense', 'gain', 'revalue', 'distribution', 'carry']
+const ALLOCATION_ACTIONS: AllocationAction[] = ['management_fee', 'expense', 'gain', 'distribution', 'carry']
 
 // Same action-button style as the bank transactions table.
 const actionBtn = 'shrink-0 rounded border border-input px-2 py-1 font-sans text-xs text-muted-foreground hover:bg-accent hover:text-foreground transition-colors'
@@ -77,7 +77,7 @@ export function JournalView({ onPlainText }: { onPlainText?: () => void } = {}) 
   const [page, setPage] = useState(0)
   // `{ entryId: null }` = a new entry; readOnly = view a posted one without reverting it.
   const [editing, setEditing] = useState<{ entryId: string | null; readOnly?: boolean } | null>(null)
-  // One of the standard entries (fee, expense, gain, revalue, distribution, carry) being built.
+  // One of the standard entries (fee, expense, gain, distribution, carry) being built.
   const [alloc, setAlloc] = useState<AllocationAction | null>(null)
   const [newOpen, setNewOpen] = useState(false)
   const [posting, setPosting] = useState(false)
@@ -278,6 +278,7 @@ export function JournalView({ onPlainText }: { onPlainText?: () => void } = {}) 
                   <div className="text-xs text-muted-foreground">{ALLOCATION_LABELS[a].desc}</div>
                 </button>
               ))}
+              <p className="px-2 pb-1.5 text-xs text-muted-foreground">To mark an investment to fair value, record a valuation update on the company.</p>
               {(base || onPlainText) && (
                 <>
                   <div className="px-2 pt-2 pb-1 text-[10px] font-medium uppercase tracking-wide text-muted-foreground">Elsewhere</div>

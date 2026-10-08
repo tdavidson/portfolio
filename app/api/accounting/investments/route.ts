@@ -5,10 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // grant for this route + method; these resolve identity and keep the demo out of writes.
 import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
-import {
-  previewBootstrapInvestments, bootstrapInvestments, markInvestment, ledgerByCompany,
-  previewInvestmentHistory, replayInvestmentHistory, revalueInvestmentFx,
-} from '@/lib/accounting/investments'
+import { ledgerByCompany } from '@/lib/accounting/investments'
 import { buildSoiPositions, type SoiCompany } from '@/lib/accounting/soi'
 import { backfillDerivedEntries } from '@/lib/accounting/investment-backfill'
 
@@ -58,11 +55,10 @@ export async function GET(req: NextRequest) {
 }
 
 // POST
-//   { action: 'backfill', dryRun? }                          → derive what historical rows never did
-//   { action: 'preview',   offset }                          → what bootstrapping would book
-//   { action: 'bootstrap', entryDate, offset, force? }       → book it
-//   { action: 'mark', companyId, companyName, fairValue, entryDate, memo? }
-//                                                            → mark ONE company (0 = write-off)
+//   { action: 'backfill', dryRun? } → adopt what's posted, derive what's missing, post what waits
+//                                     (lib/accounting/investment-backfill.ts)
+// Investments reach the ledger only through investment transactions (plans/spec-ledger-one-writer.md):
+// bootstrap, history replay, single marks and FX revaluations were retired with that.
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const admin = createAdminClient()
@@ -75,72 +71,11 @@ export async function POST(req: NextRequest) {
   const group = await resolveGroupOr400(admin, gate, body?.group ?? req.nextUrl.searchParams.get('group'))
   if (group instanceof NextResponse) return group
 
-  const offset: 'cash' | 'capital' = body?.offset === 'capital' ? 'capital' : 'cash'
-
   // Derive the entries historical transactions never derived: marks post, cash entries draft and
   // wait for their bank match. `dryRun` previews. Idempotent — see lib/accounting/investment-backfill.ts.
   if (body?.action === 'backfill') {
     return NextResponse.json(await backfillDerivedEntries(admin, gate.fundId, group, user.id, { dryRun: !!body?.dryRun }))
   }
 
-  if (body?.action === 'preview') {
-    const result = await previewBootstrapInvestments(admin, gate.fundId, group, offset)
-    if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
-    return NextResponse.json(result)
-  }
-
-  // Replay the tracker's DATED history — each purchase and each mark on the date it
-  // actually happened, so the close allocates every gain to the period it belongs to.
-  if (body?.action === 'previewHistory') {
-    const result = await previewInvestmentHistory(admin, gate.fundId, group, { from: body?.from ?? null })
-    if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
-    return NextResponse.json(result)
-  }
-
-  if (body?.action === 'replayHistory') {
-    const result = await replayInvestmentHistory(admin, gate.fundId, group, user.id, {
-      from: body?.from ?? null,
-      force: !!body?.force,
-    })
-    if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
-    return NextResponse.json({ ok: true, ...result })
-  }
-
-  // A rate move, not a mark. Books to 1250-<company> / 4300 so a currency swing is never
-  // reported as investment performance.
-  if (body?.action === 'fx') {
-    const result = await revalueInvestmentFx(admin, gate.fundId, group, user.id, {
-      companyId: body?.companyId,
-      companyName: body?.companyName ?? 'Investment',
-      delta: Number(body?.delta),
-      entryDate: body?.entryDate,
-      currency: body?.currency ?? null,
-      priorRate: body?.priorRate ?? null,
-      newRate: body?.newRate ?? null,
-      memo: body?.memo ?? null,
-      status: body?.status === 'draft' ? 'draft' : 'posted',
-    })
-    if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
-    return NextResponse.json({ ok: true, ...result })
-  }
-
-  if (body?.action === 'mark') {
-    const result = await markInvestment(admin, gate.fundId, group, user.id, {
-      companyId: body?.companyId,
-      companyName: body?.companyName ?? 'Investment',
-      fairValue: Number(body?.fairValue),
-      entryDate: body?.entryDate,
-      memo: body?.memo ?? null,
-    })
-    if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
-    return NextResponse.json({ ok: true, ...result })
-  }
-
-  const result = await bootstrapInvestments(admin, gate.fundId, group, user.id, {
-    entryDate: body?.entryDate,
-    offset,
-    force: !!body?.force,
-  })
-  if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
-  return NextResponse.json({ ok: true, ...result })
+  return NextResponse.json({ error: "Unknown action. Record investments, marks and exits as transactions on each company; 'backfill' puts existing ones on the ledger." }, { status: 400 })
 }

@@ -8,7 +8,6 @@ import { AGENT_TOOL_MANIFEST, type AgentToolMeta } from './agent-tools-manifest'
 import type { Domain } from '@/lib/access/domains'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
 import type { FeatureKey } from '@/lib/types/features'
-import { DEFAULT_CHART } from './chart'
 import { loadPostedLedger, loadEntityNames, loadOwnership } from './load'
 import { accountIdByCode, persistEntry } from './persist'
 import { vehicleIdByName } from './vehicle-id'
@@ -65,16 +64,6 @@ const HANDLERS: Record<string, AgentToolHandler> = {
   list_accounts: async ({ admin, fundId, portfolioGroup }) => {
     const { accounts } = await loadPostedLedger(admin, fundId, portfolioGroup)
     return accounts.map(a => ({ code: a.code, name: a.name, type: a.type, subtype: a.subtype ?? null }))
-  },
-
-  seed_chart: async ({ admin, fundId, portfolioGroup }) => {
-    const vehicleId = await vehicleIdByName(admin, fundId, portfolioGroup)
-    const { count } = await admin.from('chart_of_accounts' as any).select('id', { count: 'exact', head: true }).eq('fund_id', fundId).eq('vehicle_id', vehicleId)
-    if ((count ?? 0) > 0) return { seeded: 0, message: 'Chart already exists' }
-    const rows = DEFAULT_CHART.map(a => ({ fund_id: fundId, portfolio_group: portfolioGroup, vehicle_id: vehicleId, code: a.code, name: a.name, type: a.type, subtype: a.subtype ?? null }))
-    const { data, error } = await admin.from('chart_of_accounts' as any).insert(rows).select('code')
-    if (error) throw new Error(error.message)
-    return { seeded: (data as any[])?.length ?? 0 }
   },
 
   list_entities: async ({ admin, fundId, portfolioGroup }) => {

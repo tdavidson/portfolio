@@ -6,13 +6,12 @@ import { Button } from '@/components/ui/button'
 import { useCurrency, formatCurrencyPrice } from '@/components/currency-context'
 import { useLedgerFetch } from '@/components/accounting-vehicle'
 
-export type AllocationAction = 'management_fee' | 'expense' | 'gain' | 'revalue' | 'distribution' | 'carry'
+export type AllocationAction = 'management_fee' | 'expense' | 'gain' | 'distribution' | 'carry'
 
 export const ALLOCATION_LABELS: Record<AllocationAction, { label: string; desc: string }> = {
   management_fee: { label: 'Management fee', desc: 'Accrue the fee for a period from the fund’s rate and each partner’s terms.' },
   expense: { label: 'Partnership expense', desc: 'An expense paid from cash.' },
   gain: { label: 'Realized gain', desc: 'Proceeds received above cost.' },
-  revalue: { label: 'Revalue investment', desc: 'Mark the investment to a new fair value; the delta is booked.' },
   distribution: { label: 'Distribution', desc: 'Cash out to partners, by amount per partner.' },
   carry: { label: 'Carried interest', desc: 'Move profit from partners to the GP, by amount per partner.' },
 }
@@ -42,7 +41,6 @@ export function AllocationModal({ action, onClose, onSaved }: { action: Allocati
   const [annualRate, setAnnualRate] = useState('2')
   const [periodFraction, setPeriodFraction] = useState('0.25')
   const [amount, setAmount] = useState('')
-  const [fairValue, setFairValue] = useState('')
   const [perLp, setPerLp] = useState<Record<string, string>>({})
   const [partners, setPartners] = useState<Partner[]>([])
   const [preview, setPreview] = useState<Preview | null>(null)
@@ -58,14 +56,12 @@ export function AllocationModal({ action, onClose, onSaved }: { action: Allocati
     const b: Record<string, unknown> = { action, entryDate, memo: memo.trim() || undefined, reference: reference.trim() || undefined }
     if (action === 'management_fee') { b.annualRate = num(annualRate) / 100; b.periodFraction = num(periodFraction) }
     if (action === 'expense' || action === 'gain') b.amount = num(amount)
-    if (action === 'revalue') b.fairValue = num(fairValue)
     if (perPartner) b.perLp = Object.fromEntries(Object.entries(perLp).filter(([, v]) => num(v) > 0).map(([k, v]) => [k, num(v)]))
     return b
   }
   const ready = !!entryDate && (
     action === 'management_fee' ? num(annualRate) > 0 && num(periodFraction) > 0
     : action === 'expense' || action === 'gain' ? num(amount) > 0
-    : action === 'revalue' ? fairValue.trim() !== ''
     : Object.values(perLp).some(v => num(v) > 0))
 
   const post = (payload: object) => ({ method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
@@ -123,11 +119,6 @@ export function AllocationModal({ action, onClose, onSaved }: { action: Allocati
           )}
           {(action === 'expense' || action === 'gain') && (
             <label className={label}>{action === 'expense' ? 'Amount paid from cash' : 'Proceeds received'}<input inputMode="decimal" value={amount} onChange={e => { setAmount(e.target.value); setPreview(null) }} className={`${field} tabular-nums`} /></label>
-          )}
-          {action === 'revalue' && (
-            <label className={label}>New fair value of the investment<input inputMode="decimal" value={fairValue} onChange={e => { setFairValue(e.target.value); setPreview(null) }} className={`${field} tabular-nums`} />
-              <span className="mt-1 block">The entry books the change against the current carrying value (cost plus unrealized). Nothing is booked if it has not moved.</span>
-            </label>
           )}
           {perPartner && (
             <div>

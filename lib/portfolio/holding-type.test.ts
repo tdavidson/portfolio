@@ -48,7 +48,6 @@ const ALLOWLIST = new Map<string, string>([
   // see BOTH kinds. Filtering these to companies would break the tie-outs, not tidy them.
   ['app/api/accounting/investments/route.ts', 'ledger-vs-tracker tie-out covers every position, funds included'],
   ['app/api/accounting/deal-carry/route.ts', 'deal-by-deal carry is computed over every position, funds included'],
-  ['lib/accounting/investments.ts', 'per-holding account triplets and ledger balances cover both kinds'],
   ['lib/accounting/fund-timeseries.ts', 'cost and value over time cover every position, funds included'],
   ['lib/accounting/import-review.ts', 'compares imported books to every investment position, including fund holdings'],
   ['lib/accounting/status.ts', 'the schedule-of-investments tie-out must cover every ledger position'],

@@ -218,23 +218,6 @@ export function buildGainEntry(
 }
 
 /**
- * Investment revaluation: mark the portfolio to a new fair value. `delta` is the
- * change vs the current carrying value (positive = mark up).
- *   Dr Unrealized appreciation   Cr Change in unrealized income
- */
-export function buildRevaluationEntry(
-  base: Base,
-  delta: number,
-  accts: { unrealizedAssetId: string; incomeId: string },
-  currency = 'USD'
-): JournalEntry {
-  return finalize(base, 'valuation', [
-    { accountId: accts.unrealizedAssetId, amount: roundCents(delta), currency, lpEntityId: null },
-    { accountId: accts.incomeId, amount: roundCents(-delta), currency, lpEntityId: null },
-  ])
-}
-
-/**
  * Period close: zero every P&L account into the bridge. Given each P&L account's
  * debit-side balance, post the negation to flatten it and offset the sum to the
  * bridge — which, because the compound entries already parked the allocation

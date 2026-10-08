@@ -92,7 +92,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/journal/export': { domain: 'accounting' },
   'api/accounting/chart/export': { domain: 'accounting' },
   'api/accounting/attribute-lp-capital': { domain: 'accounting' },
-  // The standard entries (fee, expense, gain, revalue, distribution, carry) from their inputs —
+  // The standard entries (fee, expense, gain, distribution, carry) from their inputs —
   // the agent's allocation tool, reachable from the journal's New entry menu. POST → write.
   'api/accounting/allocation': { domain: 'accounting' },
   // The account register: the same posted ledger the statements read, one account at a time.

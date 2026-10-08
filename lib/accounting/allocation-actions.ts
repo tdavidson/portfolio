@@ -20,7 +20,6 @@ import {
   buildDistributionEntry,
   buildCarryEntry,
   buildPeriodCloseEntry,
-  buildRevaluationEntry,
   type CapitalAccountMap,
   type PnlAccounts,
 } from './entries'
@@ -28,8 +27,6 @@ import type { JournalEntry } from './types'
 
 export const CODE = {
   cash: '1000',
-  investmentCost: '1100',
-  unrealizedAsset: '1200',
   dueToGp: '2100',
   gpCapital: '3000',
   bridge: '3200',
@@ -46,7 +43,6 @@ export interface AllocationBody {
   annualRate?: number
   periodFraction?: number
   amount?: number
-  fairValue?: number
   overrides?: Record<string, { rateOverride?: number; exempt?: boolean }>
   perLp?: Record<string, number>
 }
@@ -133,21 +129,6 @@ export async function buildAllocationEntry(
       const accts: PnlAccounts = { pnlAccountId: need(CODE.realizedGains), offsetAccountId: need(CODE.cash) }
       return { entry: buildGainEntry(base, Number(body.amount), accts) }
     }
-    if (action === 'revalue') {
-      // Mark the investment to a new fair value. P&L only — the close allocates it.
-      const { accounts, postings } = await loadPostedLedger(admin, fundId, group)
-      const bal = accountBalances(postings)
-      const byCode = new Map(accounts.map(a => [a.code, a.id]))
-      const idFor = (code: string) => byCode.get(code)
-      const carrying = roundCents(
-        (idFor(CODE.investmentCost) ? bal.get(idFor(CODE.investmentCost)!) ?? 0 : 0) +
-        (idFor(CODE.unrealizedAsset) ? bal.get(idFor(CODE.unrealizedAsset)!) ?? 0 : 0)
-      )
-      const delta = roundCents(Number(body.fairValue) - carrying)
-      if (delta === 0) return { error: 'Fair value equals the current carrying value — nothing to revalue' }
-      return { entry: buildRevaluationEntry(base, delta, { unrealizedAssetId: need(CODE.unrealizedAsset), incomeId: need(CODE.unrealizedIncome) }) }
-    }
-
     // Distributions and carry DO move capital directly — they aren't P&L.
     const capMap: CapitalAccountMap = await ensureCapitalAccounts(admin, fundId, group, Object.keys(body.perLp ?? {}))
 

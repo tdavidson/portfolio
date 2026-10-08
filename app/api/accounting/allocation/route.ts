@@ -8,7 +8,7 @@ import { buildAllocationEntry, type AllocationBody } from '@/lib/accounting/allo
 import { persistEntry } from '@/lib/accounting/persist'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 
-const ACTIONS = ['management_fee', 'expense', 'gain', 'revalue', 'distribution', 'carry']
+const ACTIONS = ['management_fee', 'expense', 'gain', 'distribution', 'carry']
 
 // POST — build one of the standard entries from its inputs, and either return it as a preview or
 // write it. The same builder the agent's `allocation` tool uses (lib/accounting/allocation-actions.ts),

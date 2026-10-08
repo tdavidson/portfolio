@@ -6,7 +6,6 @@ import {
   buildManagementFeeEntry,
   buildExpenseEntry,
   buildGainEntry,
-  buildRevaluationEntry,
   buildPeriodCloseEntry,
   buildDistributionEntry,
   buildCarryEntry,
@@ -126,17 +125,6 @@ describe('entry builders', () => {
     expect(isBalanced(e)).toBe(true)
     expect(accountBalances(e.postings).get('gains')).toBe(-50_000) // credit income
     expect(e.postings.filter(p => p.lpEntityId)).toHaveLength(0)
-  })
-
-  it('revaluation marks the asset up and down without touching capital', () => {
-    const up = buildRevaluationEntry(base, 100_000, { unrealizedAssetId: 'unrl', incomeId: 'inc' })
-    expect(isBalanced(up)).toBe(true)
-    expect(accountBalances(up.postings).get('unrl')).toBe(100_000)
-    expect(up.postings.filter(p => p.lpEntityId)).toHaveLength(0)
-
-    const down = buildRevaluationEntry(base, -50_000, { unrealizedAssetId: 'unrl', incomeId: 'inc' })
-    expect(isBalanced(down)).toBe(true)
-    expect(accountBalances(down.postings).get('unrl')).toBe(-50_000)
   })
 
   it('year-end close zeroes P&L into the bridge', () => {
