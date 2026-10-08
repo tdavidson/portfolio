@@ -246,3 +246,22 @@ export function walletCloseIssues(
 export function short(address: string): string {
   return address.length <= 14 ? address : `${address.slice(0, 8)}…${address.slice(-4)}`
 }
+
+/** A crypto_wallets row in the shape the reconciliation reads. */
+export function walletFromRow(w: any): Wallet {
+  return {
+    id: w.id,
+    companyId: w.company_id,
+    chain: w.chain,
+    address: w.address,
+    label: w.label ?? null,
+    active: w.active !== false,
+    verifiedAt: w.verified_at ?? null,
+    verificationMethod: w.verification_method ?? null,
+  }
+}
+
+/** A crypto_wallet_balances row in the shape the reconciliation reads. */
+export function balanceFromRow(b: any): WalletBalance {
+  return { walletId: b.wallet_id, asOfDate: b.as_of_date, units: Number(b.units), blockHeight: b.block_height ?? null }
+}
