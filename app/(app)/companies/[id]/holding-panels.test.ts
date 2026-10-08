@@ -1,6 +1,6 @@
 // app/(app)/companies/[id]/holding-panels.test.ts
 import { describe, it, expect } from 'vitest'
-import { holdingPanels, initialEntity, quoteBasisNote, chainVarianceText } from './holding-panels'
+import { holdingPanels, initialEntity, initialAsOf, quoteBasisNote, chainVarianceText } from './holding-panels'
 
 describe('holdingPanels', () => {
   it('a company keeps its profile and may carry a price feed', () => {
@@ -27,6 +27,18 @@ describe('initialEntity', () => {
   })
   it('opens on the only entity there is', () => {
     expect(initialEntity([{ id: 'v1' }], null)).toBe('v1')
+  })
+})
+
+describe('initialAsOf', () => {
+  it('opens on the date a link named — the period end the close is missing a mark for', () => {
+    expect(initialAsOf('2026-03-31')).toBe('2026-03-31')
+  })
+  it('ignores anything that is not one real date, and opens on today instead', () => {
+    expect(initialAsOf(undefined)).toBeNull()
+    expect(initialAsOf('2026-02-30')).toBeNull()
+    expect(initialAsOf('31/03/2026')).toBeNull()
+    expect(initialAsOf(['2026-03-31', '2026-06-30'])).toBeNull()
   })
 })
 

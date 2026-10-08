@@ -8,7 +8,7 @@ import { dbError } from '@/lib/api-error'
 import { logActivity } from '@/lib/activity'
 import { buildSoiPositions } from '@/lib/accounting/soi'
 import { holdingForRequest, isRealDate, type HoldingContext } from '@/lib/portfolio/holding-route'
-import { holdingEntities, holdersFromTransactions, walletEntity, walletsForEntity } from '@/lib/portfolio/holding-entities'
+import { holdingEntities, holdersAsOf, walletEntity, walletsForEntity } from '@/lib/portfolio/holding-entities'
 import { walletVariances, walletFromRow, balanceFromRow } from '@/lib/portfolio/wallets'
 import { HAS_CHAIN_PROVIDER } from '@/lib/portfolio/balance-providers'
 
@@ -24,6 +24,10 @@ const today = () => new Date().toISOString().slice(0, 10)
 const bad = (error: string) => NextResponse.json({ error }, { status: 400 })
 const notFound = () => NextResponse.json({ error: 'Wallet not found.' }, { status: 404 })
 const unread = (what: string) => NextResponse.json({ error: `Could not read ${what}.` }, { status: 500 })
+/** Only a digital asset is held in wallets; a company or fund holding has none to watch. */
+const notCrypto = (ctx: HoldingContext) => ctx.holding.holding_type === 'crypto'
+  ? null
+  : NextResponse.json({ error: 'Only a digital asset is held in wallets.' }, { status: 400 })
 
 /** Every investment transaction of the holding in the FULL fund — never filtered to the caller. */
 async function holdingTxns(admin: any, fundId: string, companyId: string): Promise<any[] | null> {
@@ -70,7 +74,8 @@ async function visibleWallet(
   if (!data) return { wallet: null }
   const txns = await holdingTxns(admin, gate.fundId, companyId)
   if (!txns) return unread("the holding's transactions")
-  const visible = await walletVisibility(admin, gate.fundId, companyId, ctx, holdersFromTransactions(txns))
+  // An action is taken now, so the wallet belongs to whoever holds the asset now.
+  const visible = await walletVisibility(admin, gate.fundId, companyId, ctx, holdersAsOf(txns, null))
   if (!visible) return unread("the holding's entities")
   return { wallet: visible(data) ? data : null }
 }
@@ -87,6 +92,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
   if (gate instanceof NextResponse) return gate
   const ctx = await holdingForRequest(admin, gate, id)
   if (ctx instanceof NextResponse) return ctx
+  const kindRefused = notCrypto(ctx)
+  if (kindRefused) return kindRefused
 
   const asOf = req.nextUrl.searchParams.get('asOf') || today()
   if (!isRealDate(asOf)) return bad('asOf must be a real date written YYYY-MM-DD.')
@@ -97,7 +104,9 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
   if (wallets.error) return unread('the wallets')
   if (!txns) return unread("the holding's transactions")
 
-  const holders = holdersFromTransactions(txns)
+  // Holders AT asOf — the date the close and the schedule use — so this page, the schedule and the
+  // close agree whose an untagged wallet is on any given date (holding-entities.ts).
+  const holders = holdersAsOf(txns, asOf)
   const visible = await walletVisibility(admin, gate.fundId, id, ctx, holders)
   if (!visible) return unread("the holding's entities")
   const rows = ((wallets.data as any[]) ?? []).filter(visible)
@@ -145,6 +154,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   if (gate instanceof NextResponse) return gate
   const ctx = await holdingForRequest(admin, gate, id)
   if (ctx instanceof NextResponse) return ctx
+  const kindRefused = notCrypto(ctx)
+  if (kindRefused) return kindRefused
 
   const body = await req.json().catch(() => ({}))
 
@@ -236,6 +247,8 @@ export async function DELETE(req: NextRequest, props: { params: Promise<{ id: st
   if (gate instanceof NextResponse) return gate
   const ctx = await holdingForRequest(admin, gate, id)
   if (ctx instanceof NextResponse) return ctx
+  const kindRefused = notCrypto(ctx)
+  if (kindRefused) return kindRefused
 
   const walletId = req.nextUrl.searchParams.get('walletId')
   if (!walletId) return bad('walletId is required.')

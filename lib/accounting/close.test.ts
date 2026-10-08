@@ -253,6 +253,30 @@ describe('the quoted-positions check on a failed read', () => {
   }
 })
 
+describe('the quoted-positions check past the row cap', () => {
+  it("checks the period end against the feed's latest quote, not the oldest 1000", async () => {
+    const feed = { id: 'pf1', fund_id: 'f', company_id: 'c1', kind: 'listed_equity', symbol: 'ACME', exchange: null, quote_currency: 'USD', quote_scale: 1, active_from: '2020-01-01', active_until: null, restriction_until: null, restriction_discount: null }
+    // A daily feed since 2020, stored oldest first; the price moves from 1 to 7 in 2026.
+    const price_observations = Array.from({ length: 2300 }, (_, i) => {
+      const date = new Date(Date.UTC(2020, 0, 1) + i * 86_400_000).toISOString().slice(0, 10)
+      return { fund_id: 'f', feed_id: 'pf1', as_of_date: date, price: date >= '2026-01-01' ? 7 : 1, basis: 'close' }
+    })
+    const m = memoryAdmin({
+      companies: [{ id: 'c1', fund_id: 'f', name: 'Acme', holding_type: 'company' }],
+      fund_vehicles: [{ id: 'v1', fund_id: 'f', name: 'Fund I' }],
+      fund_settings: [{ fund_id: 'f', currency: 'USD' }],
+      price_feeds: [feed], price_observations,
+      investment_transactions: [{ id: 't1', fund_id: 'f', company_id: 'c1', transaction_type: 'investment', portfolio_group: 'Fund I', transaction_date: '2025-01-05', shares_acquired: 10, investment_cost: 10, share_price: 1 }],
+    }, { maxRows: 1000 })
+    const { forgetFundCurrency } = await import('./currency')
+    forgetFundCurrency('f')
+    const readiness = await checkReadiness(m.admin as any, 'f', 'Fund I', '2026-01-01', '2026-03-31')
+    const blocker = readiness.blockers.find(b => b.startsWith('Acme (ACME)'))
+    expect(blocker).toMatch(/10 units at 7 on 2026-03-31/)
+    expect(readiness.blockerLinks?.[blocker!]).toBe('/companies/c1?entity=v1&asOf=2026-03-31')
+  })
+})
+
 describe('the snapshot-time readiness check', () => {
   it('a clean second check lets the close lock the period', () => {
     expect(snapshotRefusal({ blockers: [] })).toBeNull()

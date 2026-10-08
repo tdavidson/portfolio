@@ -29,8 +29,9 @@ import type { FundPosition } from '@/lib/portfolio/fof-metrics'
 import { loadFofData, ledgerCarryingByHolding } from '@/lib/portfolio/fof-load'
 import { fofCloseIssues, companiesWithPendingNotices } from '@/lib/portfolio/fof-valuation'
 import { quoteCloseIssues, type PriceFeed, type PriceObservation, type QuotedPosition } from '@/lib/portfolio/quotes'
+import { latestQuotesAsOf } from '@/lib/portfolio/quote-read'
 import { walletCloseIssues, walletFromRow, balanceFromRow, type Wallet, type WalletBalance } from '@/lib/portfolio/wallets'
-import { holdersFromTransactions, walletsForEntity } from '@/lib/portfolio/holding-entities'
+import { holdersAsOf, walletsForEntity } from '@/lib/portfolio/holding-entities'
 import { lotIssues, isLotMethod, type LotMethod } from '@/lib/portfolio/lots'
 import { buildSoiPositions, type SoiCompany } from './soi'
 import { fundCurrency } from './currency'
@@ -517,23 +518,17 @@ async function loadQuoteCloseInputs(
   })) as PriceFeed[]
   if (feeds.length === 0) return null
 
-  const [{ data: obsRows, error: obsError }, { data: txnRows, error: txnError }, { data: companyRows, error: companyError }, ledger, currency] = await Promise.all([
-    (admin as any).from('price_observations').select('*').eq('fund_id', fundId).lte('as_of_date', asOf),
+  const [observations, { data: txnRows, error: txnError }, { data: companyRows, error: companyError }, ledger, currency] = await Promise.all([
+    // Per feed, the one quote that prices the period end. A fund-wide read of every quote passes
+    // the API's row cap within months and returns the OLDEST rows (lib/portfolio/quote-read.ts).
+    latestQuotesAsOf(admin, fundId, feeds.map(f => f.id), asOf),
     (admin as any).from('investment_transactions').select('*').eq('fund_id', fundId),
     (admin as any).from('companies').select('*').eq('fund_id', fundId),
     loadPostedLedger(admin, fundId, group, asOf),
     fundCurrency(admin, fundId),
   ])
-  if (obsError) throw new Error(`quotes read failed: ${obsError.message}`)
   if (txnError) throw new Error(`transactions read failed: ${txnError.message}`)
   if (companyError) throw new Error(`holdings read failed: ${companyError.message}`)
-
-  const observations = ((obsRows as any[]) ?? []).map(o => ({
-    feedId: o.feed_id,
-    asOfDate: o.as_of_date,
-    price: Number(o.price),
-    basis: o.basis,
-  })) as PriceObservation[]
 
   // Transactions are cut at the period end BEFORE the roll-up sees them. Without this the
   // position would be valued on share counts — and splits — that had not happened yet, so a
@@ -590,10 +585,9 @@ export async function loadWalletCloseInputs(
   const upTo = ((txnRows as any[]) ?? []).filter(t => !t.transaction_date || t.transaction_date <= asOf)
 
   // This entity's wallets only: one entity's close does not report another's chain balance, and
-  // an untagged wallet speaks for a holding only when one entity held it by the period end.
-  // Holders are fund-wide (never narrowed to this entity), so a holding two entities hold leaves
-  // an untagged wallet counting for neither (holding-entities.ts).
-  const holders = holdersFromTransactions(upTo)
+  // an untagged wallet speaks for a holding only when one entity held it by the period end — the
+  // same rule, at the same date, as the schedule of investments (holding-entities.ts).
+  const holders = holdersAsOf((txnRows as any[]) ?? [], asOf)
   const mine = walletsForEntity((walletRows as any[]) ?? [], group, holders)
   if (mine.length === 0) return null
   const wallets: Wallet[] = mine.map(walletFromRow)

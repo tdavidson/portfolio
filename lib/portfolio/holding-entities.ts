@@ -1,7 +1,11 @@
 //
 // Which entities a holding belongs to, and which entity a watched wallet speaks for. One rule,
-// used by the holding's own routes, the schedule of investments and the close, so the three can
-// never disagree about whose chain balance is whose.
+// AT ONE DATE: the close (at the period end), the schedule of investments (at each period's end)
+// and the holding's wallets route (at its ?asOf=) all take their holders from `holdersAsOf`, so
+// for the same entity and date the three cannot disagree about whose chain balance is whose.
+// Holders taken from all of time instead would let a second entity that bought AFTER a period end
+// take an untagged wallet away from the first entity's schedule for that period, while the
+// close — cut at the period end — still counted it.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AccessContext } from '@/lib/access/effective'
@@ -33,8 +37,22 @@ export async function holdingEntities(
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
-/** Per holding, the entity names that bought into it (an `investment` row tagged to the entity). */
-export function holdersFromTransactions(
+type TxnLike = { company_id: string; transaction_type: string; portfolio_group?: string | null; transaction_date?: string | null }
+
+/**
+ * Per holding, the entity names that had bought into it by `date` (an `investment` row tagged to
+ * the entity, dated on or before it; an undated row counts, as everywhere else that cuts history
+ * at a date). `date` null = every transaction, for an action taken now rather than at a date.
+ *
+ * Holders are fund-wide — never narrowed to the caller's entity — so a holding two entities hold
+ * leaves an untagged wallet counting for neither.
+ */
+export function holdersAsOf(txns: TxnLike[], date: string | null): Map<string, string[]> {
+  return holdersFromTransactions(date === null ? txns : txns.filter(t => !t.transaction_date || t.transaction_date <= date))
+}
+
+/** Per holding, the entity names that bought into it — over whatever history it is given. */
+function holdersFromTransactions(
   txns: { company_id: string; transaction_type: string; portfolio_group?: string | null }[],
 ): Map<string, string[]> {
   const sets = new Map<string, Set<string>>()

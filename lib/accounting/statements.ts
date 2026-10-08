@@ -270,6 +270,8 @@ export interface ScheduleOfInvestments {
   realizedRows: SoiRow[]
   /** Set when the digital assets' on-chain balances could not be read. */
   chainWarning?: string
+  /** Set when the price feeds or quotes could not be read, so the levels are not real ones. */
+  levelWarning?: string
   totalCost: number
   totalFairValue: number
   netAssets: number

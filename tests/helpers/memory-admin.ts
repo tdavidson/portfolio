@@ -18,6 +18,9 @@ export interface MemoryAdminOptions {
   unique?: { table: string; key: (r: Row) => string | null }[]
   /** Runs before every write, with the live tables — lets a test play a concurrent request. */
   before?: (table: string, op: Op, payload: any, tables: Record<string, Row[]>) => void
+  /** PostgREST's `max_rows` (supabase/config.toml): a select never returns more than this many
+   *  rows, whatever its range or limit — so a test can show a read that would be truncated. */
+  maxRows?: number
 }
 
 export function memoryAdmin(seed: Record<string, Row[]> = {}, opts: MemoryAdminOptions = {}) {
@@ -71,7 +74,8 @@ export function memoryAdmin(seed: Record<string, Row[]> = {}, opts: MemoryAdminO
         for (const o of [...order].reverse()) {
           rows.sort((a, b) => (a[o.key] < b[o.key] ? -1 : a[o.key] > b[o.key] ? 1 : 0) * (o.asc ? 1 : -1))
         }
-        const page = rows.slice(start, end === Infinity ? undefined : end + 1)
+        const capped = opts.maxRows === undefined ? end : Math.min(end, start + opts.maxRows - 1)
+        const page = rows.slice(start, capped === Infinity ? undefined : capped + 1)
         return { data: head ? null : page.map(embed), error: null, count: counting ? rows.length : null }
       }
       // Ruling R1: call before hook BEFORE computing matched for write modes

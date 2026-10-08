@@ -35,7 +35,14 @@ const today = () => new Date().toISOString().slice(0, 10)
  * stored against it and the mark each of the viewer's entities still owes. Booking a mark records
  * it as a transaction on this holding (valuation source 'quote'), which posts like any recorded mark.
  */
-export function HoldingPriceFeed({ companyId, kind }: { companyId: string; kind: 'company' | 'crypto' }) {
+export function HoldingPriceFeed({ companyId, kind, initialAsOf = null, highlightVehicleId = null }: {
+  companyId: string
+  kind: 'company' | 'crypto'
+  /** The date the marks open on — the period end, when the close's blocker linked here. */
+  initialAsOf?: string | null
+  /** The entity the link named; its mark row is marked out. */
+  highlightVehicleId?: string | null
+}) {
   const currency = useCurrency()
   const canWrite = useCanWrite('portfolio', 'investments')
   const fmt = (v: number) => formatCurrencyFull(v, currency)
@@ -43,7 +50,7 @@ export function HoldingPriceFeed({ companyId, kind }: { companyId: string; kind:
   const [feed, setFeed] = useState<Feed | null>(null)
   const [quotes, setQuotes] = useState<Quote[]>([])
   const [marks, setMarks] = useState<EntityMark[]>([])
-  const [asOf, setAsOf] = useState(today)
+  const [asOf, setAsOf] = useState(() => initialAsOf ?? today())
   const [canEditFeed, setCanEditFeed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -309,7 +316,11 @@ export function HoldingPriceFeed({ companyId, kind }: { companyId: string; kind:
           ) : (
             <ul className="rounded-card border divide-y">
               {marks.map(m => (
-                <li key={m.vehicleId} className="flex flex-wrap items-center gap-3 px-3 py-2 text-sm">
+                <li
+                  key={m.vehicleId}
+                  aria-current={m.vehicleId === highlightVehicleId ? 'true' : undefined}
+                  className={`flex flex-wrap items-center gap-3 px-3 py-2 text-sm${m.vehicleId === highlightVehicleId ? ' bg-muted' : ''}`}
+                >
                   <span className="font-medium">{m.entity}</span>
                   {m.mark ? (
                     <>

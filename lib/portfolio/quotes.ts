@@ -247,9 +247,10 @@ export function quoteCloseIssues(
   const blockers: string[] = []
   const warnings: string[] = []
   // Each position's blocker names the page where it is cleared: the holding's own, which carries
-  // its feed, its quotes and the mark to book (plans/spec-ledger-one-writer.md §6).
+  // its feed, its quotes and the mark to book (plans/spec-ledger-one-writer.md §6) — opened at the
+  // period end, so the mark it offers is this period's, not today's.
   const links: Record<string, string> = {}
-  const block = (companyId: string, text: string) => { blockers.push(text); links[text] = holdingHref(companyId, vehicleId) }
+  const block = (companyId: string, text: string) => { blockers.push(text); links[text] = holdingHref(companyId, vehicleId, periodEnd) }
   const byCompany = new Map(feeds.map(f => [f.companyId, f]))
   // Positions whose feed is unusable. They are reported ONCE, as the blocker below, and then
   // held back from the mark pass — otherwise the same position also produces a derived mark

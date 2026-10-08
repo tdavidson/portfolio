@@ -16,9 +16,10 @@ import {
 } from './statements'
 import { loadPostedLedger, loadEntityNames, type SourcedPosting } from './load'
 import { buildSoiPositions, withFundHoldingFigures, withChainBalances, type SoiCompany } from './soi'
-import { holdersFromTransactions, walletsForEntity } from '@/lib/portfolio/holding-entities'
+import { holdersAsOf, walletsForEntity } from '@/lib/portfolio/holding-entities'
 import { walletFromRow, balanceFromRow, type Wallet, type WalletBalance } from '@/lib/portfolio/wallets'
-import { withFairValueLevels, type PriceFeed, type PriceObservation } from '@/lib/portfolio/quotes'
+import { withFairValueLevels, feedFromRow, type PriceFeed, type PriceObservation } from '@/lib/portfolio/quotes'
+import { allQuotes } from '@/lib/portfolio/quote-read'
 import { loadFofRaw, computeFofFromRaw, type FofRawData } from '@/lib/portfolio/fof-load'
 import { commitmentSchedule, performanceTable, type CommitmentSchedule, type PerformanceTable } from '@/lib/portfolio/fof-exhibits'
 import { valuationBasisNote, type ValuationBasisRow } from '@/lib/portfolio/fof-valuation'
@@ -96,9 +97,14 @@ export interface LedgerData {
    *  holds nothing quoted, which levels every position at 3 — the correct answer. */
   feeds: PriceFeed[]
   observations: PriceObservation[]
-  /** This entity's watched wallets (walletsForEntity) and their readings, for the chain column on
-   *  digital-asset rows. Both empty for an entity holding no digital assets. */
-  wallets?: Wallet[]
+  /** Set when the feeds or quotes could not be read, so the schedule says its levels are not
+   *  real ones rather than showing every position at Level 3 as if that were known. */
+  levelWarning?: string
+  /** Every wallet that COULD speak for this entity — tagged to it, or untagged — as raw rows, with
+   *  their readings. Which of them do is decided per period window (`entityWalletsAsOf`): an
+   *  untagged wallet belongs to the holding's only holder AT THAT DATE, the close's rule. Both
+   *  empty for an entity holding no digital assets. */
+  walletRows?: any[]
   balances?: WalletBalance[]
   /** Set when the wallet read failed, so the schedule can say the chain column is missing. */
   chainWarning?: string
@@ -129,7 +135,7 @@ export async function loadLedgerData(
   const [
     { accounts, postings, capitalPostings, sourcedPostings }, names,
     { data: txns }, { data: companies }, fofRaw,
-    { data: feedRows }, { data: obsRows }, kind,
+    { data: feedRows, error: feedsError }, kind,
     { data: walletRows, error: walletsError },
   ] = await Promise.all([
     loadPostedLedger(admin, fundId, group, undefined, undefined, undefined, booksForBasis(opts.basis ?? 'book')),
@@ -141,59 +147,58 @@ export async function loadLedgerData(
     admin.from('companies' as any).select('*').eq('fund_id', fundId),
     loadFofRaw(admin, fundId, group),
     (admin as any).from('price_feeds').select('*').eq('fund_id', fundId),
-    (admin as any).from('price_observations').select('*').eq('fund_id', fundId),
     vehicleKindByName(admin, fundId, group),
     (admin as any).from('crypto_wallets').select('*').eq('fund_id', fundId),
   ])
   // The chain column is informational: a failed wallet read must not take the statements, PDF,
   // exports or tax package down with it. Degrade to no column and say so (the close, which gates
   // on these readings, stays fail-closed in its own path).
-  let wallets: Wallet[] = []
+  let walletRowsKept: any[] = []
   let balances: WalletBalance[] = []
   let chainWarning: string | undefined
   try {
     if (walletsError) throw new Error(`crypto_wallets read failed: ${walletsError.message}`)
-    // Holders come from the FULL fund's transactions (txns is not entity-filtered), so an untagged
-    // wallet on a holding two entities hold counts for neither.
-    const holders = holdersFromTransactions((txns as any[]) ?? [])
-    wallets = walletsForEntity((walletRows as any[]) ?? [], group, holders).map(walletFromRow)
+    // Tagged to this entity, or untagged: whether an untagged one is this entity's depends on who
+    // held the holding on each period's end, so that is decided in computePayload.
+    walletRowsKept = ((walletRows as any[]) ?? []).filter(w => !w.portfolio_group || w.portfolio_group === group)
     // Readings by wallet id, never fund-wide: PostgREST's row cap would silently truncate them.
-    if (wallets.length > 0) {
+    if (walletRowsKept.length > 0) {
       const { data: balanceRows, error: balancesError } = await (admin as any).from('crypto_wallet_balances').select('*')
-        .in('wallet_id', wallets.map(w => w.id))
+        .in('wallet_id', walletRowsKept.map(w => w.id))
       if (balancesError) throw new Error(`crypto_wallet_balances read failed: ${balancesError.message}`)
       balances = ((balanceRows as any[]) ?? []).map(balanceFromRow)
     }
   } catch (e) {
     console.error('[statement-package] on-chain balances unavailable:', e)
-    wallets = []
+    walletRowsKept = []
     balances = []
     chainWarning = 'On-chain balances could not be read.'
+  }
+
+  // Same posture for the fair value levels: a failed feeds or quotes read levels nothing, and the
+  // schedule says so — every position at Level 3 is a real answer for a private book, so it must
+  // not also be what a failed read looks like.
+  let feeds: PriceFeed[] = []
+  let observations: PriceObservation[] = []
+  let levelWarning: string | undefined
+  try {
+    if (feedsError) throw new Error(`price_feeds read failed: ${feedsError.message}`)
+    feeds = ((feedRows as any[]) ?? []).map(feedFromRow)
+    // Every quote of these feeds, PAGED: the package prices several period ends (comparisons), and
+    // an unpaged read would stop at the row cap with the latest quotes missing.
+    observations = await allQuotes(admin, fundId, feeds.map(f => f.id))
+  } catch (e) {
+    console.error('[statement-package] price feeds unavailable:', e)
+    feeds = []
+    observations = []
+    levelWarning = 'Price feeds could not be read, so every position is shown at Level 3.'
   }
   return {
     accounts, postings, capitalPostings, sourcedPostings, names,
     kind,
     fofRaw,
-    feeds: ((feedRows as any[]) ?? []).map(f => ({
-      id: f.id,
-      companyId: f.company_id,
-      kind: f.kind,
-      symbol: f.symbol,
-      exchange: f.exchange,
-      quoteCurrency: f.quote_currency,
-      quoteScale: Number(f.quote_scale ?? 1),
-      activeFrom: f.active_from,
-      activeUntil: f.active_until,
-      restrictionUntil: f.restriction_until,
-      restrictionDiscount: f.restriction_discount == null ? null : Number(f.restriction_discount),
-    })) as PriceFeed[],
-    observations: ((obsRows as any[]) ?? []).map(o => ({
-      feedId: o.feed_id,
-      asOfDate: o.as_of_date,
-      price: Number(o.price),
-      basis: o.basis,
-    })) as PriceObservation[],
-    wallets, balances, chainWarning,
+    feeds, observations, levelWarning,
+    walletRows: walletRowsKept, balances, chainWarning,
     txns: (txns as any[]) ?? [],
     companies: (companies as any[]) ?? [],
     group,
@@ -201,6 +206,17 @@ export async function loadLedgerData(
     gpAccount: accounts.find(a => a.code === '3000'),
     earliest: earliestPostingDate(postings),
   }
+}
+
+/**
+ * This entity's watched wallets on `date`: tagged to it, or untagged on a holding it alone held by
+ * then — `holdersAsOf` over the FULL fund's transactions (txns is not entity-filtered), the rule
+ * and the date the close uses (close.ts `loadWalletCloseInputs`).
+ */
+export function entityWalletsAsOf(data: Pick<LedgerData, 'walletRows' | 'txns' | 'group'>, date: string): Wallet[] {
+  const rows = data.walletRows ?? []
+  if (rows.length === 0) return []
+  return walletsForEntity(rows, data.group, holdersAsOf(data.txns, date)).map(walletFromRow)
 }
 
 /** The per-window statement math — pure over already-loaded ledger data. */
@@ -237,10 +253,11 @@ export function computePayload(data: LedgerData, period: StatementPeriod): State
   const fofPositions = data.fofRaw
     ? computeFofFromRaw(data.fofRaw, period.end ?? new Date().toISOString().slice(0, 10)).positions
     : []
+  const asOf = period.end ?? new Date().toISOString().slice(0, 10)
   const positions = withChainBalances(
     withFundHoldingFigures(allPositions.filter(p => !isRealized(p)), fofPositions),
-    data.wallets ?? [], data.balances ?? [],
-    period.end ?? new Date().toISOString().slice(0, 10),
+    entityWalletsAsOf(data, asOf), data.balances ?? [],
+    asOf,
   )
   // pctOfNetAssets is 0 by construction: a realized position has no fair value to be a
   // percentage of. Stated rather than left undefined, because SoiRow requires it.
@@ -259,6 +276,7 @@ export function computePayload(data: LedgerData, period: StatementPeriod): State
       ...scheduleOfInvestments(data.accounts, cumulative, nav, positions, data.companies as SoiCompany[]),
       realizedRows,
       ...(data.chainWarning ? { chainWarning: data.chainWarning } : {}),
+      ...(data.levelWarning ? { levelWarning: data.levelWarning } : {}),
     },
     changesInPartnersCapital: changesInPartnersCapital(capitalAccounts, data.names, gpEnding),
     // Absent for a fund holding no funds, so a non-FoF package is unchanged.

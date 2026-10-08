@@ -207,16 +207,16 @@ describe('quoteCloseIssues', () => {
     const issues = quoteCloseIssues([position({ companyId: 'private' })], [], [], '2026-03-31', 'USD')
     expect(issues).toEqual({ blockers: [], warnings: [], links: {} })
   })
-  it('links each position blocker to the holding page, where the quote and the mark are entered', () => {
+  it('links each position blocker to the holding page at the period end, where the quote and the mark are entered', () => {
     const unbooked = quoteCloseIssues([position({ ledgerCarrying: 180_000 })], [feed()], [obs()], '2026-03-31', 'USD')
-    expect(unbooked.links).toEqual({ [unbooked.blockers[0]]: '/companies/c1' })
+    expect(unbooked.links).toEqual({ [unbooked.blockers[0]]: '/companies/c1?asOf=2026-03-31' })
     const missing = quoteCloseIssues([position()], [feed()], [], '2026-03-31', 'USD')
-    expect(missing.links[missing.blockers[0]]).toBe('/companies/c1')
+    expect(missing.links[missing.blockers[0]]).toBe('/companies/c1?asOf=2026-03-31')
   })
   it('links the foreign-currency blocker too, and carries the entity being closed', () => {
     const gbp = quoteCloseIssues([position()], [feed({ quoteCurrency: 'GBP' })], [obs()], '2026-03-31', 'USD', 'v1')
     expect(gbp.blockers).toHaveLength(1)
-    expect(gbp.links[gbp.blockers[0]]).toBe('/companies/c1?entity=v1')
+    expect(gbp.links[gbp.blockers[0]]).toBe('/companies/c1?entity=v1&asOf=2026-03-31')
   })
 })
 

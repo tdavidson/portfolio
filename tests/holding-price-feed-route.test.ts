@@ -205,3 +205,22 @@ describe('a feed shared across entities', () => {
     expect(s.m.tables.price_feeds[0]).toMatchObject({ symbol: 'ETH2', notes: 'keep me', active_from: '2026-01-01', provider: 'manual' })
   })
 })
+
+describe('a price feed on a fund holding', () => {
+  it('is refused on every method — a fund is valued from its NAV statements', async () => {
+    seeAll()
+    s.m.tables.companies[0].holding_type = 'fund'
+    const get = await GET(req('GET'), ctx)
+    expect(get.status).toBe(400)
+    expect((await get.json()).error).toMatch(/NAV statements/)
+    expect((await setFeed()).status).toBe(400)
+    expect((await DELETE(req('DELETE'), ctx)).status).toBe(400)
+    expect(s.m.tables.price_feeds).toEqual([])
+  })
+
+  it('still serves a listed company', async () => {
+    seeAll()
+    s.m.tables.companies[0].holding_type = 'company'
+    expect((await setFeed()).status).toBe(200)
+  })
+})

@@ -20,11 +20,12 @@ export async function generateMetadata(props: { params: Promise<{ id: string }> 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { loadCompanyPage } from './load'
 import { CompanyPageView } from './page-view'
+import { initialAsOf } from './holding-panels'
 
 export default async function CompanyDetailPage(
   props: {
     params: Promise<{ id: string }>
-    searchParams: Promise<{ entity?: string | string[] }>
+    searchParams: Promise<{ entity?: string | string[]; asOf?: string | string[] }>
   }
 ) {
   const params = await props.params;
@@ -48,5 +49,6 @@ export default async function CompanyDetailPage(
   // viewer can see is honoured — `initialEntity` checks it against `data.entities`, which
   // holdingEntities already scoped to the caller's grants.
   const entity = typeof sp.entity === 'string' ? sp.entity : null
-  return <CompanyPageView {...data} initialEntityId={entity} />
+  // `?asOf=<date>` (holdingHref, from the close's quote blocker) opens the price feed on that date.
+  return <CompanyPageView {...data} initialEntityId={entity} initialAsOf={initialAsOf(sp.asOf)} />
 }

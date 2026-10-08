@@ -42,6 +42,7 @@ interface SoiRow {
 interface SoiGroup { name: string; cost: number; fairValue: number; pctOfNetAssets: number }
 interface Soi {
   chainWarning?: string
+  levelWarning?: string
   rows: SoiRow[]
   totalCost: number
   totalFairValue: number
@@ -134,6 +135,7 @@ export function ScheduleOfInvestmentsView() {
     return (
       <>
       {soi.chainWarning && <p className="text-sm text-warning">{soi.chainWarning}</p>}
+      {soi.levelWarning && <p className="text-sm text-warning">{soi.levelWarning}</p>}
       {/* Every derived entry posts when recorded, so a schedule that does not tie is a real
           disagreement — see lib/accounting/tie-out-state.ts. */}
       {(() => {

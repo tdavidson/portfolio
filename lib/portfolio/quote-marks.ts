@@ -17,9 +17,10 @@ import { draftEntryForTransaction, type LedgerDraftResult } from '@/lib/accounti
 import { buildSoiPositions, type SoiCompany } from '@/lib/accounting/soi'
 import { ledgerCarryingByHolding } from './fof-load'
 import {
-  feedActiveOn, feedFromRow, observationFromRow, periodEndQuoteMarks, quoteAsOf,
+  feedActiveOn, feedFromRow, periodEndQuoteMarks, quoteAsOf,
   type PendingQuoteMark,
 } from './quotes'
+import { latestQuotesAsOf } from './quote-read'
 
 export interface QuoteMarkCheck {
   mark: PendingQuoteMark | null
@@ -76,12 +77,13 @@ export async function quoteMarkForHolding(
 
   let ledger: Awaited<ReturnType<typeof loadPostedLedger>>
   let currency: string
-  let obs: { data: unknown; error: unknown }
+  let observations: Awaited<ReturnType<typeof latestQuotesAsOf>>
   let txns: { data: unknown; error: unknown }
   let co: { data: unknown; error: unknown }
   try {
-    ;[obs, txns, co, ledger, currency] = await Promise.all([
-      (admin as any).from('price_observations').select('*').eq('fund_id', fundId).eq('feed_id', feed.id).lte('as_of_date', asOf),
+    ;[observations, txns, co, ledger, currency] = await Promise.all([
+      // The one quote that prices `asOf` — never every quote, which the row cap would truncate.
+      labelled(`the ${feed.symbol} quotes`, latestQuotesAsOf(admin, fundId, [feed.id], asOf)),
       (admin as any).from('investment_transactions').select('*').eq('fund_id', fundId).eq('company_id', companyId),
       (admin as any).from('companies').select('id, name, holding_type, status, industry, stage, portfolio_group')
         .eq('fund_id', fundId).eq('id', companyId).maybeSingle(),
@@ -91,7 +93,6 @@ export async function quoteMarkForHolding(
   } catch (e) {
     return e instanceof ReadFailure ? unread(e.what, e.error) : unread("the holding's data", e)
   }
-  if (obs.error) return unread(`the ${feed.symbol} quotes`, obs.error)
   if (txns.error) return unread("the holding's transactions", txns.error)
   if (co.error) return unread('the holding', co.error)
   const company = co.data as SoiCompany | null
@@ -103,7 +104,6 @@ export async function quoteMarkForHolding(
     return none(`${feed.symbol} is quoted in ${feed.quoteCurrency} but the fund reports in ${currency}. Translating a quote is not supported — mark this position by hand.`)
   }
 
-  const observations = ((obs.data as any[]) ?? []).map(observationFromRow)
   if (!quoteAsOf(observations, feed.id, asOf)) {
     return none(`No ${feed.symbol} quote on or before ${asOf} — enter the closing price first.`)
   }
@@ -143,14 +143,26 @@ export async function bookQuoteMark(
   // The ledger only sees POSTED entries, so a mark whose entry was kept as a draft (the partner
   // allocation failed) still looks owed — as does the first click of a double click. One quoted
   // mark per (holding, entity, date): a second would book the same gain twice.
+  //
+  // And none BEFORE a mark already booked: the delta is struck against the ledger as of `asOf`,
+  // which does not yet carry the later mark, so booking it would count that change twice — once in
+  // the later mark and again in this one.
   const { data: existing, error: existingError } = await (admin as any)
-    .from('investment_transactions').select('id')
+    .from('investment_transactions').select('transaction_date')
     .eq('fund_id', fundId).eq('company_id', companyId).eq('portfolio_group', group)
-    .eq('transaction_date', asOf).eq('transaction_type', 'unrealized_gain_change')
-    .eq('valuation_change_source', 'quote').limit(1)
+    .gte('transaction_date', asOf).eq('transaction_type', 'unrealized_gain_change')
+    .eq('valuation_change_source', 'quote').order('transaction_date', { ascending: false })
   if (existingError) return { booked: false, reason: `Could not read the holding's marks: ${existingError.message}` }
-  if (((existing as unknown[]) ?? []).length > 0) {
+  const dates = ((existing as { transaction_date: string }[]) ?? []).map(r => r.transaction_date)
+  if (dates.includes(asOf)) {
     return { booked: false, reason: `A quoted mark is already booked for ${group} on ${asOf}.` }
+  }
+  if (dates.length > 0) {
+    // Latest first: marks come off in the reverse of the order they went on.
+    return {
+      booked: false,
+      reason: `${group} already has a quoted mark dated after ${asOf}. Reverse the ${dates[0]} mark first.`,
+    }
   }
 
   const { data: txn, error } = await (admin as any)

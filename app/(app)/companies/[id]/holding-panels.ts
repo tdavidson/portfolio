@@ -37,6 +37,17 @@ export function initialEntity(entities: { id: string }[], requested: string | nu
   return entities.length === 1 ? entities[0].id : null
 }
 
+/**
+ * The date the page opens on, from `?asOf=` — the close's quote blocker links with the period end
+ * (holdingHref), so the price feed's marks start on the period the close is missing. Only a real
+ * YYYY-MM-DD date is honoured; anything else opens on today, as before.
+ */
+export function initialAsOf(requested: string | string[] | null | undefined): string | null {
+  if (typeof requested !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(requested)) return null
+  const d = new Date(`${requested}T00:00:00Z`)
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === requested ? requested : null
+}
+
 /** A quote's basis in the words the fair value hierarchy uses. */
 export function quoteBasisNote(q: { as_of_date: string; basis: 'close' | 'intraday' | 'indicative' } | null): string {
   if (!q) return 'No quote stored yet'

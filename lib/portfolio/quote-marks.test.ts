@@ -25,16 +25,16 @@ vi.mock('@/lib/accounting/periods', () => ({ closedPeriodRanges: async () => [],
 vi.mock('@/lib/accounting/investment-bank-match', () => ({ linkOpenBankRow: vi.fn(async () => null) }))
 import { bookQuoteMark, quoteMarkForHolding } from './quote-marks'
 
-const seed = (o: { currency?: string; quoteCurrency?: string } = {}) => memoryAdmin({
+const seed = (o: { currency?: string; quoteCurrency?: string; observations?: any[]; maxRows?: number } = {}) => memoryAdmin({
   fund_settings: [{ fund_id: 'f', currency: o.currency ?? 'USD' }],
   companies: [{ id: 'co', fund_id: 'f', name: 'Ether', holding_type: 'crypto', status: 'active', industry: null, stage: null, portfolio_group: ['Fund I', 'Fund II'] }],
   price_feeds: [{ id: 'pf', fund_id: 'f', company_id: 'co', kind: 'digital_asset', symbol: 'ETH', quote_currency: o.quoteCurrency ?? 'USD', quote_scale: 1, active_from: '2026-01-01', created_at: '2026-01-01T00:00:00Z' }],
-  price_observations: [{ id: 'o1', fund_id: 'f', feed_id: 'pf', as_of_date: '2026-03-31', price: 150, basis: 'close' }],
+  price_observations: o.observations ?? [{ id: 'o1', fund_id: 'f', feed_id: 'pf', as_of_date: '2026-03-31', price: 150, basis: 'close' }],
   investment_transactions: [
     { id: 'i1', fund_id: 'f', company_id: 'co', transaction_type: 'investment', transaction_date: '2026-01-15', portfolio_group: 'Fund I', investment_cost: 1000, shares_acquired: 10, share_price: 100, round_name: null },
     { id: 'i2', fund_id: 'f', company_id: 'co', transaction_type: 'investment', transaction_date: '2026-01-15', portfolio_group: 'Fund II', investment_cost: 2000, shares_acquired: 20, share_price: 100, round_name: null },
   ],
-})
+}, { maxRows: o.maxRows })
 const quoteMarks = (m: ReturnType<typeof seed>) =>
   m.tables.investment_transactions.filter((t: any) => t.transaction_type === 'unrealized_gain_change')
 
@@ -76,6 +76,24 @@ describe('quoteMarkForHolding', () => {
     const m = seed()
     expect(await quoteMarkForHolding(failingReads(m, 'investment_transactions') as any, 'f', 'co', 'Fund I', '2026-03-31'))
       .toEqual({ mark: null, problem: expect.stringMatching(/^Could not read .*connection reset/) })
+  })
+
+  it('prices from the latest quote on or before the date even when the feed holds more quotes than the row cap', async () => {
+    // A daily feed since 2020, stored oldest first: an unordered read would stop at the 1000th
+    // row (late 2022) and mark at that price.
+    const observations = Array.from({ length: 2400 }, (_, i) => ({
+      fund_id: 'f', feed_id: 'pf', as_of_date: new Date(Date.UTC(2020, 0, 1) + i * 86_400_000).toISOString().slice(0, 10),
+      price: i < 2000 ? 100 : 150, basis: 'close',
+    }))
+    const { mark } = await quoteMarkForHolding(seed({ observations, maxRows: 1000 }).admin, 'f', 'co', 'Fund I', '2026-03-31')
+    expect(mark).toMatchObject({ price: 150, quoteDate: '2026-03-31' })
+  })
+
+  it('refuses rather than marking when the quotes cannot be read', async () => {
+    const m = seed()
+    m.failNext('price_observations', 'select', 'boom')
+    expect(await quoteMarkForHolding(m.admin, 'f', 'co', 'Fund I', '2026-03-31'))
+      .toEqual({ mark: null, problem: expect.stringMatching(/^Could not read the ETH quotes.*boom/) })
   })
 
   it('refuses an entity that is not one of the fund\'s', async () => {
@@ -129,6 +147,21 @@ describe('bookQuoteMark', () => {
       .toEqual({ booked: false, reason: 'A quoted mark is already booked for Fund I on 2026-03-31.' })
     expect(quoteMarks(m)).toHaveLength(1)
     expect(h.persistEntry).toHaveBeenCalledTimes(2)
+  })
+
+  it('refuses a mark dated before one already booked, which would count the later change twice', async () => {
+    const observations = [
+      { fund_id: 'f', feed_id: 'pf', as_of_date: '2026-03-31', price: 150, basis: 'close' },
+      { fund_id: 'f', feed_id: 'pf', as_of_date: '2026-06-30', price: 200, basis: 'close' },
+    ]
+    const m = seed({ observations })
+    expect(await bookQuoteMark(m.admin, 'f', 'u', 'co', 'Fund I', '2026-06-30')).toMatchObject({ booked: true })
+    expect(await bookQuoteMark(m.admin, 'f', 'u', 'co', 'Fund I', '2026-03-31')).toEqual({
+      booked: false, reason: 'Fund I already has a quoted mark dated after 2026-03-31. Reverse the 2026-06-30 mark first.',
+    })
+    expect(quoteMarks(m)).toHaveLength(1)
+    // Another entity's later mark is its own: Fund II may still book March.
+    expect(await bookQuoteMark(m.admin, 'f', 'u', 'co', 'Fund II', '2026-03-31')).toMatchObject({ booked: true })
   })
 
   it('refuses a quote in another currency rather than booking pence as pounds', async () => {

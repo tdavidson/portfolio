@@ -26,6 +26,10 @@ const bad = (error: string) => NextResponse.json({ error }, { status: 400 })
 const unread = (what: string) => NextResponse.json({ error: `Could not read ${what}.` }, { status: 500 })
 
 const SHARED_FEED = "This price feed also prices another entity's position."
+/** A fund holding is valued from its manager's NAV statements, never from a market price. */
+const fundRefused = (ctx: HoldingContext) => ctx.holding.holding_type === 'fund'
+  ? NextResponse.json({ error: "A fund holding is valued from its NAV statements, not a price feed." }, { status: 400 })
+  : null
 
 /**
  * One feed prices the holding for EVERY entity, so editing it is only for a caller who sees every
@@ -120,6 +124,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
   if (gate instanceof NextResponse) return gate
   const ctx = await holdingForRequest(admin, gate, id)
   if (ctx instanceof NextResponse) return ctx
+  const kindRefused = fundRefused(ctx)
+  if (kindRefused) return kindRefused
 
   const asOf = req.nextUrl.searchParams.get('asOf') || today()
   if (!isRealDate(asOf)) return bad('asOf must be a real date written YYYY-MM-DD.')
@@ -156,6 +162,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   if (gate instanceof NextResponse) return gate
   const ctx = await holdingForRequest(admin, gate, id)
   if (ctx instanceof NextResponse) return ctx
+  const kindRefused = fundRefused(ctx)
+  if (kindRefused) return kindRefused
 
   const body = await req.json().catch(() => ({}))
 
@@ -231,6 +239,8 @@ export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: s
   if (gate instanceof NextResponse) return gate
   const ctx = await holdingForRequest(admin, gate, id)
   if (ctx instanceof NextResponse) return ctx
+  const kindRefused = fundRefused(ctx)
+  if (kindRefused) return kindRefused
 
   const ok = await canEditFeed(admin, gate.fundId, id, ctx)
   if (ok instanceof NextResponse) return ok

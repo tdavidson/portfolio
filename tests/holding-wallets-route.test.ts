@@ -142,6 +142,16 @@ describe('an untagged legacy wallet on a holding one entity holds', () => {
     expect(body.wallets).toEqual([expect.objectContaining({ id: 'wu', entity: 'Fund I' })])
   })
 
+  it('decides the holder at ?asOf=, the date the close and the schedule use', async () => {
+    // Fund II bought in after 31 March: on that date the untagged wallet is Fund I's alone.
+    const late = { ...inv('i2', 'Fund II', 20), transaction_date: '2026-05-05' }
+    s.m = seed({ crypto_wallets: [{ ...untagged }], investment_transactions: [inv('i1', 'Fund I', 10), late] })
+    const march = await (await GET(req('GET', undefined, '?asOf=2026-03-31'), ctx)).json()
+    expect(march.wallets).toEqual([expect.objectContaining({ id: 'wu', entity: 'Fund I' })])
+    const june = await (await GET(req('GET', undefined, '?asOf=2026-06-30'), ctx)).json()
+    expect(june.wallets).toEqual([])
+  })
+
   it("decides the holder from the whole fund's transactions, not the caller's", async () => {
     // Fund II's purchase is invisible to the caller; it must still make the wallet shared.
     s.m = seed({ crypto_wallets: [{ ...untagged }] })
@@ -221,5 +231,15 @@ describe('scoping edges', () => {
     s.scope = fundIOnly()
     s.m = seed({ crypto_wallets: [{ ...untagged }], company_vehicles: [{ fund_id: 'f', company_id: 'k1', vehicle_id: 'v1' }] })
     expect((await DELETE(req('DELETE', undefined, '?walletId=wu'), ctx)).status).toBe(404)
+  })
+})
+
+describe('wallets on a holding that is not a digital asset', () => {
+  it.each(['company', 'fund'])('refuses a %s holding on every method', async (kind) => {
+    s.m = seed({ companies: [{ id: 'k1', fund_id: 'f', name: 'Acme', holding_type: kind, status: 'active', industry: null, stage: null, portfolio_group: ['Fund I'] }] })
+    expect((await GET(req('GET'), ctx)).status).toBe(400)
+    expect((await addMine()).status).toBe(400)
+    expect((await DELETE(req('DELETE', undefined, '?walletId=w2'), ctx)).status).toBe(400)
+    expect(s.m.tables.crypto_wallets).toHaveLength(1)
   })
 })

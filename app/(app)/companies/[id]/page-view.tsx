@@ -52,8 +52,8 @@ function formatHighlightValue(value: number, metric: Metric, fundCurrency: strin
 export function CompanyPageView({
   company, userId, isAdmin, fundCurrency, hasClaudeKey, hasOpenAIKey, defaultAIProvider, storageProvider,
   googleDriveFolderId, featureVisibility, showNotes, showInvestments, showInteractions, metrics, latestMrr, latestCash,
-  hasCapturedUpdates, holdingType, entities, initialEntityId,
-}: CompanyPageData & { initialEntityId?: string | null }) {
+  hasCapturedUpdates, holdingType, entities, initialEntityId, initialAsOf,
+}: CompanyPageData & { initialEntityId?: string | null; initialAsOf?: string | null }) {
   // A demo snapshot recorded before holdingType existed reads as a company.
   const panels = holdingPanels(holdingType)
   const back = panels.companyProfile ? { href: '/dashboard', label: 'Portfolio' } : { href: '/investments', label: 'Investments' }
@@ -148,7 +148,12 @@ export function CompanyPageView({
           )}
 
           {showInvestments && panels.priceFeed && (
-            <HoldingPriceFeed companyId={company.id} kind={holdingType === 'crypto' ? 'crypto' : 'company'} />
+            <HoldingPriceFeed
+              companyId={company.id}
+              kind={holdingType === 'crypto' ? 'crypto' : 'company'}
+              initialAsOf={initialAsOf ?? null}
+              highlightVehicleId={initialEntityId ?? null}
+            />
           )}
 
           <div id="updates">

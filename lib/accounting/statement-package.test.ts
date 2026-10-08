@@ -1,6 +1,7 @@
 import { describe, it, expect, vi } from 'vitest'
 import { memoryAdmin } from '@/tests/helpers/memory-admin'
-import { earliestPostingDate, computePayload, loadLedgerData } from './statement-package'
+import { earliestPostingDate, computePayload, loadLedgerData, entityWalletsAsOf } from './statement-package'
+import { loadWalletCloseInputs } from './close'
 
 describe('earliestPostingDate', () => {
   it('returns the min entryDate, ignoring nulls', () => {
@@ -92,13 +93,13 @@ describe('loadLedgerData — on-chain balances', () => {
     const { admin } = memoryAdmin(seed())
     const data = await loadLedgerData(admin as any, 'F', 'Fund I')
     // w1: untagged, k1 held only by Fund I. w2: Fund II's. w3: untagged on k2 held by both, so neither's.
-    expect(data.wallets!.map(w => w.id).sort()).toEqual(['w1', 'w4'])
+    expect(entityWalletsAsOf(data, '2026-03-31').map(w => w.id).sort()).toEqual(['w1', 'w4'])
     expect(data.chainWarning).toBeUndefined()
     const other = await loadLedgerData(admin as any, 'F', 'Fund II')
-    expect(other.wallets!.map(w => w.id)).toEqual(['w2'])
+    expect(entityWalletsAsOf(other, '2026-03-31').map(w => w.id)).toEqual(['w2'])
   })
 
-  it("reads balances by wallet id, for this entity's wallets only", async () => {
+  it("reads balances by wallet id, for the wallets that could be this entity's only", async () => {
     const { admin } = memoryAdmin(seed())
     const seen: unknown[] = []
     const realFrom = admin.from.bind(admin)
@@ -110,7 +111,8 @@ describe('loadLedgerData — on-chain balances', () => {
       return q
     }
     const data = await loadLedgerData(admin as any, 'F', 'Fund I')
-    expect(seen).toEqual([['wallet_id', ['w1', 'w4']]])
+    // Never Fund II's tagged w2; the untagged w3 is read because whose it is depends on the date.
+    expect(seen).toEqual([['wallet_id', ['w1', 'w3', 'w4']]])
     expect(data.balances!.map(b => b.walletId).sort()).toEqual(['w1', 'w4'])
   })
 
@@ -123,10 +125,91 @@ describe('loadLedgerData — on-chain balances', () => {
     const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
     const data = await loadLedgerData(admin as any, 'F', 'Fund I')
     spy.mockRestore()
-    expect(data.wallets).toEqual([])
+    expect(data.walletRows).toEqual([])
     expect(data.balances).toEqual([])
     expect(data.chainWarning).toBe('On-chain balances could not be read.')
     const payload = computePayload(data, { start: '2026-01-01', end: '2026-03-31', label: 'Q1' } as any)
     expect(payload.scheduleOfInvestments.chainWarning).toBe('On-chain balances could not be read.')
+  })
+})
+
+describe('whose an untagged wallet is — the close and the schedule agree', () => {
+  // Fund I bought the coin in January; Fund II bought in May. On 31 March the untagged wallet is
+  // Fund I's alone — for the close of Q1 AND on Q1's schedule — and nobody's on 30 June.
+  const seed = () => ({
+    fund_vehicles: [
+      { id: 'v1', fund_id: 'F', name: 'Fund I', kind: 'fund' },
+      { id: 'v2', fund_id: 'F', name: 'Fund II', kind: 'fund' },
+    ],
+    companies: [{ id: 'k', fund_id: 'F', name: 'Coin', holding_type: 'crypto', status: 'active', portfolio_group: ['Fund I', 'Fund II'] }],
+    investment_transactions: [
+      { id: 't1', fund_id: 'F', company_id: 'k', transaction_type: 'investment', portfolio_group: 'Fund I', transaction_date: '2026-01-05', shares_acquired: 10, investment_cost: 100, share_price: 10 },
+      { id: 't2', fund_id: 'F', company_id: 'k', transaction_type: 'investment', portfolio_group: 'Fund II', transaction_date: '2026-05-05', shares_acquired: 10, investment_cost: 100, share_price: 10 },
+    ],
+    crypto_wallets: [{ id: 'w', fund_id: 'F', company_id: 'k', chain: 'ethereum', address: '0xw', active: true, portfolio_group: null }],
+    crypto_wallet_balances: [{ fund_id: 'F', wallet_id: 'w', as_of_date: '2026-03-30', units: 10 }],
+  })
+
+  it('counts the wallet for the first holder on a date before the second bought in, on both surfaces', async () => {
+    const { admin } = memoryAdmin(seed())
+    const close = await loadWalletCloseInputs(admin as any, 'F', 'Fund I', '2026-03-31')
+    const data = await loadLedgerData(admin as any, 'F', 'Fund I')
+    expect(close!.wallets.map(w => w.id)).toEqual(['w'])
+    expect(entityWalletsAsOf(data, '2026-03-31').map(w => w.id)).toEqual(close!.wallets.map(w => w.id))
+    // And the schedule's chain column reads it.
+    const q1 = computePayload(data, { start: '2026-01-01', end: '2026-03-31', label: 'Q1' } as any)
+    const row = q1.scheduleOfInvestments.rows.find((r: any) => r.companyId === 'k') as any
+    expect(row.chain).toMatchObject({ observedUnits: 10 })
+  })
+
+  it('counts it for neither once the second holder has bought in, on both surfaces', async () => {
+    const { admin } = memoryAdmin(seed())
+    expect(await loadWalletCloseInputs(admin as any, 'F', 'Fund I', '2026-06-30')).toBeNull()
+    expect(await loadWalletCloseInputs(admin as any, 'F', 'Fund II', '2026-06-30')).toBeNull()
+    const one = await loadLedgerData(admin as any, 'F', 'Fund I')
+    const two = await loadLedgerData(admin as any, 'F', 'Fund II')
+    expect(entityWalletsAsOf(one, '2026-06-30')).toEqual([])
+    expect(entityWalletsAsOf(two, '2026-06-30')).toEqual([])
+  })
+})
+
+describe('loadLedgerData — quotes', () => {
+  const seed = (n: number) => ({
+    fund_vehicles: [{ id: 'v1', fund_id: 'F', name: 'Fund I', kind: 'fund' }],
+    price_feeds: [{ id: 'pf', fund_id: 'F', company_id: 'k', kind: 'listed_equity', symbol: 'ACME', quote_currency: 'USD', quote_scale: 1, active_from: '2020-01-01' }],
+    // Oldest first, as a table that only ever grows returns them unordered.
+    price_observations: Array.from({ length: n }, (_, i) => ({
+      fund_id: 'F', feed_id: 'pf', as_of_date: new Date(Date.UTC(2020, 0, 1) + i * 86_400_000).toISOString().slice(0, 10), price: i, basis: 'close',
+    })),
+  })
+
+  it('reads every quote of a feed past the row cap, so the latest price is there', async () => {
+    const { admin } = memoryAdmin(seed(2500), { maxRows: 1000 })
+    const data = await loadLedgerData(admin as any, 'F', 'Fund I')
+    expect(data.observations).toHaveLength(2500)
+    expect(data.observations.at(-1)!.price).toBe(2499)
+    expect(data.levelWarning).toBeUndefined()
+  })
+
+  it('says the levels are not real when the quotes cannot be read, rather than levelling at 3 silently', async () => {
+    const m = memoryAdmin(seed(3))
+    m.failNext('price_observations', 'select', 'boom')
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const data = await loadLedgerData(m.admin as any, 'F', 'Fund I')
+    spy.mockRestore()
+    expect(data.observations).toEqual([])
+    expect(data.levelWarning).toMatch(/could not be read/)
+    const payload = computePayload(data, { start: '2026-01-01', end: '2026-03-31', label: 'Q1' } as any)
+    expect(payload.scheduleOfInvestments.levelWarning).toBe(data.levelWarning)
+  })
+
+  it('degrades the same way when the feeds read fails', async () => {
+    const m = memoryAdmin(seed(3))
+    m.failNext('price_feeds', 'select', 'boom')
+    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
+    const data = await loadLedgerData(m.admin as any, 'F', 'Fund I')
+    spy.mockRestore()
+    expect(data.feeds).toEqual([])
+    expect(data.levelWarning).toMatch(/could not be read/)
   })
 })

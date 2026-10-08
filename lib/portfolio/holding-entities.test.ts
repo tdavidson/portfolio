@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { memoryAdmin } from '@/tests/helpers/memory-admin'
 import { holdingHref, soiRowHref } from './holding-href'
-import { holdingEntities, holdersFromTransactions, walletEntity, walletsForEntity, scopeWallets } from './holding-entities'
+import { holdingEntities, holdersAsOf, walletEntity, walletsForEntity, scopeWallets } from './holding-entities'
 import { walletFromRow, balanceFromRow } from './wallets'
 
 describe('holdingHref', () => {
@@ -9,6 +9,10 @@ describe('holdingHref', () => {
     expect(holdingHref('c1')).toBe('/companies/c1')
     expect(holdingHref('c1', null)).toBe('/companies/c1')
     expect(holdingHref('c1', 'v 1')).toBe('/companies/c1?entity=v%201')
+  })
+  it('opens on a date when asked — the close links its quote blocker at the period end', () => {
+    expect(holdingHref('c1', null, '2026-03-31')).toBe('/companies/c1?asOf=2026-03-31')
+    expect(holdingHref('c1', 'v1', '2026-03-31')).toBe('/companies/c1?entity=v1&asOf=2026-03-31')
   })
 })
 
@@ -59,17 +63,30 @@ describe('holdingEntities', () => {
 })
 
 describe('which entity a wallet speaks for', () => {
-  const holders = holdersFromTransactions([
+  const holders = holdersAsOf([
     { company_id: 'solo', transaction_type: 'investment', portfolio_group: 'Fund I' },
     { company_id: 'solo', transaction_type: 'unrealized_gain_change', portfolio_group: null },
     { company_id: 'shared', transaction_type: 'investment', portfolio_group: 'Fund II' },
     { company_id: 'shared', transaction_type: 'investment', portfolio_group: 'Fund I' },
-  ])
+  ], null)
   const w = (id: string, company_id: string, portfolio_group: string | null) => ({ id, company_id, portfolio_group })
 
   it('reads the holders of each holding from its investment rows', () => {
     expect(holders.get('solo')).toEqual(['Fund I'])
     expect(holders.get('shared')).toEqual(['Fund I', 'Fund II'])
+  })
+
+  it('counts only the holders who had bought in by the date; null is every transaction', () => {
+    const txns = [
+      { company_id: 'k', transaction_type: 'investment', portfolio_group: 'Fund I', transaction_date: '2026-01-05' },
+      { company_id: 'k', transaction_type: 'investment', portfolio_group: 'Fund II', transaction_date: '2026-05-05' },
+    ]
+    expect(holdersAsOf(txns, '2026-03-31').get('k')).toEqual(['Fund I'])
+    expect(holdersAsOf(txns, '2026-05-05').get('k')).toEqual(['Fund I', 'Fund II'])
+    expect(holdersAsOf(txns, null).get('k')).toEqual(['Fund I', 'Fund II'])
+    // So an untagged wallet is Fund I's on 31 March, and nobody's once Fund II has bought in.
+    expect(walletEntity({ company_id: 'k', portfolio_group: null }, holdersAsOf(txns, '2026-03-31'))).toBe('Fund I')
+    expect(walletEntity({ company_id: 'k', portfolio_group: null }, holdersAsOf(txns, null))).toBeNull()
   })
 
   it("takes a wallet's own entity when it has one", () => {
