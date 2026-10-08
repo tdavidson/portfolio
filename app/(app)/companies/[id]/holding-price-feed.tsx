@@ -47,7 +47,14 @@ export function HoldingPriceFeed({ companyId, kind }: { companyId: string; kind:
   const [canEditFeed, setCanEditFeed] = useState(false)
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const guard = useRef(latestOnly()).current
+  const guardRef = useRef<ReturnType<typeof latestOnly> | null>(null)
+  if (!guardRef.current) guardRef.current = latestOnly()
+  const guard = guardRef.current
+  const [loaded, setLoaded] = useState(false)
+  const [refreshing, setRefreshing] = useState(false)
+  const [marksAsOf, setMarksAsOf] = useState<string | null>(null)
+  const [confirmRemove, setConfirmRemove] = useState(false)
+  const [bookingId, setBookingId] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
@@ -57,6 +64,7 @@ export function HoldingPriceFeed({ companyId, kind }: { companyId: string; kind:
 
   const load = useCallback(async () => {
     const current = guard.begin()
+    setRefreshing(true)
     try {
       const res = await fetch(`${url}?asOf=${asOf}`)
       const data = await res.json().catch(() => null)
@@ -68,12 +76,14 @@ export function HoldingPriceFeed({ companyId, kind }: { companyId: string; kind:
       setFeed(data.feed ?? null)
       setQuotes(data.quotes ?? [])
       setMarks(data.marks ?? [])
+      setMarksAsOf(typeof data.asOf === 'string' ? data.asOf : asOf)
       setCanEditFeed(data.canEditFeed === true)
+      setLoaded(true)
       setLoadError(null)
     } catch {
       if (current()) setLoadError('Could not load the price feed.')
     } finally {
-      if (current()) setLoading(false)
+      if (current()) { setLoading(false); setRefreshing(false) }
     }
   }, [url, asOf, guard])
   useEffect(() => { void load() }, [load])
@@ -97,7 +107,7 @@ export function HoldingPriceFeed({ companyId, kind }: { companyId: string; kind:
       quoteScale: String(feed.quote_scale),
       activeFrom: feed.active_from,
       restrictionUntil: feed.restriction_until ?? '',
-      restrictionDiscount: feed.restriction_discount == null ? '' : String(feed.restriction_discount * 100),
+      restrictionDiscount: feed.restriction_discount == null ? '' : String(Number((feed.restriction_discount * 100).toFixed(6))),
     } : { ...EMPTY })
     setEditing(true)
   }
@@ -118,6 +128,7 @@ export function HoldingPriceFeed({ companyId, kind }: { companyId: string; kind:
   }
 
   async function removeFeed() {
+    setConfirmRemove(false)
     setBusy(true); setError(null); setNote(null)
     try {
       const res = await fetch(url, { method: 'DELETE' })
@@ -137,18 +148,21 @@ export function HoldingPriceFeed({ companyId, kind }: { companyId: string; kind:
   }
 
   async function book(m: EntityMark) {
-    const d = await post({ action: 'book', group: m.entity, asOf })
+    // The date the displayed marks were fetched for, not whatever the picker has moved to since.
+    setBookingId(m.vehicleId)
+    const d = await post({ action: 'book', group: m.entity, asOf: marksAsOf })
+    setBookingId(null)
     if (!d) return
     setNote(d.ledger?.posted === false
       ? `Recorded ${m.entity}'s mark; the entry is kept as a draft: ${d.ledger.reason}`
       : `Booked ${m.entity}'s mark of ${fmt(d.mark.delta)} and posted it to the ledger.`)
   }
 
-  if (loading) {
+  if (loading && !loaded) {
     return <div className="mt-6 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading the price feed…</div>
   }
 
-  if (loadError) {
+  if (loadError && !loaded) {
     return (
       <section className="mt-6 space-y-3">
         <h2 className="text-base font-medium">Price feed</h2>
@@ -170,6 +184,7 @@ export function HoldingPriceFeed({ companyId, kind }: { companyId: string; kind:
         )}
       </div>
 
+      {loadError && <p className="flex items-start gap-1.5 text-sm text-destructive"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />{loadError}</p>}
       {error && <p className="flex items-start gap-1.5 text-sm text-destructive"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />{error}</p>}
       {note && <p className="flex items-start gap-1.5 text-sm text-muted-foreground"><Check className="h-4 w-4 mt-0.5 shrink-0 text-success" />{note}</p>}
 
@@ -233,33 +248,40 @@ export function HoldingPriceFeed({ companyId, kind }: { companyId: string; kind:
             {feed.exchange && <span className="text-muted-foreground">{feed.exchange}</span>}
             <span className="text-muted-foreground">Quoted in {feed.quote_currency}{Number(feed.quote_scale) !== 1 ? ` ÷ ${feed.quote_scale}` : ''}</span>
             <span className="text-muted-foreground">From {feed.active_from}{feed.active_until ? ` to ${feed.active_until}` : ''}</span>
-            {mayEditFeed && (
-            <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={removeFeed} disabled={busy} aria-label="Remove the price feed">
-              <Trash2 className="h-3.5 w-3.5" />
-            </Button>
+            {mayEditFeed && !confirmRemove && (
+              <Button size="sm" variant="ghost" className="ml-auto h-7" onClick={() => setConfirmRemove(true)} disabled={busy} aria-label="Remove the price feed">
+                <Trash2 className="h-3.5 w-3.5" />
+              </Button>
+            )}
+            {mayEditFeed && confirmRemove && (
+              <span className="ml-auto flex items-center gap-2">
+                <span className="text-sm">Remove this feed and its quotes?</span>
+                <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={removeFeed} disabled={busy}>Remove</Button>
+                <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setConfirmRemove(false)}>Keep</Button>
+              </span>
             )}
           </div>
           <p className="text-xs text-muted-foreground">{quoteBasisNote(quotes[0] ?? null)}</p>
           {mayEditFeed && (
-          <div className="flex flex-wrap items-end gap-2">
-            <div className="space-y-1">
-              <Label htmlFor="q-date" className="text-xs">Quote date</Label>
-              <Input id="q-date" type="date" className="w-40" value={quoteForm.asOfDate} onChange={e => setQuoteForm(q => ({ ...q, asOfDate: e.target.value }))} />
+            <div className="flex flex-wrap items-end gap-2">
+              <div className="space-y-1">
+                <Label htmlFor="q-date" className="text-xs">Quote date</Label>
+                <Input id="q-date" type="date" className="w-40" value={quoteForm.asOfDate} onChange={e => setQuoteForm(q => ({ ...q, asOfDate: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="q-price" className="text-xs">Price</Label>
+                <Input id="q-price" type="number" step="any" className="w-36 tabular-nums" value={quoteForm.price} onChange={e => setQuoteForm(q => ({ ...q, price: e.target.value }))} />
+              </div>
+              <div className="space-y-1">
+                <Label htmlFor="q-basis" className="text-xs">Basis</Label>
+                <select id="q-basis" value={quoteForm.basis} onChange={e => setQuoteForm(q => ({ ...q, basis: e.target.value }))} className="border rounded-lg px-2 py-1 text-sm h-9 bg-background">
+                  <option value="close">Official close</option>
+                  <option value="intraday">Intraday</option>
+                  <option value="indicative">Indicative</option>
+                </select>
+              </div>
+              <Button size="sm" onClick={recordQuote} disabled={busy || !quoteForm.asOfDate || !quoteForm.price}>Save quote</Button>
             </div>
-            <div className="space-y-1">
-              <Label htmlFor="q-price" className="text-xs">Price</Label>
-              <Input id="q-price" type="number" step="any" className="w-36 tabular-nums" value={quoteForm.price} onChange={e => setQuoteForm(q => ({ ...q, price: e.target.value }))} />
-            </div>
-            <div className="space-y-1">
-              <Label htmlFor="q-basis" className="text-xs">Basis</Label>
-              <select id="q-basis" value={quoteForm.basis} onChange={e => setQuoteForm(q => ({ ...q, basis: e.target.value }))} className="border rounded-lg px-2 py-1 text-sm h-9 bg-background">
-                <option value="close">Official close</option>
-                <option value="intraday">Intraday</option>
-                <option value="indicative">Indicative</option>
-              </select>
-            </div>
-            <Button size="sm" onClick={recordQuote} disabled={busy || !quoteForm.asOfDate || !quoteForm.price}>Save quote</Button>
-          </div>
           )}
           {quotes.length > 0 && (
             <table className="w-full text-sm">
@@ -297,8 +319,8 @@ export function HoldingPriceFeed({ companyId, kind }: { companyId: string; kind:
                         {fmtNum(m.mark.shares)} at {formatSharePrice(m.mark.price, currency)} on {m.mark.quoteDate} is {fmt(m.mark.derivedCarrying)}; the books carry {fmt(m.mark.ledgerCarrying)}
                       </span>
                       {canWrite && (
-                        <Button size="sm" className="ml-auto h-7 text-xs" onClick={() => book(m)} disabled={busy}>
-                          {busy ? 'Booking…' : `Book ${fmt(m.mark.delta)} mark`}
+                        <Button size="sm" className="ml-auto h-7 text-xs" onClick={() => book(m)} disabled={busy || refreshing || marksAsOf !== asOf}>
+                          {bookingId === m.vehicleId ? 'Booking…' : `Book ${fmt(m.mark.delta)} mark`}
                         </Button>
                       )}
                     </>

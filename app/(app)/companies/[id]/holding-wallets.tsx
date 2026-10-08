@@ -37,7 +37,11 @@ export function HoldingWallets({ companyId, entities }: { companyId: string; ent
   const canWrite = useCanWrite('portfolio', 'investments')
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
-  const guard = useRef(latestOnly()).current
+  const guardRef = useRef<ReturnType<typeof latestOnly> | null>(null)
+  if (!guardRef.current) guardRef.current = latestOnly()
+  const guard = guardRef.current
+  const [loaded, setLoaded] = useState(false)
+  const [confirmRemove, setConfirmRemove] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [note, setNote] = useState<string | null>(null)
@@ -58,6 +62,7 @@ export function HoldingWallets({ companyId, entities }: { companyId: string; ent
       }
       setWallets(data.wallets ?? [])
       setVariances(data.variances ?? [])
+      setLoaded(true)
       setLoadError(null)
     } catch {
       if (current()) setLoadError('Could not load the wallets.')
@@ -88,6 +93,7 @@ export function HoldingWallets({ companyId, entities }: { companyId: string; ent
   }
 
   async function removeWallet(w: WalletRow) {
+    setConfirmRemove(null)
     setBusy(true); setError(null); setNote(null)
     try {
       const res = await fetch(`${url}?walletId=${encodeURIComponent(w.id)}`, { method: 'DELETE' })
@@ -112,11 +118,11 @@ export function HoldingWallets({ companyId, entities }: { companyId: string; ent
     if (d) { setBalanceFor(null); setBalanceForm({ asOfDate: '', units: '', blockHeight: '' }) }
   }
 
-  if (loading) {
+  if (loading && !loaded) {
     return <div className="mt-6 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading wallets…</div>
   }
 
-  if (loadError) {
+  if (loadError && !loaded) {
     return (
       <section className="mt-6 space-y-3">
         <h2 className="text-base font-medium">Wallets</h2>
@@ -129,11 +135,14 @@ export function HoldingWallets({ companyId, entities }: { companyId: string; ent
     <section className="mt-6 space-y-3">
       <div className="flex items-center justify-between gap-4">
         <h2 className="text-base font-medium">Wallets</h2>
-        {canWrite && <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setAdding(a => !a)} disabled={busy || entities.length === 0}>
-          <Plus className="h-3.5 w-3.5 mr-1" />Watch an address
-        </Button>}
+        {canWrite && (
+          <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={() => setAdding(a => !a)} disabled={busy || entities.length === 0}>
+            <Plus className="h-3.5 w-3.5 mr-1" />Watch an address
+          </Button>
+        )}
       </div>
 
+      {loadError && <p className="flex items-start gap-1.5 text-sm text-destructive"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />{loadError}</p>}
       {error && <p className="flex items-start gap-1.5 text-sm text-destructive"><AlertTriangle className="h-4 w-4 mt-0.5 shrink-0" />{error}</p>}
       {note && <p className="flex items-start gap-1.5 text-sm text-muted-foreground"><Check className="h-4 w-4 mt-0.5 shrink-0 text-success" />{note}</p>}
 
@@ -222,6 +231,7 @@ export function HoldingWallets({ companyId, entities }: { companyId: string; ent
                           aria-label="Record proof of control"
                           value=""
                           onChange={e => { if (e.target.value) void post({ action: 'verify', walletId: w.id, method: e.target.value }) }}
+                          disabled={busy}
                           className="border rounded-lg px-2 py-1 text-xs h-7 bg-background"
                         >
                           <option value="">Unproven</option>
@@ -232,14 +242,22 @@ export function HoldingWallets({ companyId, entities }: { companyId: string; ent
                       )}
                     </td>
                     <td className="px-3 py-2 text-right">
-                      {canWrite && <>
-                      <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => setBalanceFor(balanceFor === w.id ? null : w.id)}>
-                        Record a balance
-                      </Button>
-                      <Button size="sm" variant="ghost" className="h-7" disabled={busy} onClick={() => removeWallet(w)} aria-label={`Stop watching ${w.address}`}>
-                        <Trash2 className="h-3.5 w-3.5" />
-                      </Button>
-                      </>}
+                      {canWrite && confirmRemove === w.id ? (
+                        <span className="inline-flex items-center gap-2">
+                          <span className="text-sm">Stop watching this address?</span>
+                          <Button size="sm" variant="destructive" className="h-7 text-xs" disabled={busy} onClick={() => removeWallet(w)}>Stop watching</Button>
+                          <Button size="sm" variant="ghost" className="h-7 text-xs" onClick={() => setConfirmRemove(null)}>Keep</Button>
+                        </span>
+                      ) : canWrite && (
+                        <>
+                          <Button size="sm" variant="ghost" className="text-xs h-7" onClick={() => setBalanceFor(balanceFor === w.id ? null : w.id)}>
+                            Record a balance
+                          </Button>
+                          <Button size="sm" variant="ghost" className="h-7" disabled={busy} onClick={() => setConfirmRemove(w.id)} aria-label={`Stop watching ${w.address}`}>
+                            <Trash2 className="h-3.5 w-3.5" />
+                          </Button>
+                        </>
+                      )}
                     </td>
                   </tr>
                   {canWrite && balanceFor === w.id && (
