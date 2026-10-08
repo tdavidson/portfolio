@@ -129,14 +129,17 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   if (bulk.length > 0) {
     const reviewIds = bulk.map(r => r.id)
 
-    // Mark all with the appropriate resolution
-    await admin
+    // Mark all with the appropriate resolution. The ids came from the caller's own (RLS) read; the
+    // fund filter says the same on the admin write.
+    const { error: updateError } = await admin
       .from('parsing_reviews')
       .update({
         resolution,
         resolved_at: new Date().toISOString(),
       })
       .in('id', reviewIds)
+      .eq('fund_id', fundId)
+    if (updateError) return dbError(updateError, 'emails-id-reviews')
 
     // Check retain setting
     if (fundId) {
@@ -148,7 +151,9 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
 
       const settings = settingsData as unknown as { retain_resolved_reviews: boolean } | null
       if (settings && !settings.retain_resolved_reviews) {
-        await admin.from('parsing_reviews').delete().in('id', reviewIds)
+        const { error: deleteError } = await admin.from('parsing_reviews').delete().in('id', reviewIds).eq('fund_id', fundId)
+        // The reviews are resolved; only the clean-up of resolved rows failed.
+        if (deleteError) console.error('[emails-id-reviews] could not remove resolved reviews:', deleteError.message)
       }
     }
   }

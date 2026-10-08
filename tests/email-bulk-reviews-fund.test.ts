@@ -107,4 +107,28 @@ describe('approve all on an email', () => {
       s.investments = true
     }
   })
+
+  it('the bulk write is held to the caller\'s fund, whatever the read returned', async () => {
+    s.m = memoryAdmin({
+      inbound_emails: [{ id: 'em1', fund_id: 'f', processing_status: 'needs_review' }],
+      parsing_reviews: [
+        { id: 'r1', fund_id: 'f', email_id: 'em1', issue_type: 'low_confidence', resolution: null },
+        // Another fund's row the caller's read should never have returned (here the test's client has no RLS).
+        { id: 'r9', fund_id: 'g', email_id: 'em1', issue_type: 'low_confidence', resolution: null },
+      ],
+      fund_settings: [{ fund_id: 'f', retain_resolved_reviews: false }],
+    })
+    const res = await post('dismiss_all')
+    expect(res.status).toBe(200)
+    expect(s.m.tables.parsing_reviews.map((r: any) => [r.id, r.resolution])).toEqual([['r9', null]])
+  })
+
+  it('a failed bulk update is an error, and the email stays in review', async () => {
+    seedMixed()
+    s.m.failNext('parsing_reviews', 'update', 'boom')
+    const res = await post('dismiss_all')
+    expect(res.status).toBe(500)
+    expect(s.m.tables.parsing_reviews.map((r: any) => r.resolution)).toEqual([null, null])
+    expect(s.m.tables.inbound_emails[0].processing_status).toBe('needs_review')
+  })
 })

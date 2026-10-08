@@ -55,7 +55,7 @@ import { GET as getDefault, PUT as putDefault } from '@/app/api/settings/dashboa
 const req = (body: unknown) => new Request('http://x', { method: 'PUT', body: JSON.stringify(body) }) as any
 
 beforeEach(() => {
-  m.user = { id: 'u1' }; m.role = 'member'
+  m.user = { id: 'u1' }; m.role = 'member'; m.fundDefault = ['v3']
   m.upserts = []; m.updates = []; m.deletes = []
 })
 
@@ -81,9 +81,15 @@ describe('PUT/DELETE /api/dashboard/entities — the caller\'s own selection', (
     expect(m.upserts[0].row.excluded_vehicle_ids).toEqual(['v1'])
   })
 
-  it('a viewer (no write anywhere) may still save their own view', async () => {
+  it('the read-only demo (viewer) applies its selection but never stores it: one shared login, one row', async () => {
     m.role = 'viewer'
-    expect((await putMine(req({ excluded: [] }))).status).toBe(200)
+    const res = await putMine(req({ excluded: ['v2'] }))
+    expect(res.status).toBe(200)
+    expect(await res.json()).toEqual({ ok: true, excluded: ['v2'], saved: false })
+    expect(m.upserts).toEqual([])
+    const del = await deleteMine()
+    expect(del.status).toBe(200)
+    expect(m.deletes).toEqual([])
   })
 
   it('rejects a body that is not a list of ids', async () => {
@@ -92,10 +98,11 @@ describe('PUT/DELETE /api/dashboard/entities — the caller\'s own selection', (
     expect(m.upserts).toEqual([])
   })
 
-  it('DELETE forgets only the caller\'s row and returns the fund default to fall back to', async () => {
+  it('DELETE forgets only the caller\'s row and returns the fund default to fall back to — only the ids they can see', async () => {
+    m.fundDefault = ['v1', 'v3']
     const res = await deleteMine()
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ ok: true, fundDefault: ['v3'] })
+    expect(await res.json()).toEqual({ ok: true, fundDefault: ['v1'] })
     expect(m.deletes).toEqual([{ table: 'dashboard_preferences', eqs: [['user_id', 'u1']] }])
   })
 })

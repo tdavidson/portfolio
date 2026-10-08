@@ -12,6 +12,10 @@ import { dbError } from '@/lib/api-error'
 // at the portfolio changes nothing anyone else sees). Stored as EXCLUDED entity ids so an entity
 // added later shows by default. The row is keyed on the caller's user id from the session; the
 // body never names a user.
+//
+// The read-only demo (role 'viewer') shares one login, so a row it saved would be every demo
+// visitor's dashboard. Its selection is applied for the visit and never stored (security scan L4).
+const isDemo = (role: string | null | undefined) => role === 'viewer'
 
 // PUT { excluded: string[] } — save the selection.
 export async function PUT(req: NextRequest) {
@@ -31,6 +35,7 @@ export async function PUT(req: NextRequest) {
   const { data: vehicles } = await (admin as any).from('fund_vehicles').select('id').eq('fund_id', gate.fundId)
   const fundIds = new Set(((vehicles as any[]) ?? []).map(v => v.id as string))
   const excluded = requested.filter(id => fundIds.has(id) && canSeeVehicle(scope.access, id))
+  if (isDemo(gate.role)) return NextResponse.json({ ok: true, excluded, saved: false })
 
   const { error } = await (admin as any).from('dashboard_preferences').upsert(
     { user_id: user.id, fund_id: gate.fundId, excluded_vehicle_ids: excluded, updated_at: new Date().toISOString() },
@@ -50,7 +55,13 @@ export async function DELETE() {
   const gate = await assertReadAccess(admin, user.id)
   if (gate instanceof NextResponse) return gate
 
-  const { error } = await (admin as any).from('dashboard_preferences').delete().eq('user_id', user.id)
-  if (error) return dbError(error, 'dashboard-entities')
-  return NextResponse.json({ ok: true, fundDefault: await loadFundDefaultExcluded(admin, gate.fundId) })
+  if (!isDemo(gate.role)) {
+    const { error } = await (admin as any).from('dashboard_preferences').delete().eq('user_id', user.id)
+    if (error) return dbError(error, 'dashboard-entities')
+  }
+  // The fund default as THIS caller may see it: an entity outside their grant is not named, even by
+  // id (security scan L5). The page applies it against the caller's own options anyway.
+  const scope = await loadEntityScope(admin, gate)
+  const fundDefault = (await loadFundDefaultExcluded(admin, gate.fundId)).filter(id => canSeeVehicle(scope.access, id))
+  return NextResponse.json({ ok: true, fundDefault })
 }
