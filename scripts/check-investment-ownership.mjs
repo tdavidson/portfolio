@@ -116,6 +116,28 @@ await db.query('update journal_entries set reversed_by = $1 where id = $2', [rev
 const second = await entry([[cost, -100], [cash, 100]], { sourceRef: `reversal:${original}` })
 await rejects('a second reversal of an already-reversed entry', () => post(second), OWNS)
 
+// 5b. A re-reversal after the earlier reversal was voided posts (reversed_by still points at the void one).
+const t3 = await txn()
+const orig2 = await entry(purchase, { sourceRef: `txn:${t3}` })
+await post(orig2)
+const rev1 = await entry([[cost, -100], [cash, 100]], { sourceRef: `reversal:${orig2}` })
+await db.query("update journal_entries set status = 'void' where id = $1", [rev1])
+await db.query('update journal_entries set reversed_by = $1 where id = $2', [rev1, orig2])
+await post(await entry([[cost, -100], [cash, 100]], { sourceRef: `reversal:${orig2}` }))
+
+// 5c. A malformed reference is "not owned", not a cast error.
+const malformed = await entry(purchase, { sourceRef: 'txn:not-a-uuid' })
+await rejects('a malformed txn: reference posts', () => post(malformed), OWNS)
+
+// 5d. Moving an investment line from an owned posted entry onto an unowned posted entry is refused.
+const t4 = await txn()
+const ownedE = await entry(purchase, { sourceRef: `txn:${t4}` })
+await post(ownedE)
+const unownedE = await entry([[cash, 100], [i.capA, -100]])
+await post(unownedE)
+await rejects('moving an investment line onto an unowned posted entry', () => db.query(
+  `update journal_postings set journal_entry_id = $1 where journal_entry_id = $2 and account_id = $3`, [unownedE, ownedE, cost]), OWNS)
+
 // 6. The tax book is exempt; flipping a posted tax entry onto the actual book is not.
 const taxEntry = await entry(purchase)
 await db.query("update journal_entries set book = 'tax' where id = $1", [taxEntry])

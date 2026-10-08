@@ -35,14 +35,19 @@ as $$
   select
     (coalesce(p_source_ref, '') like 'txn:%' and exists (
       select 1 from investment_transactions t
-      where t.fund_id = p_fund_id and t.id::text = substr(p_source_ref, 5)))
+      where t.fund_id = p_fund_id
+        and t.id = case when substr(p_source_ref, 5) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                        then substr(p_source_ref, 5)::uuid end))
     or exists (
       select 1 from investment_transactions t
       where t.fund_id = p_fund_id and t.adopted_entry_id = p_entry_id)
     or (coalesce(p_source_ref, '') like 'reversal:%' and exists (
       select 1 from journal_entries o
-      where o.id::text = substr(p_source_ref, 10) and o.fund_id = p_fund_id and o.status = 'posted'
-        and (o.reversed_by is null or o.reversed_by = p_entry_id)))
+      where o.id = case when substr(p_source_ref, 10) ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                  then substr(p_source_ref, 10)::uuid end
+        and o.fund_id = p_fund_id and o.status = 'posted'
+        and (o.reversed_by is null or o.reversed_by = p_entry_id
+             or exists (select 1 from journal_entries r where r.id = o.reversed_by and r.status = 'void'))))
 $$;
 
 create or replace function public.assert_investment_entry_owned()
@@ -93,7 +98,7 @@ create trigger journal_entries_investment_owned
 
 drop trigger if exists journal_postings_investment_owned on public.journal_postings;
 create trigger journal_postings_investment_owned
-  before insert or update of account_id on public.journal_postings
+  before insert or update of account_id, journal_entry_id on public.journal_postings
   for each row execute function public.assert_investment_posting_owned();
 
 revoke execute on function public.is_investment_account(uuid) from public, anon, authenticated;
