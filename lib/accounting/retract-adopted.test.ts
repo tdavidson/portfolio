@@ -30,6 +30,7 @@ vi.mock('./from-portfolio', () => ({
 }))
 import { retractAdoptedEntry } from './retract-adopted'
 import { buildEntryForTransaction } from './from-portfolio'
+import { persistEntry } from './persist'
 
 const chart = [
   { id: 'cash', fund_id: 'f', vehicle_id: 'v', code: '1000', type: 'asset', subtype: 'cash', company_id: null },
@@ -99,5 +100,32 @@ describe('retractAdoptedEntry', () => {
     expect(books(m)).toEqual({ a1100: 100, b1100: 200, cash: -300 })
     expect(m.tables.journal_entries.find((e: any) => e.id === 'e1').status).toBe('posted')
     expect(m.tables.investment_transactions.map((t: any) => t.adopted_entry_id)).toEqual(['e1', 'e1'])
+  })
+  it('subtracts the PRE-edit transaction, not the stored (already edited) row', async () => {
+    const m = seed('cash')
+    m.tables.investment_transactions.find((t: any) => t.id === 'tA').investment_cost = 150
+    expect(await retractAdoptedEntry(m.admin, 'f', { txnId: 'tA', entryId: 'e1', original: tA, userId: 'u' })).toEqual({ retracted: 1 })
+    expect(books(m)).toEqual({ b1100: 200, cash: -200 })
+  })
+  it('refuses when the entry changed under it, re-posting nothing', async () => {
+    const m = seed('cash')
+    const flaky = memoryAdmin({ ...m.tables }, {
+      before: (table, op, _p, tables) => {
+        if (table === 'journal_entries' && op === 'update') tables.journal_entries!.find((e: any) => e.id === 'e1')!.status = 'void'
+      },
+    })
+    const r = await retractAdoptedEntry(flaky.admin, 'f', { txnId: 'tA', entryId: 'e1', original: tA, userId: 'u' })
+    expect(r).toEqual({ retracted: 0, reason: expect.stringMatching(/changed while/) })
+    expect(flaky.tables.journal_entries.filter((e: any) => e.source_ref)).toEqual([])
+    expect(flaky.tables.investment_transactions.map((t: any) => t.adopted_entry_id)).toEqual(['e1', 'e1'])
+  })
+  it('names the voided entry when the remainder cannot be re-posted', async () => {
+    const m = seed('ap')
+    vi.mocked(persistEntry).mockImplementationOnce(async () => ({ entryId: 'ok' }) as any)
+    vi.mocked(persistEntry).mockImplementationOnce(async () => ({ error: 'boom' }) as any)
+    const r = await retractAdoptedEntry(m.admin, 'f', { txnId: 'tA', entryId: 'e1', original: tA, userId: 'u' })
+    expect(r.retracted).toBe(1)
+    expect(r.warning).toMatch(/voided entry "QB 7".*re-saving transactions will not restore/)
+    expect(r.warning).not.toMatch(/Re-save those/)
   })
 })

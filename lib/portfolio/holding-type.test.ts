@@ -56,6 +56,7 @@ const ALLOWLIST = new Map<string, string>([
   ['app/api/accounting/quote-marks/route.ts', 'period-end quote marks cover every position carrying a feed, whatever kind of holding it is'],
   ['app/api/accounting/price-feeds/route.ts', 'a price feed can attach to any holding — a listed company, an IPO\'d portfolio company, or a digital asset'],
   // Intentionally all holdings.
+  ['lib/accounting/retract-adopted.ts', "by-id lookup of an adopted entry's owners; fund and crypto holdings carry transactions too"],
   ['lib/vehicles.ts', 'vehicle rollups cover every holding a vehicle owns, funds included'],
   ['app/api/settings/route.ts', 'fund deletion must remove every holding, fund holdings included'],
 ])

@@ -57,7 +57,7 @@ async function split(
     .update({ adopted_entry_id: null }).eq('fund_id', fundId).in('id', ids)
 
   const { data: row } = await admin.from('journal_entries' as any)
-    .select('id, status, entry_date, memo, vehicle_id, portfolio_group, journal_postings(account_id, amount, lp_entity_id)')
+    .select('id, status, entry_date, posted_at, memo, vehicle_id, portfolio_group, journal_postings(account_id, amount, lp_entity_id)')
     .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', args.entryId).maybeSingle()
   const entry = row as any
   if (!entry || entry.status !== 'posted') {
@@ -76,7 +76,7 @@ async function split(
   const siblings = ((owned as any[]) ?? []).filter(t => t.id !== args.txnId)
     .sort((a, b) => `${a.transaction_date}${a.id}`.localeCompare(`${b.transaction_date}${b.id}`))
   const companyIds = Array.from(new Set([...siblings.map(t => t.company_id), args.original.company_id]))
-  const { data: companies } = await admin.from('companies' as any).select('id, name, holding_type').eq('fund_id', fundId).in('id', companyIds)
+  const { data: companies } = await admin.from('companies' as any).select('id, name').eq('fund_id', fundId).in('id', companyIds)
   const nameOf = (id: string) => ((companies as any[]) ?? []).find(c => c.id === id)?.name ?? 'Investment'
 
   // 1. Build, writing nothing.
@@ -107,16 +107,29 @@ async function split(
     return { retracted: 0, reason: CANT_SPLIT }
   }
 
-  // 3. Void, clear, re-post.
+  // 3. Void (compare-and-set, so two concurrent sibling edits cannot both split it), clear, re-post.
+  const cas = await admin.from('journal_entries' as any).update({ status: 'void', posted_at: null })
+    .eq('book', ACTUAL_BOOK).eq('id', args.entryId).eq('fund_id', fundId).eq('status', 'posted').select('id')
+  if (cas.error) return { retracted: 0, reason: `Its journal entry could not be voided: ${cas.error.message}` }
+  if (((cas.data as any[]) ?? []).length !== 1) {
+    return { retracted: 0, reason: 'This journal entry changed while it was being split — reload and try again.' }
+  }
   const allocation = await setGeneratedAllocationStatus(admin, fundId, args.entryId, 'void')
-  if (allocation.error) return { retracted: 0, reason: `Its partner allocation could not be voided: ${allocation.error}` }
-  await admin.from('bank_transactions' as any).update({ journal_entry_id: null, status: 'unmatched' })
-    .eq('fund_id', fundId).eq('journal_entry_id', args.entryId)
-  await admin.from('journal_entries' as any).update({ status: 'void', posted_at: null }).eq('id', args.entryId).eq('fund_id', fundId)
+  if (allocation.error) {
+    await admin.from('journal_entries' as any).update({ status: 'posted', posted_at: entry.posted_at ?? null })
+      .eq('book', ACTUAL_BOOK).eq('id', args.entryId).eq('fund_id', fundId).eq('status', 'void')
+    return { retracted: 0, reason: `Its partner allocation could not be voided: ${allocation.error}` }
+  }
   state.voided = true
-  await clear([args.txnId, ...siblings.map(t => t.id)])
 
   const failures: string[] = []
+  const bank = await admin.from('bank_transactions' as any).update({ journal_entry_id: null, status: 'unmatched' })
+    .eq('fund_id', fundId).eq('journal_entry_id', args.entryId)
+  if (bank.error) failures.push(`its bank match could not be released (${bank.error.message})`)
+  const cleared = await clear([args.txnId, ...siblings.map(t => t.id)])
+  if (cleared.error) failures.push(`the transactions could not be released from the entry (${cleared.error.message})`)
+
+  let remainderFailed: string | null = null
   for (const { txn, entry: e } of rebuilt) {
     const r = await persistEntry(admin, fundId, group, args.userId, e, 'posted')
     if ('error' in r) failures.push(`${nameOf(txn.company_id)}: ${r.error}`)
@@ -127,9 +140,13 @@ async function split(
       memo: `Remainder of ${entry.memo ? `"${entry.memo}"` : 'an adopted entry'} after its investments were split out`,
       postings: remainder,
     }, 'posted')
-    if ('error' in r) failures.push(`the rest of the entry: ${r.error}`)
+    if ('error' in r) remainderFailed = r.error
   }
-  return failures.length
-    ? { retracted: 1, warning: `The entry was split, but ${failures.join('; ')}. Re-save those transactions to put them back on the ledger.` }
-    : { retracted: 1 }
+  const parts: string[] = []
+  if (failures.length) parts.push(`The entry was split, but ${failures.join('; ')}. Re-save those transactions to put them back on the ledger.`)
+  if (remainderFailed) {
+    const label = entry.memo ? `"${entry.memo}"` : args.entryId
+    parts.push(`The rest of the voided entry ${label} (${entry.entry_date}) could not be re-posted (${remainderFailed}). Re-enter its remaining lines from that entry — re-saving transactions will not restore them.`)
+  }
+  return parts.length ? { retracted: 1, warning: parts.join(' ') } : { retracted: 1 }
 }

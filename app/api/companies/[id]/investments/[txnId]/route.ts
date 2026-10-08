@@ -249,5 +249,5 @@ export async function DELETE(
     transactionId: params.txnId,
   })
 
-  return NextResponse.json({ success: true, ledger })
+  return NextResponse.json({ success: true, ledger, ...(ledger.warning ? { warning: ledger.warning } : {}) })
 }
