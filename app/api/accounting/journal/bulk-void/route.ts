@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
     vehicleId,
     group,
     action: 'void',
+    userId: user.id,
     scope: readBulkScope(body),
   })
   if (!result.ok) return dbError(result.error as any, 'journal-bulk-void')

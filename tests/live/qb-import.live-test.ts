@@ -245,7 +245,7 @@ describe('QuickBooks migration — live database', { timeout: 60_000 }, () => {
     expect((before ?? []).every((e: any) => e.status === 'draft')).toBe(true)
 
     const result = await runBulkDraftAction(admin, {
-      fundId, vehicleId, group, action: 'post',
+      fundId, vehicleId, group, action: 'post', userId: null,
       scope: { ids: (before ?? []).map((e: any) => e.id), start: null, end: null, afterId: null },
     } as any)
     console.log('[bulk-post]', JSON.stringify(result))

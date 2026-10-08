@@ -11,6 +11,7 @@ import { fundCurrency } from './currency'
 import { vehicleIdByName } from './vehicle-id'
 import type { JournalEntry } from './types'
 import { ACTUAL_BOOK, type LedgerBook } from './books'
+import { adoptEntry, removeAdopted } from './adoption'
 
 /** code → account_id for the vehicle's chart. */
 export async function accountIdByCode(admin: SupabaseClient, fundId: string, group: string): Promise<Map<string, string>> {
@@ -96,7 +97,7 @@ export async function persistEntry(
   book: LedgerBook = ACTUAL_BOOK,
   /** Generated allocation entries pass false to prevent recursive allocation. */
   allocate: boolean = true,
-): Promise<{ entryId: string } | { error: string; allocationFailed?: true }> {
+): Promise<{ entryId: string } | { error: string; allocationFailed?: true; adoptionRefused?: true }> {
   // DENOMINATE THE ENTRY IN THE FUND'S CURRENCY, here, at the one place everything is written.
   //
   // Every entry builder takes a `currency` and defaults it to 'USD', and no caller ever passed
@@ -173,6 +174,12 @@ export async function persistEntry(
     }
   }
 
+  // ADOPT BEFORE POSTING (plans/spec-ledger-one-writer.md §1). A posted actual-book entry is
+  // written as a DRAFT first, its postings next, then any investment lines nobody owns are adopted
+  // into transactions, and only then does it flip to posted. That order is what the ownership
+  // trigger needs: it checks at the flip, and adopted_entry_id can only reference a header that
+  // exists. Allocation entries carry no investment lines and skip the read entirely.
+  const adoptHere = status === 'posted' && book === ACTUAL_BOOK && !(entry.sourceRef ?? '').startsWith('allocation:')
   const { data: created, error: entryErr } = await admin
     .from('journal_entries' as any)
     .insert({
@@ -188,16 +195,17 @@ export async function persistEntry(
       reference: entry.reference ?? null,
       adjusting: entry.adjusting === true,
       vendor_id: entry.vendorId ?? null,
-      status,
+      status: adoptHere ? 'draft' : status,
       book,
       created_by: userId,
-      posted_at: status === 'posted' ? new Date().toISOString() : null,
+      posted_at: status === 'posted' && !adoptHere ? new Date().toISOString() : null,
     })
     .select('id')
     .single()
   if (entryErr) return { error: entryErr.message }
 
   const entryId = (created as any).id
+  const discard = () => admin.from('journal_entries' as any).delete().eq('id', entryId).eq('fund_id', fundId)
   const { error: postErr } = await admin.from('journal_postings' as any).insert(
     entry.postings.map(p => ({
       fund_id: fundId,
@@ -211,8 +219,29 @@ export async function persistEntry(
     }))
   )
   if (postErr) {
-    await admin.from('journal_entries' as any).delete().eq('id', entryId).eq('fund_id', fundId)
+    await discard()
     return { error: postErr.message }
+  }
+
+  let adopted: string[] = []
+  if (adoptHere) {
+    const adoption = await adoptEntry(admin, fundId, {
+      entryId, vehicleId, entryDate: entry.entryDate, memo: entry.memo ?? null,
+      sourceRef: entry.sourceRef ?? null, postings: entry.postings,
+    })
+    if ('refused' in adoption) {
+      await discard()
+      return { error: adoption.refused, adoptionRefused: true }
+    }
+    adopted = adoption.adoptedIds
+    const { error: flipErr } = await admin.from('journal_entries' as any)
+      .update({ status: 'posted', posted_at: new Date().toISOString() })
+      .eq('id', entryId).eq('fund_id', fundId).eq('status', 'draft')
+    if (flipErr) {
+      await removeAdopted(admin, fundId, adopted)
+      await discard()
+      return { error: flipErr.message }
+    }
   }
 
   if (status === 'posted' && book === ACTUAL_BOOK && allocate) {
@@ -222,9 +251,10 @@ export async function persistEntry(
     const allocated = await allocatePostedEntry(admin, fundId, group, userId, entryId, entry)
     if ('error' in allocated) {
       // Compensating rollback. persistEntry predates a transactional RPC; never leave the source
-      // posted without the capital allocation that posting promised.
+      // posted without the capital allocation that posting promised — nor its adopted transactions.
       await rollbackGeneratedAllocations(admin, fundId, entryId)
-      await admin.from('journal_entries' as any).delete().eq('id', entryId).eq('fund_id', fundId)
+      await removeAdopted(admin, fundId, adopted)
+      await discard()
       return { error: `Entry was not posted because its partner allocation failed: ${allocated.error}`, allocationFailed: true }
     }
   }

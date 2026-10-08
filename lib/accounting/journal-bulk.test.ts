@@ -15,6 +15,11 @@ vi.mock('@/lib/accounting/investment-bank-match', async (importOriginal) => ({
   entriesAwaitingBankMatch: async () => awaiting,
 }))
 
+const postedIds: string[] = []
+vi.mock('./continuous-allocation', () => ({
+  postExistingEntryWithAllocation: vi.fn(async (_a: any, _f: string, _g: string, _u: string | null, id: string) => { postedIds.push(id); return { allocationEntryIds: [] } }),
+}))
+
 import { readBulkScope, runBulkDraftAction, BULK_BATCH } from './journal-bulk'
 
 interface DraftRow { id: string; entry_date: string; journal_postings: { amount: number }[] }
@@ -47,9 +52,9 @@ const lopsided = (id: string, date = '2026-06-01'): DraftRow =>
   ({ id, entry_date: date, journal_postings: [{ amount: 100 }, { amount: -40 }] })
 
 const run = (admin: any, action: 'post' | 'void', scope = readBulkScope({})) =>
-  runBulkDraftAction(admin, { fundId: 'f1', vehicleId: 'v1', group: 'Main', action, scope })
+  runBulkDraftAction(admin, { fundId: 'f1', vehicleId: 'v1', group: 'Main', action, scope, userId: null })
 
-beforeEach(() => { closed.length = 0 })
+beforeEach(() => { closed.length = 0; postedIds.length = 0 })
 
 describe('readBulkScope', () => {
   it('reads ids, window and cursor', () => {
@@ -79,10 +84,10 @@ describe('runBulkDraftAction', () => {
     expect(res.outcome.skipped).toEqual([
       { id: 'b', reason: 'Out of balance by 60.00 — fix it before posting.' },
     ])
-    expect(updates[0]).toMatchObject({ table: 'journal_entries', ids: ['a', 'c'] })
-    expect(updates[0].patch.status).toBe('posted')
+    // Posting goes through the choke point (adopts, allocates), never a raw status flip.
+    expect(postedIds).toEqual(['a', 'c'])
     // The linked bank transactions follow the entry.
-    expect(updates[1]).toMatchObject({ table: 'bank_transactions', patch: { status: 'reconciled' } })
+    expect(updates[0]).toMatchObject({ table: 'bank_transactions', patch: { status: 'reconciled' } })
   })
 
   it('skips a derived draft that waits for its bank match, and still voids it on request', async () => {

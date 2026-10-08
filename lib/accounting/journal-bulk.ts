@@ -62,7 +62,7 @@ export async function runBulkDraftAction(
     group: string
     action: BulkAction
     scope: BulkScope
-    userId?: string | null
+    userId: string | null
   },
 ): Promise<{ ok: true; outcome: BulkOutcome } | { ok: false; error: unknown }> {
   const { fundId, vehicleId, group, action, scope, userId } = opts
@@ -121,19 +121,16 @@ export async function runBulkDraftAction(
   }
 
   if (target.length > 0) {
-    if (action === 'post' && userId !== undefined) {
+    if (action === 'post') {
+      // Every post goes through the choke point: it adopts investment lines and allocates to
+      // partners. A raw status flip here used to skip both.
       for (const id of target) {
         const posted = await postExistingEntryWithAllocation(admin, fundId, group, userId, id)
-        if ('error' in posted) {
-          skipped.push({ id, reason: posted.error })
-        }
+        if ('error' in posted) skipped.push({ id, reason: posted.error })
       }
     } else {
-      const patch = action === 'post'
-        ? { status: 'posted', posted_at: new Date().toISOString() }
-        : { status: 'void', posted_at: null }
       const { error: upErr } = await (admin as any)
-        .from('journal_entries').update(patch).in('id', target).eq('fund_id', fundId).eq('status', 'draft')
+        .from('journal_entries').update({ status: 'void', posted_at: null }).in('id', target).eq('fund_id', fundId).eq('status', 'draft')
       if (upErr) return { ok: false, error: upErr }
     }
     // Keep any bank transactions that point at these entries in step — the same two states

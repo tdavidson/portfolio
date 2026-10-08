@@ -1,3 +1,4 @@
+import { adoptEntry, removeAdopted, settleLostRace } from './adoption'
 import { loadResolvedCommitments } from './terms'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { allocateAmountCumulatively } from './allocation'
@@ -185,24 +186,37 @@ export async function postExistingEntryWithAllocation(
   ])
   if (!header) return { error: 'Entry not found' }
   if ((header as any).status !== 'draft') return { error: 'Only a draft entry can be posted' }
+  const postings = ((rows as any[]) ?? []).map(row => ({
+    accountId: row.account_id as string, amount: Number(row.amount), currency: row.currency, lpEntityId: row.lp_entity_id,
+  }))
+  // Adopt BEFORE the flip, so the entry is owned when it becomes posted (spec §1). A request that
+  // loses the flip below settles its adopted rows against the winner's.
+  const adoption = await adoptEntry(admin, fundId, {
+    entryId, vehicleId: vehicleId!, entryDate: (header as any).entry_date, memo: (header as any).memo ?? null,
+    sourceRef: (header as any).source_ref ?? null, postings,
+  })
+  if ('refused' in adoption) return { error: adoption.refused }
+  const adopted = adoption.adoptedIds
   // Compare-and-set: flip it only if it is STILL a draft. Two requests that both read the draft
   // (a bank match racing a "post without a bank match") would otherwise both post and both run
   // the partner allocation, doubling it. The loser finds no draft and stops here.
   const { data: flipped, error: statusError } = await admin.from('journal_entries' as any)
     .update({ status: 'posted', posted_at: new Date().toISOString() })
     .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', entryId).eq('status', 'draft').select('id')
-  if (statusError) return { error: statusError.message }
-  if (!((flipped as any[]) ?? []).length) return { error: 'Only a draft entry can be posted' }
+  if (statusError) { await removeAdopted(admin, fundId, adopted); return { error: statusError.message } }
+  if (!((flipped as any[]) ?? []).length) {
+    await settleLostRace(admin, fundId, entryId, adopted)
+    return { error: 'Only a draft entry can be posted' }
+  }
   const entry: JournalEntry = {
     fundId, entryDate: (header as any).entry_date, memo: (header as any).memo,
     sourceType: (header as any).source_type, sourceRef: (header as any).source_ref,
-    postings: ((rows as any[]) ?? []).map(row => ({
-      accountId: row.account_id, amount: Number(row.amount), currency: row.currency, lpEntityId: row.lp_entity_id,
-    })),
+    postings,
   }
   const allocated = await allocatePostedEntry(admin, fundId, group, userId, entryId, entry)
   if ('error' in allocated) {
     await rollbackGeneratedAllocations(admin, fundId, entryId)
+    await removeAdopted(admin, fundId, adopted)
     await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null }).eq('fund_id', fundId).eq('id', entryId)
     return allocated
   }
