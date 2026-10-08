@@ -21,7 +21,6 @@ const NOT_IN_DEMO: Record<string, string> = {
   'lps/preview': 'admin only',
   'pending-actions': 'admin only',
   'usage': 'admin only',
-  'portfolio': 'holdings by entity — the demo shows one fund, which the dashboard already covers',
   'entities/[id]/documents': 'an entity\'s uploaded governing documents — the demo fund has none to show',
   'updates': 'admin only',
   'diligence/analytics': 'admin only',

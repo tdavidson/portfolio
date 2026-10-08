@@ -1,7 +1,6 @@
 'use client'
 
 import { use, useCallback, useEffect, useRef, useState } from 'react'
-import Link from 'next/link'
 import { FileText, Loader2, MessageSquare, Trash2, Upload } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -170,7 +169,6 @@ export default function EntityDocumentsPage(props: { params: Promise<{ id: strin
             The LPA or operating agreement, side letters and amendments. Everyone on this entity&apos;s team can read them,
             and the Analyst can answer questions about their terms.
           </p>
-          {entity && <Link href={`/portfolio?entity=${entity.id}`} className="text-sm text-muted-foreground underline underline-offset-4 hover:text-foreground">Holdings</Link>}
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" size="sm" disabled={!docs?.length} onClick={() => ask('')}>
