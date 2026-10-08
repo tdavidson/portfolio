@@ -40,7 +40,7 @@ export interface ExtractedAttachment {
 }
 
 export const ARTIFACT_PARSER_VERSION = 'company-updates-artifact-v2'
-export const BODY_CLEANER_VERSION = 'company-updates-body-v2'
+export const BODY_CLEANER_VERSION = 'company-updates-body-v3'
 /**
  * Version of the whole capture (body cleaner + every artifact parser). Stored on the update row so
  * a backfill can tell "captured by an older release" from "captured by this one". Bump whenever
@@ -104,6 +104,9 @@ export function extractEmailBody(payload: EmailBodyPayload): ExtractedBody {
 
   const cleaned = cleanCurrentMessage(original)
   warnings.push(...cleaned.warnings)
+  // A forward's header block (From/Date/Subject/To) is not the update: the reader's excerpt and
+  // search start at the forwarded message's own text. `original` keeps the headers.
+  cleaned.text = withoutForwardHeaders(cleaned.text)
 
   return {
     original,
@@ -113,7 +116,7 @@ export function extractEmailBody(payload: EmailBodyPayload): ExtractedBody {
     cleanerVersion: BODY_CLEANER_VERSION,
     warnings,
     forwardedSender: findForwardedSender(original),
-    originalChunks: chunkText(quotedHistory(original, cleaned.text), { section: 'email_body', representation: 'original' }),
+    originalChunks: chunkText(quotedHistory(withoutForwardHeaders(original), cleaned.text), { section: 'email_body', representation: 'original' }),
     currentChunks: chunkText(cleaned.text, { section: 'email_body', representation: 'current' }),
   }
 }
@@ -693,8 +696,13 @@ function cleanCurrentMessage(original: string): {
     const match = marker.exec(original)
     if (match?.index !== undefined) cut = Math.min(cut, match.index)
   }
+  // A "--" line opens a signature only when a signature's worth of text follows it. Newsletters
+  // use "--" as a section divider, and cutting there filed the rest of the update — the metrics,
+  // the asks — as quoted history.
   const signature = /\n--\s*\n/.exec(original)
-  if (signature?.index !== undefined) cut = Math.min(cut, signature.index)
+  if (signature?.index !== undefined && looksLikeSignature(original.slice(signature.index + signature[0].length, cut))) {
+    cut = Math.min(cut, signature.index)
+  }
   if (cut === original.length) return { text: original, status: 'complete', warnings: [] }
 
   const candidate = original.slice(0, cut).trim()
@@ -706,6 +714,42 @@ function cleanCurrentMessage(original: string): {
     }
   }
   return { text: candidate, status: 'complete', warnings: [] }
+}
+
+const FORWARD_MARKER = /^[ \t>]*(?:-{2,}\s*forwarded message\s*-{2,}|begin forwarded message:?)\s*$/im
+const HEADER_LINE = /^[ \t>]*(?:from|date|sent|subject|to|cc|reply-to):[^\n]*$/i
+
+/**
+ * Drop the forwarded-message marker and the header lines under it, keeping any note the forwarder
+ * wrote above it and the forwarded text below. Header values can wrap onto a second line (long
+ * recipient lists), so a non-blank line straight after a header line is treated as part of it.
+ */
+export function withoutForwardHeaders(text: string): string {
+  const marker = FORWARD_MARKER.exec(text)
+  if (!marker) return text
+  const before = text.slice(0, marker.index).trim()
+  const lines = text.slice(marker.index + marker[0].length).split('\n')
+  let i = 0
+  while (i < lines.length && !lines[i].trim()) i++
+  let sawHeader = false
+  while (i < lines.length) {
+    if (HEADER_LINE.test(lines[i])) { sawHeader = true; i++; continue }
+    // A wrapped recipient list: a short address line right under a header line.
+    if (sawHeader && HEADER_LINE.test(lines[i - 1]) && lines[i].length < 200 && /[<@]/.test(lines[i])) { i++; continue }
+    break
+  }
+  if (!sawHeader) return text
+  const after = lines.slice(i).join('\n').trim()
+  return [before, after].filter(Boolean).join('\n\n')
+}
+
+/** A sign-off: a few short lines (name, title, phone, links), not paragraphs of update. */
+const SIGNATURE_MAX_LINES = 12
+const SIGNATURE_MAX_CHARS = 600
+function looksLikeSignature(after: string): boolean {
+  const text = after.trim()
+  const lines = text.split('\n').filter(line => line.trim())
+  return text.length <= SIGNATURE_MAX_CHARS && lines.length <= SIGNATURE_MAX_LINES
 }
 
 function findForwardedSender(body: string): { name: string | null; email: string } | null {

@@ -94,7 +94,7 @@ describe('verification corpus — email bodies', () => {
   })
 
   it('bumps the cleaner version so backfill treats v1 captures as stale', () => {
-    expect(extractEmailBody(EMAIL_BODIES.plain).cleanerVersion).toBe('company-updates-body-v2')
+    expect(extractEmailBody(EMAIL_BODIES.plain).cleanerVersion).toBe('company-updates-body-v3')
   })
 })
 

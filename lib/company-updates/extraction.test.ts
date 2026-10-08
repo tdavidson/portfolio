@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest'
 import JSZip from 'jszip'
 import { Document, Packer, Paragraph } from 'docx'
 import * as XLSX from 'xlsx'
-import { detectContentType, extractArtifact, extractEmailBody } from './extraction'
+import { detectContentType, extractArtifact, extractEmailBody, withoutForwardHeaders } from './extraction'
 
 describe('Company Update body extraction', () => {
   it('prefers plain text, preserves the original, and separates conservative reply cleaning', () => {
@@ -168,3 +168,49 @@ function minimalPdf(text: string): Buffer {
   pdf += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`
   return Buffer.from(pdf)
 }
+
+describe('the current message of a forwarded update', () => {
+  const forward = [
+    '---------- Forwarded message ---------',
+    'From: Lizzie Matusov <lizzie@getquotient.com>',
+    'Date: Tue, Oct 6, 2026 at 2:09 PM',
+    'Subject: 09/2026 Quotient Stakeholder Update',
+    'To: Joe Mukai <joe@getquotient.com>,',
+    '  Ada Founder <ada@acme.test>',
+    '',
+    'To our stakeholders,',
+    '',
+    'Happy October! This month we started procurement with two enterprises. More below.',
+    '',
+    '--',
+    '',
+    '*Our latest blurb:* Quotient helps engineering organizations prove ROI.',
+    '',
+    '*Key metrics:*',
+    ...Array.from({ length: 20 }, (_, i) => `- Metric ${i}: steady growth this month across the board`),
+  ].join('\n')
+
+  it('starts at the forwarded text, not the header block', () => {
+    const body = extractEmailBody({ TextBody: forward })
+    expect(body.current.startsWith('To our stakeholders,')).toBe(true)
+    expect(body.current).not.toMatch(/Forwarded message|^From:|^Subject:|ada@acme\.test/m)
+    expect(body.original).toContain('From: Lizzie Matusov')
+  })
+
+  it('keeps a newsletter section divider "--" in the message instead of filing the rest as quoted history', () => {
+    const body = extractEmailBody({ TextBody: forward })
+    expect(body.current).toContain('Our latest blurb')
+    expect(body.current).toContain('Metric 19')
+    expect(body.originalChunks).toEqual([])
+  })
+
+  it('still cuts a real signature', () => {
+    const body = extractEmailBody({ TextBody: 'Revenue grew 20% this quarter and we hired two engineers.\n\n--\nAda Founder\nCEO, Acme\n+1 555 0100' })
+    expect(body.current).toBe('Revenue grew 20% this quarter and we hired two engineers.')
+  })
+
+  it('keeps a note the forwarder wrote above the forward', () => {
+    expect(withoutForwardHeaders('FYI — strong quarter.\n\n--- Forwarded message ---\nFrom: Ada <ada@acme.test>\nSubject: Q3\n\nRevenue grew.'))
+      .toBe('FYI — strong quarter.\n\nRevenue grew.')
+  })
+})
