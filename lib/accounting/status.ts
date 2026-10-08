@@ -18,6 +18,7 @@ import { roundCents } from './ledger'
 import { ACTUAL_BOOK } from './books'
 import { chartForVehicleKind } from './chart'
 import { intercompanyBalances } from './intercompany'
+import { backfillDerivedEntries } from './investment-backfill'
 
 export type IssueLevel = 'blocker' | 'warning' | 'info'
 
@@ -38,8 +39,6 @@ export interface VehicleStatus {
     hasPostedEntries: boolean
     partnerCount: number
     partnersWithCommitment: number
-    /** False only when the tracker holds positions the ledger doesn't carry. */
-    investmentsBooked: boolean
     /** Every LP capital posting has reached a partner's OWN capital account. */
     capitalAttributed: boolean
     stranded: StrandedCapital
@@ -134,14 +133,8 @@ export async function vehicleStatus(
     : accounts.length > 0
   const hasPostedEntries = postedCount > 0
 
-  // A vehicle whose tracker holds positions the ledger doesn't carry is NOT onboarded,
-  // however complete the rest of it looks. Leaving investments out of this definition
-  // is what let a vehicle "finish" setup with an empty investment ledger — the setup
-  // card vanished and the only hint was a blocker on Status, discovered after the fact.
-  // A vehicle with no positions at all (a fresh SPV pre-investment) is fine.
-  const investmentsBooked = positions.length === 0 || Math.abs(soi.ledgerCost) >= 0.005
-  // Same lesson, second column. Capital sitting on the POOLED account reaches no partner, so
-  // every per-LP figure reads 0 while the vehicle looks finished. Counting it as onboarded is
+  // Capital sitting on the POOLED account reaches no partner, so
+  // every per-LP figure reads 0 while the vehicle looks finished. Counting it as finished is
   // what let the setup tools — including the attribution repair — disappear from Status on a
   // vehicle that still needed them, leaving no route to the fix from anywhere in the product.
   const stranded: StrandedCapital = manco
@@ -163,10 +156,6 @@ export async function vehicleStatus(
     if (conflicts) issues.push({ level: 'warning', title: `${conflicts} reported balance${conflicts === 1 ? '' : 's'} differ from the books`, detail: 'Reported balances remain visible until the overlapping accounting records reconcile. Review the differences before relying on a combined report.', href: '/funds/capital-accounts', action: 'Reconcile balances' })
     if (incomplete) issues.push({ level: 'warning', title: `${incomplete} incomplete capital position${incomplete === 1 ? '' : 's'}`, detail: 'Missing amounts appear as a dash, including totals that depend on them. Enter the missing contributions, distributions, or NAV.', href: '/funds/capital-accounts', action: 'Review balances' })
     if (dates.length) issues.push({ level: 'info', title: 'Reported capital balances', detail: `These balances are dated ${dates[0]}${dates.at(-1) !== dates[0] ? ` through ${dates.at(-1)}` : ''}. A later journal entry does not update their valuation date.`, href: '/funds/capital-accounts', action: 'View balances' })
-  }
-
-  if (!chartSeeded) {
-    issues.push({ level: 'info', title: 'No accounting records yet', detail: 'Import books or record a transaction. The required accounts are created when needed.', href: '/funds/journal', action: 'Record a transaction' })
   }
 
   if (!bs.check || Math.abs(bs.check) > 0.004) {
@@ -194,18 +183,16 @@ export async function vehicleStatus(
     })
   }
 
-  // The tracker knows the fund holds these companies; the ledger doesn't. Without
-  // this, the balance sheet shows no investments and nobody is told why — it would
-  // only surface indirectly as an SOI variance, and only once the chart was seeded.
-  if (positions.length > 0 && Math.abs(soi.ledgerCost) < 0.005) {
-    const trackerCost = roundCents(positions.reduce((s, p) => s + p.cost, 0))
-    const trackerFv = roundCents(positions.reduce((s, p) => s + p.fairValue, 0))
+  // Transactions the ledger does not carry yet — the backfill puts them there (investment-backfill.ts).
+  const backlog = manco ? null : await backfillDerivedEntries(admin, fundId, group, null, { dryRun: true })
+  const notOnLedger = backlog ? backlog.toAdopt + backlog.toDerive + backlog.toPost : 0
+  if (notOnLedger > 0) {
     issues.push({
       level: 'blocker',
-      title: 'Investments are not on the ledger',
-      detail: `The portfolio tracker holds ${positions.length} ${positions.length === 1 ? 'position' : 'positions'} in this vehicle (${trackerCost.toFixed(2)} at cost, ${trackerFv.toFixed(2)} at fair value), but the ledger carries no investment balance. The balance sheet and the schedule of investments are both wrong until they're booked.`,
+      title: `${notOnLedger} investment item${notOnLedger === 1 ? '' : 's'} not on the ledger`,
+      detail: 'The balance sheet and the schedule of investments leave them out until they are booked. Putting them on the ledger books each on its own date, and running it again books nothing twice.',
       href: '/funds/status#book-investments',
-      action: 'Book investments',
+      action: 'Put them on the ledger',
     })
   } else if (soi.source === 'tracker' && (soi.costVariance !== 0 || soi.fairValueVariance !== 0)) {
     issues.push({
@@ -294,7 +281,6 @@ export async function vehicleStatus(
       hasPostedEntries,
       partnerCount: owners.length,
       partnersWithCommitment,
-      investmentsBooked,
       capitalAttributed,
       stranded,
     },

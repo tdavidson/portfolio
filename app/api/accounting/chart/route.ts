@@ -8,6 +8,7 @@ import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { dbError } from '@/lib/api-error'
 import { chartForVehicleKind } from '@/lib/accounting/chart'
+import { ensureVehicleAccounts } from '@/lib/accounting/provision-accounts'
 
 /** The `type` check constraint on chart_of_accounts. */
 const ACCOUNT_TYPES = ['asset', 'liability', 'equity', 'income', 'expense'] as const
@@ -23,6 +24,14 @@ export async function GET(req: NextRequest) {
   const group = await resolveGroupOr400(admin, gate, req.nextUrl.searchParams.get('group'))
   if (group instanceof NextResponse) return group
   const vehicleId = await vehicleIdByName(admin, gate.fundId, group)
+
+  // An entity created before charts were seeded on creation gets its chart on first look, so no
+  // page has to offer to set one up. Idempotent (ensureVehicleAccounts upserts, by kind).
+  if (vehicleId) {
+    const { count } = await admin.from('chart_of_accounts' as any).select('id', { count: 'exact', head: true })
+      .eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId)
+    if (!count) await ensureVehicleAccounts(admin, gate.fundId, group)
+  }
 
   const { data, error } = await admin
     .from('chart_of_accounts' as any)

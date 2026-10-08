@@ -6,6 +6,7 @@ import { loadAllocationBasis } from './terms'
 import { loadStrandedCapital } from './pooled-capital-check'
 import { intercompanyBalances } from './intercompany'
 import { chartForVehicleKind } from './chart'
+import { backfillDerivedEntries } from './investment-backfill'
 
 vi.mock('./load', () => ({ loadPostedLedger: vi.fn(), loadOwnership: vi.fn() }))
 vi.mock('./vehicle-id', () => ({ vehicleIdByName: vi.fn().mockResolvedValue('vehicle-1') }))
@@ -15,6 +16,7 @@ vi.mock('./terms', () => ({ loadHistoryMode: vi.fn(), loadAllocationBasis: vi.fn
 vi.mock('./close', () => ({ nextCloseStart: vi.fn().mockResolvedValue('2026-01-01') }))
 vi.mock('./pooled-capital-check', () => ({ loadStrandedCapital: vi.fn() }))
 vi.mock('./intercompany', () => ({ intercompanyBalances: vi.fn() }))
+vi.mock('./investment-backfill', () => ({ backfillDerivedEntries: vi.fn(async () => ({ toAdopt: 0, toDerive: 0, toPost: 0 })) }))
 
 function adminWith(tables: Record<string, unknown[]> = {}) {
   return { from: vi.fn((table: string) => {
@@ -49,7 +51,7 @@ describe('management company accounting status', () => {
   it('keeps setup available when an existing chart lacks operating accounts', async () => {
     vi.mocked(loadPostedLedger).mockResolvedValue({ accounts: accounts().slice(0, 2), postings: [], capitalPostings: [] } as any)
     const s = await vehicleStatus(adminWith(), 'firm', 'Management LLC')
-    expect(s.issues).toContainEqual(expect.objectContaining({ title: 'No accounting records yet', action: 'Record a transaction' }))
+    expect(s.issues.map(i => i.title)).not.toContain('No accounting records yet')
   })
 
   it('reports draft entries, bank work, close progress, and net income going to members’ capital', async () => {
@@ -75,6 +77,13 @@ describe('management company accounting status', () => {
     vi.mocked(intercompanyBalances).mockResolvedValue([{ counterpartyVehicleId: 'fund', counterpartyName: 'Fund I', dueFrom: 500, dueTo: 500, net: 0 }])
     const s = await vehicleStatus(adminWith(), 'firm', 'Management LLC')
     expect(s.issues).toContainEqual(expect.objectContaining({ title: '1 outstanding intercompany balance', href: '/funds/status#intercompany' }))
+  })
+
+  it('says how many investment items are not on the ledger', async () => {
+    vi.mocked(vehicleKindByName).mockResolvedValue('fund')
+    vi.mocked(backfillDerivedEntries).mockResolvedValueOnce({ toAdopt: 1, toDerive: 2, toPost: 0 } as any)
+    const s = await vehicleStatus(adminWith(), 'firm', 'Fund I')
+    expect(s.issues).toContainEqual(expect.objectContaining({ title: '3 investment items not on the ledger', level: 'blocker', href: '/funds/status#book-investments' }))
   })
 
   it('keeps the existing LP setup requirements for funds', async () => {

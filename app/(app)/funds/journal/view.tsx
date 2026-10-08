@@ -22,7 +22,6 @@ import { chunkIds, describeSkipped, summarizeSelection } from '@/lib/accounting/
 import { DownloadMenu } from '@/components/accounting/download-menu'
 import { EntryModal } from '../entry-modal'
 import { EmptyState } from '@/components/ui/empty-state'
-import { NoBooksState, useChartExists } from '@/components/accounting/no-books'
 
 interface Posting { id: string; account_id: string; account_code: string | null; account_name: string | null; account_type: string | null; amount: number; currency: string | null; lp_entity_id: string | null }
 interface Entry {
@@ -52,7 +51,6 @@ export function JournalView({ onPlainText }: { onPlainText?: () => void } = {}) 
   const lf = useLedgerFetch()
   const base = useVehicleBase()
   const { kind, group } = useVehicle()
-  const hasChart = useChartExists()
   // The tax book only has entries once the tax run has written them; with tax reporting off it
   // is always empty, so the selector is not offered.
   const taxOn = useCanRead('accounting', 'tax_reporting')
@@ -235,11 +233,6 @@ export function JournalView({ onPlainText }: { onPlainText?: () => void } = {}) 
         loadPage() // also clears the selection
       })
   }, [lf, loadPage, allMatching, sel.draftIds, rangeLabel, preset, start, end])
-
-  // A journal entry has nothing to post to without a chart of accounts.
-  if (hasChart === false) {
-    return <NoBooksState>No accounts are set up for this entity yet, so there is nothing to post journal entries to.</NoBooksState>
-  }
 
   return (
     <div className="space-y-4">

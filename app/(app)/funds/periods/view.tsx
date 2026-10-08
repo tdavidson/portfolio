@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useCurrency, formatCurrencyPrice } from '@/components/currency-context'
 import { useLedgerFetch } from '@/components/accounting-vehicle'
-import { NoBooksState, useChartExists } from '@/components/accounting/no-books'
 
 interface CloseCheck { check_key: string; section: string; label: string; status: string; detail: string | null; sort_order: number }
 interface CloseReview { id: string; status: string; approved_at: string | null; attestation: string | null; close_review_checks: CloseCheck[] }
@@ -72,7 +71,6 @@ function openMonths(nextStart: string | null): { period_start: string; period_en
 }
 
 export function PeriodsView() {
-  const hasChart = useChartExists()
   const currency = useCurrency()
   const fmt = (v: number) => formatCurrencyPrice(v, currency)
   const [periods, setPeriods] = useState<Period[]>([])
@@ -171,11 +169,6 @@ export function PeriodsView() {
       .filter(m => !periods.some(p => p.period_start <= m.period_end && p.period_end >= m.period_start))
       .map(m => ({ id: `open:${m.period_start}`, ...m, label: null, status: 'open', closed_at: null, close_review: null })),
   ].sort((a, b) => (a.period_end < b.period_end ? 1 : -1))
-
-  // A close allocates the ledger's income to partners; with no chart there is no ledger to close.
-  if (hasChart === false) {
-    return <NoBooksState>No accounts are set up for this entity yet, so there is nothing to close.</NoBooksState>
-  }
 
   return (
     <div className="space-y-6 max-w-3xl">

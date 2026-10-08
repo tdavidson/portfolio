@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { retagPortfolioGroup } from '@/lib/vehicles'
 import { dbError } from '@/lib/api-error'
+import { ensureVehicleAccounts } from '@/lib/accounting/provision-accounts'
 import { VEHICLE_KINDS } from '@/lib/vehicle-kinds'
 import { loadAccessContext } from '@/lib/access/effective'
 import { canSeeVehicle, entityIdentityChangeDenial } from '@/lib/access/scope'
@@ -75,6 +76,9 @@ export async function POST(req: NextRequest) {
     if ((error as any).code === '23505') return NextResponse.json({ error: 'A vehicle with that name already exists' }, { status: 409 })
     return dbError(error, 'vehicles')
   }
+  // Every entity has a ledger from the moment it exists (plans/spec-ledger-one-writer.md §3) — the
+  // chart its kind needs, seeded here rather than on some later "onboarding" step.
+  await ensureVehicleAccounts(admin as any, gate.fundId, (data as any).name)
   // A member who creates an entity can see it; admins see every entity anyway.
   if (gate.role !== 'admin') {
     await (admin as any).from('fund_member_vehicles')

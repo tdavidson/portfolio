@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // caller's grant for this route + method; these resolve identity and keep the demo out of writes.
 import { assertReadAccess, assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
+import { ensureVehicleAccounts } from '@/lib/accounting/provision-accounts'
 import { listMancoVehicles } from '@/lib/accounting/load'
 import { chartForVehicleKind } from '@/lib/accounting/chart'
 import { MANCO_KIND } from '@/lib/vehicle-kinds'
@@ -107,6 +108,9 @@ export async function POST(req: NextRequest) {
     }
     return dbError(error, 'manco-vehicles')
   }
+  // Every entity has a ledger from the moment it exists (plans/spec-ledger-one-writer.md §3) — the
+  // chart its kind needs, seeded here rather than on some later "onboarding" step.
+  await ensureVehicleAccounts(admin as any, gate.fundId, (data as any).name)
   // A member who creates an entity can see it; admins see every entity anyway.
   if (gate.role !== 'admin') {
     await (admin as any).from('fund_member_vehicles')

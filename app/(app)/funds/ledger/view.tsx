@@ -10,7 +10,6 @@ import { AccountPicker, type PickerAccount } from '@/components/accounting/accou
 import { PERIOD_PRESETS, type PeriodPreset } from '@/lib/accounting/statement-period'
 import type { AccountRegister } from '@/lib/accounting/register'
 import { EmptyState } from '@/components/ui/empty-state'
-import { NoBooksState } from '@/components/accounting/no-books'
 import { EntryModal } from '../entry-modal'
 
 interface Period { preset: PeriodPreset; start: string | null; end: string | null; label: string }
@@ -87,11 +86,8 @@ export function LedgerView() {
   const selectedId = accounts.find(a => a.code === accountRef || a.id === accountRef)?.id ?? ''
   const period = data?.period
   // No chart of accounts yet: the register has nothing to pick from.
-  const noBooks = !loading && !!data && accounts.length === 0
   const openingLabel = period?.start ? `Opening balance at ${period.start}` : 'Opening balance — inception'
   const closingLabel = period?.end ? `Closing balance at ${period.end}` : 'Closing balance'
-
-  if (noBooks) return <NoBooksState>No accounts are set up for this entity yet, so there is no ledger to show.</NoBooksState>
 
   return (
     <div className="space-y-4">

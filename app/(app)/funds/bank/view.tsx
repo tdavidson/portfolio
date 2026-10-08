@@ -11,7 +11,6 @@ import { useCurrency, formatCurrencyPrice } from '@/components/currency-context'
 import { useLedgerFetch } from '@/components/accounting-vehicle'
 import { EntryModal } from '../entry-modal'
 import { EmptyState } from '@/components/ui/empty-state'
-import { NoBooksState } from '@/components/accounting/no-books'
 import { InvestmentMatchQueue } from './investment-matches'
 
 interface DuplicateCandidate { id: string; date: string; amount: number; memo: string; status: string; claimed: boolean }
