@@ -147,3 +147,37 @@ describe('posting from the bank page without investments write (security M2)', (
     expect(rowOf('b-fee').status).toBe('drafted')
   })
 })
+
+describe('a bank row for an escrow release', () => {
+  beforeEach(() => {
+    s.m.tables.chart_of_accounts.push({ id: 'escrow', fund_id: 'f', vehicle_id: 'v', code: '1350', type: 'asset', subtype: 'escrow_receivable', company_id: null })
+    s.m.tables.journal_entries.push(entry('e-esc', { status: 'draft' }))
+    s.m.tables.journal_postings.push(
+      { journal_entry_id: 'e-esc', book: 'actual', fund_id: 'f', account_id: 'cash', amount: 500 },
+      { journal_entry_id: 'e-esc', book: 'actual', fund_id: 'f', account_id: 'escrow', amount: -500 },
+    )
+    s.m.tables.bank_transactions.push(bank('b-esc', 'e-esc', 'drafted'))
+  })
+
+  it('is not posted to the escrow receivable — the receipt on the holding posts it', async () => {
+    const res = await act('post', 'b-esc')
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/escrow receipt on the holding.*link this bank row/)
+    expect(s.post).not.toHaveBeenCalled()
+    expect(entryOf('e-esc').status).toBe('draft')
+  })
+
+  it('is not posted in a bulk post either', async () => {
+    const res = await POST(new NextRequest('http://localhost/api/accounting/bank', { method: 'POST', body: JSON.stringify({ action: 'postMany', ids: ['b-esc'] }) }))
+    expect(res.status).toBe(400)
+    expect(s.post).not.toHaveBeenCalled()
+  })
+
+  it('cannot be re-pointed to the escrow receivable', async () => {
+    s.m.tables.journal_entries.push(entry('e-in', { status: 'draft' }))
+    s.m.tables.bank_transactions.push(bank('b-in', 'e-in', 'drafted'))
+    const res = await POST(new NextRequest('http://localhost/api/accounting/bank', { method: 'POST', body: JSON.stringify({ action: 'setAccount', id: 'b-in', accountCode: '1350' }) }))
+    expect(res.status).toBe(400)
+    expect((await res.json()).error).toMatch(/escrow receipt on the holding/)
+  })
+})

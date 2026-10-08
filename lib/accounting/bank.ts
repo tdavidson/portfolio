@@ -239,6 +239,10 @@ export function dedupHash(t: ParsedTxn, occurrence = 0): string {
 // Categorization (deterministic first pass; AI can refine)
 // ---------------------------------------------------------------------------
 
+/** Why a bank row can't post an escrow release itself. */
+export const ESCROW_VIA_HOLDING =
+  'An escrow release is recorded as an escrow receipt on the holding, which posts it. Record the receipt there, then link this bank row to it under "Investments with no bank transaction".'
+
 export interface Category {
   /** Chart account code for the NON-cash side of the entry. */
   accountCode: string
@@ -250,10 +254,11 @@ export interface Category {
 const RULES: { re: RegExp; accountCode: string; sourceType: string; label: string }[] = [
   { re: /capital call|drawdown|contribution|subscription/i, accountCode: '3100', sourceType: 'capital_call', label: 'Capital call' },
   { re: /distribution|redemption/i, accountCode: '3100', sourceType: 'distribution', label: 'Distribution' },
-  // An escrow release CLEARS the receivable booked at exit — it is not new income. Booking it
-  // as a realized gain would count the same money twice: once at the exit (when the fund
-  // earned it) and again when it finally arrived.
-  { re: /escrow|holdback/i, accountCode: '1350', sourceType: 'realized_gain', label: 'Escrow release' },
+  // An escrow release CLEARS the receivable booked at exit — it is not new income. The escrow
+  // receipt recorded on the holding posts that (Dr cash, Cr 1350), so this row is flagged as an
+  // escrow release and LINKED to the receipt's entry; posting it to 1350 itself is refused
+  // (ESCROW_VIA_HOLDING), or the receivable would clear twice.
+  { re: /escrow|holdback/i, accountCode: '1350', sourceType: 'realized_gain', label: 'Escrow release — link it to the receipt on the holding' },
   { re: /management fee|mgmt fee/i, accountCode: '5000', sourceType: 'management_fee', label: 'Management fee' },
   { re: /audit|legal|tax|accounting|admin|filing|fund expense|organization/i, accountCode: '5100', sourceType: 'partnership_expense', label: 'Partnership expense' },
   // Interest/dividend is handled before this list (direction-aware: income on an

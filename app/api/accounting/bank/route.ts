@@ -8,6 +8,8 @@ import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { accountIdByCode } from '@/lib/accounting/persist'
 import { RECEIVABLE_CODE, DISTRIBUTION_PAYABLE_CODE } from '@/lib/accounting/chart'
+import { ESCROW_VIA_HOLDING } from '@/lib/accounting/bank'
+import { ESCROW_CODE } from '@/lib/accounting/adopt'
 import { loadEntityNames } from '@/lib/accounting/load'
 import { closedPeriodRanges, dateInAnyClosedPeriod } from '@/lib/accounting/periods'
 import { dbError } from '@/lib/api-error'
@@ -165,6 +167,23 @@ export async function POST(req: NextRequest) {
    *
    * Returns an error string, or null when the transition is allowed.
    */
+  /**
+   * An escrow release clears the receivable the exit recognized — and the escrow receipt
+   * recorded on the holding posts exactly that (lib/accounting/from-portfolio.ts). A bank entry
+   * crediting 1350 as well would clear it twice, so the bank row is LINKED to the receipt's
+   * entry instead ("Investments with no bank transaction"), never posted to 1350 itself.
+   */
+  const escrowPostings = async (entryIds: string[]): Promise<string | null> => {
+    if (entryIds.length === 0) return null
+    const codes = await accountIdByCode(admin, gate.fundId, group as string)
+    const escrowId = codes.get(ESCROW_CODE)
+    if (!escrowId) return null
+    const { data, error } = await admin.from('journal_postings' as any).select('journal_entry_id')
+      .eq('book', ACTUAL_BOOK).eq('fund_id', gate.fundId).in('journal_entry_id', entryIds).eq('account_id', escrowId).limit(1)
+    if (error) return `The entry could not be checked: ${error.message}`
+    return ((data as any[]) ?? []).length > 0 ? ESCROW_VIA_HOLDING : null
+  }
+
   const guardEntry = async (
     entryIds: string[],
     allowed: ('draft' | 'posted')[]
@@ -206,7 +225,7 @@ export async function POST(req: NextRequest) {
     const txnIds = ((rows as any[]) ?? []).map(r => r.id)
     const entryIds = ((rows as any[]) ?? []).map(r => r.journal_entry_id).filter(Boolean)
 
-    const problem = await guardEntry(entryIds, ['draft'])
+    const problem = await guardEntry(entryIds, ['draft']) ?? await escrowPostings(entryIds)
     if (problem) return NextResponse.json({ error: problem }, { status: 400 })
 
     // Posting a reversal draft deletes the transactions that owned the entry it reverses; say which,
@@ -269,6 +288,7 @@ export async function POST(req: NextRequest) {
     if ((txn as any).status !== 'drafted') return NextResponse.json({ error: 'Only a drafted transaction can be re-categorized' }, { status: 400 })
     const code = String(accountCode ?? '').trim()
     if (!code) return NextResponse.json({ error: 'accountCode is required' }, { status: 400 })
+    if (code === ESCROW_CODE) return NextResponse.json({ error: ESCROW_VIA_HOLDING }, { status: 400 })
     const codes = await accountIdByCode(admin, gate.fundId, group)
     const newAccountId = codes.get(code)
     if (!newAccountId) return NextResponse.json({ error: 'Unknown account for this vehicle' }, { status: 400 })
@@ -308,7 +328,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Only a drafted transaction can be posted.' }, { status: 400 })
     }
     if (entryId) {
-      const problem = await guardEntry([entryId], ['draft'])
+      const problem = await guardEntry([entryId], ['draft']) ?? await escrowPostings([entryId])
       if (problem) return NextResponse.json({ error: problem }, { status: 400 })
 
       const investments = await loadMayTouchInvestments(admin, gate, user.id)

@@ -129,8 +129,8 @@ describe('exitPostings', () => {
   })
 
   it('does not double-count when the escrow is later received', () => {
-    // At exit: Dr escrow 500k. When the money lands, the bank rule categorises it to 1350,
-    // so the receipt is Dr Cash / Cr 1350 — the receivable clears and NO new gain is booked.
+    // At exit: Dr escrow 500k. When the money lands, the escrow receipt on the holding posts
+    // Dr Cash / Cr 1350 — the receivable clears and NO new gain is booked.
     const atExit = exitPostings(
       { proceeds: 0, escrow: 500_000, basis: 0, carried: { cost: 0, unrealized: 0, fx: 0 } },
       ACC
@@ -138,7 +138,7 @@ describe('exitPostings', () => {
     expect(bal(atExit, 'escrow1350')).toBe(500_000)
     expect(bal(atExit, 'gain4000')).toBe(-500_000) // recognised ONCE, at the exit
 
-    // The later receipt (modelled here as the bank entry would post it) nets 1350 to zero.
+    // The later receipt (from-portfolio.escrow.test.ts derives it) nets 1350 to zero.
     const onReceipt = -500_000
     expect(bal(atExit, 'escrow1350') + onReceipt).toBe(0)
   })
