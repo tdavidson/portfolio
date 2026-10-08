@@ -2,12 +2,13 @@ import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { memoryAdmin } from '@/tests/helpers/memory-admin'
 
 const h = vi.hoisted(() => ({ derive: vi.fn(), post: vi.fn(), link: vi.fn(), adopt: vi.fn() }))
-vi.mock('./vehicle-id', () => ({ vehicleIdByName: async () => 'v' }))
+vi.mock('./vehicle-id', () => ({ vehicleIdByName: async (_a: any, _f: string, g: string) => { if (g === 'Broken') throw new Error('chart read failed'); return 'v' } }))
+vi.mock('./load', () => ({ listVehiclesWithId: async () => [{ name: 'Broken', id: 'b', kind: 'fund' }, { name: 'Fund I', id: 'v', kind: 'fund' }, { name: 'GP', id: 'g', kind: 'associate' }] }))
 vi.mock('./from-portfolio', async (orig) => ({ ...(await orig<any>()), draftEntryForTransaction: h.derive }))
 vi.mock('./continuous-allocation', () => ({ postExistingEntryWithAllocation: h.post }))
-vi.mock('./investment-bank-match', () => ({ linkOpenBankRow: h.link }))
+vi.mock('./investment-bank-match', async (orig) => ({ ...(await orig<any>()), linkOpenBankRow: h.link }))
 vi.mock('./adoption', async (orig) => ({ ...(await orig<any>()), adoptEntry: h.adopt }))
-import { backfillDerivedEntries, countUnderived } from './investment-backfill'
+import { backfillDerivedEntries, backfillAllVehicles, countUnderived } from './investment-backfill'
 
 const chart = [
   { id: 'cash', fund_id: 'f', vehicle_id: 'v', code: '1000', type: 'asset', subtype: 'cash', company_id: null },
@@ -36,11 +37,11 @@ beforeEach(() => {
 describe('backfillDerivedEntries', () => {
   it('adopts unowned posted investment entries, skipping derived, adopted, income-only and reversal pairs', async () => {
     const m = seed({
-      journal_entries: [entry('qb'), entry('derived', { source_ref: 'txn:x' }), entry('owned'), entry('income'),
-        entry('orig', { reversed_by: 'rev' }), entry('rev', { source_ref: 'reversal:orig' })],
+      journal_entries: [entry('qb'), entry('derived', { source_ref: 'txn:aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa' }), entry('owned'), entry('income'),
+        entry('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', { reversed_by: 'rev' }), entry('rev', { source_ref: 'reversal:bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb' })],
       journal_postings: [line('qb', 'a1100', 100), line('derived', 'a1100', 100), line('owned', 'a1100', 100), line('income', 'p4200', -5),
-        line('orig', 'a1100', 100), line('rev', 'a1100', -100)],
-      investment_transactions: [txn('x'), txn('o', { adopted_entry_id: 'owned' })],
+        line('bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb', 'a1100', 100), line('rev', 'a1100', -100)],
+      investment_transactions: [txn('aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa'), txn('o', { adopted_entry_id: 'owned' })],
     })
     const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')
     expect(h.adopt).toHaveBeenCalledTimes(1)
@@ -60,6 +61,22 @@ describe('backfillDerivedEntries', () => {
     expect(h.link).toHaveBeenCalledWith(m.admin, 'f', 'd')
     expect(r).toMatchObject({ toPost: 1, posted: 1, linked: 1, toDerive: 0, alreadyDerived: 1 })
   })
+  it('adopts a posted txn: entry whose transaction was deleted, and a reversal that is unpaired', async () => {
+    const gone = '11111111-1111-4111-8111-111111111111'
+    const m = seed({
+      journal_entries: [entry('orphan', { source_ref: `txn:${gone}` }), entry('orig2', { source_ref: null }), entry('rev2', { source_ref: 'reversal:22222222-2222-4222-8222-222222222222' })],
+      journal_postings: [line('orphan', 'a1100', 100), line('rev2', 'a1100', -50)],
+    })
+    const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')
+    expect(h.adopt.mock.calls.map(c => c[2].entryId).sort()).toEqual(['orphan', 'rev2'])
+    expect(r.toAdopt).toBe(2)
+  })
+  it('does not post an orphaned derived draft, and names it', async () => {
+    const m = seed({ journal_entries: [entry('d', { status: 'draft', source_ref: 'txn:gone' })] })
+    const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')
+    expect(h.post).not.toHaveBeenCalled()
+    expect(r.refused[0]).toMatch(/no longer exists/)
+  })
   it('a dry run counts and writes nothing', async () => {
     const m = seed({ investment_transactions: [txn('a')], journal_entries: [entry('qb')], journal_postings: [line('qb', 'a1100', 100)] })
     expect(await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u', { dryRun: true })).toMatchObject({ toAdopt: 1, toDerive: 1, adopted: 0, posted: 0 })
@@ -75,6 +92,25 @@ describe('backfillDerivedEntries', () => {
     await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')
     expect(await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')).toMatchObject({ toDerive: 0, alreadyDerived: 1 })
     expect(h.derive).toHaveBeenCalledTimes(1)
+  })
+  it('running twice adopts nothing twice', async () => {
+    const m = seed({ investment_transactions: [], journal_entries: [entry('qb')], journal_postings: [line('qb', 'a1100', 100)] })
+    h.adopt.mockImplementation(async (_a: any, _f: string, args: any) => {
+      m.tables.investment_transactions.push(txn('t1', { adopted_entry_id: args.entryId }))
+      return { adoptedIds: ['t1'] }
+    })
+    expect(await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')).toMatchObject({ toAdopt: 1 })
+    expect(await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')).toMatchObject({ toAdopt: 0 })
+  })
+})
+
+describe('backfillAllVehicles', () => {
+  it('a vehicle that throws is reported and the rest continue', async () => {
+    const m = seed({})
+    const out = await backfillAllVehicles(m.admin, 'f', 'u', null)
+    expect(out.map(o => o.vehicle)).toEqual(['Broken', 'Fund I'])
+    expect(out[0].result.refused[0]).toBe('Could not be processed: chart read failed')
+    expect(out[1].result.refused).toEqual([])
   })
 })
 

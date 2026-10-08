@@ -10,6 +10,7 @@ vi.mock('@/lib/accounting/investment-backfill', () => ({ backfillDerivedEntries:
 vi.mock('@/lib/accounting/vehicle-visibility', () => ({ visibleVehicleNames: vi.fn(async () => null) }))
 import { POST } from '@/app/api/accounting/investments/route'
 
+import { backfillAllVehicles } from '@/lib/accounting/investment-backfill'
 const post = (body: object) => POST(new NextRequest('http://localhost/api/accounting/investments', { method: 'POST', body: JSON.stringify(body) }))
 
 describe('POST /api/accounting/investments', () => {
@@ -17,8 +18,9 @@ describe('POST /api/accounting/investments', () => {
     expect((await post({ action: 'backfill' })).status).toBe(200)
   })
   it('backfills every vehicle for an admin', async () => {
-    const res = await post({ action: 'backfill', all: true })
+    const res = await post({ action: 'backfill', all: true, dryRun: true })
     expect(res.status).toBe(200)
+    expect(backfillAllVehicles).toHaveBeenCalledWith(expect.anything(), 'f', 'u', null, { dryRun: true })
     expect((await res.json()).vehicles).toEqual([{ vehicle: 'Fund I', result: { toDerive: 0 } }])
   })
   it('refuses the all-vehicles backfill to a member', async () => {

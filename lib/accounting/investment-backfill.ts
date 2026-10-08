@@ -20,7 +20,7 @@ import { readAll } from './bank-quickbooks-match'
 import { ACTUAL_BOOK } from './books'
 import { isInvestmentAccount, loadVehicleChart } from './investment-accounts'
 import { adoptEntry, adoptedEntryIds } from './adoption'
-import { linkOpenBankRow } from './investment-bank-match'
+import { derivedOwnedIds, linkOpenBankRow } from './investment-bank-match'
 import { listVehiclesWithId } from './load'
 
 const TXN_REF_PREFIX = txnRef('')
@@ -90,6 +90,36 @@ export async function countUnderived(admin: SupabaseClient, fundId: string, vehi
   return (await loadPending(admin, fundId, vehicleId, names)).pending.length
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** Reversal entries whose original is posted and paired with them (entryIsOwned's rule, in batch). */
+async function ownedReversals(admin: SupabaseClient, fundId: string, entries: any[]): Promise<Set<string>> {
+  const refs = entries.filter(e => String(e.source_ref ?? '').startsWith(REVERSAL_PREFIX) && UUID.test(String(e.source_ref).slice(REVERSAL_PREFIX.length)))
+  const out = new Set<string>()
+  if (refs.length === 0) return out
+  const originals = new Map<string, any>()
+  const originalIds = Array.from(new Set(refs.map(e => String(e.source_ref).slice(REVERSAL_PREFIX.length))))
+  for (const ids of chunks(originalIds)) {
+    const { data, error } = await admin.from('journal_entries' as any).select('id, status, reversed_by')
+      .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('id', ids)
+    if (error) throw new Error(`Ownership could not be checked: ${error.message}`)
+    for (const o of (data as any[]) ?? []) originals.set(o.id, o)
+  }
+  const priorIds = Array.from(new Set(Array.from(originals.values()).map(o => o.reversed_by).filter(Boolean) as string[]))
+  const voided = new Set<string>()
+  for (const ids of chunks(priorIds)) {
+    const { data, error } = await admin.from('journal_entries' as any).select('id, status')
+      .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('id', ids)
+    if (error) throw new Error(`Ownership could not be checked: ${error.message}`)
+    for (const r of (data as any[]) ?? []) if (r.status === 'void') voided.add(r.id)
+  }
+  for (const e of refs) {
+    const o = originals.get(String(e.source_ref).slice(REVERSAL_PREFIX.length))
+    if (o && o.status === 'posted' && (o.reversed_by == null || o.reversed_by === e.id || voided.has(o.reversed_by))) out.add(e.id)
+  }
+  return out
+}
+
 /** Posted, unowned entries with a line on an investment account; reversal pairs excluded. */
 async function unownedInvestmentEntries(admin: SupabaseClient, fundId: string, vehicleId: string) {
   const chart = await loadVehicleChart(admin, fundId, vehicleId)
@@ -115,11 +145,17 @@ async function unownedInvestmentEntries(admin: SupabaseClient, fundId: string, v
     const { data } = await admin.from('journal_entries' as any).select('id').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('id', ids).neq('status', 'void')
     for (const r of (data as any[]) ?? []) liveReversals.add(r.id)
   }
+  // Ownership by source_ref decides as entryIsOwned does: a txn: ref owns only while its
+  // transaction exists (one batch implementation, shared with the bank match); a reversal: ref
+  // owns while its original is posted and paired with it.
+  const derivedOwned = await derivedOwnedIds(admin, fundId, entries)
+  const reversalOwned = await ownedReversals(admin, fundId, entries)
   return entries
     .filter(e => {
       const ref = String(e.source_ref ?? '')
-      return !ref.startsWith(TXN_REF_PREFIX) && !ref.startsWith(REVERSAL_PREFIX) && !adopted.has(e.id)
-        && !(e.reversed_by && liveReversals.has(e.reversed_by))
+      if (adopted.has(e.id) || derivedOwned.has(e.id) || reversalOwned.has(e.id)) return false
+      if (e.reversed_by && liveReversals.has(e.reversed_by)) return false
+      return true
     })
     .sort((a, b) => `${a.entry_date}${a.id}`.localeCompare(`${b.entry_date}${b.id}`))
 }
@@ -167,8 +203,9 @@ export async function backfillDerivedEntries(
   const txnById = new Map(txns.map(t => [t.id as string, t]))
   for (const e of drafts) {
     const t = txnById.get(String(e.source_ref).slice(TXN_REF_PREFIX.length))
+    if (!t) { out.refused.push(`Draft entry of ${e.entry_date} belongs to a transaction that no longer exists — void it from the journal.`); continue }
     const r = await postExistingEntryWithAllocation(admin, fundId, group, userId, e.id)
-    if ('error' in r) { out.refused.push(`${nameOf.get(t?.company_id) ?? 'Investment'}, ${e.entry_date}: ${r.error}`); continue }
+    if ('error' in r) { out.refused.push(`${nameOf.get(t.company_id) ?? 'Investment'}, ${e.entry_date}: ${r.error}`); continue }
     out.posted++
     if (await linkOpenBankRow(admin, fundId, e.id)) out.linked++
   }
@@ -182,6 +219,12 @@ export async function backfillAllVehicles(
   const vehicles = (await listVehiclesWithId(admin, fundId))
     .filter(v => v.kind !== 'associate' && (!visible || visible.includes(v.name)))
   const out: { vehicle: string; result: BackfillResult }[] = []
-  for (const v of vehicles) out.push({ vehicle: v.name, result: await backfillDerivedEntries(admin, fundId, v.name, userId, opts) })
+  for (const v of vehicles) {
+    try {
+      out.push({ vehicle: v.name, result: await backfillDerivedEntries(admin, fundId, v.name, userId, opts) })
+    } catch (e) {
+      out.push({ vehicle: v.name, result: { toAdopt: 0, toDerive: 0, alreadyDerived: 0, toPost: 0, adopted: 0, posted: 0, linked: 0, refused: [`Could not be processed: ${e instanceof Error ? e.message : String(e)}`] } })
+    }
+  }
   return out
 }

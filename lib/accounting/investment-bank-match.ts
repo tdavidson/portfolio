@@ -75,7 +75,7 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  * entryIsOwned, in one query. An orphaned ref (malformed suffix, transaction deleted) is not
  * ownership, so it is neither listed nor linkable. THROWS on a failed read.
  */
-async function derivedOwnedIds(admin: SupabaseClient, fundId: string, entries: { id: string; source_ref: string | null }[]): Promise<Set<string>> {
+export async function derivedOwnedIds(admin: SupabaseClient, fundId: string, entries: { id: string; source_ref: string | null }[]): Promise<Set<string>> {
   const byTxn = new Map<string, string[]>()
   for (const e of entries) {
     const ref = String(e.source_ref ?? '')

@@ -64,7 +64,7 @@ export function BootstrapInvestmentsCard({ onBooked }: { onBooked?: () => void }
         <div className="space-y-1 text-sm">
           <p className="flex items-center gap-1.5 text-success">
             <Check className="h-4 w-4" />
-            Booked {result.posted} {result.posted === 1 ? 'entry' : 'entries'}{result.adopted > 0 ? `, recorded ${result.adopted} transactions from existing entries` : ''}{result.linked > 0 ? `, and matched ${result.linked} to the bank` : ''}.
+            Booked {result.posted} {result.posted === 1 ? 'entry' : 'entries'}{result.adopted > 0 ? `, recorded ${result.adopted} ${result.adopted === 1 ? 'transaction' : 'transactions'} from existing entries` : ''}{result.linked > 0 ? `, and matched ${result.linked} to the bank` : ''}.
           </p>
           {result.refused.length > 0 && (
             <div className="rounded-card border border-warning/40 bg-warning/10 p-3">
