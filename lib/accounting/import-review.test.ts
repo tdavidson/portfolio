@@ -7,6 +7,8 @@ vi.mock('./load', () => ({ loadPostedLedger: vi.fn() }))
 vi.mock('./lp-positions', () => ({ loadPositions: vi.fn() }))
 const accounts = [
   { id: 'investment', fundId: 'firm', code: '1100-co', name: 'Acme', type: 'asset', subtype: 'investment', companyId: 'co' },
+  { id: 'cash', fundId: 'firm', code: '1000', name: 'Cash', type: 'asset', subtype: 'cash' },
+  { id: 'pooled', fundId: 'firm', code: '1100', name: 'Investments', type: 'asset', subtype: 'investment' },
   { id: 'capital', fundId: 'firm', code: '3100-lp', name: 'LP capital', type: 'equity', subtype: 'lp_capital', lpEntityId: 'lp' },
 ]
 const position = { lpEntityId: 'lp', asOfDate: '2025-03-31', commitment: 200, calledCapital: 100, distributions: 0, nav: 120 }
@@ -31,7 +33,7 @@ describe('import comparison', () => {
     const result = await reviewImport(database(), 'firm', 'Fund I', { includeLp: true, entries: [{ fundId: 'firm', entryDate: '2025-03-31', sourceType: 'quickbooks', postings: [
       { accountId: 'investment', amount: 80, currency: 'USD' }, { accountId: 'capital', amount: -80, currency: 'USD', lpEntityId: 'lp' },
     ] }] })
-    expect(result.differences).toContainEqual(expect.objectContaining({ domain: 'investment', metric: 'Investment cost', recorded: 100, imported: 80, difference: -20 }))
+    expect(result.differences).toContainEqual(expect.objectContaining({ domain: 'investment', metric: 'Investment cost', recorded: 180, imported: 80, difference: -100 }))
     expect(result.differences).toContainEqual(expect.objectContaining({ domain: 'lp', name: 'Investor A', recorded: 120, imported: 80, difference: -40 }))
     expect(result.token).toHaveLength(64)
   })
@@ -65,4 +67,26 @@ it('flags contribution and distribution differences even when ending capital agr
   expect(result.differences).toContainEqual(expect.objectContaining({ metric: 'Contributions', recorded: 100, imported: 150 }))
   expect(result.differences).toContainEqual(expect.objectContaining({ metric: 'Distributions', recorded: 0, imported: 30 }))
   expect(result.differences.some(d => d.metric === 'Capital balance')).toBe(false)
+})
+
+describe('adoption-aware comparison', () => {
+  const noTracker = () => {
+    const db = database()
+    const from = db.from
+    db.from = vi.fn((t: string) => t === 'investment_transactions' ? { select: () => ({ eq: () => Promise.resolve({ data: [], error: null }) }) } : from(t))
+    return db
+  }
+  it('does not report cost the import will itself adopt into the tracker', async () => {
+    const result = await reviewImport(noTracker(), 'firm', 'Fund I', { entries: [{ fundId: 'firm', entryDate: '2025-03-01', sourceType: 'quickbooks', postings: [
+      { accountId: 'investment', amount: 1000, currency: 'USD' }, { accountId: 'cash', amount: -1000, currency: 'USD' },
+    ] }] })
+    expect(result.differences.filter(d => d.domain === 'investment')).toEqual([])
+    expect(result.checked.investments).toBe(1)
+  })
+  it('lists an entry to the pooled investment account as a refusal', async () => {
+    const result = await reviewImport(noTracker(), 'firm', 'Fund I', { entries: [{ fundId: 'firm', entryDate: '2025-03-01', sourceType: 'quickbooks', postings: [
+      { accountId: 'pooled', amount: 1000, currency: 'USD' }, { accountId: 'cash', amount: -1000, currency: 'USD' },
+    ] }] })
+    expect(result.differences).toContainEqual(expect.objectContaining({ domain: 'investment', metric: 'Investment entry', message: expect.stringMatching(/pooled/) }))
+  })
 })

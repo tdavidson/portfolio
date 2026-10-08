@@ -7,6 +7,8 @@ import { buildSoiPositions, txnsForVehicle } from './soi'
 import { computeCapitalAccounts } from './capital-account'
 import { scheduleOfInvestments } from './statements'
 import { roundCents } from './ledger'
+import { readInvestmentLines } from './adopt'
+import type { ChartAccount } from './investment-accounts'
 import type { JournalEntry, Account } from './types'
 import type { ParsedTxn } from './bank'
 
@@ -43,10 +45,25 @@ export async function reviewImport(admin: SupabaseClient, fundId: string, group:
   for (const result of [txns, companies, names]) if (result.error) throw result.error
   const accounts = [...ledger.accounts, ...(input.previewAccounts ?? []).filter(a => !ledger.accounts.some(existing => existing.id === a.id))]
   const companyRows = (companies.data ?? []) as any[]
-  const transactions = (txns.data ?? []) as any[]
+  // Imported entries are posted after this review, and posting ADOPTS their investment lines into
+  // transactions (adoption.ts). Compare against the tracker as it will be, not as it is — otherwise
+  // every clean import of a fund's history reads as a disagreement. A shape adoption would refuse
+  // is listed, so the person sees it before importing rather than when a post fails.
+  const chart: ChartAccount[] = accounts.map(a => ({ id: a.id, code: a.code, type: a.type, subtype: a.subtype ?? null, companyId: a.companyId ?? null }))
+  const adoptionRefusals: { date: string; reason: string }[] = []
+  const adopted: any[] = []
+  for (const e of input.entries ?? []) {
+    const read = readInvestmentLines(e.postings, chart)
+    if ('refused' in read) { adoptionRefusals.push({ date: e.entryDate, reason: read.refused }); continue }
+    for (const t of read.transactions) adopted.push({ ...t, fund_id: fundId, portfolio_group: group, transaction_date: e.entryDate })
+  }
+  const transactions = [...((txns.data ?? []) as any[]), ...adopted]
   const positions = buildSoiPositions(transactions, companyRows, group, new Date(end + 'T00:00:00Z'))
   const nameById = new Map(((names.data ?? []) as any[]).map(n => [n.id, n.entity_name]))
   const differences: ImportDifference[] = []
+  for (const r of adoptionRefusals) {
+    differences.push({ domain: 'investment', name: group, date: r.date, metric: 'Investment entry', recorded: null, imported: null, difference: null, message: r.reason })
+  }
   const entries = input.entries ?? []
   const importedPostings = entries.flatMap(e => e.postings.map(p => ({ ...p, entryDate: e.entryDate, sourceType: e.sourceType === 'quickbooks' ? cashCapitalSource(e.postings, accounts) ?? e.sourceType : e.sourceType })))
   const touchedAccounts = new Set(importedPostings.map(p => p.accountId))
