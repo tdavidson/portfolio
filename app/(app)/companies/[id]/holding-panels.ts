@@ -36,3 +36,19 @@ export function initialEntity(entities: { id: string }[], requested: string | nu
   if (requested && entities.some(e => e.id === requested)) return requested
   return entities.length === 1 ? entities[0].id : null
 }
+
+/** A quote's basis in the words the fair value hierarchy uses. */
+export function quoteBasisNote(q: { as_of_date: string; basis: 'close' | 'intraday' | 'indicative' } | null): string {
+  if (!q) return 'No quote stored yet'
+  if (q.basis === 'close') return `Official close, ${q.as_of_date}`
+  if (q.basis === 'intraday') return `Intraday price, ${q.as_of_date} — Level 2, not an official close`
+  return `Indicative price, ${q.as_of_date} — Level 2`
+}
+
+const units = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: 8 })
+
+/** One entity's chain-versus-books disagreement, as a sentence. */
+export function chainVarianceText(v: { entity: string; observedUnits: number; recordedUnits: number; delta: number; asOf: string | null }): string {
+  return `${v.entity}: the chain shows ${units(v.observedUnits)} units at ${v.asOf ?? 'an unknown date'}, the books record `
+    + `${units(v.recordedUnits)} — ${units(Math.abs(v.delta))} ${v.delta > 0 ? 'more on-chain than recorded' : 'fewer on-chain than recorded'}.`
+}

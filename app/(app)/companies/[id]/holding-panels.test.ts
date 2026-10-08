@@ -1,6 +1,6 @@
 // app/(app)/companies/[id]/holding-panels.test.ts
 import { describe, it, expect } from 'vitest'
-import { holdingPanels, initialEntity } from './holding-panels'
+import { holdingPanels, initialEntity, quoteBasisNote, chainVarianceText } from './holding-panels'
 
 describe('holdingPanels', () => {
   it('a company keeps its profile and may carry a price feed', () => {
@@ -27,5 +27,22 @@ describe('initialEntity', () => {
   })
   it('opens on the only entity there is', () => {
     expect(initialEntity([{ id: 'v1' }], null)).toBe('v1')
+  })
+})
+
+describe('quoteBasisNote', () => {
+  it('names the basis a mark rests on, never a bare level', () => {
+    expect(quoteBasisNote(null)).toBe('No quote stored yet')
+    expect(quoteBasisNote({ as_of_date: '2026-03-31', basis: 'close' })).toBe('Official close, 2026-03-31')
+    expect(quoteBasisNote({ as_of_date: '2026-03-31', basis: 'intraday' })).toBe('Intraday price, 2026-03-31 — Level 2, not an official close')
+  })
+})
+
+describe('chainVarianceText', () => {
+  it('says which way the chain and the books disagree, for which entity', () => {
+    expect(chainVarianceText({ entity: 'Fund I', observedUnits: 12, recordedUnits: 10, delta: 2, asOf: '2026-03-31' }))
+      .toBe('Fund I: the chain shows 12 units at 2026-03-31, the books record 10 — 2 more on-chain than recorded.')
+    expect(chainVarianceText({ entity: 'Fund II', observedUnits: 8, recordedUnits: 10, delta: -2, asOf: '2026-03-31' }))
+      .toBe('Fund II: the chain shows 8 units at 2026-03-31, the books record 10 — 2 fewer on-chain than recorded.')
   })
 })

@@ -18,6 +18,8 @@ import { CompanyInvestments } from './company-investments'
 import { CompanyInteractions } from './company-interactions'
 import { FundRegisterSection } from './fund-register-section'
 import { holdingPanels } from './holding-panels'
+import { HoldingPriceFeed } from './holding-price-feed'
+import { HoldingWallets } from './holding-wallets'
 import type { CompanyPageData } from './load'
 
 function formatHighlightValue(value: number, metric: Metric, fundCurrency: string) {
@@ -139,6 +141,14 @@ export function CompanyPageView({
               adminOnly={featureVisibility.investments === 'admin'}
               showUnits={panels.units}
             />
+          )}
+
+          {showInvestments && panels.wallets && (
+            <HoldingWallets companyId={company.id} entities={entities ?? []} />
+          )}
+
+          {showInvestments && panels.priceFeed && (
+            <HoldingPriceFeed companyId={company.id} kind={holdingType === 'crypto' ? 'crypto' : 'company'} />
           )}
 
           <div id="updates">
