@@ -39,6 +39,8 @@ import {
   type AnalystResult,
   type AnalystRateLimitSpec,
 } from './types'
+import { listDocuments, KIND_LABELS } from '@/lib/entity-documents'
+import { GOVERNING_DOCUMENTS_GUIDE, resolveDocumentEntity } from '@/lib/entity-documents/analyst'
 
 async function enforceRateLimit(deps: AnalystDependencies, spec: AnalystRateLimitSpec): Promise<void> {
   if (await deps.isRateLimited(spec)) {
@@ -267,6 +269,25 @@ export async function runAnalyst(
     }
   }
 
+  // Governing documents: for anyone who can see the entity in view, with or without the books.
+  let documentsEntity: string | null = null
+  if (scopeInput.vehicle) {
+    try {
+      const { id: vehicleId, name } = await resolveDocumentEntity(deps.admin, principal.fundId, principal.access, scopeInput.vehicle)
+      const docs = await listDocuments(deps.admin, principal.fundId, [vehicleId])
+      documentsEntity = name
+      if (docs.length > 0) {
+        const lines = docs.map(d => `  - ${d.title} (${KIND_LABELS[d.kind] ?? d.kind}${d.effective_date ? `, effective ${d.effective_date}` : ''}${d.page_count ? `, ${d.page_count} pages` : ''}${d.ocr_status === 'pending' ? ', scan still being read' : ''}) [id ${d.id}]`)
+        systemPrompt += `\n\n=== GOVERNING DOCUMENTS: ${name} ===\n${lines.join('\n')}\n\n${GOVERNING_DOCUMENTS_GUIDE}`
+        if (!accountingGroup) {
+          systemPrompt += `\n\nThis conversation does not include ${name}'s books, so a compliance review can state the terms but not test the figures against them.`
+        }
+      }
+    } catch (error) {
+      console.error('[analyst] governing documents skipped:', error)
+    }
+  }
+
   let lpScoped = false
   if (scopeInput.domain === 'lps' && hasAccess(principal.access, 'lp_capital', 'read')) {
     await enforceRateLimit(deps, {
@@ -384,6 +405,7 @@ export async function runAnalyst(
         userId: principal.userId,
         access: principal.access,
         vehicle: accountingGroup ?? undefined,
+        entity: documentsEntity,
         enableDrafts: request.allowDrafts !== false,
         createdVia: 'analyst',
         stagedActions,

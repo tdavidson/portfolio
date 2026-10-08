@@ -12,6 +12,7 @@ import type { ToolDefinition, ToolExecutor, ToolInvocation } from '@/lib/ai/type
 import { WRITE_ACTIONS, getWriteAction } from '@/lib/pending-actions/registry'
 import type { ActionType, PreviewResult } from '@/lib/pending-actions/types'
 import { stagedTarget } from '@/lib/pending-actions/target'
+import { ENTITY_DOCUMENTS_TOOL, runEntityDocumentsTool } from '@/lib/entity-documents/analyst'
 
 /** A write the Analyst staged this turn — surfaced so the caller can render approval cards. */
 export interface StagedActionRecord {
@@ -33,6 +34,8 @@ export interface AnalystToolDeps {
   userId: string | null
   access: AccessContext
   vehicle?: string
+  /** The entity the Analyst is opened on (any domain), for the governing-documents tool's default. */
+  entity?: string | null
   /**
    * Expose WRITE actions as drafting tools. They never execute from the model — a call runs the
    * read-only preview and stages a `pending_actions` row for human approval. Drafting normally
@@ -72,7 +75,24 @@ export function buildAnalystTools(deps: AnalystToolDeps): { tools: ToolDefinitio
     }
   }
 
+  // Governing documents follow entity access, not a domain grant: offered to every caller, scoped
+  // inside the tool to the entities they can see.
+  tools.push(ENTITY_DOCUMENTS_TOOL)
+
   const executeTool: ToolExecutor = async (call: ToolInvocation) => {
+    if (call.name === ENTITY_DOCUMENTS_TOOL.name) {
+      try {
+        const result = await runEntityDocumentsTool(
+          { admin: deps.admin, fundId: deps.fundId, access: deps.access, defaultEntity: deps.entity ?? deps.vehicle ?? null },
+          call.input,
+        )
+        deps.completedTools?.push({ name: call.name, input: call.input, result })
+        return JSON.stringify(result)
+      } catch (e) {
+        return JSON.stringify({ error: (e as Error).message })
+      }
+    }
+
     // Write actions: stage for approval, never execute here.
     if (deps.enableDrafts) {
       const action = getWriteAction(call.name)
