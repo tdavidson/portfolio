@@ -18,4 +18,10 @@ describe('entityScopeFor', () => {
     m.failNext('fund_vehicles', 'select', 'boom')
     await expect(entityScopeFor(m.admin, access)).rejects.toThrow('fund_vehicles read failed: boom')
   })
+
+  it('throws when the entities\' companies cannot be read, rather than showing an empty portfolio', async () => {
+    const m = seed()
+    m.failNext('company_vehicles', 'select', 'boom')
+    await expect(entityScopeFor(m.admin, access)).rejects.toThrow('company_vehicles read failed: boom')
+  })
 })

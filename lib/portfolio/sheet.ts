@@ -59,6 +59,8 @@ export interface PortfolioSheet {
   crypto: SheetRow[]
   sectionTotals: Record<'companies' | 'funds' | 'crypto', SectionTotals>
   totals: { cost: number; fairValue: number }
+  /** Set when listed prices could not be read, so the sheet says so rather than showing none. */
+  quoteWarning?: string
 }
 
 const n = (v: number | null | undefined) => (typeof v === 'number' && Number.isFinite(v) ? v : 0)

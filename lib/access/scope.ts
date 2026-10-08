@@ -58,6 +58,10 @@ export function visibleVehicleIds(access: Pick<AccessContext, 'vehicles'>): stri
  * The companies this caller may see: those linked (company_vehicles) to one of their entities. Null
  * means no filter — a caller who sees every entity also sees unassigned companies. Read with the
  * service role, so it filters on the caller's ids itself.
+ *
+ * THROWS on a failed read, as entityScopeFor does: "no companies" would show a scoped member an
+ * empty portfolio and refuse their writes as if they held nothing. A route that lets it propagate
+ * answers 500; nothing is served unscoped.
  */
 export async function visibleCompanyIds(
   admin: import('@supabase/supabase-js').SupabaseClient,
@@ -66,8 +70,9 @@ export async function visibleCompanyIds(
   const ids = visibleVehicleIds(access)
   if (ids === null) return null
   if (ids.length === 0) return []
-  const { data } = await (admin as any).from('company_vehicles').select('company_id')
+  const { data, error } = await (admin as any).from('company_vehicles').select('company_id')
     .eq('fund_id', access.fundId).in('vehicle_id', ids)
+  if (error) throw new Error(`company_vehicles read failed: ${error.message}`)
   return Array.from(new Set(((data as any[]) ?? []).map(r => r.company_id as string)))
 }
 

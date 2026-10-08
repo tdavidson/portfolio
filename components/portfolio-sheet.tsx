@@ -64,6 +64,7 @@ export function PortfolioSheetView({ group, exclude, sections = ['companies', 'f
 
   return (
     <div className="space-y-6">
+      {sheet.quoteWarning && shown.includes('companies') && <p className="text-sm text-warning">{sheet.quoteWarning}</p>}
       {shown.includes('companies') && (
         <section className="space-y-2">
           <h2 className="text-base font-medium">Companies</h2>

@@ -110,6 +110,11 @@ describe('visibleCompanyIds', () => {
     const none = { from: () => { throw new Error('should not query') } } as any
     expect(await visibleCompanyIds(none, ctx('member', { all: false, ids: [] }))).toEqual([])
   })
+
+  it('throws on a failed read rather than scoping the caller to no company', async () => {
+    const chain: any = { select: () => chain, in: () => chain, eq: () => chain, then: (res: any) => res({ data: null, error: { message: 'boom' } }) }
+    await expect(visibleCompanyIds({ from: () => chain } as any, ctx('member', { all: false, ids: ['v1'] }))).rejects.toThrow(/company_vehicles read failed/)
+  })
 })
 
 import { scopeGroups } from './scope'

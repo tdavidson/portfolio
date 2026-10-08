@@ -1,6 +1,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { buildStatementPackage } from '@/lib/accounting/statement-package'
 import { buildPortfolioSheet, type CompanyMeta, type ListedQuote, type PortfolioSheet } from './sheet'
+import { latestQuotesAsOf } from './quote-read'
 
 /**
  * The portfolio sheet over these entities. The CALLER decides which entities — one for an entity's
@@ -18,7 +19,7 @@ export async function loadPortfolioSheet(admin: SupabaseClient, fundId: string, 
   const companyIds = Array.from(new Set(byVehicle.flatMap(v => v.rows.map(r => r.companyId).filter((id): id is string => !!id))))
   if (companyIds.length === 0) return buildPortfolioSheet({ byVehicle })
 
-  const [{ data: companies }, { data: emails }, { data: cashMetrics }, { data: feeds }] = await Promise.all([
+  const [{ data: companies }, { data: emails }, { data: cashMetrics }, { data: feeds, error: feedsError }] = await Promise.all([
     (admin as any).from('companies').select('id, stage, status').eq('fund_id', fundId).in('id', companyIds),
     (admin as any).from('inbound_emails').select('company_id, received_at').eq('fund_id', fundId).in('company_id', companyIds)
       .order('received_at', { ascending: false }).limit(5000),
@@ -49,17 +50,31 @@ export async function loadPortfolioSheet(admin: SupabaseClient, fundId: string, 
     }
   }
 
-  // A listed stock is a company with a live quote source; its last observed price.
-  const liveFeeds = ((feeds as any[]) ?? []).filter(f => !f.active_until || f.active_until >= today)
+  // A listed stock is a company with a live quote source; its last observed price — read per feed,
+  // the latest on or before today (quote-read.ts), so no row cap can hide it. A failed read shows
+  // the listing with no price and says so, as the schedule does for its levels: "no quote yet" is a
+  // real state, so it must not be what a failed read looks like.
+  let quoteWarning: string | undefined
   const quotes = new Map<string, ListedQuote>()
+  if (feedsError) {
+    console.error('[portfolio-sheet] price feeds unavailable:', feedsError.message)
+    quoteWarning = 'Price feeds could not be read, so listed prices are not shown.'
+  }
+  const liveFeeds = ((feeds as any[]) ?? []).filter(f => !f.active_until || f.active_until >= today)
   if (liveFeeds.length > 0) {
-    const { data: obs } = await (admin as any).from('price_observations').select('feed_id, price, as_of_date')
-      .in('feed_id', liveFeeds.map(f => f.id)).order('as_of_date', { ascending: false }).limit(2000)
+    let latest: Awaited<ReturnType<typeof latestQuotesAsOf>> = []
+    try {
+      latest = await latestQuotesAsOf(admin, fundId, liveFeeds.map(f => f.id), today)
+    } catch (e) {
+      console.error('[portfolio-sheet] quotes unavailable:', e)
+      quoteWarning = 'Quotes could not be read, so listed prices are not shown.'
+    }
     for (const f of liveFeeds) {
-      const last = ((obs as any[]) ?? []).find(o => o.feed_id === f.id)
-      quotes.set(f.company_id, { symbol: f.symbol, price: last ? Number(last.price) : null, asOf: last?.as_of_date ?? null })
+      const last = latest.find(o => o.feedId === f.id)
+      quotes.set(f.company_id, { symbol: f.symbol, price: last ? last.price : null, asOf: last?.asOfDate ?? null })
     }
   }
 
-  return buildPortfolioSheet({ byVehicle, meta, quotes })
+  const sheet = buildPortfolioSheet({ byVehicle, meta, quotes })
+  return quoteWarning ? { ...sheet, quoteWarning } : sheet
 }
