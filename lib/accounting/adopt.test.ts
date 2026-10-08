@@ -72,6 +72,19 @@ describe('readInvestmentLines — what it reads', () => {
       { company_id: 'co-a', transaction_type: 'proceeds', cost_basis_exited: 0, proceeds_received: 100 },
     ] })
   })
+  it('an earn-out with escrow held back keeps the escrow', () => {
+    expect(read(L('cash', 90), L('esc', 10), L('a4000', -100))).toEqual({ transactions: [
+      { company_id: 'co-a', transaction_type: 'proceeds', cost_basis_exited: 0, proceeds_received: 90, proceeds_escrow: 10 },
+    ] })
+  })
+  it('a pooled gain with no company line stays unattributed', () => {
+    expect(read(L('cash', 50), L('p4000', -50))).toEqual({ transactions: [] })
+  })
+  it('an earn-out split between own and pooled 4000, one company', () => {
+    expect(read(L('cash', 100), L('a4000', -60), L('p4000', -40))).toEqual({ transactions: [
+      { company_id: 'co-a', transaction_type: 'proceeds', cost_basis_exited: 0, proceeds_received: 100 },
+    ] })
+  })
   it('round-trips a partial exit with an FX unwind from exitPostings', () => {
     const postings = exitPostings(
       { proceeds: 600, basis: 500, carried: { cost: 1000, unrealized: 200, fx: 40 } } as never,

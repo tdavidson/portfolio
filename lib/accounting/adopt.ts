@@ -93,7 +93,9 @@ export function readInvestmentLines(postings: ReadPosting[], chart: ChartAccount
     const c = per.get(id)!
     return c.hadCost || c.unrealized !== 0 || c.fx !== 0 || c.realized !== 0
   }).sort()
-  const exits = companies.filter(id => per.get(id)!.cost < 0)
+  // An earn-out (own 4000 gain, no cost line) is an exit with basis 0.
+  const isExit = (id: string) => { const c = per.get(id)!; return c.cost < 0 || (!c.hadCost && c.realized !== 0) }
+  const exits = companies.filter(isExit)
   if (pooledGain !== 0 && companies.length > 1) {
     return { refused: 'This entry books a realized gain to the pooled 4000 account while more than one company appears in it, so the gain cannot be attributed. Book each gain to the company\'s own realized-gain account.' }
   }
@@ -104,14 +106,10 @@ export function readInvestmentLines(postings: ReadPosting[], chart: ChartAccount
   const transactions: AdoptedTxn[] = []
   for (const id of companies) {
     const c = per.get(id)!
-    if (c.realized !== 0 && !c.hadCost) {
-      // A gain on the company's own 4000 with no cost line: an earn-out or distribution after a
-      // full exit. Derivation builds exactly this entry for a zero-basis exit.
-      if (c.unrealized !== 0 || c.fx !== 0) return { refused: 'This entry\'s investment lines cannot be read as a purchase, an exit or a mark. Split it into one entry per transaction.' }
-      transactions.push({ company_id: id, transaction_type: 'proceeds', cost_basis_exited: 0, proceeds_received: roundCents(-c.realized) })
-      continue
+    if (c.realized !== 0 && !c.hadCost && (c.unrealized !== 0 || c.fx !== 0)) {
+      return { refused: 'This entry\'s investment lines cannot be read as a purchase, an exit or a mark. Split it into one entry per transaction.' }
     }
-    if (c.realized !== 0 && c.cost >= 0) {
+    if (c.realized !== 0 && c.cost >= 0 && c.hadCost) {
       return { refused: 'This entry books a realized gain with no exit — nothing is sold from the position. Record the exit with its cost basis, or book the gain elsewhere.' }
     }
     if (c.hadCost && c.cost === 0) {
@@ -124,9 +122,9 @@ export function readInvestmentLines(postings: ReadPosting[], chart: ChartAccount
       transactions.push({ company_id: id, transaction_type: 'investment', investment_cost: c.cost })
       continue
     }
-    if (c.cost < 0) {
+    if (isExit(id)) {
       if (c.unrealized > 0 || c.fx > 0) return { refused: 'This entry records an exit and a mark-up together. Split the mark into its own entry.' }
-      const basis = roundCents(-c.cost)
+      const basis = roundCents(-c.cost) // 0 for an earn-out
       const gain = roundCents(-(c.realized + (companies.length === 1 ? pooledGain : 0)))
       const held = companies.length === 1 || exits.length === 1 ? escrow : 0
       const txn: AdoptedTxn = { company_id: id, transaction_type: 'proceeds', cost_basis_exited: basis, proceeds_received: roundCents(basis + gain - held) }
