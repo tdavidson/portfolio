@@ -152,8 +152,9 @@ export const TABLE_RULES: Record<string, TableRule> = {
   qb_account_mappings: { scope: 'fund', domain: 'accounting' },
   qb_import_runs: { scope: 'fund', domain: 'accounting' },
   fund_construction_models: { scope: 'fund', domain: 'accounting' },
-  // Marks and wallet balances are ledger inputs: api/accounting/crypto-wallets and
-  // api/accounting/price-feeds. Filing them under portfolio was LOOSER than the route registry.
+  // Marks and wallet balances are ledger inputs. They are read and written only through the
+  // service role, by api/companies/[id]/{price-feed,wallets} (portfolio domain, scoped per entity in
+  // the handler) and the close; no browser path reads them, so RLS keeps them under accounting.
   crypto_wallets: { scope: 'fund', domain: 'accounting' },
   crypto_wallet_balances: { scope: 'fund', domain: 'accounting' },
   price_feeds: { scope: 'fund', domain: 'accounting' },

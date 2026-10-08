@@ -13,7 +13,7 @@ export type { QuoteProvider, QuoteResult, ProviderContext } from './types'
 // ADDING A VENDOR is a new file and a line in PROVIDERS below. Nothing else changes — not the
 // schema, not the close, not the valuation. `price_feeds.provider` already stores which adapter
 // a feed uses, `price_observations` already records where each stored price came from, and
-// /api/accounting/price-feeds already has a `sync-now` action that calls whatever is registered.
+// syncFundQuotes (quote-sync.ts) is what a scheduled job calls once a vendor is registered — no route calls it while hand entry is the only provider.
 //
 // The candidates worth looking at, and what each is good for:
 //   - Massive (massive.com) — what Polygon.io became. Daily closes plus a corporate-actions

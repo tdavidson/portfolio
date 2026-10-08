@@ -12,7 +12,7 @@ import { feedActiveOn, type PriceFeed } from './quotes'
 // It WRITES OBSERVATIONS AND NOTHING ELSE. It does not mark a position, post an entry, or touch
 // the ledger — a price arriving from a provider is a fact about a market, not authority to
 // restate a fund's NAV. Turning stored quotes into marks stays a deliberate act on
-// /api/accounting/quote-marks, and even that only drafts.
+// the holding's page (POST /api/companies/[id]/price-feed, action 'book'), one entity at a time.
 // ---------------------------------------------------------------------------
 
 export interface SyncResult {

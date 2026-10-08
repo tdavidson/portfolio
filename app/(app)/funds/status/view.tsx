@@ -8,9 +8,7 @@ import { useCurrency, formatCurrencyPrice } from '@/components/currency-context'
 import { useLedgerFetch, useFundSeg, useVehicle } from '@/components/accounting-vehicle'
 import { VehicleEditModal, type EditableVehicle } from '@/components/vehicle-edit-modal'
 import { DealCarryCard } from './deal-carry-card'
-import { PriceFeedsPanel } from './price-feeds-panel'
 import { BootstrapInvestmentsCard } from './bootstrap-investments'
-import { WalletsPanel } from './wallets-panel'
 import { CarryTerms } from '../allocation-terms/carry-terms'
 import { useCanRead } from '@/components/access-context'
 import { isManagementCompany, VEHICLE_KIND_LABELS } from '@/lib/vehicle-kinds'
@@ -219,20 +217,9 @@ function EntityStatusView() {
           <ChartOfAccountsCard />
         </CollapsibleSection>
 
-        {/* Marks infrastructure — which holdings take a price from a feed, and which wallets
-            are watched for on-chain balances. Both are set up once and then run themselves,
-            so they belong with the settings rather than on the schedule they feed. */}
         {!manco && <>
         {/* Renders nothing unless the tracker holds transactions the ledger never derived. */}
         <BootstrapInvestmentsCard onBooked={load} />
-
-        <CollapsibleSection title="Price feeds" subtitle="Attach a quote source to a holding and store its marks">
-          <PriceFeedsPanel showHeader={false} />
-        </CollapsibleSection>
-
-        <CollapsibleSection title="Watched wallets" subtitle="On-chain addresses whose balances are reconciled against the ledger">
-          <WalletsPanel showHeader={false} />
-        </CollapsibleSection>
 
         <CollapsibleSection
           title="Partners Detail"

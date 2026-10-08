@@ -53,8 +53,6 @@ const ALLOWLIST = new Map<string, string>([
   ['lib/accounting/status.ts', 'the schedule-of-investments tie-out must cover every ledger position'],
   ['lib/accounting/statement-package.ts', 'the SOI needs both kinds to tie to the ledger; it splits them for display by holdingType'],
   ['lib/accounting/close.ts', 'the pre-close quoted-position check values every ledger position; a feed is what selects them, not holding_type'],
-  ['app/api/accounting/quote-marks/route.ts', 'period-end quote marks cover every position carrying a feed, whatever kind of holding it is'],
-  ['app/api/accounting/price-feeds/route.ts', 'a price feed can attach to any holding — a listed company, an IPO\'d portfolio company, or a digital asset'],
   // Intentionally all holdings.
   ['lib/accounting/retract-adopted.ts', "by-id lookup of an adopted entry's owners; fund and crypto holdings carry transactions too"],
   ['lib/vehicles.ts', 'vehicle rollups cover every holding a vehicle owns, funds included'],
