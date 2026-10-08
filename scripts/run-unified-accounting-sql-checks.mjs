@@ -45,6 +45,7 @@ try {
   for (const [database, script] of [
     ['unified_check', 'scripts/check-unified-accounting-migrations.mjs'],
     ['unified_concurrency', 'scripts/check-unified-accounting-concurrency.mjs'],
+    ['investment_ownership', 'scripts/check-investment-ownership.mjs'],
   ]) {
     psql(['-c', `create database ${database}`])
     console.log(`\n• ${script}`)
