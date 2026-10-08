@@ -66,7 +66,19 @@ function entityTables(): string[] {
   ]
 }
 
-const SCOPED = /resolveGroupOr400|resolveMancoGroupOr400|loadEntityScope|loadEntityScopeForUser|entityScopeFor|visibleVehicleIds|visibleVehicleNames|canSeeVehicle|assertVehicleVisible|resolveHoldingVehicle|loadLpScope|lpVisible|scopeLiveReport|assertK1PackageVisible|lpDocumentVisible|loadLpScopeForUser|filterByCompany|entityIdentityChangeDenial|assertAdminAccess|role !== 'admin'\)\s*(?:\{\s*)?return/
+const SCOPED = /resolveGroupOr400|resolveMancoGroupOr400|loadEntityScope|loadEntityScopeForUser|entityScopeFor|visibleVehicleIds|visibleVehicleNames|canSeeVehicle|assertVehicleVisible|resolveHoldingVehicle|loadLpScope|lpVisible|scopeLiveReport|assertK1PackageVisible|lpDocumentVisible|loadLpScopeForUser|filterByCompany|entityIdentityChangeDenial|scopeSearchParams|updateVisible|vehicles\.all|assertAdminAccess|role !== 'admin'\)\s*(?:\{\s*)?return/
+/**
+ * Lib helpers that read across every entity in the fund (with the service role, or as security
+ * definer RPCs filtered only by what they are passed). The table check above cannot see inside them,
+ * so calling one counts as reading entity data: the handler must scope what it passes or returns.
+ */
+const FUND_WIDE_READERS = [
+  'generateLiveReport', 'lpStatement', 'listCapitalCalls', 'lpCapitalSummary', 'previewCutover',
+  'searchCompanyUpdates', 'getCompanyUpdate', 'getCompanyUpdateArtifact', 'company_updates_stats',
+  'applyDefaultsToAllCompanies', 'listDeliveries',
+]
+const readsFundWide = (h: string) => FUND_WIDE_READERS.some(r => new RegExp(`\\b${r}\\(|['"]${r}['"]`).test(h))
+
 /**
  * Routes the API gate already confines to one visible company or deal (lib/access/entity-gate.ts),
  * whose payload is about that company or deal as a whole — its notes, documents, metrics. A route
@@ -109,7 +121,7 @@ describe('entity scope on API routes', () => {
   const tables = entityTables()
   const unscoped = routes()
     .filter(f => handlers(readFileSync(f, 'utf8')).some(h =>
-      tables.some(t => new RegExp(`from\\(\\s*['"]${t}['"]`).test(h)) && !SCOPED.test(h)))
+      (tables.some(t => new RegExp(`from\\(\\s*['"]${t}['"]`).test(h)) || readsFundWide(h)) && !SCOPED.test(h)))
     .map(f => f.replace(/^app\//, '').replace(/\/route\.ts$/, ''))
     .filter(key => !GATED.some(g => g.test(key)))
 

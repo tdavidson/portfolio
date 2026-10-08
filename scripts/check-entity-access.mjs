@@ -102,6 +102,10 @@ alter table storage.objects enable row level security;
 create policy "members" on storage.objects for select to authenticated using (true);
 create table inbound_emails (id uuid primary key default gen_random_uuid(), fund_id uuid not null, company_id uuid);
 create table note_reads (user_id uuid, note_id uuid);
+create table compliance_deadlines (id uuid primary key default gen_random_uuid(), fund_id uuid not null, portfolio_group text not null default '', title text);
+create table compliance_entry_data (id uuid primary key default gen_random_uuid(), deadline_id uuid, field_value text);
+alter table compliance_entry_data enable row level security;
+create policy "members" on compliance_entry_data for select to authenticated using (true);
 create table pending_actions (id uuid primary key default gen_random_uuid(), fund_id uuid not null, vehicle_id uuid, action_type text);
 -- The LP portal's own identity: an LP account sees its investor's rows.
 create table lp_account_links (user_id uuid, lp_investor_id uuid);
@@ -114,7 +118,7 @@ grant select on all tables in schema public to authenticated;
 do $$ declare t text; begin
   foreach t in array array['companies','investment_transactions','journal_entries','company_notes','interactions','fund_vehicles','inbound_deals','crypto_wallets','fund_holding_terms','chart_of_accounts',
     'lp_investors','lp_entities','lp_investments','commitment_events','lp_letters','lp_documents','lp_document_shares','lp_letter_shares','lp_access_events','lp_deliveries','vehicle_closings','vehicle_closing_members',
-    'diligence_deals','diligence_notes','inbound_emails','pending_actions'] loop
+    'diligence_deals','diligence_notes','inbound_emails','pending_actions','compliance_deadlines'] loop
     execute format('alter table %I enable row level security', t);
     execute format('create policy "members" on %I for select to authenticated using (fund_id in (select fund_id from fund_members where user_id = auth.uid()))', t);
   end loop;
@@ -476,6 +480,16 @@ try {
     psql(`select string_agg(action_type, ',') from pending_actions`, { as: MEMBER }), 'a')
   check('unmatched mail (no company) is for unscoped callers to triage',
     psql(`select count(*) from inbound_emails where company_id is null`, { as: MEMBER }) + ',' + psql(`select count(*) from inbound_emails where company_id is null`, { as: ADMIN }), '0,1')
+
+  // Compliance: '' is the fund's own; an entity's rows are that entity's; entry data follows its deadline.
+  psql(`insert into compliance_deadlines (id, fund_id, portfolio_group, title) values
+          ('00000000-0000-0000-0000-00000000cd01', '${F}', '', 'Form D'), ('00000000-0000-0000-0000-00000000cd02', '${F}', 'Fund I', 'Fund I K-1s'),
+          ('00000000-0000-0000-0000-00000000cd03', '${F}', 'Fund II', 'Fund II K-1s');
+        insert into compliance_entry_data (deadline_id, field_value) values
+          ('00000000-0000-0000-0000-00000000cd02', 'one'), ('00000000-0000-0000-0000-00000000cd03', 'two')`)
+  check('compliance: a member sees fund-level and their entity\'s deadlines, and only their entry data',
+    psql(`select string_agg(title, ',' order by title) from compliance_deadlines`, { as: MEMBER }) + '|' +
+    psql(`select string_agg(field_value, ',') from compliance_entry_data`, { as: MEMBER }), 'Form D,Fund I K-1s|one')
 
   // ---- Re-runnable. ----
   for (const m of MIGRATIONS.slice(1)) applyFile(join('supabase/migrations', m))

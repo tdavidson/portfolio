@@ -209,7 +209,21 @@ export async function runPipeline(
       { admin: supabase, fundId }
     )
 
-    if (identification.new_company_name) {
+    // A forwarder sees only their companies, so the model may call an existing company of another
+    // entity "new". Proposing to create it would invite a duplicate: file it as unidentified instead,
+    // for an admin to assign.
+    const knownElsewhere = !!identification.new_company_name && !!fundMember
+      && (await getCompanies(supabase, fundId)).some(c => [c.name, ...((c as any).aliases ?? [])]
+        .some((n: string) => n?.trim().toLowerCase() === identification.new_company_name!.trim().toLowerCase()))
+    if (knownElsewhere) {
+      await createReview(supabase, {
+        fund_id: fundId,
+        email_id: emailId,
+        issue_type: 'company_not_identified',
+        context_snippet: 'Forwarded by a member whose entities do not hold the company this email is about.',
+      })
+      companyIdentified = false
+    } else if (identification.new_company_name) {
       await createReview(supabase, {
         fund_id: fundId,
         email_id: emailId,

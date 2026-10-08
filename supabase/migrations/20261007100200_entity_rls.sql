@@ -115,6 +115,8 @@ declare
     'interactions',
     -- staged AI/agent writes: an action on an entity is that entity's
     'pending_actions',
+    -- compliance: an entity's filings and deadlines are that entity's; '' is fund-level
+    'compliance_filings', 'compliance_deadlines', 'compliance_fund_settings',
     -- the entities themselves, and deals
     'fund_vehicles', 'inbound_deals'
   ];
@@ -141,6 +143,10 @@ begin
       -- unscoped callers to triage, as in the app (and the email-attachments storage rule).
       when t in ('inbound_emails', 'parsing_reviews') then
         'fund_id = any((select public.unscoped_fund_ids())::uuid[]) or company_id = any((select public.company_ids_readable())::uuid[])'
+      -- Compliance rows name their entity in portfolio_group; '' is the fund's own (every member's).
+      when t in ('compliance_filings', 'compliance_deadlines', 'compliance_fund_settings') then
+        'fund_id = any((select public.unscoped_fund_ids())::uuid[]) or (fund_id = any((select public.member_fund_ids())::uuid[]) '
+        || 'and (portfolio_group = '''' or portfolio_group = any((select public.group_names_readable())::text[])))'
       -- Update requests are fund-wide mailings naming every company's contacts.
       when t = 'email_requests' then
         'fund_id = any((select public.unscoped_fund_ids())::uuid[])'
@@ -183,6 +189,24 @@ begin
     execute format(
       'create policy "Only the caller''s entities" on public.%I as restrictive for all to authenticated using (%s) with check (%s)',
       t, pred, wpred);
+  end loop;
+end $$;
+
+-- Compliance rows that hang off a deadline (no fund_id of their own) follow it: the subquery reads
+-- compliance_deadlines as the caller, so its entity rule above applies.
+do $$
+declare
+  t text;
+begin
+  foreach t in array array['compliance_workflows', 'compliance_entry_data'] loop
+    if to_regclass('public.' || t) is null then
+      continue;
+    end if;
+    execute format('drop policy if exists "Only the caller''s entities" on public.%I', t);
+    execute format(
+      'create policy "Only the caller''s entities" on public.%I as restrictive for all to authenticated '
+      || 'using (deadline_id in (select d.id from public.compliance_deadlines d)) '
+      || 'with check (deadline_id in (select d.id from public.compliance_deadlines d))', t);
   end loop;
 end $$;
 

@@ -26,6 +26,10 @@ const EXEMPT: Record<string, string> = {
   style_anchor_memos: 'fund-wide house-style example memos, no entity data',
   memo_agent_prompts: 'fund-wide memo agent prompts, no entity data',
   fund_memo_presets: 'fund-wide memo presets, no entity data',
+  compliance_links: 'fund-wide reference links for compliance items, no entity data',
+  fund_compliance_profile: 'the fund\'s own regulatory profile (one row per fund), no entity data',
+  compliance_workflows: 'keyed by deadline: its own policy in 20261007100200 follows compliance_deadlines',
+  compliance_entry_data: 'keyed by deadline: its own policy in 20261007100200 follows compliance_deadlines',
 }
 
 function rlsTables(): string[] {
@@ -41,7 +45,7 @@ describe('entity RLS coverage', () => {
   it('covers or exempts every portfolio and accounting table', () => {
     const covered = new Set(rlsTables())
     const domainTables = Object.entries(TABLE_RULES)
-      .filter(([, rule]) => 'domain' in rule && ['portfolio', 'accounting', 'management_company', 'lp_capital', 'lp_relations', 'gp_economics', 'relationships', 'dealflow', 'diligence'].includes((rule as any).domain))
+      .filter(([, rule]) => 'domain' in rule && ['portfolio', 'accounting', 'management_company', 'lp_capital', 'lp_relations', 'gp_economics', 'relationships', 'dealflow', 'diligence', 'compliance'].includes((rule as any).domain))
       .map(([t]) => t)
     const missing = domainTables.filter(t => !covered.has(t) && !(t in EXEMPT))
     expect(missing, `add these to 20261007100200's list (or a later migration) or exempt them with a reason`).toEqual([])

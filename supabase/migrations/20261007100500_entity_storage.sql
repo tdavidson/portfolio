@@ -12,8 +12,9 @@
 --                                                 apply the LP document rule in code (lp-scope.ts)
 --
 -- Unscoped callers (admins, members granted every entity) see every file in their funds. LP portal
--- users are not fund members; their own policies decide, as for the LP tables (100300). Paths are
--- compared as TEXT, so a legacy object whose folder is not a uuid cannot break the query.
+-- users are not fund members; their own policies decide, as for the LP tables (100300). Folder names
+-- are compared as text, and an email folder is cast to uuid only when it IS one — so a legacy object
+-- whose folder is not a uuid cannot break the query, and the email lookup uses its primary key.
 
 drop policy if exists "Only the caller's entities" on storage.objects;
 create policy "Only the caller's entities"
@@ -27,7 +28,8 @@ create policy "Only the caller's entities"
         and (storage.foldername(name))[2] = any((select public.company_ids_readable())::text[]))
     or (bucket_id = 'email-attachments'
         and exists (select 1 from public.inbound_emails e
-                     where e.id::text = (storage.foldername(name))[1]
+                     where e.id = case when (storage.foldername(name))[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                                    then ((storage.foldername(name))[1])::uuid end
                        and (e.fund_id = any((select public.unscoped_fund_ids())::uuid[])
                             or e.company_id = any((select public.company_ids_readable())::uuid[]))))
   )
@@ -40,7 +42,8 @@ create policy "Only the caller's entities"
         and (storage.foldername(name))[2] = any((select public.company_ids_readable())::text[]))
     or (bucket_id = 'email-attachments'
         and exists (select 1 from public.inbound_emails e
-                     where e.id::text = (storage.foldername(name))[1]
+                     where e.id = case when (storage.foldername(name))[1] ~* '^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$'
+                                    then ((storage.foldername(name))[1])::uuid end
                        and (e.fund_id = any((select public.unscoped_fund_ids())::uuid[])
                             or e.company_id = any((select public.company_ids_readable())::uuid[]))))
   );
