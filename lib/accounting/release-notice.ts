@@ -24,3 +24,27 @@ export function releaseNotice(r: ReleaseReport | null | undefined): string | nul
   parts.push(...warnings)
   return parts.length ? parts.join(' ') : null
 }
+
+/**
+ * What the bank page shows after a post, ignore, unpost or restore: a refusal as an error; what was
+ * released or set aside as a plain notice; anything left to do (`warning`/`warnings`) as a warning.
+ * A bulk post that stopped part-way returns the error AND what the entries posted before it released
+ * — both are shown, or the tracker changes with nothing said.
+ */
+export function bankActionMessages(ok: boolean, body: (ReleaseReport & { error?: string; note?: string }) | null | undefined): {
+  error: string | null
+  notice: string | null
+} {
+  const b = body ?? {}
+  const released = releaseNotice(b)
+  const hasWarnings = !!b.warning || (b.warnings ?? []).length > 0
+  if (!ok) {
+    const error = b.error ?? 'That could not be done.'
+    return released
+      ? { error, notice: `The entries posted before it stopped: ${released}` }
+      : { error, notice: null }
+  }
+  const notice = [b.note, released].filter(Boolean).join(' ') || null
+  // Something left to do is a warning, shown where errors are.
+  return hasWarnings ? { error: notice, notice: null } : { error: null, notice }
+}

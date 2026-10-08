@@ -12,7 +12,7 @@ import { useLedgerFetch } from '@/components/accounting-vehicle'
 import { EntryModal } from '../entry-modal'
 import { EmptyState } from '@/components/ui/empty-state'
 import { InvestmentMatchQueue } from './investment-matches'
-import { releaseNotice } from '@/lib/accounting/release-notice'
+import { bankActionMessages } from '@/lib/accounting/release-notice'
 
 interface DuplicateCandidate { id: string; date: string; amount: number; memo: string; status: string; claimed: boolean }
 interface Txn { import_differences?: import('@/lib/accounting/import-review').ImportDifference[]; duplicate_review?: boolean; quickbooks_linked?: boolean; review_kind?: 'quickbooks' | 'investment' | null; investment_linked?: boolean; duplicate_candidates?: DuplicateCandidate[]; id: string; txn_date: string; amount: number; description: string; counterparty: string | null; status: string; suggested_account_code: string | null; journal_entry_id: string | null; entry_account_code: string | null; entry_account_name: string | null; entry_is_split: boolean; settled_lp_entity_id: string | null; settled_lp_name: string | null }
@@ -29,6 +29,8 @@ export function BankView() {
   const [acctNames, setAcctNames] = useState<Record<string, string>>({})
   /** Why a match/book action was refused. Shown rather than swallowed. */
   const [matchError, setMatchError] = useState<string | null>(null)
+  /** What an action did that is not a problem — a row set aside, transactions released. */
+  const [notice, setNotice] = useState<string | null>(null)
   const [accounts, setAccounts] = useState<{ code: string; name: string; is_active?: boolean; lp_entity_id?: string | null }[]>([])
   const [loading, setLoading] = useState(true)
   const [importing, setImporting] = useState(false)
@@ -139,13 +141,13 @@ export function BankView() {
   // investment's entry left as it is on Ignore), or what posting a reversal draft released.
   async function reportBankAction(res: Response) {
     const body = await res.json().catch(() => ({}))
-    if (!res.ok) { setMatchError(body.error ?? 'That could not be done.'); return }
-    const notice = [body.note, releaseNotice(body)].filter(Boolean).join(' ')
-    if (notice) setMatchError(notice)
+    const said = bankActionMessages(res.ok, body)
+    setMatchError(said.error)
+    setNotice(said.notice)
   }
 
   async function act(id: string, action: 'post' | 'ignore' | 'unpost' | 'restore') {
-    setMatchError(null)
+    setMatchError(null); setNotice(null)
     const res = await lf('/api/accounting/bank', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id }) })
     await reportBankAction(res)
     load()
@@ -178,7 +180,7 @@ export function BankView() {
   }
   async function bulkPost() {
     if (selectedCount === 0) return
-    setMatchError(null)
+    setMatchError(null); setNotice(null)
     const res = await lf('/api/accounting/bank', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action: 'postMany', ids: draftedIds.filter(id => selected.has(id)) }) })
     await reportBankAction(res)
     load()
@@ -227,6 +229,12 @@ export function BankView() {
         <div className="flex items-start gap-2 rounded-lg border border-warning/40 bg-warning/10 px-3 py-2 text-sm">
           <span className="flex-1">{matchError}</span>
           <button onClick={() => setMatchError(null)} className="text-muted-foreground hover:text-foreground" aria-label="Dismiss">×</button>
+        </div>
+      )}
+      {notice && (
+        <div className="flex items-start gap-2 text-sm text-muted-foreground">
+          <span className="flex-1">{notice}</span>
+          <button onClick={() => setNotice(null)} className="hover:text-foreground" aria-label="Dismiss">×</button>
         </div>
       )}
 
