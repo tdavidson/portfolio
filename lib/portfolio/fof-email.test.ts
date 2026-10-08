@@ -105,3 +105,64 @@ describe('proposalsFromRows caps untrusted free text', () => {
     expect((proposals.find(p => p.kind === 'call') as any).noticeNumber).toBe('7')
   })
 })
+
+describe('proposeFundReviews robustness', () => {
+  const failing = (table: string, op = 'select') => {
+    const real = m.admin as any
+    return new Proxy(real, {
+      get(t, prop) {
+        if (prop !== 'from') return t[prop]
+        return (name: string) => {
+          const b = t.from(name)
+          if (name !== table) return b
+          const wrap: any = new Proxy({}, {
+            get: (_o, k) => k === 'then'
+              ? (res: any) => res({ data: null, error: { message: 'db down' } })
+              : () => wrap,
+          })
+          return wrap
+        }
+      },
+    })
+  }
+  const runWith = (admin: any, p = provider(statement)) => proposeFundReviews(admin, {
+    fundId: 'f', emailId: 'em1', companyId: 'h1', access: ALL, ai: { provider: p, model: 'm' },
+    content: [{ type: 'document', mediaType: 'application/pdf', data: 'JVBER' }], fallbackDate: '2025-11-14',
+  })
+  it.each(['companies', 'parsing_reviews', 'fund_nav_statements', 'fund_capital_events'])('a failed %s read writes nothing and warns', async table => {
+    const r = await runWith(failing(table))
+    expect(r.written).toBe(0)
+    expect(r.warnings.join(' ')).toMatch(/db down/)
+    expect(m.tables.parsing_reviews).toEqual([])
+  })
+
+  it('writes a row the model emitted twice once', async () => {
+    const r = await run(provider({ rows: [statement.rows[0], statement.rows[0]] }))
+    expect(r.written).toBe(3)
+    expect(m.tables.parsing_reviews).toHaveLength(3)
+  })
+
+  it('a call on the previous quarter end does not suppress this quarter\'s assumed-date call', async () => {
+    m.tables.fund_capital_events.push({ id: 'e3', fund_id: 'f', company_id: 'h1', vehicle_id: 'v1', kind: 'call', event_date: '2025-06-30', amount: 1_250_000 })
+    await run()
+    expect(m.tables.parsing_reviews.map((x: any) => x.issue_type)).toContain('fund_capital_call')
+  })
+  it('a call just inside the window still counts as recorded', async () => {
+    m.tables.fund_capital_events.push({ id: 'e4', fund_id: 'f', company_id: 'h1', vehicle_id: 'v1', kind: 'call', event_date: '2025-07-01', amount: 1_250_000 })
+    await run()
+    expect(m.tables.parsing_reviews.map((x: any) => x.issue_type)).not.toContain('fund_capital_call')
+  })
+
+  it('with no entity inferred, only entity-less rows count as recorded', async () => {
+    m.tables.fund_capital_events.push({ id: 'e5', fund_id: 'f', company_id: 'h1', vehicle_id: 'v2', kind: 'call', event_date: '2025-08-12', amount: 1_250_000 })
+    await run()
+    expect(m.tables.parsing_reviews.every((x: any) => x.vehicle_id === null)).toBe(true)
+    expect(m.tables.parsing_reviews.map((x: any) => x.issue_type)).toContain('fund_capital_call')
+  })
+
+  it('caps the fund name', () => {
+    const row = { ...statement.rows[0], fundName: 'F'.repeat(900), dueDate: null, noticeNumber: null, purpose: null, confidence: 'high' as const, sourceText: null, eventDate: null }
+    const { proposals } = proposalsFromRows([row], { id: 'h1', name: 'X' }, { fallbackDate: '2025-11-14' })
+    expect(proposals[0].fundName).toHaveLength(200)
+  })
+})

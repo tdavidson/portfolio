@@ -1,6 +1,6 @@
 // lib/portfolio/fof-review-types.test.ts
 import { describe, expect, it } from 'vitest'
-import { applyEdits, isFundReviewType, scopeFundReviews, type FundProposal } from './fof-review-types'
+import { CAPS, applyEdits, isFundReviewType, scopeFundReviews, type FundProposal } from './fof-review-types'
 
 const call: FundProposal = {
   kind: 'call', eventDate: '2025-09-30', dueDate: null, noticeNumber: null, purpose: null, amount: 1_250_000,
@@ -39,5 +39,24 @@ describe('applyEdits', () => {
     expect(applyEdits(call, { eventDate: '12 Aug' })).toMatchObject({ error: expect.stringMatching(/date/) })
     expect(applyEdits(navP, { reportedNav: -1 })).toMatchObject({ error: expect.stringMatching(/negative/) })
     expect(applyEdits(navP, { amount: 5 })).toMatchObject({ error: expect.stringMatching(/cannot be changed/) })
+  })
+})
+
+describe('applyEdits hardening', () => {
+  it('refuses a blank, null or boolean number rather than reading it as zero', () => {
+    for (const v of ['', '  ', null, true, false, []]) {
+      expect(applyEdits(navP, { reportedNav: v })).toMatchObject({ error: expect.any(String) })
+      expect(applyEdits(call, { amount: v })).toMatchObject({ error: expect.any(String) })
+    }
+  })
+  it('refuses a date that has the shape but is not on the calendar', () => {
+    expect(applyEdits(call, { eventDate: '2025-13-45' })).toMatchObject({ error: expect.stringMatching(/date/) })
+    expect(applyEdits(navP, { asOfDate: '2025-02-30' })).toMatchObject({ error: expect.stringMatching(/date/) })
+    expect(applyEdits(call, { dueDate: '2025-00-10' })).toMatchObject({ error: expect.stringMatching(/date/) })
+  })
+  it('caps an edited notice number and purpose', () => {
+    const r: any = applyEdits(call, { noticeNumber: 'n'.repeat(500), purpose: 'p'.repeat(900) })
+    expect(r.noticeNumber).toHaveLength(CAPS.noticeNumber)
+    expect(r.purpose).toHaveLength(CAPS.purpose)
   })
 })

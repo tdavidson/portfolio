@@ -5,7 +5,7 @@ import type { AIProvider, ContentBlock } from '@/lib/ai/types'
 import { readManagerDocument, type ExtractedRow } from './fof-extract'
 import { matchHoldings } from './fof-paste'
 import { resolveHoldingVehicle } from './fof-register'
-import { FUND_REVIEW_TYPES, issueTypeFor, type FundProposal } from './fof-review-types'
+import { CAPS, capText, FUND_REVIEW_TYPES, issueTypeFor, type FundProposal } from './fof-review-types'
 
 /**
  * A manager's email about a FUND HOLDING feeds its register — through review. The document is read
@@ -17,16 +17,11 @@ import { FUND_REVIEW_TYPES, issueTypeFor, type FundProposal } from './fof-review
 
 const CENT = 0.005
 
-// Model output from a manager's document is untrusted (ruling B-R16): free text is capped before it
-// is persisted to parsing_reviews.payload. Truncated, never dropped.
-export const CAPS = { noticeNumber: 100, purpose: 500, sourceText: 1000 } as const
-const cap = (v: unknown, max: number): string | null => {
-  if (typeof v === 'number' && Number.isFinite(v)) v = String(v)
-  if (typeof v !== 'string') return null
-  return v.length > max ? v.slice(0, max) : v
-}
 const DAY_MS = 86_400_000
 const shift = (iso: string, days: number) => new Date(Date.parse(`${iso}T00:00:00Z`) + days * DAY_MS).toISOString().slice(0, 10)
+
+export { CAPS }
+const cap = capText
 
 export function proposalsFromRows(
   rows: ExtractedRow[],
@@ -46,7 +41,7 @@ export function proposalsFromRows(
 
   const proposals: FundProposal[] = []
   for (const r of mine) {
-    const from = { fundName: r.fundName, confidence: r.confidence, sourceText: cap(r.sourceText, CAPS.sourceText) }
+    const from = { fundName: cap(r.fundName, CAPS.fundName) ?? '', confidence: r.confidence, sourceText: cap(r.sourceText, CAPS.sourceText) }
     if (r.reportedNav !== null && r.navAsOf) {
       proposals.push({ kind: 'nav', ...from, asOfDate: r.navAsOf, reportedNav: r.reportedNav })
     } else if (r.reportedNav !== null) {
@@ -70,21 +65,23 @@ export function proposalsFromRows(
  */
 async function alreadyRecorded(
   admin: SupabaseClient, fundId: string, companyId: string, vehicleId: string | null, p: FundProposal,
-): Promise<boolean> {
+): Promise<boolean | { error: string }> {
   if (p.kind === 'nav') {
     let q = (admin as any).from('fund_nav_statements').select('reported_nav')
       .eq('fund_id', fundId).eq('company_id', companyId).eq('as_of_date', p.asOfDate)
-    if (vehicleId) q = q.eq('vehicle_id', vehicleId)
-    const { data } = await q
+    q = vehicleId ? q.eq('vehicle_id', vehicleId) : q.is('vehicle_id', null)
+    const { data, error } = await q
+    if (error) return { error: error.message }
     return ((data as any[]) ?? []).some(n => Math.abs(Number(n.reported_nav) - p.reportedNav) < CENT)
   }
-  const from = p.dateAssumed ? shift(p.eventDate, -92) : shift(p.eventDate, -7)
+  const from = p.dateAssumed ? shift(p.eventDate, -92) : shift(p.eventDate, -8)
   const to = p.dateAssumed ? p.eventDate : shift(p.eventDate, 7)
   let q = (admin as any).from('fund_capital_events').select('amount')
     .eq('fund_id', fundId).eq('company_id', companyId).eq('kind', p.kind)
-    .gte('event_date', from).lte('event_date', to)
-  if (vehicleId) q = q.eq('vehicle_id', vehicleId)
-  const { data } = await q
+    .gt('event_date', from).lte('event_date', to)
+  q = vehicleId ? q.eq('vehicle_id', vehicleId) : q.is('vehicle_id', null)
+  const { data, error } = await q
+  if (error) return { error: error.message }
   return ((data as any[]) ?? []).some(e => Math.abs(Number(e.amount) - p.amount) < CENT)
 }
 
@@ -113,8 +110,9 @@ export async function proposeFundReviews(
   admin: SupabaseClient,
   input: ProposeInput,
 ): Promise<{ written: number; warnings: string[] }> {
-  const { data: holding } = await admin.from('companies')
+  const { data: holding, error: holdingError } = await admin.from('companies')
     .select('id, name, aliases, holding_type').eq('fund_id', input.fundId).eq('id', input.companyId).maybeSingle()
+  if (holdingError) return { written: 0, warnings: [`The holding could not be looked up: ${holdingError.message}`] }
   if (!holding || (holding as any).holding_type !== 'fund') return { written: 0, warnings: [] }
 
   let read: { rows: ExtractedRow[]; warnings: string[] }
@@ -128,16 +126,23 @@ export async function proposeFundReviews(
   const resolved = await resolveHoldingVehicle(admin, input.fundId, input.companyId, undefined, input.access)
   const vehicleId = 'vehicleId' in resolved ? resolved.vehicleId : null
 
-  const { data: open } = await (admin as any).from('parsing_reviews')
+  const { data: open, error: openError } = await (admin as any).from('parsing_reviews')
     .select('issue_type, payload').eq('fund_id', input.fundId).eq('company_id', input.companyId)
     .is('resolution', null).in('issue_type', [...FUND_REVIEW_TYPES])
+  if (openError) return { written: 0, warnings: [...warnings, `Open reviews could not be checked, so nothing was proposed: ${openError.message}`] }
   const pending = ((open as any[]) ?? [])
 
   const fresh: FundProposal[] = []
   for (const p of proposals) {
     if (samePending(pending, p)) continue
-    if (await alreadyRecorded(admin, input.fundId, input.companyId, vehicleId, p)) continue
+    const recorded = await alreadyRecorded(admin, input.fundId, input.companyId, vehicleId, p)
+    if (typeof recorded === 'object') {
+      return { written: 0, warnings: [...warnings, `The register could not be checked, so nothing was proposed: ${recorded.error}`] }
+    }
+    if (recorded) continue
     fresh.push(p)
+    // An accepted proposal also counts as pending for the rest of this batch.
+    pending.push({ issue_type: issueTypeFor(p), payload: p })
   }
   const allWarnings = [...read.warnings, ...warnings]
   if (fresh.length === 0) return { written: 0, warnings: allWarnings }

@@ -58,7 +58,27 @@ export function scopeFundReviews<T extends { issue_type: string; vehicle_id?: st
   return rows.filter(r => !isFundReviewType(r.issue_type) || (!!r.vehicle_id && access.vehicles.ids.includes(r.vehicle_id)))
 }
 
+/** Untrusted free text from a manager's document is capped before it is stored (ruling B-R16). */
+export const CAPS = { fundName: 200, noticeNumber: 100, purpose: 500, sourceText: 1000 } as const
+export function capText(v: unknown, max: number): string | null {
+  if (typeof v === 'number' && Number.isFinite(v)) v = String(v)
+  if (typeof v !== 'string') return null
+  return v.length > max ? v.slice(0, max) : v
+}
+
 const ISO = /^\d{4}-\d{2}-\d{2}$/
+/** A real calendar date: 2025-13-45 matches the pattern but is not one. */
+const isRealDate = (v: unknown): v is string => {
+  if (typeof v !== 'string' || !ISO.test(v)) return false
+  const d = new Date(`${v}T00:00:00Z`)
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v
+}
+/** A number from an edit: '' / null / booleans / arrays are not numbers (Number('') is 0). */
+const editNumber = (v: unknown): number => {
+  if (typeof v === 'number') return v
+  if (typeof v === 'string' && v.trim() !== '') return Number(v)
+  return NaN
+}
 
 /** A proposal with a person's corrections applied, or why the corrections cannot be used. */
 export function applyEdits(p: FundProposal, edits?: Record<string, unknown> | null): FundProposal | { error: string } {
@@ -66,21 +86,21 @@ export function applyEdits(p: FundProposal, edits?: Record<string, unknown> | nu
   const out: Record<string, unknown> = { ...p }
   for (const [k, v] of Object.entries(edits)) {
     if ((p.kind === 'nav' && k === 'asOfDate') || (p.kind !== 'nav' && k === 'eventDate')) {
-      if (typeof v !== 'string' || !ISO.test(v)) return { error: `${k} must be a date (YYYY-MM-DD).` }
+      if (!isRealDate(v)) return { error: `${k} must be a date (YYYY-MM-DD).` }
       out[k] = v
     } else if (p.kind !== 'nav' && k === 'dueDate') {
-      if (v !== null && v !== '' && (typeof v !== 'string' || !ISO.test(v))) return { error: 'dueDate must be a date (YYYY-MM-DD).' }
+      if (v !== null && v !== '' && !isRealDate(v)) return { error: 'dueDate must be a date (YYYY-MM-DD).' }
       out.dueDate = v || null
     } else if (p.kind === 'nav' && k === 'reportedNav') {
-      const n = Number(v)
+      const n = editNumber(v)
       if (!Number.isFinite(n) || n < 0) return { error: 'reportedNav must be a number, not negative.' }
       out.reportedNav = n
     } else if (p.kind !== 'nav' && k === 'amount') {
-      const n = Number(v)
+      const n = editNumber(v)
       if (!Number.isFinite(n) || n <= 0) return { error: 'amount must be a positive number.' }
       out.amount = n
     } else if (p.kind !== 'nav' && (k === 'noticeNumber' || k === 'purpose')) {
-      out[k] = typeof v === 'string' && v.trim() ? v.trim() : null
+      out[k] = typeof v === 'string' && v.trim() ? capText(v.trim(), k === 'purpose' ? CAPS.purpose : CAPS.noticeNumber) : null
     } else {
       return { error: `${k} cannot be changed on this proposal.` }
     }
