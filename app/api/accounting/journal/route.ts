@@ -18,7 +18,6 @@ import { ACTUAL_BOOK, isLedgerBook, type LedgerBook } from '@/lib/accounting/boo
 import { reversalOf, reversalDateError } from '@/lib/accounting/reversal'
 import { postExistingEntryWithAllocation, setGeneratedAllocationStatus } from '@/lib/accounting/continuous-allocation'
 import { owningTransactions, releaseOwnership, planRelease, deleteOwners } from '@/lib/accounting/ownership'
-import { entriesAwaitingBankMatch, AWAITING_BANK_MATCH_REASON } from '@/lib/accounting/investment-bank-match'
 
 // A database failure after the owning transactions were already deleted: still generic to the
 // client, but it must say what is gone.
@@ -311,11 +310,6 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (action === 'post') {
-    // A derived investment entry that moves cash posts through its bank match, not from here —
-    // otherwise the bank import's own draft for the same wire could be posted too.
-    if ((await entriesAwaitingBankMatch(admin, gate.fundId, group, [id])).has(id)) {
-      return NextResponse.json({ error: AWAITING_BANK_MATCH_REASON }, { status: 400 })
-    }
     // postExistingEntryWithAllocation rolls its own failure back to draft. Reverting here as well
     // would undo ANOTHER request's post when this one merely lost the race to it.
     const allocated = await postExistingEntryWithAllocation(admin, gate.fundId, group, user.id, id)

@@ -13,7 +13,8 @@ import { closedPeriodRanges, dateInAnyClosedPeriod } from '@/lib/accounting/peri
 import { dbError } from '@/lib/api-error'
 import { ACTUAL_BOOK } from '@/lib/accounting/books'
 import { postExistingEntryWithAllocation, setGeneratedAllocationStatus } from '@/lib/accounting/continuous-allocation'
-import { underReview } from '@/lib/accounting/bank-review'
+import { underReview, reviewKind } from '@/lib/accounting/bank-review'
+import { loadOwnedCashEntries, ownedCandidates } from '@/lib/accounting/investment-bank-match'
 import { loadQuickBooksCashEntries, quickBooksCandidates, quickBooksAlreadyClaimed, readAll } from '@/lib/accounting/bank-quickbooks-match'
 
 // GET — list a vehicle's staged bank transactions.
@@ -49,18 +50,30 @@ export async function GET(req: NextRequest) {
   // obligation, not a person), and whether the entry SPLITS across several accounts — which is
   // why re-pointing it is refused.
   const rows = (data as any[]) ?? []
-  const pending = rows.filter(r => r.status === 'unmatched' && r.raw?.quickbooksReview)
+  // Rows held for a person: a possible QuickBooks duplicate, or one of several posted investment
+  // entries (lib/accounting/bank-review.ts). Candidates are recomputed here rather than stored, so
+  // they never go stale.
+  const pending = rows.filter(r => r.status === 'unmatched' && underReview(r.raw))
   const duplicateCandidates = new Map<string, unknown[]>()
   if (pending.length && vehicleId) {
     try {
       const codes = await accountIdByCode(admin, gate.fundId, group)
       const cashId = codes.get('1000')
-      const entries = cashId ? await loadQuickBooksCashEntries(admin, gate.fundId, vehicleId, cashId, pending.map(t => t.txn_date)) : []
-      const linked = await readAll<any>((from, to) => admin.from('bank_transactions' as any).select('journal_entry_id, raw')
-        .eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId).not('journal_entry_id', 'is', null).order('id').range(from, to))
-      for (const t of pending) duplicateCandidates.set(t.id, quickBooksCandidates({ date: t.txn_date, amount: Number(t.amount), description: t.description ?? '' }, entries)
-        .map(e => ({ ...e, claimed: quickBooksAlreadyClaimed(e, linked) })))
-    } catch (e) { return NextResponse.json({ error: `Could not check QuickBooks matches: ${(e as Error).message}` }, { status: 500 }) }
+      const dates = pending.map(t => t.txn_date)
+      const [qbEntries, ownedEntries, linked] = await Promise.all([
+        cashId ? loadQuickBooksCashEntries(admin, gate.fundId, vehicleId, cashId, dates) : [],
+        cashId ? loadOwnedCashEntries(admin, gate.fundId, vehicleId, cashId, dates) : [],
+        readAll<any>((from, to) => admin.from('bank_transactions' as any).select('journal_entry_id, raw')
+          .eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId).not('journal_entry_id', 'is', null).order('id').range(from, to)),
+      ])
+      const linkedIds = new Set(linked.map(r => r.journal_entry_id as string))
+      for (const t of pending) {
+        const row = { date: t.txn_date, amount: Number(t.amount), description: t.description ?? '' }
+        duplicateCandidates.set(t.id, reviewKind(t.raw) === 'investment'
+          ? ownedCandidates(row, ownedEntries, new Set()).map(e => ({ ...e, claimed: linkedIds.has(e.id) }))
+          : quickBooksCandidates(row, qbEntries).map(e => ({ ...e, claimed: quickBooksAlreadyClaimed(e, linked) })))
+      }
+    } catch (e) { return NextResponse.json({ error: `Could not check suggested matches: ${(e as Error).message}` }, { status: 500 }) }
   }
   const entryIds = Array.from(new Set(rows.map(r => r.journal_entry_id).filter(Boolean)))
 
@@ -108,8 +121,10 @@ export async function GET(req: NextRequest) {
       ...r,
       raw: undefined,
       import_differences: r.raw?.importDifferences ?? [],
-      quickbooks_linked: !!r.raw?.quickbooksReview && !!r.journal_entry_id,
-      duplicate_review: !!r.raw?.quickbooksReview && r.status === 'unmatched',
+      quickbooks_linked: reviewKind(r.raw) === 'quickbooks' && !!r.journal_entry_id,
+      investment_linked: reviewKind(r.raw) === 'investment' && !!r.journal_entry_id,
+      review_kind: reviewKind(r.raw),
+      duplicate_review: underReview(r.raw) && r.status === 'unmatched',
       duplicate_candidates: duplicateCandidates.get(r.id) ?? [],
       // What to SHOW. Falls back to the stored hint only when there is no entry to read.
       entry_account_code: split ? null : acct?.code ?? null,

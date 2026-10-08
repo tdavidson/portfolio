@@ -15,7 +15,7 @@ import { NoBooksState } from '@/components/accounting/no-books'
 import { InvestmentMatchQueue } from './investment-matches'
 
 interface DuplicateCandidate { id: string; date: string; amount: number; memo: string; status: string; claimed: boolean }
-interface Txn { import_differences?: import('@/lib/accounting/import-review').ImportDifference[]; duplicate_review?: boolean; quickbooks_linked?: boolean; duplicate_candidates?: DuplicateCandidate[]; id: string; txn_date: string; amount: number; description: string; counterparty: string | null; status: string; suggested_account_code: string | null; journal_entry_id: string | null; entry_account_code: string | null; entry_account_name: string | null; entry_is_split: boolean; settled_lp_entity_id: string | null; settled_lp_name: string | null }
+interface Txn { import_differences?: import('@/lib/accounting/import-review').ImportDifference[]; duplicate_review?: boolean; quickbooks_linked?: boolean; review_kind?: 'quickbooks' | 'investment' | null; investment_linked?: boolean; duplicate_candidates?: DuplicateCandidate[]; id: string; txn_date: string; amount: number; description: string; counterparty: string | null; status: string; suggested_account_code: string | null; journal_entry_id: string | null; entry_account_code: string | null; entry_account_name: string | null; entry_is_split: boolean; settled_lp_entity_id: string | null; settled_lp_name: string | null }
 interface Rec { bankEndingBalance: number; ledgerCashBalance: number; difference: number; matchedCount: number; unmatchedCount: number; unmatchedTotal: number; tiesOut: boolean }
 
 const actionBtn = 'text-xs border border-input rounded px-2 py-1 text-muted-foreground hover:bg-accent hover:text-foreground transition-colors'
@@ -327,7 +327,7 @@ export function BankView() {
                         journal modal never updates `suggested_account_code`, so showing that
                         column left a re-pointed entry displaying its old account. */}
                     {t.duplicate_review ? (
-                      <span className="text-warning">Possible QuickBooks duplicate — no new entry</span>
+                      <span className="text-warning">{t.review_kind === 'investment' ? 'Possible investment payment — choose the entry' : 'Possible QuickBooks duplicate — no new entry'}</span>
                     ) : t.status === 'ignored' ? (
                       <span className="text-muted-foreground">Ignored</span>
                     ) : t.entry_is_split ? (
@@ -379,12 +379,12 @@ export function BankView() {
                   <td className="px-3 py-2 text-right">
                     {t.duplicate_review && (
                       <div className="flex flex-col gap-2 items-end">
-                        <select aria-label={`QuickBooks match for ${t.description}`} value={duplicateSelection[t.id] ?? ''}
+                        <select aria-label={`Suggested match for ${t.description}`} value={duplicateSelection[t.id] ?? ''}
                           disabled={resolvingDuplicate === t.id} className="max-w-[320px] border rounded px-2 py-1 text-xs bg-background"
                           onChange={e => setDuplicateSelection(s => ({ ...s, [t.id]: e.target.value }))}>
                           <option value="">Choose an existing entry</option>
-                          {(t.duplicate_candidates ?? []).map(c => <option key={c.id} value={c.id} disabled={c.claimed || c.status !== 'posted'}>
-                            {c.date} · {c.memo || 'QuickBooks entry'}{c.claimed ? ' (already linked)' : c.status === 'draft' ? ' (post in Journal first)' : ''}
+                          {(t.duplicate_candidates ?? []).map(c => <option key={c.id} value={c.id} disabled={c.claimed || (t.review_kind !== 'investment' && c.status !== 'posted')}>
+                            {c.date} · {c.memo || (t.review_kind === 'investment' ? 'Investment entry' : 'QuickBooks entry')}{c.claimed ? ' (already linked)' : c.status === 'draft' && t.review_kind !== 'investment' ? ' (post in Journal first)' : ''}
                           </option>)}
                         </select>
                         <div className="flex gap-2">
@@ -404,6 +404,7 @@ export function BankView() {
                     {t.status === 'reconciled' && (
                       <span className="flex items-center gap-2 justify-end">
                         {t.quickbooks_linked && <span className="text-xs text-muted-foreground">Matched to QuickBooks</span>}
+                        {t.investment_linked && <span className="text-xs text-muted-foreground">Matched to an investment</span>}
                         {t.journal_entry_id
                           ? <button onClick={() => setEditing({ txnId: t.id, entryId: t.journal_entry_id!, readOnly: true })} title="See the journal entry that was booked — unpost from there to edit it" className={actionBtn}>View / edit</button>
                           : <button onClick={() => act(t.id, 'unpost')} title="Revert to draft" className={actionBtn}>Unpost</button>}

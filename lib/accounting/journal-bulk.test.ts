@@ -8,13 +8,6 @@ vi.mock('@/lib/accounting/periods', async (importOriginal) => ({
   closedPeriodRanges: async () => closed,
 }))
 
-// Which drafts wait for their bank match is its own tested unit (investment-bank-match.test.ts).
-const awaiting = new Set<string>()
-vi.mock('@/lib/accounting/investment-bank-match', async (importOriginal) => ({
-  ...(await importOriginal<any>()),
-  entriesAwaitingBankMatch: async () => awaiting,
-}))
-
 const postedIds: string[] = []
 vi.mock('./continuous-allocation', () => ({
   postExistingEntryWithAllocation: vi.fn(async (_a: any, _f: string, _g: string, _u: string | null, id: string) => { postedIds.push(id); return { allocationEntryIds: [] } }),
@@ -96,21 +89,6 @@ describe('runBulkDraftAction', () => {
     expect(postedIds).toEqual(['a', 'c'])
     // The linked bank transactions follow the entry.
     expect(updates[0]).toMatchObject({ table: 'bank_transactions', patch: { status: 'reconciled' } })
-  })
-
-  it('skips a derived draft that waits for its bank match, and still voids it on request', async () => {
-    awaiting.add('b')
-    try {
-      const { admin } = fakeAdmin([balanced('a'), balanced('b')])
-      const posted = await run(admin, 'post')
-      if (!posted.ok) throw new Error('expected success')
-      expect(posted.outcome.skipped).toEqual([
-        { id: 'b', reason: 'This entry waits for its bank match — match it on the bank page, or post it there without a bank match.' },
-      ])
-      const voided = await run(fakeAdmin([balanced('a'), balanced('b')]).admin, 'void')
-      if (!voided.ok) throw new Error('expected success')
-      expect(voided.outcome.skipped).toEqual([])
-    } finally { awaiting.clear() }
   })
 
   it('voids an out-of-balance draft — a broken draft is exactly what you want to discard', async () => {

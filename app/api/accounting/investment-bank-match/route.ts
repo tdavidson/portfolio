@@ -5,9 +5,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // grant for this route + method; these resolve identity and keep the demo out of writes.
 import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
-import { awaitingBankMatch, matchInvestmentToBank, postWithoutBankMatch } from '@/lib/accounting/investment-bank-match'
+import { unbankedInvestments, matchInvestmentToBank } from '@/lib/accounting/investment-bank-match'
 
-// GET — investment entries waiting for their bank match, each with suggested bank rows.
+// GET — posted investment entries with no bank row, each with candidate bank rows.
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
   const admin = createAdminClient()
@@ -17,12 +17,10 @@ export async function GET(req: NextRequest) {
   if (gate instanceof NextResponse) return gate
   const group = await resolveGroupOr400(admin, gate, req.nextUrl.searchParams.get('group'))
   if (group instanceof NextResponse) return group
-  return NextResponse.json(await awaitingBankMatch(admin, gate.fundId, group))
+  return NextResponse.json(await unbankedInvestments(admin, gate.fundId, group))
 }
 
-// POST — { transactionId, bankTransactionId, group? } matches and posts;
-//        { transactionId, withoutBankMatch: true, group? } posts on an explicit decision that
-//        this payment has no bank row (a vehicle with no bank feed).
+// POST — { entryId, bankTransactionId, group? } links them. Nothing is posted.
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const admin = createAdminClient()
@@ -34,14 +32,11 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const group = await resolveGroupOr400(admin, gate, body?.group ?? req.nextUrl.searchParams.get('group'))
   if (group instanceof NextResponse) return group
-  const transactionId = typeof body?.transactionId === 'string' ? body.transactionId : null
-  if (!transactionId) return NextResponse.json({ error: 'transactionId is required' }, { status: 400 })
+  const entryId = typeof body?.entryId === 'string' ? body.entryId : null
+  const bankTransactionId = typeof body?.bankTransactionId === 'string' ? body.bankTransactionId : null
+  if (!entryId || !bankTransactionId) return NextResponse.json({ error: 'entryId and bankTransactionId are required' }, { status: 400 })
 
-  const result = body?.withoutBankMatch === true
-    ? await postWithoutBankMatch(admin, gate.fundId, group, user.id, transactionId)
-    : typeof body?.bankTransactionId === 'string'
-      ? await matchInvestmentToBank(admin, gate.fundId, group, user.id, transactionId, body.bankTransactionId)
-      : { error: 'bankTransactionId is required, or withoutBankMatch: true' }
+  const result = await matchInvestmentToBank(admin, gate.fundId, group, entryId, bankTransactionId)
   if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
   return NextResponse.json(result)
 }

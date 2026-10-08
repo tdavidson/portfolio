@@ -5,30 +5,24 @@ import { Loader2, Link2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCurrency, formatCurrencyPrice } from '@/components/currency-context'
 import { useLedgerFetch } from '@/components/accounting-vehicle'
-import type { AwaitingMatch } from '@/lib/accounting/investment-bank-match'
+import type { UnbankedInvestment } from '@/lib/accounting/investment-bank-match'
 import { useCanWrite } from '@/components/access-context'
 
-// Investment entries waiting for their bank match (lib/accounting/investment-bank-match.ts).
+// Posted investment entries with no bank row (lib/accounting/investment-bank-match.ts).
 //
-// A purchase, exit or cash income derives a DRAFT, because the bank feed books the same wire and
-// posting both would count the payment twice. Each one waits here with the bank rows of exactly its
-// amount, nearest date first — suggested, never applied. A vehicle with no bank feed posts it
-// without a match, on a deliberate second click that is recorded on the entry.
-//
-// Renders nothing when nothing is waiting.
+// Each one is already on the books — a purchase, exit or cash income posts when it is recorded.
+// This is reconciliation: link it to the bank transaction that paid it. Candidates are the rows of
+// exactly its amount, nearest date first — suggested, never applied. Renders nothing when there is
+// nothing to reconcile, including for a vehicle with no bank feed.
 
 export function InvestmentMatchQueue({ onChanged }: { onChanged?: () => void }) {
   const currency = useCurrency()
   const fmt = (v: number) => formatCurrencyPrice(v, currency)
   const lf = useLedgerFetch()
-  // A member who can read accounting but not write it sees what is waiting, without buttons the
-  // server would refuse.
   const canWrite = useCanWrite('accounting')
-  const [rows, setRows] = useState<AwaitingMatch[]>([])
+  const [rows, setRows] = useState<UnbankedInvestment[]>([])
   const [busy, setBusy] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  // The txn whose "post without a bank match" has been clicked once — the second click commits.
-  const [confirming, setConfirming] = useState<string | null>(null)
 
   const load = useCallback(() => {
     lf('/api/accounting/investment-bank-match')
@@ -38,14 +32,14 @@ export function InvestmentMatchQueue({ onChanged }: { onChanged?: () => void }) 
   }, [lf])
   useEffect(() => { load() }, [load])
 
-  async function act(txnId: string, body: object) {
-    setBusy(txnId); setError(null)
+  async function link(entryId: string, bankTransactionId: string) {
+    setBusy(entryId); setError(null)
     const res = await lf('/api/accounting/investment-bank-match', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ transactionId: txnId, ...body }),
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ entryId, bankTransactionId }),
     })
     const data = await res.json().catch(() => ({}))
-    setBusy(null); setConfirming(null)
-    if (!res.ok) { setError(data.error ?? 'Could not post the entry.'); return }
+    setBusy(null)
+    if (!res.ok) { setError(data.error ?? 'Could not link the bank transaction.'); return }
     if (data.warning) setError(data.warning)
     load(); onChanged?.()
   }
@@ -55,9 +49,9 @@ export function InvestmentMatchQueue({ onChanged }: { onChanged?: () => void }) 
   return (
     <div className="border rounded-card p-4 space-y-3">
       <div>
-        <p className="text-sm font-medium">Investments waiting for a bank match</p>
+        <p className="text-sm font-medium">Investments with no bank transaction</p>
         <p className="text-xs text-muted-foreground">
-          Each posts when matched to the bank transaction that paid it. Only a transaction of the same amount can match.
+          These are on the books. Link each to the bank transaction that paid it — only one of the same amount can match.
         </p>
       </div>
       {error && <p className="text-sm text-destructive">{error}</p>}
@@ -69,28 +63,19 @@ export function InvestmentMatchQueue({ onChanged }: { onChanged?: () => void }) 
               <span className="flex-1 min-w-0 truncate">{r.memo ?? 'Investment entry'}</span>
               <span className="tabular-nums">{fmt(r.cash)}</span>
             </div>
-            {canWrite && <div className="flex flex-wrap items-center gap-2">
-              {r.candidates.map(c => (
-                <Button key={c.id} size="sm" variant="outline" disabled={busy !== null}
-                  onClick={() => act(r.txnId, { bankTransactionId: c.id })}>
-                  {busy === r.txnId ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Link2 className="h-4 w-4 mr-1" />}
-                  Match <span className="tabular-nums mx-1">{c.txnDate}</span>{c.description ? `· ${c.description}` : ''}
-                </Button>
-              ))}
-              {r.candidates.length === 0 && (
-                <span className="text-xs text-muted-foreground">No bank transaction of this amount yet.</span>
-              )}
-              {/* Only when no bank row of this amount is open: the waiver is for a payment with no
-                  bank transaction, and the server refuses it otherwise. */}
-              {r.candidates.length === 0 && <button
-                type="button"
-                disabled={busy !== null}
-                onClick={() => confirming === r.txnId ? act(r.txnId, { withoutBankMatch: true }) : setConfirming(r.txnId)}
-                className="ml-auto text-xs text-muted-foreground underline underline-offset-2 hover:text-foreground"
-              >
-                {confirming === r.txnId ? 'Confirm: this payment has no bank transaction' : 'Post without a bank match'}
-              </button>}
-            </div>}
+            {canWrite && (
+              <div className="flex flex-wrap items-center gap-2">
+                {r.candidates.map(c => (
+                  <Button key={c.id} size="sm" variant="outline" disabled={busy !== null} onClick={() => link(r.entryId, c.id)}>
+                    {busy === r.entryId ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Link2 className="h-4 w-4 mr-1" />}
+                    Link <span className="tabular-nums mx-1">{c.txnDate}</span>{c.description ? `· ${c.description}` : ''}
+                  </Button>
+                ))}
+                {r.candidates.length === 0 && (
+                  <span className="text-xs text-muted-foreground">No bank transaction of this amount yet.</span>
+                )}
+              </div>
+            )}
           </li>
         ))}
       </ul>

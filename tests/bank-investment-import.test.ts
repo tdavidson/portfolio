@@ -14,6 +14,12 @@ vi.mock('@/lib/accounting/vehicle-id', () => ({ vehicleIdByName: async () => 'v'
 vi.mock('@/lib/accounting/provision-accounts', () => ({ ensureVehicleAccounts: async () => {} }))
 vi.mock('@/lib/accounting/vendors', () => ({ vendorResolver: () => async () => null }))
 vi.mock('@/lib/accounting/import-review', () => ({ reviewImport: async () => ({ differences: [], token: 't' }) }))
+vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: 'u' } } }) } }) }))
+vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => s.m.admin }))
+vi.mock('@/lib/api-helpers', async (orig) => ({ ...(await orig<any>()), assertWriteAccess: async () => ({ fundId: 'f', userId: 'u', role: 'admin' }) }))
+vi.mock('@/lib/accounting/http-vehicle', () => ({ resolveGroupOr400: async () => 'Fund I' }))
+import { NextRequest } from 'next/server'
+import { POST as resolveHold } from '@/app/api/accounting/bank/duplicates/route'
 import { importBankTransactions } from '@/lib/accounting/bank-import'
 
 const entry = (id: string, amount: number, over: Record<string, any> = {}) => ({
@@ -93,5 +99,16 @@ describe('bank import against posted investment entries', () => {
     await ingest(csv(['2026-10-06', 'Wire', -1000]))
     expect(bank()[0]).toMatchObject({ status: 'reconciled', journal_entry_id: 'e1' })
     expect(s.m.tables.journal_entries.find((e: any) => e.id === 'e1').status).toBe('draft')
+  })
+})
+
+describe('resolving an investment hold', () => {
+  it('links the chosen posted entry', async () => {
+    seed([entry('e1', -1000), entry('e2', -1000)])
+    await ingest(csv(['2026-10-06', 'Wire', -1000]))
+    const id = bank()[0].id
+    const res = await resolveHold(new NextRequest('http://x', { method: 'POST', body: JSON.stringify({ id, action: 'link', entryId: 'e2', group: 'Fund I' }) }))
+    expect(res.status).toBe(200)
+    expect(bank()[0]).toMatchObject({ status: 'reconciled', journal_entry_id: 'e2', raw: expect.objectContaining({ investmentReview: true }) })
   })
 })
