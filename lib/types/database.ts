@@ -3082,9 +3082,11 @@ export type Database = {
           id: string
           issue_type: string
           metric_id: string | null
+          payload: Json | null
           resolution: string | null
           resolved_at: string | null
           resolved_value: string | null
+          vehicle_id: string | null
         }
         Insert: {
           company_id?: string | null
@@ -3096,9 +3098,11 @@ export type Database = {
           id?: string
           issue_type: string
           metric_id?: string | null
+          payload?: Json | null
           resolution?: string | null
           resolved_at?: string | null
           resolved_value?: string | null
+          vehicle_id?: string | null
         }
         Update: {
           company_id?: string | null
@@ -3110,9 +3114,11 @@ export type Database = {
           id?: string
           issue_type?: string
           metric_id?: string | null
+          payload?: Json | null
           resolution?: string | null
           resolved_at?: string | null
           resolved_value?: string | null
+          vehicle_id?: string | null
         }
         Relationships: [
           {
@@ -3141,6 +3147,13 @@ export type Database = {
             columns: ["metric_id"]
             isOneToOne: false
             referencedRelation: "metrics"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "parsing_reviews_vehicle_id_fkey"
+            columns: ["vehicle_id"]
+            isOneToOne: false
+            referencedRelation: "fund_vehicles"
             referencedColumns: ["id"]
           },
         ]
@@ -3451,6 +3464,9 @@ export type IssueType          =
   | 'routing_low_confidence'
   | 'multi_company_email'
   | 'diligence_intake_pending'
+  | 'fund_nav'
+  | 'fund_capital_call'
+  | 'fund_distribution'
 
 // 'deals' = a company pitching us (screening / dealflow → inbound_deals).
 // 'diligence' = an email about a company ALREADY in diligence; it is proposed

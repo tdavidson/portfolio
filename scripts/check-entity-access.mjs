@@ -27,6 +27,7 @@ const MIGRATIONS = (process.env.ENTITY_MIGRATIONS ?? [
   '20261007100600_notes_entity.sql',
   '20261007100700_entity_documents.sql',
   '20261008030109_notes_entity_required.sql',
+  '20261009100000_parsing_reviews_fund_register.sql',
 ].join(',')).split(',')
 
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'pipe' })
@@ -104,6 +105,9 @@ grant select on storage.objects to authenticated;
 alter table storage.objects enable row level security;
 create policy "members" on storage.objects for select to authenticated using (true);
 create table inbound_emails (id uuid primary key default gen_random_uuid(), fund_id uuid not null, company_id uuid);
+create table parsing_reviews (id uuid primary key default gen_random_uuid(), fund_id uuid not null, email_id uuid,
+  company_id uuid, issue_type text not null, extracted_value text, resolution text,
+  constraint parsing_reviews_issue_type_check check (issue_type in ('low_confidence')));
 create table note_reads (user_id uuid, note_id uuid);
 create table compliance_deadlines (id uuid primary key default gen_random_uuid(), fund_id uuid not null, portfolio_group text not null default '', title text);
 create table compliance_entry_data (id uuid primary key default gen_random_uuid(), deadline_id uuid, field_value text);
@@ -121,7 +125,7 @@ grant select on all tables in schema public to authenticated;
 do $$ declare t text; begin
   foreach t in array array['companies','investment_transactions','journal_entries','company_notes','interactions','fund_vehicles','inbound_deals','crypto_wallets','fund_holding_terms','chart_of_accounts',
     'lp_investors','lp_entities','lp_investments','commitment_events','lp_letters','lp_documents','lp_document_shares','lp_letter_shares','lp_access_events','lp_deliveries','vehicle_closings','vehicle_closing_members',
-    'diligence_deals','diligence_notes','inbound_emails','pending_actions','compliance_deadlines'] loop
+    'diligence_deals','diligence_notes','inbound_emails','parsing_reviews','pending_actions','compliance_deadlines'] loop
     execute format('alter table %I enable row level security', t);
     execute format('create policy "members" on %I for select to authenticated using (fund_id in (select fund_id from fund_members where user_id = auth.uid()))', t);
   end loop;
@@ -524,10 +528,28 @@ try {
   try { psql(`select count(*) from entity_documents`, { as: ADMIN }) } catch { docsDenied = 'denied' }
   check('entity documents are not readable through the Data API, even by an admin', docsDenied, 'denied')
 
+  // ---- Fund reviews: a fund held by two entities shows each entity's proposals to its own members. ----
+  // Acme (C) is assigned to Fund I and held by Fund II, so MEMBER (Fund I) can see the company.
+  psql(`insert into parsing_reviews (fund_id, company_id, vehicle_id, issue_type, payload, extracted_value) values
+          ('${F}', '${C}', '${V1}', 'fund_nav', '{"kind":"nav"}', 'fund-i-nav'),
+          ('${F}', '${C}', '${V2}', 'fund_nav', '{"kind":"nav"}', 'fund-ii-nav'),
+          ('${F}', '${C}', null, 'fund_capital_call', '{"kind":"call"}', 'unassigned-call'),
+          ('${F}', '${C}', null, 'low_confidence', null, 'metric')`)
+  check('fund reviews: a member sees their entity\'s proposal and the company\'s metric review, not the other entity\'s or an unassigned one',
+    psql(`select string_agg(extracted_value, ',' order by extracted_value) from parsing_reviews`, { as: MEMBER }), 'fund-i-nav,metric')
+  check('…an admin sees all four',
+    psql(`select count(*) from parsing_reviews`, { as: ADMIN }), '4')
+  check('a fund review needs its proposal',
+    tryAs(`insert into parsing_reviews (fund_id, company_id, issue_type) values ('${F}', '${C}', 'fund_nav')`), 'refused')
+  check('an unknown issue type is still refused',
+    tryAs(`insert into parsing_reviews (fund_id, company_id, issue_type) values ('${F}', '${C}', 'made_up')`), 'refused')
+
   // ---- Re-runnable. ----
   for (const m of MIGRATIONS.slice(1)) applyFile(join('supabase/migrations', m))
   check('re-running the migration does not re-grant what was narrowed',
     psql(`select (select count(*) from fund_member_vehicles where user_id = '${MEMBER}') || ',' || (select all_entities from fund_members where user_id = '${MEMBER}')`), '1,false')
+  check('re-running keeps fund reviews scoped by entity',
+    psql(`select string_agg(extracted_value, ',' order by extracted_value) from parsing_reviews`, { as: MEMBER }), 'fund-i-nav,metric')
 } catch (e) {
   failures++
   console.error(String(e.stderr ?? e.message ?? e))
