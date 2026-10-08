@@ -46,6 +46,8 @@ async function walletVisibility(
     try {
       const all = await holdingEntities(admin, fundId, companyId, { vehicles: { all: true, ids: [] } })
       seesEvery = all.every(e => ctx.entities.some(c => c.id === e.id))
+        // Linked entities and holders can differ (aliases, group strings that resolve to no entity).
+        && (holders.get(companyId) ?? []).every(h => (names ?? []).includes(h))
     } catch {
       return null
     }
@@ -55,6 +57,22 @@ async function walletVisibility(
     const e = walletEntity(w, holders)
     return e === null ? seesEvery : names.includes(e)
   }
+}
+
+/** A wallet on this holding the caller may act on: `{ wallet }`, `{ wallet: null }`, or a 500. */
+async function visibleWallet(
+  admin: any, gate: { fundId: string }, companyId: string, ctx: HoldingContext, walletId: unknown,
+): Promise<{ wallet: any } | NextResponse> {
+  if (typeof walletId !== 'string' || !walletId) return { wallet: null }
+  const { data, error } = await admin.from('crypto_wallets').select('*')
+    .eq('id', walletId).eq('fund_id', gate.fundId).eq('company_id', companyId).maybeSingle()
+  if (error) return unread('the wallet')
+  if (!data) return { wallet: null }
+  const txns = await holdingTxns(admin, gate.fundId, companyId)
+  if (!txns) return unread("the holding's transactions")
+  const visible = await walletVisibility(admin, gate.fundId, companyId, ctx, holdersFromTransactions(txns))
+  if (!visible) return unread("the holding's entities")
+  return { wallet: visible(data) ? data : null }
 }
 
 // GET — the caller's entities' wallets, each with its latest reading, and the chain against the
@@ -72,22 +90,26 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
 
   const asOf = req.nextUrl.searchParams.get('asOf') || today()
   if (!isRealDate(asOf)) return bad('asOf must be a real date written YYYY-MM-DD.')
-  const [wallets, balances, txns] = await Promise.all([
+  const [wallets, txns] = await Promise.all([
     (admin as any).from('crypto_wallets').select('*').eq('fund_id', gate.fundId).eq('company_id', id).order('chain'),
-    (admin as any).from('crypto_wallet_balances').select('*').eq('fund_id', gate.fundId)
-      .lte('as_of_date', asOf).order('as_of_date', { ascending: false }),
     holdingTxns(admin, gate.fundId, id),
   ])
   if (wallets.error) return unread('the wallets')
-  if (balances.error) return unread('the wallet balances')
   if (!txns) return unread("the holding's transactions")
 
   const holders = holdersFromTransactions(txns)
   const visible = await walletVisibility(admin, gate.fundId, id, ctx, holders)
   if (!visible) return unread("the holding's entities")
   const rows = ((wallets.data as any[]) ?? []).filter(visible)
-  const ids = new Set(rows.map(w => w.id as string))
-  const mineBalances = ((balances.data as any[]) ?? []).filter(b => ids.has(b.wallet_id))
+  // Only the visible wallets' readings: a fund-wide read would hit the API row cap and silently
+  // drop a holding's latest reading.
+  let mineBalances: any[] = []
+  if (rows.length > 0) {
+    const balances = await (admin as any).from('crypto_wallet_balances').select('*').eq('fund_id', gate.fundId)
+      .in('wallet_id', rows.map(w => w.id as string)).lte('as_of_date', asOf).order('as_of_date', { ascending: false })
+    if (balances.error) return unread('the wallet balances')
+    mineBalances = (balances.data as any[]) ?? []
+  }
   const latest = new Map<string, any>()
   for (const b of mineBalances) if (!latest.has(b.wallet_id)) latest.set(b.wallet_id, b)
   const balanceModels = mineBalances.map(balanceFromRow)
@@ -126,22 +148,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
 
   const body = await req.json().catch(() => ({}))
 
-  /** A wallet on this holding the caller may act on: `{ wallet }`, `{ wallet: null }`, or a 500. */
-  const visibleWallet = async (walletId: unknown): Promise<{ wallet: any } | NextResponse> => {
-    if (typeof walletId !== 'string' || !walletId) return { wallet: null }
-    const { data, error } = await (admin as any).from('crypto_wallets').select('*')
-      .eq('id', walletId).eq('fund_id', gate.fundId).eq('company_id', id).maybeSingle()
-    if (error) return unread('the wallet')
-    if (!data) return { wallet: null }
-    const txns = await holdingTxns(admin, gate.fundId, id)
-    if (!txns) return unread("the holding's transactions")
-    const visible = await walletVisibility(admin, gate.fundId, id, ctx, holdersFromTransactions(txns))
-    if (!visible) return unread("the holding's entities")
-    return { wallet: visible(data) ? data : null }
-  }
-
   if (body?.action === 'record-balance') {
-    const found = await visibleWallet(body.walletId)
+    const found = await visibleWallet(admin, gate, id, ctx, body.walletId)
     if (found instanceof NextResponse) return found
     const wallet = found.wallet
     if (!wallet) return notFound()
@@ -165,7 +173,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   }
 
   if (body?.action === 'verify') {
-    const found = await visibleWallet(body.walletId)
+    const found = await visibleWallet(admin, gate, id, ctx, body.walletId)
     if (found instanceof NextResponse) return found
     const wallet = found.wallet
     if (!wallet) return notFound()
@@ -231,18 +239,9 @@ export async function DELETE(req: NextRequest, props: { params: Promise<{ id: st
 
   const walletId = req.nextUrl.searchParams.get('walletId')
   if (!walletId) return bad('walletId is required.')
-  const found = await (async () => {
-    const { data, error } = await (admin as any).from('crypto_wallets').select('*')
-      .eq('id', walletId).eq('fund_id', gate.fundId).eq('company_id', id).maybeSingle()
-    return { data, error }
-  })()
-  if (found.error) return unread('the wallet')
-  if (!found.data) return notFound()
-  const txns = await holdingTxns(admin, gate.fundId, id)
-  if (!txns) return unread("the holding's transactions")
-  const visible = await walletVisibility(admin, gate.fundId, id, ctx, holdersFromTransactions(txns))
-  if (!visible) return unread("the holding's entities")
-  if (!visible(found.data)) return notFound()
+  const found = await visibleWallet(admin, gate, id, ctx, walletId)
+  if (found instanceof NextResponse) return found
+  if (!found.wallet) return notFound()
   const { error } = await (admin as any).from('crypto_wallets').delete().eq('id', walletId).eq('fund_id', gate.fundId)
   if (error) return dbError(error, 'holding-wallets-delete')
   logActivity(admin, gate.fundId, user.id, 'crypto_wallet.delete', { walletId })

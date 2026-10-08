@@ -153,10 +153,11 @@ describe('a failed read is an error, not an empty list', () => {
   const breakReads = (table: string) => {
     const real = s.m.admin
     s.m = { ...s.m, admin: { ...real, from: (t: string) => t === table
-      ? { select: () => { const q: any = { eq: () => q, lte: () => q, order: () => q, maybeSingle: async () => ({ data: null, error: { message: 'boom' } }), then: (r: any) => r({ data: null, error: { message: 'boom' } }) }; return q } }
+      ? { select: () => { const q: any = { eq: () => q, in: () => q, lte: () => q, order: () => q, maybeSingle: async () => ({ data: null, error: { message: 'boom' } }), then: (r: any) => r({ data: null, error: { message: 'boom' } }) }; return q } }
       : real.from(t) } }
   }
   it.each(['crypto_wallets', 'crypto_wallet_balances', 'investment_transactions'])('answers 500 when %s cannot be read', async (table) => {
+    await addMine()
     breakReads(table)
     const res = await GET(req('GET'), ctx)
     expect(res.status).toBe(500)
@@ -166,5 +167,59 @@ describe('a failed read is an error, not an empty list', () => {
     breakReads('investment_transactions')
     expect((await DELETE(req('DELETE', undefined, '?walletId=w2'), ctx)).status).toBe(500)
     expect(s.m.tables.crypto_wallets).toHaveLength(1)
+  })
+})
+
+describe('scoping edges', () => {
+  it('reads balances only for the visible wallets', async () => {
+    s.m = seed({ crypto_wallet_balances: [
+      { id: 'b2', fund_id: 'f', wallet_id: 'w2', as_of_date: '2026-03-01', units: 99 },
+    ] })
+    await addMine()
+    const mine = s.m.tables.crypto_wallets.find((w: any) => w.id !== 'w2')
+    s.m.tables.crypto_wallet_balances.push({ id: 'b1', fund_id: 'f', wallet_id: mine.id, as_of_date: '2026-03-01', units: 5 })
+    const seen: any[] = []
+    const real = s.m.admin
+    s.m = { ...s.m, admin: { ...real, from: (t: string) => {
+      const q = real.from(t)
+      if (t !== 'crypto_wallet_balances') return q
+      return { ...q, select: (...a: any[]) => { const r = q.select(...a); const inn = r.in.bind(r); r.in = (c: string, v: any[]) => { seen.push(v); return inn(c, v) }; return r } }
+    } } }
+    const body = await (await GET(req('GET', undefined, '?asOf=2026-03-31'), ctx)).json()
+    expect(seen).toEqual([[mine.id]])
+    expect(body.wallets.map((w: any) => w.id)).toEqual([mine.id])
+    expect(body.wallets[0].latestBalance.units).toBe(5)
+  })
+
+  it('does not read balances at all when no wallet is visible', async () => {
+    const body = await (await GET(req('GET'), ctx)).json()
+    expect(body.wallets).toEqual([])
+  })
+
+  it('404s a wallet of another holding or another fund', async () => {
+    s.m = seed({ crypto_wallets: [
+      { id: 'wo', fund_id: 'f', company_id: 'k9', chain: 'ethereum', address: '0x1', portfolio_group: 'Fund I' },
+      { id: 'wx', fund_id: 'g', company_id: 'k1', chain: 'ethereum', address: '0x2', portfolio_group: 'Fund I' },
+    ] })
+    for (const w of ['wo', 'wx']) {
+      expect((await POST(req('POST', { action: 'verify', walletId: w, method: 'signed_message' }), ctx)).status).toBe(404)
+      expect((await DELETE(req('DELETE', undefined, `?walletId=${w}`), ctx)).status).toBe(404)
+    }
+    expect(s.m.tables.crypto_wallets).toHaveLength(2)
+  })
+
+  it('will not add in a visible entity that is not linked to this holding', async () => {
+    s.scope = { access: { vehicles: { all: false, ids: ['v1', 'v3'] } }, vehicleNames: ['Fund I', 'Fund III'], companyIds: ['k1'] }
+    s.m = seed({ fund_vehicles: [{ id: 'v1', fund_id: 'f', name: 'Fund I' }, { id: 'v2', fund_id: 'f', name: 'Fund II' }, { id: 'v3', fund_id: 'f', name: 'Fund III' }] })
+    const res = await POST(req('POST', { action: 'add', vehicleId: 'v3', chain: 'ethereum', address: '0xdddd' }), ctx)
+    expect(res.status).toBe(400)
+    expect(s.m.tables.crypto_wallets).toHaveLength(1)
+  })
+
+  it('an untagged wallet stays off limits when a holder is not among the caller\'s entities', async () => {
+    // Fund II holds but is not linked (so the linked-entity check alone would pass).
+    s.scope = fundIOnly()
+    s.m = seed({ crypto_wallets: [{ ...untagged }], company_vehicles: [{ fund_id: 'f', company_id: 'k1', vehicle_id: 'v1' }] })
+    expect((await DELETE(req('DELETE', undefined, '?walletId=wu'), ctx)).status).toBe(404)
   })
 })
