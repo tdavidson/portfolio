@@ -173,24 +173,6 @@ export async function retractEntriesForTransaction(
   }
 }
 
-/**
- * Re-mirror an edited transaction: retract whatever it booked before, then derive afresh.
- * `original` is the row as it was BEFORE the edit — an adopted entry is split against it.
- */
-export async function redraftEntryForTransaction(
-  admin: SupabaseClient,
-  fundId: string,
-  userId: string | null,
-  txn: any,
-  companyName: string,
-  original?: any,
-): Promise<LedgerDraftResult> {
-  const retracted = await retractEntriesForTransaction(admin, fundId, txn.id, { userId, original })
-  if (retracted.reason) return skip(retracted.reason)
-  const derived = await draftEntryForTransaction(admin, fundId, userId, txn, companyName)
-  return retracted.warning ? { ...derived, warning: retracted.warning } : derived
-}
-
 export interface ExitInputs {
   /** Cash actually received on the exit. */
   proceeds: number

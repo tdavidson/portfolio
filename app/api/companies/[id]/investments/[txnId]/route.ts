@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
 import { logActivity } from '@/lib/activity'
-import { redraftEntryForTransaction, retractEntriesForTransaction } from '@/lib/accounting/from-portfolio'
+import { draftEntryForTransaction, retractEntriesForTransaction } from '@/lib/accounting/from-portfolio'
 import { validateConversionLink } from '@/lib/accounting/conversion-link'
 import { normalizeSecurityType, SECURITY_TYPES } from '@/lib/accounting/soi'
 import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
@@ -174,6 +174,21 @@ export async function PATCH(
     await ensureVehiclesByName(admin, existing.fund_id, [updates.portfolio_group as string | null | undefined])
   }
 
+  // Retract the ledger side FIRST, as DELETE does. When it refuses — a closed period, an adopted
+  // entry that can't be split — nothing is written, so the tracker and the ledger stay in step.
+  // Editing the row first used to leave the tracker on the new figures and the ledger on the old.
+  const retracted = await retractEntriesForTransaction(admin, existing.fund_id, params.txnId, { userId: user.id, original: existing })
+  if (retracted.reason) {
+    return NextResponse.json({ error: `Can't change this transaction. ${retracted.reason}` }, { status: 409 })
+  }
+
+  const { data: company } = await admin
+    .from('companies' as any)
+    .select('name')
+    .eq('id', params.id)
+    .maybeSingle() as { data: { name: string } | null }
+  const companyName = company?.name ?? 'Investment'
+
   const { data: txn, error } = await admin
     .from('investment_transactions' as any)
     .update(updates)
@@ -181,25 +196,23 @@ export async function PATCH(
     .select('*')
     .single()
 
-  if (error) return dbError(error, 'companies-id-investments-txnId-patch')
+  if (error) {
+    // The old entry was retracted; put the unchanged transaction back on the ledger.
+    if (retracted.retracted > 0) {
+      const restored = await draftEntryForTransaction(admin, existing.fund_id, user.id, existing, companyName)
+      if (!restored.drafted) console.error('[companies-id-investments-txnId-patch] could not re-derive after a failed update', restored.reason)
+    }
+    return dbError(error, 'companies-id-investments-txnId-patch')
+  }
 
   logActivity(admin, existing.fund_id, user.id, 'investment.update', {
     companyId: params.id,
     transactionId: params.txnId,
   })
 
-  // Re-mirror the ledger. Creating a transaction drafted a journal entry, but editing one
-  // used to change nothing on the books — so correcting a fat-fingered cost left the ledger
-  // permanently wrong, with only a passive variance warning to notice, and no way to tell why.
-  const { data: company } = await admin
-    .from('companies' as any)
-    .select('name')
-    .eq('id', params.id)
-    .maybeSingle() as { data: { name: string } | null }
-
-  const ledger = await redraftEntryForTransaction(
-    admin, existing.fund_id, user.id, txn, company?.name ?? 'Investment', existing
-  )
+  // Re-mirror the ledger: derive the edited transaction afresh.
+  const derived = await draftEntryForTransaction(admin, existing.fund_id, user.id, txn, companyName)
+  const ledger = retracted.warning ? { ...derived, warning: retracted.warning } : derived
 
   return NextResponse.json({ ...(txn as object), ledger })
 }
