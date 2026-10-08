@@ -44,7 +44,17 @@ export interface BackfillResult {
   linked: number
   /** Everything the ledger refused — an unreadable entry, a closed period — by name. */
   refused: string[]
+  /**
+   * Companies carried by BOTH sides: unowned posted entries on their investment accounts AND
+   * tracker rows with no entry. A legacy replay, bootstrap, mark or QuickBooks import built those
+   * entries from (or alongside) the tracker rows, so adopting one side and deriving the other
+   * would book the position twice. Neither happens for these; they are reconciled by hand.
+   */
+  conflicted: string[]
 }
+
+export const emptyBackfillResult = (): BackfillResult =>
+  ({ toAdopt: 0, toDerive: 0, alreadyDerived: 0, toPost: 0, adopted: 0, posted: 0, linked: 0, refused: [], conflicted: [] })
 
 const n = (v: unknown) => { const x = Number(v); return Number.isFinite(x) ? x : 0 }
 const chunks = <T,>(xs: T[]) => Array.from({ length: Math.ceil(xs.length / CHUNK) }, (_, i) => xs.slice(i * CHUNK, (i + 1) * CHUNK))
@@ -121,8 +131,7 @@ async function ownedReversals(admin: SupabaseClient, fundId: string, entries: an
 }
 
 /** Posted, unowned entries with a line on an investment account; reversal pairs excluded. */
-async function unownedInvestmentEntries(admin: SupabaseClient, fundId: string, vehicleId: string) {
-  const chart = await loadVehicleChart(admin, fundId, vehicleId)
+async function unownedInvestmentEntries(admin: SupabaseClient, fundId: string, vehicleId: string, chart: Awaited<ReturnType<typeof loadVehicleChart>>) {
   const accountIds = chart.filter(isInvestmentAccount).map(a => a.id)
   const entryIds = new Set<string>()
   for (const ids of chunks(accountIds)) {
@@ -164,15 +173,33 @@ export async function backfillDerivedEntries(
   admin: SupabaseClient, fundId: string, group: string, userId: string | null,
   opts: { dryRun?: boolean } = {},
 ): Promise<BackfillResult> {
-  const out: BackfillResult = { toAdopt: 0, toDerive: 0, alreadyDerived: 0, toPost: 0, adopted: 0, posted: 0, linked: 0, refused: [] }
+  const out = emptyBackfillResult()
   const vehicleId = await vehicleIdByName(admin, fundId, group)
   if (!vehicleId) return out
 
-  // 1. Adopt.
-  const unowned = await unownedInvestmentEntries(admin, fundId, vehicleId)
-  out.toAdopt = unowned.length
+  // 0. Which companies are carried by both sides? Read before anything is written.
+  const chart = await loadVehicleChart(admin, fundId, vehicleId)
+  const companyOfAccount = new Map(chart.filter(a => isInvestmentAccount(a) && a.companyId).map(a => [a.id, a.companyId as string]))
+  const entryCompanies = (e: any) => new Set(((e.journal_postings ?? []) as any[])
+    .filter(p => n(p.amount) !== 0 && companyOfAccount.has(p.account_id)).map(p => companyOfAccount.get(p.account_id) as string))
+  const unowned = await unownedInvestmentEntries(admin, fundId, vehicleId, chart)
+  const names = await vehicleNames(admin, fundId, vehicleId, group)
+  const before = await loadPending(admin, fundId, vehicleId, names)
+  const onLedger = new Map<string, number>()
+  for (const e of unowned) for (const c of entryCompanies(e)) onLedger.set(c, (onLedger.get(c) ?? 0) + 1)
+  const conflicted = new Set(before.pending.map(t => t.company_id as string).filter(c => onLedger.has(c)))
+  const { data: companies } = await admin.from('companies' as any).select('id, name').eq('fund_id', fundId)
+  const nameOf = new Map(((companies as any[]) ?? []).map(c => [c.id as string, c.name as string]))
+  out.conflicted = Array.from(conflicted).map(c => {
+    const k = onLedger.get(c)!
+    return `${nameOf.get(c) ?? 'Investment'}: carried by both the tracker and ${k} journal ${k === 1 ? 'entry' : 'entries'} — reconcile by hand`
+  }).sort()
+
+  // 1. Adopt — an entry touching any conflicted company is skipped whole.
+  const toAdopt = unowned.filter(e => !Array.from(entryCompanies(e)).some(c => conflicted.has(c)))
+  out.toAdopt = toAdopt.length
   if (!opts.dryRun) {
-    for (const e of unowned) {
+    for (const e of toAdopt) {
       const r = await adoptEntry(admin, fundId, {
         entryId: e.id, vehicleId, entryDate: e.entry_date, memo: e.memo ?? null, sourceRef: e.source_ref ?? null,
         postings: (e.journal_postings ?? []).map((p: any) => ({ accountId: p.account_id, amount: Number(p.amount) })),
@@ -183,15 +210,14 @@ export async function backfillDerivedEntries(
   }
 
   // 2. Derive — read AFTER adopting, so adopted transactions are not derived a second time.
-  const names = await vehicleNames(admin, fundId, vehicleId, group)
-  const { txns, pending, alreadyDerived, drafts } = await loadPending(admin, fundId, vehicleId, names)
+  //    A conflicted company's rows are not derived either.
+  const { txns, pending: allPending, alreadyDerived, drafts } = opts.dryRun ? before : await loadPending(admin, fundId, vehicleId, names)
+  const pending = allPending.filter(t => !conflicted.has(t.company_id))
   out.toDerive = pending.length
   out.alreadyDerived = alreadyDerived
   out.toPost = drafts.length
   if (opts.dryRun) return out
 
-  const { data: companies } = await admin.from('companies' as any).select('id, name').eq('fund_id', fundId)
-  const nameOf = new Map(((companies as any[]) ?? []).map(c => [c.id as string, c.name as string]))
   for (const t of pending) {
     const name = nameOf.get(t.company_id) ?? 'Investment'
     const r = await draftEntryForTransaction(admin, fundId, userId, { ...t, portfolio_group: group }, name)
@@ -223,7 +249,7 @@ export async function backfillAllVehicles(
     try {
       out.push({ vehicle: v.name, result: await backfillDerivedEntries(admin, fundId, v.name, userId, opts) })
     } catch (e) {
-      out.push({ vehicle: v.name, result: { toAdopt: 0, toDerive: 0, alreadyDerived: 0, toPost: 0, adopted: 0, posted: 0, linked: 0, refused: [`Could not be processed: ${e instanceof Error ? e.message : String(e)}`] } })
+      out.push({ vehicle: v.name, result: { ...emptyBackfillResult(), refused: [`Could not be processed: ${e instanceof Error ? e.message : String(e)}`] } })
     }
   }
   return out

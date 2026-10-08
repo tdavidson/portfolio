@@ -86,6 +86,16 @@ describe('management company accounting status', () => {
     expect(s.issues).toContainEqual(expect.objectContaining({ title: '3 investment items not on the ledger', level: 'blocker', href: '/funds/status#book-investments' }))
   })
 
+  it('names the positions carried by both the tracker and the journal', async () => {
+    vi.mocked(vehicleKindByName).mockResolvedValue('fund')
+    vi.mocked(backfillDerivedEntries).mockResolvedValueOnce({ toAdopt: 0, toDerive: 0, toPost: 0, conflicted: ['Acme: carried by both the tracker and 2 journal entries — reconcile by hand'] } as any)
+    const s = await vehicleStatus(adminWith(), 'firm', 'Fund I')
+    expect(s.issues).toContainEqual(expect.objectContaining({
+      title: '1 investment position is carried by both the tracker and the journal', level: 'blocker',
+      detail: expect.stringContaining('Acme: carried by both the tracker and 2 journal entries'),
+    }))
+  })
+
   it('still renders when the ledger backlog check fails', async () => {
     vi.mocked(vehicleKindByName).mockResolvedValue('fund')
     vi.mocked(backfillDerivedEntries).mockRejectedValueOnce(new Error('db down'))

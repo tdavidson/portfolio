@@ -193,6 +193,16 @@ export async function vehicleStatus(
     }
   }
   const notOnLedger = backlog ? backlog.toAdopt + backlog.toDerive + backlog.toPost : 0
+  const conflicted = backlog?.conflicted ?? []
+  if (conflicted.length > 0) {
+    issues.push({
+      level: 'blocker',
+      title: `${conflicted.length} investment position${conflicted.length === 1 ? ' is' : 's are'} carried by both the tracker and the journal`,
+      detail: `${conflicted.slice(0, 3).join('; ')}${conflicted.length > 3 ? `; and ${conflicted.length - 3} more` : ''}. Booking either side would count them twice, so putting investments on the ledger leaves them alone. Void the duplicate entries or delete the duplicate transactions.`,
+      href: '/funds/status#book-investments',
+      action: 'Review them',
+    })
+  }
   if (notOnLedger > 0) {
     issues.push({
       level: 'blocker',

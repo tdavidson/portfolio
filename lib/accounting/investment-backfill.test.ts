@@ -13,6 +13,7 @@ import { backfillDerivedEntries, backfillAllVehicles, countUnderived } from './i
 const chart = [
   { id: 'cash', fund_id: 'f', vehicle_id: 'v', code: '1000', type: 'asset', subtype: 'cash', company_id: null },
   { id: 'a1100', fund_id: 'f', vehicle_id: 'v', code: '1100-a', type: 'asset', subtype: 'investment', company_id: 'co' },
+  { id: 'b1100', fund_id: 'f', vehicle_id: 'v', code: '1100-b', type: 'asset', subtype: 'investment', company_id: 'co2' },
   { id: 'p4200', fund_id: 'f', vehicle_id: 'v', code: '4200', type: 'income', subtype: 'unrealized', company_id: null },
 ]
 const entry = (id: string, over: any = {}) => ({ id, fund_id: 'f', vehicle_id: 'v', book: 'actual', status: 'posted', entry_date: '2026-01-15', memo: id, source_ref: null, reversed_by: null, ...over })
@@ -22,7 +23,7 @@ const txn = (id: string, over: any = {}) => ({ id, fund_id: 'f', company_id: 'co
 function seed(t: Record<string, any[]>) {
   return memoryAdmin({
     fund_vehicles: [{ id: 'v', fund_id: 'f', name: 'Fund I', aliases: ['Fund One'] }],
-    chart_of_accounts: chart, companies: [{ id: 'co', fund_id: 'f', name: 'Acme' }],
+    chart_of_accounts: chart, companies: [{ id: 'co', fund_id: 'f', name: 'Acme' }, { id: 'co2', fund_id: 'f', name: 'Beta' }],
     journal_entries: [], journal_postings: [], investment_transactions: [], ...t,
   })
 }
@@ -78,8 +79,8 @@ describe('backfillDerivedEntries', () => {
     expect(r.refused[0]).toMatch(/no longer exists/)
   })
   it('a dry run counts and writes nothing', async () => {
-    const m = seed({ investment_transactions: [txn('a')], journal_entries: [entry('qb')], journal_postings: [line('qb', 'a1100', 100)] })
-    expect(await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u', { dryRun: true })).toMatchObject({ toAdopt: 1, toDerive: 1, adopted: 0, posted: 0 })
+    const m = seed({ investment_transactions: [txn('a', { company_id: 'co2' })], journal_entries: [entry('qb')], journal_postings: [line('qb', 'a1100', 100)] })
+    expect(await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u', { dryRun: true })).toMatchObject({ toAdopt: 1, toDerive: 1, adopted: 0, posted: 0, conflicted: [] })
     expect(h.adopt).not.toHaveBeenCalled()
     expect(h.derive).not.toHaveBeenCalled()
   })
@@ -101,6 +102,41 @@ describe('backfillDerivedEntries', () => {
     })
     expect(await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')).toMatchObject({ toAdopt: 1 })
     expect(await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')).toMatchObject({ toAdopt: 0 })
+  })
+})
+
+describe('backfillDerivedEntries: a position carried by both the tracker and the journal', () => {
+  it('a replayed entry plus the tracker row it came from: neither adopted nor derived, and named', async () => {
+    const m = seed({ investment_transactions: [txn('a')], journal_entries: [entry('replay')], journal_postings: [line('replay', 'a1100', 100), line('replay', 'cash', -100)] })
+    const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')
+    expect(h.adopt).not.toHaveBeenCalled()
+    expect(h.derive).not.toHaveBeenCalled()
+    expect(r).toMatchObject({ toAdopt: 0, toDerive: 0, adopted: 0, posted: 0 })
+    expect(r.conflicted).toEqual(['Acme: carried by both the tracker and 1 journal entry — reconcile by hand'])
+  })
+  it('is reported by a dry run too', async () => {
+    const m = seed({ investment_transactions: [txn('a')], journal_entries: [entry('replay')], journal_postings: [line('replay', 'a1100', 100)] })
+    const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u', { dryRun: true })
+    expect(r).toMatchObject({ toAdopt: 0, toDerive: 0 })
+    expect(r.conflicted).toHaveLength(1)
+  })
+  it('a company with only unowned entries is adopted; one with only tracker rows is derived', async () => {
+    const m = seed({ investment_transactions: [txn('b', { company_id: 'co2' })], journal_entries: [entry('qb')], journal_postings: [line('qb', 'a1100', 100)] })
+    const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')
+    expect(h.adopt.mock.calls.map(c => c[2].entryId)).toEqual(['qb'])
+    expect(h.derive.mock.calls.map(c => c[3].id)).toEqual(['b'])
+    expect(r.conflicted).toEqual([])
+  })
+  it('an entry spanning a conflicted and a clean company is skipped whole', async () => {
+    const m = seed({
+      investment_transactions: [txn('a')],
+      journal_entries: [entry('span')],
+      journal_postings: [line('span', 'a1100', 100), line('span', 'b1100', 50), line('span', 'cash', -150)],
+    })
+    const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')
+    expect(h.adopt).not.toHaveBeenCalled()
+    expect(h.derive).not.toHaveBeenCalled()
+    expect(r.conflicted).toEqual(['Acme: carried by both the tracker and 1 journal entry — reconcile by hand'])
   })
 })
 

@@ -18,6 +18,7 @@ import { useLedgerFetch } from '@/components/accounting-vehicle'
 import type { BackfillResult } from '@/lib/accounting/investment-backfill'
 type Backfill = BackfillResult
 const waiting = (p: Backfill) => p.toAdopt + p.toDerive + p.toPost
+const conflictedOf = (p: Backfill | null) => p?.conflicted ?? []
 
 export function BootstrapInvestmentsCard({ onBooked }: { onBooked?: () => void } = {}) {
   const lf = useLedgerFetch()
@@ -54,7 +55,8 @@ export function BootstrapInvestmentsCard({ onBooked }: { onBooked?: () => void }
   }
 
   if (!preview && !result && !error) return null
-  if (preview && waiting(preview) === 0 && !result && !error) return null
+  if (preview && waiting(preview) === 0 && conflictedOf(preview).length === 0 && !result && !error) return null
+  const conflicted = conflictedOf(preview ?? result)
 
   return (
     <div id="book-investments" className="space-y-2">
@@ -76,6 +78,21 @@ export function BootstrapInvestmentsCard({ onBooked }: { onBooked?: () => void }
               </ul>
             </div>
           )}
+        </div>
+      )}
+
+      {conflicted.length > 0 && (
+        <div className="rounded-card border border-warning/40 bg-warning/10 p-3">
+          <p className="flex items-center gap-1.5 text-sm font-medium text-warning">
+            <AlertTriangle className="h-4 w-4" />
+            {conflicted.length} {conflicted.length === 1 ? 'position is' : 'positions are'} carried by both the tracker and the journal
+          </p>
+          <p className="mt-1 text-xs text-muted-foreground">
+            Their journal entries were likely built from the tracker, so booking either side would count them twice. These are left alone: void the duplicate entries or delete the duplicate transactions, then run this again.
+          </p>
+          <ul className="mt-1 list-disc pl-5 text-xs text-muted-foreground">
+            {conflicted.map((c, i) => <li key={i}>{c}</li>)}
+          </ul>
         </div>
       )}
 
