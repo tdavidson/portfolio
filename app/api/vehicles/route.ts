@@ -144,6 +144,12 @@ export async function PATCH(req: NextRequest) {
     // Rewrite every portfolio_group-keyed row from the source's name to the target's name.
     await retagPortfolioGroup(admin, gate.fundId, (fromRow as any).name, (intoRow as any).name)
 
+    // Delete the source BEFORE the target takes its name as an alias: a name denotes one entity
+    // (fund_vehicles_names_unique), so while the source exists the alias would clash.
+    const { error: deleteErr } = await (admin as any)
+      .from('fund_vehicles').delete().eq('id', fromId).eq('fund_id', gate.fundId)
+    if (deleteErr) return dbError(deleteErr, 'vehicles')
+
     // The target absorbs the source's name and aliases as its own aliases, so any legacy string
     // (including the source's old name) still resolves to the target going forward.
     const mergedAliases = Array.from(new Set([
@@ -158,11 +164,8 @@ export async function PATCH(req: NextRequest) {
       .eq('id', intoId).eq('fund_id', gate.fundId)
       .select('id, name, kind, aliases, active')
       .single()
+    if ((updateErr as any)?.code === '23505') return NextResponse.json({ error: 'Another entity already uses one of those names' }, { status: 409 })
     if (updateErr) return dbError(updateErr, 'vehicles')
-
-    const { error: deleteErr } = await (admin as any)
-      .from('fund_vehicles').delete().eq('id', fromId).eq('fund_id', gate.fundId)
-    if (deleteErr) return dbError(deleteErr, 'vehicles')
 
     return NextResponse.json(updatedInto)
   }
@@ -250,6 +253,8 @@ export async function PATCH(req: NextRequest) {
     .eq('id', body.id).eq('fund_id', gate.fundId)
     .select('id, name, kind, aliases, active')
     .single()
+  // A name or alias denotes one entity (fund_vehicles_names_unique).
+  if ((error as any)?.code === '23505') return NextResponse.json({ error: 'Another entity already uses that name or alias' }, { status: 409 })
   if (error) return dbError(error, 'vehicles')
   return NextResponse.json(data)
 }

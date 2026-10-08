@@ -103,23 +103,31 @@ begin
   on conflict (company_id, vehicle_id) do update set relation = excluded.relation
     where company_vehicles.relation is distinct from excluded.relation;
 
-  -- Derived portfolio_group: every linked entity's name, PLUS any name that matches no entity — a
-  -- legacy portfolio_group string with no registry row. Dropping those would lose data the derived
-  -- array has no other place to keep. Only written when it changed, and the companies trigger ignores
-  -- writes made from inside another trigger, so this cannot loop.
-  select coalesce(array_agg(n order by n), '{}')
+  -- Derived portfolio_group: the company's existing tags, kept in their order and spelling (an alias
+  -- stays an alias; a legacy string that names no entity stays — the array is its only home), then
+  -- the name of each entity it is now linked to that no tag names yet. Nothing is re-sorted or
+  -- renamed, so pushing this changes a company's tags only by adding the entities that hold it.
+  -- Only written when it changed; the companies trigger skips this write (app.cv_refreshing).
+  select coalesce(array_agg(n order by ord), '{}')
     into v_derived
     from (
-      select v.name as n
+      select g as n, min(o) as ord
+        from unnest(coalesce(v_groups, '{}')) with ordinality as t(g, o)
+       where g is not null and g <> ''
+         and (vehicle_id_for_name(v_fund, g) is null
+              or vehicle_id_for_name(v_fund, g) in (select cv.vehicle_id from company_vehicles cv where cv.company_id = p_company))
+       group by g
+      union all
+      select v.name, 1000000 + row_number() over (order by v.name)
         from company_vehicles cv join fund_vehicles v on v.id = cv.vehicle_id
        where cv.company_id = p_company
-      union
-      select g from unnest(coalesce(v_groups, '{}')) g
-       where vehicle_id_for_name(v_fund, g) is null
+         and not exists (select 1 from unnest(coalesce(v_groups, '{}')) g where vehicle_id_for_name(v_fund, g) = v.id)
     ) names;
 
+  perform set_config('app.cv_refreshing', p_company::text, true);
   update companies set portfolio_group = v_derived
    where id = p_company and portfolio_group is distinct from v_derived;
+  perform set_config('app.cv_refreshing', '', true);
 end;
 $$;
 
@@ -135,7 +143,22 @@ language plpgsql
 security definer
 set search_path = public
 as $$
+declare
+  col text;
+  changed boolean := tg_op <> 'UPDATE';
 begin
+  -- An update that leaves every linking column (the trigger's arguments) as it was links nothing new
+  -- — a full-row PATCH, a bulk edit of other fields. Skip it.
+  if tg_op = 'UPDATE' then
+    foreach col in array tg_argv loop
+      if (to_jsonb(old) -> col) is distinct from (to_jsonb(new) -> col) then
+        changed := true;
+      end if;
+    end loop;
+    if not changed then
+      return null;
+    end if;
+  end if;
   if tg_op in ('UPDATE', 'DELETE') and old.company_id is not null then
     perform refresh_company_vehicles(old.company_id);
   end if;
@@ -151,25 +174,27 @@ revoke execute on function public.company_vehicles_source_changed() from public,
 drop trigger if exists company_vehicles_from_transactions on public.investment_transactions;
 create trigger company_vehicles_from_transactions
   after insert or update of company_id, portfolio_group or delete on public.investment_transactions
-  for each row execute function public.company_vehicles_source_changed();
+  for each row execute function public.company_vehicles_source_changed('company_id', 'portfolio_group');
 
 drop trigger if exists company_vehicles_from_accounts on public.chart_of_accounts;
 create trigger company_vehicles_from_accounts
   after insert or update of company_id, vehicle_id or delete on public.chart_of_accounts
-  for each row execute function public.company_vehicles_source_changed();
+  for each row execute function public.company_vehicles_source_changed('company_id', 'vehicle_id');
 
 drop trigger if exists company_vehicles_from_holding_terms on public.fund_holding_terms;
 create trigger company_vehicles_from_holding_terms
   after insert or update of company_id, vehicle_id or delete on public.fund_holding_terms
-  for each row execute function public.company_vehicles_source_changed();
+  for each row execute function public.company_vehicles_source_changed('company_id', 'vehicle_id');
 
 drop trigger if exists company_vehicles_from_wallets on public.crypto_wallets;
 create trigger company_vehicles_from_wallets
   after insert or update of company_id, portfolio_group or delete on public.crypto_wallets
-  for each row execute function public.company_vehicles_source_changed();
+  for each row execute function public.company_vehicles_source_changed('company_id', 'portfolio_group');
 
 -- A direct edit to a company's portfolio_group (the company form) is an assignment. Writes made by
--- refresh_company_vehicles itself arrive at trigger depth > 1 and are ignored.
+-- refresh_company_vehicles itself are ignored: inside another trigger (depth > 1), or flagged by
+-- app.cv_refreshing when refresh runs from a plain statement (the backfill, an RPC) — otherwise
+-- every company would be refreshed twice.
 create or replace function public.company_vehicles_from_company()
 returns trigger
 language plpgsql
@@ -177,7 +202,9 @@ security definer
 set search_path = public
 as $$
 begin
-  if pg_trigger_depth() = 1 then
+  if pg_trigger_depth() = 1
+     and coalesce(current_setting('app.cv_refreshing', true), '') <> new.id::text
+     and (tg_op = 'INSERT' or old.portfolio_group is distinct from new.portfolio_group) then
     perform refresh_company_vehicles(new.id);
   end if;
   return null;
@@ -235,6 +262,38 @@ drop trigger if exists company_vehicles_from_vehicle on public.fund_vehicles;
 create trigger company_vehicles_from_vehicle
   after insert or update of name, aliases on public.fund_vehicles
   for each row execute function public.company_vehicles_from_vehicle();
+
+-- ---------------------------------------------------------------------------
+-- A name or alias denotes ONE entity. Name-based scoping (portfolio_group strings) resolves a string
+-- to the entity that carries it; if "Fund II" were both one entity's name and another's alias, rows
+-- tagged "Fund II" would belong to both, and each entity's members would read the other's.
+-- Checked on change only, so existing data never fails the push.
+-- ---------------------------------------------------------------------------
+create or replace function public.fund_vehicles_names_unique()
+returns trigger
+language plpgsql
+set search_path = public
+as $$
+declare
+  clash text;
+begin
+  select n into clash
+    from unnest(array[new.name] || coalesce(new.aliases, '{}')) n
+   where exists (select 1 from fund_vehicles o
+                  where o.fund_id = new.fund_id and o.id <> new.id
+                    and (o.name = n or n = any(o.aliases)))
+   limit 1;
+  if clash is not null then
+    raise exception 'Another entity in this fund is already called "%"', clash using errcode = '23505';
+  end if;
+  return new;
+end;
+$$;
+
+drop trigger if exists fund_vehicles_names_unique on public.fund_vehicles;
+create trigger fund_vehicles_names_unique
+  before insert or update of name, aliases on public.fund_vehicles
+  for each row execute function public.fund_vehicles_names_unique();
 
 -- ---------------------------------------------------------------------------
 -- Backfill every company once (re-runnable: refresh is idempotent).

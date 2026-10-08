@@ -34,7 +34,7 @@ async function loadAudience(admin: SupabaseClient, fundId: string, companyId: st
   return {
     members: ((members.data as any[]) ?? []).map(m => {
       const mine = granted.get(m.user_id) ?? new Set<string>()
-      return { userId: m.user_id as string, unscoped: m.role === 'admin' || m.all_entities === true, granted: mine }
+      return { userId: m.user_id as string, unscoped: m.role === 'admin' || m.role === 'viewer' || m.all_entities === true, granted: mine }
     }),
     holding: new Set(((links.data as any[]) ?? []).map(l => l.vehicle_id as string)),
   }

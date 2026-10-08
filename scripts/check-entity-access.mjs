@@ -265,7 +265,7 @@ try {
     links(C), 'Fund I:assigned,Fund II:holding')
 
   psql(`update companies set portfolio_group = '{"Old Fund","Fund I"}' where id = '${D}'`)
-  check('a legacy entity name with no registry row is kept on the company, not dropped', groups(D), 'Fund I,Old Fund')
+  check('a legacy entity name with no registry row is kept on the company, not dropped', groups(D), 'Old Fund,Fund I')
   check('…and adds no link, since it names no entity', links(D), 'Fund I:holding')
 
   // RLS: a member sees links only for their entities.
@@ -434,7 +434,7 @@ try {
     psql(`select v.name || ':' || cv.relation from company_vehicles cv join fund_vehicles v on v.id = cv.vehicle_id where cv.company_id = '${ORPHAN}'`),
     'Elsewhere:assigned')
   check('assigning it keeps a legacy tag it already had',
-    psql(`select array_to_string(portfolio_group, ',') from companies where id = '${TAGGED}'`), 'Elsewhere,Old SPV')
+    psql(`select array_to_string(portfolio_group, ',') from companies where id = '${TAGGED}'`), 'Old SPV,Elsewhere')
   check('a company in a several-entity fund stays unassigned — there is no single right answer',
     psql(`select count(*) from company_vehicles where company_id = '${LOOSE}'`), '0')
 
@@ -490,6 +490,25 @@ try {
   check('compliance: a member sees fund-level and their entity\'s deadlines, and only their entry data',
     psql(`select string_agg(title, ',' order by title) from compliance_deadlines`, { as: MEMBER }) + '|' +
     psql(`select string_agg(field_value, ',') from compliance_entry_data`, { as: MEMBER }), 'Form D,Fund I K-1s|one')
+
+  // ---- Names, tags, and who passes through. ----
+  const Z = '00000000-0000-0000-0000-0000000000f9'
+  psql(`insert into companies (id, fund_id, name, portfolio_group) values ('${Z}', '${F}', 'Zeta', '{"Fund 2","Fund I"}')`)
+  check('a company\'s tags keep their order and spelling (an alias stays an alias)', groups(Z), 'Fund 2,Fund I')
+  check('…and the alias still links its entity', links(Z), 'Fund I:assigned,Fund II:assigned')
+  check('an entity cannot take another entity\'s name as an alias',
+    tryAs(`update fund_vehicles set aliases = aliases || '{"Fund I"}' where id = '${V2}'`, ADMIN), 'refused')
+  check('…nor be created under another entity\'s alias',
+    tryAs(`insert into fund_vehicles (fund_id, name) values ('${F}', 'Fund 2')`, ADMIN), 'refused')
+
+  const ELSE_MEMBER = '00000000-0000-0000-0000-0000000000e8', VIEWER = '00000000-0000-0000-0000-0000000000e7'
+  psql(`insert into auth.users values ('${ELSE_MEMBER}'), ('${VIEWER}');
+        insert into fund_members values ('${OTHER_F}', '${ELSE_MEMBER}', 'member'), ('${F}', '${VIEWER}', 'viewer');
+        insert into lp_account_links values ('${ELSE_MEMBER}', '${I2}')`)
+  check('a member of another fund who is an LP here still reads their own investor row',
+    psql(`select string_agg(name, ',') from lp_investors where fund_id = '${F}'`, { as: ELSE_MEMBER }), 'Bob')
+  check('the read-only demo viewer sees every entity',
+    psql(`select access_context('${VIEWER}')->>'vehicles_all'`), 'true')
 
   // ---- Re-runnable. ----
   for (const m of MIGRATIONS.slice(1)) applyFile(join('supabase/migrations', m))

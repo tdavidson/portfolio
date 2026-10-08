@@ -21,7 +21,12 @@ create policy "Only the caller's entities"
   on storage.objects as restrictive for all to authenticated
   using (
     bucket_id not in ('company-documents', 'lp-documents', 'email-attachments')
-    or not (select public.is_fund_member())
+    -- Not a member of the file's fund (an LP portal user, even one who is a member elsewhere): their
+    -- own policies decide. Fund documents carry the fund in their first folder; email attachments do
+    -- not, so for those only a caller who is no fund's member passes here.
+    or (bucket_id in ('company-documents', 'lp-documents')
+        and not ((storage.foldername(name))[1] = any((select public.member_fund_ids())::text[])))
+    or (bucket_id = 'email-attachments' and not (select public.is_fund_member()))
     or (bucket_id in ('company-documents', 'lp-documents')
         and (storage.foldername(name))[1] = any((select public.unscoped_fund_ids())::text[]))
     or (bucket_id = 'company-documents'
@@ -35,7 +40,12 @@ create policy "Only the caller's entities"
   )
   with check (
     bucket_id not in ('company-documents', 'lp-documents', 'email-attachments')
-    or not (select public.is_fund_member())
+    -- Not a member of the file's fund (an LP portal user, even one who is a member elsewhere): their
+    -- own policies decide. Fund documents carry the fund in their first folder; email attachments do
+    -- not, so for those only a caller who is no fund's member passes here.
+    or (bucket_id in ('company-documents', 'lp-documents')
+        and not ((storage.foldername(name))[1] = any((select public.member_fund_ids())::text[])))
+    or (bucket_id = 'email-attachments' and not (select public.is_fund_member()))
     or (bucket_id in ('company-documents', 'lp-documents')
         and (storage.foldername(name))[1] = any((select public.unscoped_fund_ids())::text[]))
     or (bucket_id = 'company-documents'

@@ -64,7 +64,7 @@ as $$
     from fund_members m
     join fund_vehicles v on v.fund_id = m.fund_id
    where m.user_id = auth.uid()
-     and (m.role = 'admin' or m.all_entities
+     and (m.role in ('admin', 'viewer') or m.all_entities
           or exists (select 1 from fund_member_vehicles g
                       where g.fund_id = m.fund_id and g.user_id = m.user_id and g.vehicle_id = v.id));
 $$;
@@ -119,13 +119,13 @@ begin
       (select jsonb_agg(v.id order by v.id)
          from fund_vehicles v
         where v.fund_id = m.fund_id
-          and (m.role = 'admin' or m.all_entities
+          and (m.role in ('admin', 'viewer') or m.all_entities
                or exists (select 1 from fund_member_vehicles g
                            where g.fund_id = m.fund_id and g.user_id = m.user_id and g.vehicle_id = v.id))),
       '[]'::jsonb),
-    -- Unscoped: an admin, or a member holding the "All entities" grant. Such a member sees what an
-    -- admin sees — unassigned companies, rows with no entity, and entities created later.
-    'vehicles_all', m.role = 'admin' or m.all_entities
+    -- Unscoped: an admin, the read-only demo viewer, or a member holding the "All entities" grant.
+    -- They see everything — unassigned companies, rows with no entity, and entities created later.
+    'vehicles_all', m.role in ('admin', 'viewer') or m.all_entities
   )
   into v_result
   from fund_members m

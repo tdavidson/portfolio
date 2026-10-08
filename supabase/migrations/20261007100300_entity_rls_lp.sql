@@ -154,8 +154,10 @@ declare
   t text;
   cols text[];
   pred text;
+  -- Not a member OF THIS ROW'S FUND (an LP portal user — including a member of some other fund who
+  -- is an LP here): their own policies decide. Unscoped members: everything.
   admin_or_lp constant text :=
-    'not (select public.is_fund_member()) or fund_id = any((select public.unscoped_fund_ids())::uuid[])';
+    'not (fund_id = any((select public.member_fund_ids())::uuid[])) or fund_id = any((select public.unscoped_fund_ids())::uuid[])';
   tables text[] := array[
     -- lp_capital
     'lp_investors', 'lp_entities', 'lp_investments', 'lp_positions', 'lp_capital_events', 'commitment_events',

@@ -35,7 +35,7 @@ security definer
 set search_path = public
 as $$
   select coalesce(array_agg(m.fund_id), '{}'::uuid[]) from fund_members m
-   where m.user_id = auth.uid() and (m.role = 'admin' or m.all_entities);
+   where m.user_id = auth.uid() and (m.role in ('admin', 'viewer') or m.all_entities);
 $$;
 
 revoke execute on function public.unscoped_fund_ids() from public, anon;

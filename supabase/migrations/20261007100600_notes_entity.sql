@@ -62,7 +62,7 @@ security definer
 stable
 set search_path = public, pg_temp
 as $$
-  with m as (select fund_id, (role = 'admin' or all_entities) as unscoped from fund_members where user_id = p_user_id),
+  with m as (select fund_id, (role in ('admin', 'viewer') or all_entities) as unscoped from fund_members where user_id = p_user_id),
        g as (select vehicle_id from fund_member_vehicles where user_id = p_user_id),
        c as (select distinct cv.company_id from company_vehicles cv where cv.vehicle_id in (select vehicle_id from g))
   select count(*)
