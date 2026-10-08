@@ -42,12 +42,11 @@ interface CustomMetric {
   unit: string | null
 }
 
-/** A fund vehicle, as returned by GET /api/vehicles. */
+/** One of the fund's entities the viewer can see, as returned by GET /api/entities. */
 interface Vehicle {
   id: string
   name: string
   kind: string
-  aliases: string[] | null
   active: boolean
 }
 
@@ -66,7 +65,6 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
   const [vehicles, setVehicles] = useState<Vehicle[]>([])
   const [vehicleInput, setVehicleInput] = useState('')
   const [vehicleDropdownOpen, setVehicleDropdownOpen] = useState(false)
-  const [vehicleCreating, setVehicleCreating] = useState(false)
   const vehicleFieldRef = useRef<HTMLDivElement>(null)
   const [notes, setNotes] = useState(company?.notes ?? '')
   const [overview, setOverview] = useState(company?.overview ?? '')
@@ -108,12 +106,13 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
 
   useEffect(() => {
     let cancelled = false
-    fetch('/api/vehicles')
+    // The viewer's entities (gated on portfolio, not accounting — anyone who edits a company can
+    // choose its entities). Active ones to choose from; the management company holds no portfolio.
+    fetch('/api/entities')
       .then(res => (res.ok ? res.json() : []))
-      .then((data: Vehicle[] | { vehicles: Vehicle[] }) => {
+      .then((rows: Vehicle[]) => {
         if (cancelled) return
-        const rows = Array.isArray(data) ? data : (data?.vehicles ?? [])
-        setVehicles(rows)
+        setVehicles((rows ?? []).filter(v => v.active !== false && v.kind !== 'manco'))
       })
       .catch(() => { if (!cancelled) setVehicles([]) })
     return () => { cancelled = true }
@@ -192,9 +191,6 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
     v.name.toLowerCase().includes(vehicleInput.trim().toLowerCase()) &&
     !portfolioGroups.includes(v.name)
   )
-  const vehicleExactMatch = vehicles.some(
-    v => v.name.toLowerCase() === vehicleInput.trim().toLowerCase()
-  )
 
   function selectVehicle(name: string) {
     if (!portfolioGroups.includes(name)) {
@@ -204,45 +200,14 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
     setVehicleDropdownOpen(false)
   }
 
-  async function createAndSelectVehicle(name: string) {
-    const trimmed = name.trim()
-    if (!trimmed) return
-    setVehicleCreating(true)
-    try {
-      const res = await fetch('/api/vehicles', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ name: trimmed, kind: 'other' }),
-      })
-      if (res.ok) {
-        const created: Vehicle = await res.json()
-        setVehicles(prev => (prev.some(v => v.id === created.id) ? prev : [...prev, created]))
-        selectVehicle(created.name)
-      } else if (res.status === 409) {
-        // Already exists (e.g. created elsewhere between fetch and submit) — just add the name.
-        selectVehicle(trimmed)
-      } else {
-        const data = await res.json().catch(() => ({}))
-        setError(data.error ?? 'Failed to create vehicle')
-      }
-    } catch {
-      setError('Failed to create vehicle')
-    } finally {
-      setVehicleCreating(false)
-    }
-  }
-
   function handleVehicleInputKeyDown(e: KeyboardEvent<HTMLInputElement>) {
     if (e.key !== 'Enter') return
     e.preventDefault()
     const trimmed = vehicleInput.trim()
     if (!trimmed) return
+    // Choose an existing entity only: entities are created under Settings, never from a typo here.
     const existing = vehicles.find(v => v.name.toLowerCase() === trimmed.toLowerCase())
-    if (existing) {
-      selectVehicle(existing.name)
-    } else {
-      void createAndSelectVehicle(trimmed)
-    }
+    if (existing) selectVehicle(existing.name)
   }
 
   function addContactEmail() {
@@ -466,7 +431,7 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
       </div>
 
       <div className="space-y-2">
-        <Label>Vehicles</Label>
+        <Label>Entities</Label>
         {portfolioGroups.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-2">
             {portfolioGroups.map(val => (
@@ -485,12 +450,11 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
         )}
         <div className="relative" ref={vehicleFieldRef}>
           <Input
-            placeholder="Search or add a vehicle…"
+            placeholder="Search entities…"
             value={vehicleInput}
             onChange={e => { setVehicleInput(e.target.value); setVehicleDropdownOpen(true) }}
             onFocus={() => setVehicleDropdownOpen(true)}
             onKeyDown={handleVehicleInputKeyDown}
-            disabled={vehicleCreating}
           />
           {vehicleDropdownOpen && vehicleInput.trim() && (
             <div className="absolute z-10 mt-1 w-full rounded-md border bg-popover text-popover-foreground shadow-md max-h-48 overflow-y-auto">
@@ -505,24 +469,14 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
                   <span className="text-xs text-muted-foreground ml-2 shrink-0">{v.kind}</span>
                 </button>
               ))}
-              {!vehicleExactMatch && (
-                <button
-                  type="button"
-                  onMouseDown={e => { e.preventDefault(); void createAndSelectVehicle(vehicleInput) }}
-                  disabled={vehicleCreating}
-                  className="flex w-full items-center px-3 py-1.5 text-sm text-left hover:bg-muted border-t"
-                >
-                  {vehicleCreating ? 'Creating…' : `Create "${vehicleInput.trim()}"`}
-                </button>
-              )}
-              {vehicleMatches.length === 0 && vehicleExactMatch && (
-                <div className="px-3 py-1.5 text-sm text-muted-foreground">Already added</div>
+              {vehicleMatches.length === 0 && (
+                <div className="px-3 py-1.5 text-sm text-muted-foreground">No matching entity</div>
               )}
             </div>
           )}
         </div>
         <p className="text-xs text-muted-foreground">
-          Which fund vehicle(s) this company sits under. Optional — leave empty for a direct deal.
+          Which of the fund&apos;s entities hold this company. Its team sees it; choose at least one of yours.
         </p>
       </div>
 

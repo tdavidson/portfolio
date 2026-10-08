@@ -16,7 +16,8 @@ export async function companyDeleteDenial(
 ): Promise<string | null> {
   if (scope.access.vehicles.all || scope.vehicleNames === null) return null
   const names = scope.vehicleNames
-  const refusal = 'Another entity also holds this company. Ask an admin to remove it.'
+  // Neutral on purpose: that another entity holds the company is not the caller's to learn.
+  const refusal = 'Only an admin can delete this company.'
   const [{ data: links }, { data: company }, { data: txns }] = await Promise.all([
     (admin as any).from('company_vehicles').select('vehicle_id').eq('company_id', companyId),
     (admin as any).from('companies').select('portfolio_group').eq('id', companyId).maybeSingle(),
