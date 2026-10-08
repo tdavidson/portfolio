@@ -75,6 +75,14 @@ describe('readBulkScope', () => {
 })
 
 describe('runBulkDraftAction', () => {
+  it('skips a draft with no lines, so an entry mid-write is never posted empty', async () => {
+    const { admin } = fakeAdmin([balanced('a'), { id: 'e', entry_date: '2026-06-01', journal_postings: [] }])
+    const res = await run(admin, 'post')
+    if (!res.ok) throw new Error('expected success')
+    expect(res.outcome.skipped).toEqual([{ id: 'e', reason: 'Has no lines — add them before posting.' }])
+    expect(postedIds).toEqual(['a'])
+  })
+
   it('posts balanced drafts and reports the ones that are out of balance', async () => {
     const { admin, updates } = fakeAdmin([balanced('a'), lopsided('b'), balanced('c')])
     const res = await run(admin, 'post')

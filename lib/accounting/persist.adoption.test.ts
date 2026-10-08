@@ -57,4 +57,24 @@ describe('persistEntry adopts before it posts', () => {
     expect(m.tables.investment_transactions ?? []).toEqual([])
     expect(m.tables.journal_entries.map(e => e.status)).toEqual(['draft', 'posted'])
   })
+  it('losing the flip to another post allocates nothing and leaves the winner its entry', async () => {
+    const m = memoryAdmin({ chart_of_accounts: chart }, {
+      before: (table, op, payload, tables) => {
+        if (table === 'journal_entries' && op === 'update' && payload.status === 'posted') tables.journal_entries[0].status = 'posted'
+      },
+    })
+    const r = await persistEntry(m.admin, 'f', 'Fund I', 'u', entry(purchase), 'posted')
+    expect(r).toEqual({ error: 'This entry was posted by another request at the same time.' })
+    expect(allocate).not.toHaveBeenCalled()
+    expect(m.tables.journal_entries).toEqual([expect.objectContaining({ status: 'posted' })])
+  })
+  it('keeps the entry as a draft when its adopted transactions cannot be removed', async () => {
+    allocate.mockResolvedValueOnce({ error: 'No partner participates' } as any)
+    const m = memoryAdmin({ chart_of_accounts: chart })
+    m.failNext('investment_transactions', 'delete', 'boom')
+    const r = await persistEntry(m.admin, 'f', 'Fund I', 'u', entry(purchase), 'posted')
+    expect(r).toEqual({ error: expect.stringMatching(/kept as a draft.*boom/) })
+    expect(m.tables.journal_entries).toEqual([expect.objectContaining({ status: 'draft' })])
+    expect(m.tables.investment_transactions).toHaveLength(1)
+  })
 })

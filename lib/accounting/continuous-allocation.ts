@@ -1,4 +1,4 @@
-import { adoptEntry, removeAdopted, settleLostRace } from './adoption'
+import { adoptEntry, keptAsDraft, removeAdopted, settleLostRace } from './adoption'
 import { loadResolvedCommitments } from './terms'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { allocateAmountCumulatively } from './allocation'
@@ -203,9 +203,13 @@ export async function postExistingEntryWithAllocation(
   const { data: flipped, error: statusError } = await admin.from('journal_entries' as any)
     .update({ status: 'posted', posted_at: new Date().toISOString() })
     .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', entryId).eq('status', 'draft').select('id')
-  if (statusError) { await removeAdopted(admin, fundId, adopted); return { error: statusError.message } }
+  if (statusError) {
+    const removed = await removeAdopted(admin, fundId, adopted)
+    return { error: removed.error ? keptAsDraft(entryId, removed.error) : statusError.message }
+  }
   if (!((flipped as any[]) ?? []).length) {
-    await settleLostRace(admin, fundId, entryId, adopted)
+    const settled = await settleLostRace(admin, fundId, entryId, adopted)
+    if (settled.error) return { error: keptAsDraft(entryId, settled.error) }
     return { error: 'Only a draft entry can be posted' }
   }
   const entry: JournalEntry = {
@@ -216,7 +220,11 @@ export async function postExistingEntryWithAllocation(
   const allocated = await allocatePostedEntry(admin, fundId, group, userId, entryId, entry)
   if ('error' in allocated) {
     await rollbackGeneratedAllocations(admin, fundId, entryId)
-    await removeAdopted(admin, fundId, adopted)
+    const removed = await removeAdopted(admin, fundId, adopted)
+    if (removed.error) {
+      await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null }).eq('fund_id', fundId).eq('id', entryId)
+      return { error: keptAsDraft(entryId, removed.error) }
+    }
     await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null }).eq('fund_id', fundId).eq('id', entryId)
     return allocated
   }

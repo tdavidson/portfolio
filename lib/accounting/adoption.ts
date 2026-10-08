@@ -116,9 +116,15 @@ async function adoptEntryUnguarded(
   return { adoptedIds: ((data as any[]) ?? []).map(r => r.id as string) }
 }
 
-export async function removeAdopted(admin: SupabaseClient, fundId: string, ids: string[]): Promise<void> {
-  if (ids.length === 0) return
-  await admin.from('investment_transactions' as any).delete().eq('fund_id', fundId).in('id', ids)
+export async function removeAdopted(admin: SupabaseClient, fundId: string, ids: string[]): Promise<{ error?: string }> {
+  if (ids.length === 0) return {}
+  const { error } = await admin.from('investment_transactions' as any).delete().eq('fund_id', fundId).in('id', ids)
+  return error ? { error: error.message } : {}
+}
+
+/** The message when adopted transactions could not be removed: the entry stays a draft. */
+export function keptAsDraft(entryId: string, error: string): string {
+  return `Its investment transactions could not be undone; entry ${entryId} was kept as a draft — void it from the journal. (${error})`
 }
 
 /**
@@ -126,10 +132,11 @@ export async function removeAdopted(admin: SupabaseClient, fundId: string, ids: 
  * request adopted too, its rows own the entry and ours are duplicates; if it adopted nothing
  * (it saw ours and found the entry owned), ours are what owns the posted entry — keep them.
  */
-export async function settleLostRace(admin: SupabaseClient, fundId: string, entryId: string, mine: string[]): Promise<void> {
-  if (mine.length === 0) return
-  const { data } = await admin.from('investment_transactions' as any)
+export async function settleLostRace(admin: SupabaseClient, fundId: string, entryId: string, mine: string[]): Promise<{ error?: string }> {
+  if (mine.length === 0) return {}
+  const { data, error } = await admin.from('investment_transactions' as any)
     .select('id').eq('fund_id', fundId).eq('adopted_entry_id', entryId)
+  if (error) return { error: error.message }
   const others = ((data as any[]) ?? []).filter(r => !mine.includes(r.id))
-  if (others.length > 0) await removeAdopted(admin, fundId, mine)
+  return others.length > 0 ? removeAdopted(admin, fundId, mine) : {}
 }

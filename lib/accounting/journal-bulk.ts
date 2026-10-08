@@ -111,6 +111,10 @@ export async function runBulkDraftAction(
       continue
     }
     if (action === 'post') {
+      if (((e.journal_postings as any[]) ?? []).length === 0) {
+        skipped.push({ id: e.id, reason: 'Has no lines — add them before posting.' })
+        continue
+      }
       const sum = ((e.journal_postings as any[]) ?? []).reduce((s, p) => s + Number(p.amount), 0)
       if (Math.abs(sum) > 0.005) {
         skipped.push({ id: e.id, reason: `Out of balance by ${sum.toFixed(2)} — fix it before posting.` })

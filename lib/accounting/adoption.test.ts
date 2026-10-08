@@ -66,7 +66,7 @@ describe('entryIsOwned', () => {
 describe('settleLostRace', () => {
   it('removes mine when another request also adopted', async () => {
     const m = memoryAdmin({ investment_transactions: [{ id: 'mine', fund_id: 'f', adopted_entry_id: 'e1' }, { id: 'theirs', fund_id: 'f', adopted_entry_id: 'e1' }] })
-    await settleLostRace(m.admin, 'f', 'e1', ['mine'])
+    expect(await settleLostRace(m.admin, 'f', 'e1', ['mine'])).toEqual({})
     expect(m.tables.investment_transactions.map(t => t.id)).toEqual(['theirs'])
   })
   it('keeps mine when the winner relied on them', async () => {
@@ -81,6 +81,12 @@ describe('removeAdopted', () => {
     const m = memoryAdmin({ investment_transactions: [{ id: 'a', fund_id: 'f' }, { id: 'b', fund_id: 'f' }, { id: 'a', fund_id: 'other' }] })
     await removeAdopted(m.admin, 'f', ['a'])
     expect(m.tables.investment_transactions).toEqual([{ id: 'b', fund_id: 'f' }, { id: 'a', fund_id: 'other' }])
+  })
+  it('returns the error instead of swallowing a failed delete', async () => {
+    const m = memoryAdmin({ investment_transactions: [{ id: 'a', fund_id: 'f' }] })
+    m.failNext('investment_transactions', 'delete', 'boom')
+    expect(await removeAdopted(m.admin, 'f', ['a'])).toEqual({ error: 'boom' })
+    expect(await removeAdopted(m.admin, 'f', [])).toEqual({})
   })
 })
 

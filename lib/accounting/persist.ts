@@ -11,7 +11,7 @@ import { fundCurrency } from './currency'
 import { vehicleIdByName } from './vehicle-id'
 import type { JournalEntry } from './types'
 import { ACTUAL_BOOK, type LedgerBook } from './books'
-import { adoptEntry, removeAdopted } from './adoption'
+import { adoptEntry, keptAsDraft, removeAdopted, settleLostRace } from './adoption'
 
 /** code → account_id for the vehicle's chart. */
 export async function accountIdByCode(admin: SupabaseClient, fundId: string, group: string): Promise<Map<string, string>> {
@@ -234,13 +234,21 @@ export async function persistEntry(
       return { error: adoption.refused, adoptionRefused: true }
     }
     adopted = adoption.adoptedIds
-    const { error: flipErr } = await admin.from('journal_entries' as any)
+    const { data: flipped, error: flipErr } = await admin.from('journal_entries' as any)
       .update({ status: 'posted', posted_at: new Date().toISOString() })
-      .eq('id', entryId).eq('fund_id', fundId).eq('status', 'draft')
+      .eq('id', entryId).eq('fund_id', fundId).eq('book', ACTUAL_BOOK).eq('status', 'draft').select('id')
     if (flipErr) {
-      await removeAdopted(admin, fundId, adopted)
+      const removed = await removeAdopted(admin, fundId, adopted)
+      if (removed.error) return { error: keptAsDraft(entryId, removed.error) }
       await discard()
       return { error: flipErr.message }
+    }
+    if (!((flipped as any[]) ?? []).length) {
+      // Another request posted this draft first (it is visible as a draft for a few round trips).
+      // The winner owns the posted entry and its allocation; do not allocate or discard.
+      const settled = await settleLostRace(admin, fundId, entryId, adopted)
+      if (settled.error) return { error: keptAsDraft(entryId, settled.error) }
+      return { error: 'This entry was posted by another request at the same time.' }
     }
   }
 
@@ -253,7 +261,11 @@ export async function persistEntry(
       // Compensating rollback. persistEntry predates a transactional RPC; never leave the source
       // posted without the capital allocation that posting promised — nor its adopted transactions.
       await rollbackGeneratedAllocations(admin, fundId, entryId)
-      await removeAdopted(admin, fundId, adopted)
+      const removed = await removeAdopted(admin, fundId, adopted)
+      if (removed.error) {
+        await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null }).eq('id', entryId).eq('fund_id', fundId)
+        return { error: keptAsDraft(entryId, removed.error) }
+      }
       await discard()
       return { error: `Entry was not posted because its partner allocation failed: ${allocated.error}`, allocationFailed: true }
     }
