@@ -9,8 +9,11 @@
 //
 // See plans/plan-access-control.md.
 
-import { useCallback, useEffect, useState } from 'react'
-import { Loader2, Shield, Check } from 'lucide-react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Loader2, Shield, Check, ChevronDown, ChevronRight } from 'lucide-react'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
+import { Input } from '@/components/ui/input'
+import { VEHICLE_KIND_LABELS, isVehicleKind } from '@/lib/vehicle-kinds'
 import { DOMAIN_META, domainFundLevel, domainGrantableToMembers, type Domain } from '@/lib/access/domains'
 import { FEATURE_META } from '@/lib/types/feature-meta'
 import type { FeatureVisibilityMap } from '@/lib/types/features'
@@ -58,6 +61,22 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
   const [saving, setSaving] = useState<string | null>(null)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
+
+  // THE GRID IS WIDER THAN THE CARD, and a horizontal scrollbar alone does not say so (macOS hides
+  // it until you scroll). So the right edge fades while columns are hidden, and a button says
+  // there are more and scrolls to them.
+  const scroller = useRef<HTMLDivElement>(null)
+  const [moreRight, setMoreRight] = useState(false)
+  useEffect(() => {
+    const el = scroller.current
+    if (!el) return
+    const update = () => setMoreRight(el.scrollWidth - el.clientWidth - el.scrollLeft > 4)
+    el.addEventListener('scroll', update, { passive: true })
+    // Fires once on observe, which is the initial measurement.
+    const resize = new ResizeObserver(update)
+    resize.observe(el)
+    return () => { el.removeEventListener('scroll', update); resize.disconnect() }
+  }, [loading, domains.length])
 
   const load = useCallback(async () => {
     const res = await fetch('/api/settings/access')
@@ -138,11 +157,32 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
 
       {error && <p className="text-sm text-destructive">{error}</p>}
 
-      <div className="overflow-x-auto">
+      {moreRight && (
+        <div className="flex justify-end">
+          <button
+            type="button"
+            onClick={() => scroller.current?.scrollBy({ left: 360, behavior: 'smooth' })}
+            className="inline-flex items-center gap-0.5 text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            More areas <ChevronRight className="h-3 w-3" />
+          </button>
+        </div>
+      )}
+
+      <div className="relative">
+      <div ref={scroller} className="overflow-x-auto">
         <table className="w-full text-sm border-separate border-spacing-0">
           <thead>
             <tr>
-              <th className="text-left font-medium py-2 pr-3 sticky left-0 bg-background align-top">Person</th>
+              <th className="text-left font-medium py-2 pr-3 sticky left-0 z-10 bg-card align-top">Person</th>
+              {/* Entities come first: whose data a member sees decides everything to the right of
+                  it, and it is the one column that must never be scrolled out of sight. */}
+              <th className="px-2 py-2 text-left font-medium align-top">
+                <span className="whitespace-nowrap">Entities</span>
+                <span className="mt-0.5 block max-w-[150px] text-[9px] font-normal leading-tight text-muted-foreground">
+                  Whose data they see
+                </span>
+              </th>
               {domains.map(d => (
                 <th key={d.key} className="px-2 py-2 text-left font-medium align-top">
                   <span title={d.description} className="whitespace-nowrap">{d.label}</span>
@@ -156,27 +196,23 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
                   {!domainGrantableToMembers(d.key, featureVisibility) && (
                     // The fund switch above already decided this one. Saying so beats offering a
                     // dropdown whose value effectiveAccess never reads.
-                    <span className="mt-0.5 block text-[9px] font-normal text-muted-foreground">
+                    <span className="mt-0.5 block whitespace-nowrap text-[9px] font-normal text-muted-foreground">
                       {domainFundLevel(d.key, featureVisibility) === 'admin' ? 'Admins only' : 'Off'} — set above
                     </span>
                   )}
                 </th>
               ))}
-              <th className="px-2 py-2 text-left font-medium align-top">
-                <span className="whitespace-nowrap">Entities</span>
-                <span className="mt-0.5 block max-w-[180px] text-[9px] font-normal leading-tight text-muted-foreground">
-                  Whose data they see. A new member sees none until granted.
-                </span>
-              </th>
             </tr>
           </thead>
           <tbody>
             {/* The baseline a new member inherits. */}
             <tr className="border-t">
-              <td className="py-2 pr-3 sticky left-0 bg-background align-top">
+              <td className="py-2 pr-3 sticky left-0 z-10 bg-card align-top">
                 <p className="text-xs font-medium">Default for new members</p>
                 <p className="text-[10px] text-muted-foreground">Applied when someone joins</p>
               </td>
+              {/* No default here on purpose: a new member sees no entity until granted one. */}
+              <td className="px-2 py-2 align-top"><span className={STATIC_CELL}>None</span></td>
               {domains.map(d => (
                 <td key={d.key} className="px-2 py-2 align-top">
                   {domainGrantableToMembers(d.key, featureVisibility) ? (
@@ -194,13 +230,26 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
 
             {members.map(m => (
               <tr key={m.userId} className="border-t">
-                <td className="py-2 pr-3 sticky left-0 bg-background align-top">
+                <td className="py-2 pr-3 sticky left-0 z-10 bg-card align-top">
                   <p className="text-xs truncate max-w-[220px]" title={m.email}>{m.email}</p>
                   {m.role === 'viewer' ? (
                     // The demo account. Not a role you can assign, so not one you can leave either.
                     <span className="text-[10px] text-muted-foreground">Demo account</span>
                   ) : (
                     <RolePicker role={m.role} onChange={role => setRole(m.userId, role)} busy={saving === `${m.userId}:role`} />
+                  )}
+                </td>
+                <td className="px-2 py-2 align-top">
+                  {m.role === 'admin' || m.role === 'viewer' ? (
+                    <span className={`${STATIC_CELL} gap-1`}><Shield className="h-2.5 w-2.5" />All</span>
+                  ) : (
+                    <EntityPicker
+                      member={m}
+                      entities={entities}
+                      saving={saving}
+                      onAll={all => setAllEntities(m.userId, all)}
+                      onToggle={(id, on) => setEntity(m.userId, id, on)}
+                    />
                   )}
                 </td>
                 {domains.map(d => (
@@ -229,52 +278,105 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
                     )}
                   </td>
                 ))}
-                <td className="px-2 py-2 align-top">
-                  {m.role === 'admin' || m.role === 'viewer' ? (
-                    <span className={`${STATIC_CELL} gap-1`}><Shield className="h-2.5 w-2.5" />All</span>
-                  ) : (
-                    <div className="flex max-w-[260px] flex-col gap-1 text-xs">
-                      {/* "All entities" is a stored grant: it covers entities created later and
-                          items assigned to none (new pitches, legacy notes). Per-entity boxes apply
-                          only without it. */}
-                      <label className="inline-flex items-center gap-1.5 font-medium">
-                        <input
-                          type="checkbox"
-                          checked={!!m.allEntities}
-                          disabled={saving === `${m.userId}:all-entities`}
-                          onChange={ev => setAllEntities(m.userId, ev.target.checked)}
-                        />
-                        All entities <span className="font-normal text-muted-foreground">(incl. future)</span>
-                      </label>
-                      {!m.allEntities && entities.map(e => {
-                        const on = (m.entities ?? []).includes(e.id)
-                        return (
-                          <label key={e.id} className={`inline-flex items-center gap-1.5 ${e.active ? '' : 'text-muted-foreground'}`}>
-                            <input
-                              type="checkbox"
-                              checked={on}
-                              disabled={saving === `${m.userId}:entity:${e.id}`}
-                              onChange={() => setEntity(m.userId, e.id, !on)}
-                            />
-                            {e.name}{!e.active && ' (inactive)'}
-                          </label>
-                        )
-                      })}
-                      {!m.allEntities && (m.entities ?? []).length === 0 && (
-                        <span className="text-muted-foreground">Sees no entity data yet</span>
-                      )}
-                    </div>
-                  )}
-                </td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
+      {moreRight && (
+        <div aria-hidden className="pointer-events-none absolute inset-y-0 right-0 w-16 bg-gradient-to-l from-card to-transparent" />
+      )}
+      </div>
 
       {savedAt && !saving && (
         <p className="text-[11px] text-success inline-flex items-center gap-1"><Check className="h-3 w-3" />Saved</p>
       )}
+    </div>
+  )
+}
+
+/**
+ * Which entities a member sees, as one compact control: the summary in the cell, the list in a
+ * popover. A firm with a dozen funds, SPVs and management companies made the old inline checklist
+ * the tallest thing on the page, repeated for every member.
+ */
+function EntityPicker({
+  member, entities, saving, onAll, onToggle,
+}: {
+  member: MemberAccess
+  entities: EntityInfo[]
+  saving: string | null
+  onAll: (all: boolean) => void
+  onToggle: (vehicleId: string, granted: boolean) => void
+}) {
+  const [query, setQuery] = useState('')
+  const granted = new Set(member.entities ?? [])
+  const busy = saving?.startsWith(`${member.userId}:entity:`) || saving === `${member.userId}:all-entities`
+  const summary = member.allEntities
+    ? 'All entities'
+    : granted.size === 0
+      ? 'None'
+      : granted.size === 1
+        ? entities.find(e => granted.has(e.id))?.name ?? '1 entity'
+        : `${granted.size} entities`
+  const shown = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    return entities
+      .filter(e => !q || e.name.toLowerCase().includes(q))
+      // Active first, then by name — an inactive entity is rarely the one being granted.
+      .sort((a, b) => Number(b.active) - Number(a.active) || a.name.localeCompare(b.name))
+  }, [entities, query])
+  const kind = (k: string) => (isVehicleKind(k) ? VEHICLE_KIND_LABELS[k] : '')
+
+  return (
+    <div className="inline-flex items-center gap-1">
+      <Popover onOpenChange={open => { if (!open) setQuery('') }}>
+        <PopoverTrigger asChild>
+          <button
+            type="button"
+            className={`inline-flex h-7 max-w-[180px] items-center gap-1 rounded border px-1.5 text-[11px] ${granted.size === 0 && !member.allEntities ? 'text-muted-foreground' : ''}`}
+          >
+            <span className="truncate">{summary}</span>
+            <ChevronDown className="h-3 w-3 shrink-0 text-muted-foreground" />
+          </button>
+        </PopoverTrigger>
+        <PopoverContent align="start" className="w-72 p-0">
+          <div className="border-b p-3">
+            <label className="flex items-start gap-2 text-xs">
+              <input type="checkbox" className="mt-0.5" checked={!!member.allEntities} onChange={e => onAll(e.target.checked)} />
+              <span>
+                <span className="font-medium">All entities</span>
+                <span className="block text-[11px] text-muted-foreground">Including ones added later, and items not assigned to any entity.</span>
+              </span>
+            </label>
+          </div>
+          {!member.allEntities && (
+            <>
+              {entities.length > 8 && (
+                <div className="border-b p-2">
+                  <Input value={query} onChange={e => setQuery(e.target.value)} placeholder="Find an entity" className="h-7 text-xs" />
+                </div>
+              )}
+              <ul className="max-h-64 overflow-y-auto py-1">
+                {shown.map(e => (
+                  <li key={e.id}>
+                    <label className={`flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted ${e.active ? '' : 'text-muted-foreground'}`}>
+                      <input type="checkbox" checked={granted.has(e.id)} onChange={() => onToggle(e.id, !granted.has(e.id))} />
+                      <span className="min-w-0 flex-1 truncate" title={e.name}>{e.name}</span>
+                      <span className="shrink-0 text-[10px] text-muted-foreground">{e.active ? kind(e.kind) : 'Inactive'}</span>
+                    </label>
+                  </li>
+                ))}
+                {shown.length === 0 && <li className="px-3 py-2 text-xs text-muted-foreground">No entity matches.</li>}
+              </ul>
+              <p className="border-t px-3 py-2 text-[11px] text-muted-foreground tabular-nums">
+                {granted.size === 0 ? 'Sees no entity data yet' : `${granted.size} of ${entities.length} selected`}
+              </p>
+            </>
+          )}
+        </PopoverContent>
+      </Popover>
+      {busy && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
     </div>
   )
 }

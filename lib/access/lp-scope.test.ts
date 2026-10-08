@@ -124,3 +124,23 @@ describe('lpDocumentVisible — a document tagged to another entity', () => {
     expect(await lpDocumentVisible(adminWith({ id: 'd', scope: 'investor', vehicle: 'Fund I' }, [{ lp_investor_id: 'I1' }]), 'f1', 'd', lp)).toBe(true)
   })
 })
+
+import { scopeReportCardRows } from './lp-scope'
+describe('scopeReportCardRows — a report card is the whole LP, for the LPs the caller can see', () => {
+  // Ann holds two entities: one in Fund I, one in Fund II. Bob holds Fund II only.
+  const investorOf = (entityId: string) => ({ A1: 'ann', A2: 'ann', B1: 'bob' } as Record<string, string>)[entityId] ?? entityId
+  const rows = [
+    { entity_id: 'A1', portfolio_group: 'Fund I' },
+    { entity_id: 'A2', portfolio_group: 'Fund II' },
+    { entity_id: 'B1', portfolio_group: 'Fund II' },
+  ]
+  it('keeps everything for a caller who sees every entity', () => {
+    expect(scopeReportCardRows(rows, null, investorOf)).toHaveLength(3)
+  })
+  it("keeps every position of an LP with a position in the caller's entities, and drops the rest", () => {
+    expect(scopeReportCardRows(rows, ['Fund I'], investorOf).map(r => r.entity_id)).toEqual(['A1', 'A2'])
+  })
+  it('a caller who sees no entity gets no cards', () => {
+    expect(scopeReportCardRows(rows, [], investorOf)).toEqual([])
+  })
+})

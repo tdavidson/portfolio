@@ -83,6 +83,20 @@ export function scopeLiveReport<R extends { rows: { entity_id: string; portfolio
 }
 
 /**
+ * REPORT CARDS ARE WHOLE. A card is one LP's document across every entity it holds, so it must
+ * carry ALL of that LP's positions whoever produces it — a card cut to the producer's entities
+ * would state the LP's commitment, NAV and multiples wrong, with nothing on it saying so. What the
+ * entity grant decides is WHICH LPs: those with a position in an entity the caller can see.
+ */
+export function scopeReportCardRows<Row extends { entity_id: string; portfolio_group: string }>(
+  rows: Row[], visibleNames: string[] | null, investorOf: (entityId: string) => string,
+): Row[] {
+  if (visibleNames === null) return rows
+  const investors = new Set(rows.filter(r => visibleNames.includes(r.portfolio_group)).map(r => investorOf(r.entity_id)))
+  return rows.filter(r => investors.has(investorOf(r.entity_id)))
+}
+
+/**
  * May the caller see this LP document? The lp_documents RLS rule, in code: a fund-wide document
  * goes to every LP so every member may see it; an investor document only when it is shared with an
  * investor the caller can see.

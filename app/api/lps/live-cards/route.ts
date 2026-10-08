@@ -5,7 +5,7 @@ import { assertReadAccess } from '@/lib/api-helpers'
 import { generateLiveReport } from '@/lib/accounting/live-report'
 import { lastDataDates } from '@/lib/accounting/lp-positions'
 import { loadEntityScope } from '@/lib/access/entity-scope'
-import { scopeLiveReport } from '@/lib/access/lp-scope'
+import { scopeReportCardRows } from '@/lib/access/lp-scope'
 
 // Everything the LIVE report cards need, in one call: fund header, per-investor rows
 // (aggregated across vehicles), and the last-updated date PER VEHICLE.
@@ -31,7 +31,8 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'asOf must be YYYY-MM-DD' }, { status: 400 })
   }
 
-  // The report is built fund-wide, then cut to the caller's entities.
+  // The report is built fund-wide. The caller's entities decide WHICH LPs get a card; each card
+  // carries every one of that LP's positions (scopeReportCardRows).
   const scope = await loadEntityScope(admin, gate)
   const [fullReport, { data: fund }, { data: settings }, { data: ents }] = await Promise.all([
     generateLiveReport(admin, gate.fundId, asOf),
@@ -40,16 +41,18 @@ export async function GET(req: NextRequest) {
     admin.from('lp_entities' as any).select('id, entity_name, investor_id, lp_investors(id, name)').eq('fund_id', gate.fundId),
   ])
 
-  const report = scopeLiveReport(fullReport, scope.vehicleNames)
   const entInfo = new Map<string, { entityName: string; investorId: string; investorName: string }>()
   for (const e of ((ents as any[]) ?? [])) {
     const inv = Array.isArray(e.lp_investors) ? e.lp_investors[0] : e.lp_investors
     entInfo.set(e.id, { entityName: e.entity_name, investorId: e.investor_id ?? e.id, investorName: inv?.name ?? e.entity_name })
   }
 
+  const report = fullReport
+  const rows = scopeReportCardRows(report.rows, scope.vehicleNames, id => entInfo.get(id)?.investorId ?? id)
+
   // Group rows by investor; build the card row shape.
   const byInvestor = new Map<string, { investorId: string; investorName: string; rows: any[] }>()
-  for (const r of report.rows) {
+  for (const r of rows) {
     const info = entInfo.get(r.entity_id) ?? { entityName: report.entityNames.get(r.entity_id) ?? r.entity_id, investorId: r.entity_id, investorName: report.entityNames.get(r.entity_id) ?? r.entity_id }
     const g = byInvestor.get(info.investorId) ?? { investorId: info.investorId, investorName: info.investorName, rows: [] }
     g.rows.push({
@@ -71,7 +74,7 @@ export async function GET(req: NextRequest) {
   const investors = Array.from(byInvestor.values()).sort((a, b) => a.investorName.localeCompare(b.investorName))
 
   // Per-vehicle last-updated dates — for the footnote, since vehicles report irregularly.
-  const groups = Array.from(new Set(report.rows.map(r => r.portfolio_group)))
+  const groups = Array.from(new Set(rows.map(r => r.portfolio_group)))
   const dateMap = await lastDataDates(admin, gate.fundId, groups)
   const vehicleDates = groups.sort().map(g => ({ vehicle: g, date: dateMap.get(g) ?? null }))
 
