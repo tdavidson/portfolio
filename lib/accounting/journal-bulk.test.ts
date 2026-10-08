@@ -201,3 +201,13 @@ describe('bulk actions and investment transactions', () => {
     })
   })
 })
+
+describe('bulk post passes the caller\'s investments access through', () => {
+  it('each post gets { investments }', async () => {
+    const { postExistingEntryWithAllocation } = await import('./continuous-allocation')
+    vi.mocked(postExistingEntryWithAllocation).mockClear()
+    const { admin } = fakeAdmin([balanced('a')])
+    await runBulkDraftAction(admin, { fundId: 'f1', vehicleId: 'v1', group: 'Main', action: 'post', scope: readBulkScope({}), userId: null, investments: false })
+    expect(postExistingEntryWithAllocation).toHaveBeenCalledWith(admin, 'f1', 'Main', null, 'a', { investments: false })
+  })
+})

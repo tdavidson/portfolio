@@ -5,7 +5,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 import { memoryAdmin } from '@/tests/helpers/memory-admin'
 
-const s = vi.hoisted(() => ({ m: null as any, post: null as any }))
+const s = vi.hoisted(() => ({ m: null as any, post: null as any, investments: true }))
+vi.mock('@/lib/accounting/investment-access', async (orig) => ({ ...(await orig<any>()), loadMayTouchInvestments: async () => s.investments }))
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: 'u' } } }) } }) }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => s.m.admin }))
 vi.mock('@/lib/api-helpers', async (orig) => ({ ...(await orig<any>()), assertWriteAccess: async () => ({ fundId: 'f', userId: 'u', role: 'admin' }), assertReadAccess: async () => ({ fundId: 'f', userId: 'u', role: 'admin' }) }))
@@ -29,6 +30,7 @@ const entry = (id: string, over: Record<string, any> = {}) => ({ id, fund_id: 'f
 const bank = (id: string, journal_entry_id: string, status: string) => ({ id, fund_id: 'f', vehicle_id: 'v', journal_entry_id, status, raw: {} })
 
 beforeEach(() => {
+  s.investments = true
   s.post = vi.fn(async () => ({ allocationEntryIds: [] }))
   s.m = memoryAdmin({
     chart_of_accounts: chart,
@@ -129,5 +131,19 @@ describe('posting a reversal draft from the bank page', () => {
     s.post = vi.fn(async () => ({ allocationEntryIds: [], removedTransactions: [{ id: T1, company: 'Acme' }], unlinkedRegisterRows: ['the call of 2026-03-01'], warning: 'w' }))
     const body = await (await POST(new NextRequest('http://localhost/api/accounting/bank', { method: 'POST', body: JSON.stringify({ action: 'postMany', ids: ['b-fee'] }) }))).json()
     expect(body).toMatchObject({ ok: true, posted: 1, removedTransactions: [{ id: T1 }], unlinkedRegisterRows: ['the call of 2026-03-01'], warnings: ['w'] })
+  })
+})
+
+describe('posting from the bank page without investments write (security M2)', () => {
+  it('passes the caller\'s investments access to the posting choke point, and a refusal is a 403', async () => {
+    s.investments = false
+    Object.assign(entryOf('e-fee'), { status: 'draft' })
+    Object.assign(rowOf('b-fee'), { status: 'drafted' })
+    const { NEEDS_INVESTMENTS_WRITE } = await import('@/lib/accounting/investment-access')
+    s.post = vi.fn(async () => ({ error: NEEDS_INVESTMENTS_WRITE }))
+    const res = await act('post', 'b-fee')
+    expect(res.status).toBe(403)
+    expect(s.post).toHaveBeenCalledWith(expect.anything(), 'f', 'Fund I', 'u', 'e-fee', { investments: false })
+    expect(rowOf('b-fee').status).toBe('drafted')
   })
 })

@@ -11,7 +11,7 @@ import { fundCurrency } from './currency'
 import { vehicleIdByName } from './vehicle-id'
 import type { JournalEntry } from './types'
 import { ACTUAL_BOOK, type LedgerBook } from './books'
-import { adoptEntry, keptAsDraft, removeAdopted, settleLostRace } from './adoption'
+import { adoptEntry, keptAsDraft, removeAdopted, settleLostRace, type AdoptOptions } from './adoption'
 
 /** code → account_id for the vehicle's chart. */
 export async function accountIdByCode(admin: SupabaseClient, fundId: string, group: string): Promise<Map<string, string>> {
@@ -97,6 +97,8 @@ export async function persistEntry(
   book: LedgerBook = ACTUAL_BOOK,
   /** Generated allocation entries pass false to prevent recursive allocation. */
   allocate: boolean = true,
+  /** What the caller may do to the tracker when this entry is adopted (adoption.ts). */
+  adoptOpts: AdoptOptions = {},
 ): Promise<{ entryId: string } | { error: string; allocationFailed?: true; adoptionRefused?: true }> {
   // DENOMINATE THE ENTRY IN THE FUND'S CURRENCY, here, at the one place everything is written.
   //
@@ -233,7 +235,7 @@ export async function persistEntry(
     const adoption = await adoptEntry(admin, fundId, {
       entryId, vehicleId, entryDate: entry.entryDate, memo: entry.memo ?? null,
       sourceRef: entry.sourceRef ?? null, postings: entry.postings,
-    })
+    }, adoptOpts)
     if ('refused' in adoption) {
       await discard()
       return { error: adoption.refused, adoptionRefused: true }

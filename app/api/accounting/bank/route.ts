@@ -16,6 +16,7 @@ import { postExistingEntryWithAllocation, setGeneratedAllocationStatus } from '@
 import { underReview, reviewKind } from '@/lib/accounting/bank-review'
 import { loadOwnedCashEntries, ownedCandidates } from '@/lib/accounting/investment-bank-match'
 import { entryCarriesInvestments, BANK_ROW_IS_AN_INVESTMENT } from '@/lib/accounting/ownership'
+import { loadMayTouchInvestments, NEEDS_INVESTMENTS_WRITE } from '@/lib/accounting/investment-access'
 import { loadQuickBooksCashEntries, quickBooksCandidates, quickBooksAlreadyClaimed, readAll } from '@/lib/accounting/bank-quickbooks-match'
 
 // GET — list a vehicle's staged bank transactions.
@@ -212,9 +213,12 @@ export async function POST(req: NextRequest) {
     // and say when that part failed (the reversal still posted).
     const released = { removedTransactions: [] as unknown[], unlinkedRegisterRows: [] as string[], warnings: [] as string[] }
     if (entryIds.length) {
+      // Posting adopts investment lines, or releases a reversed entry's transactions: both need
+      // investments write as well (lib/accounting/investment-access.ts).
+      const investments = await loadMayTouchInvestments(admin, gate, user.id)
       for (const entryId of entryIds) {
-        const result = await postExistingEntryWithAllocation(admin, gate.fundId, group, user.id, entryId)
-        if ('error' in result) return NextResponse.json({ error: result.error, ...released }, { status: 400 })
+        const result = await postExistingEntryWithAllocation(admin, gate.fundId, group, user.id, entryId, { investments })
+        if ('error' in result) return NextResponse.json({ error: result.error, ...released }, { status: result.error === NEEDS_INVESTMENTS_WRITE ? 403 : 400 })
         released.removedTransactions.push(...(result.removedTransactions ?? []))
         released.unlinkedRegisterRows.push(...(result.unlinkedRegisterRows ?? []))
         if (result.warning) released.warnings.push(result.warning)
@@ -307,8 +311,9 @@ export async function POST(req: NextRequest) {
       const problem = await guardEntry([entryId], ['draft'])
       if (problem) return NextResponse.json({ error: problem }, { status: 400 })
 
-      const result = await postExistingEntryWithAllocation(admin, gate.fundId, group, user.id, entryId)
-      if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
+      const investments = await loadMayTouchInvestments(admin, gate, user.id)
+      const result = await postExistingEntryWithAllocation(admin, gate.fundId, group, user.id, entryId, { investments })
+      if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.error === NEEDS_INVESTMENTS_WRITE ? 403 : 400 })
       await admin.from('bank_transactions' as any).update({ status: 'reconciled' }).eq('id', id).eq('fund_id', gate.fundId)
       return NextResponse.json({
         ok: true, status: 'reconciled',

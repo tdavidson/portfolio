@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { applyProposal } from '@/lib/accounting/assistant'
+import { loadMayTouchInvestments, NEEDS_INVESTMENTS_WRITE } from '@/lib/accounting/investment-access'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -33,7 +34,7 @@ export async function POST(req: NextRequest) {
   }
   if (!body?.proposal) return NextResponse.json({ error: 'proposal is required' }, { status: 400 })
 
-  const result = await applyProposal(admin, gate.fundId, group, user.id, body.proposal)
+  const result = await applyProposal(admin, gate.fundId, group, user.id, body.proposal, { investments: await loadMayTouchInvestments(admin, gate, user.id) })
   // An edit that failed part-way may already have deleted the transactions that owned the entry:
   // say which, as the success path does.
   if ('error' in result) {
@@ -41,7 +42,7 @@ export async function POST(req: NextRequest) {
       error: result.error,
       ...(result.removedTransactions ? { removedTransactions: result.removedTransactions } : {}),
       ...(result.unlinkedRegisterRows ? { unlinkedRegisterRows: result.unlinkedRegisterRows } : {}),
-    }, { status: 400 })
+    }, { status: result.error === NEEDS_INVESTMENTS_WRITE ? 403 : 400 })
   }
   return NextResponse.json({ ok: true, ...result })
 }

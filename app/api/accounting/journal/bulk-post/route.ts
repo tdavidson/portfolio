@@ -6,6 +6,7 @@ import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { dbError } from '@/lib/api-error'
 import { readBulkScope, runBulkDraftAction } from '@/lib/accounting/journal-bulk'
+import { loadMayTouchInvestments } from '@/lib/accounting/investment-access'
 
 // POST — post many DRAFT entries at once (the journal's bulk-post action).
 //   body: { group?, start?, end?, ids?, afterId? }
@@ -35,6 +36,8 @@ export async function POST(req: NextRequest) {
     action: 'post',
     scope: readBulkScope(body),
     userId: user.id,
+    // A draft that would adopt or release investment transactions is skipped, with the reason.
+    investments: await loadMayTouchInvestments(admin, gate, user.id),
   })
   if (!result.ok) return dbError(result.error as any, 'journal-bulk-post')
 

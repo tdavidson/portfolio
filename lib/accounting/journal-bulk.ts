@@ -68,9 +68,11 @@ export async function runBulkDraftAction(
     action: BulkAction
     scope: BulkScope
     userId: string | null
+    /** May this caller create or delete investment transactions (investment-access.ts)? */
+    investments?: boolean
   },
 ): Promise<{ ok: true; outcome: BulkOutcome } | { ok: false; error: unknown }> {
-  const { fundId, vehicleId, group, action, scope, userId } = opts
+  const { fundId, vehicleId, group, action, scope, userId, investments } = opts
 
   // Candidate drafts — scoped to the vehicle, ordered by id for a stable keyset, with
   // postings for the balance check.
@@ -146,7 +148,7 @@ export async function runBulkDraftAction(
       // Every post goes through the choke point: it adopts investment lines and allocates to
       // partners. A raw status flip here used to skip both.
       for (const id of target) {
-        const posted = await postExistingEntryWithAllocation(admin, fundId, group, userId, id)
+        const posted = await postExistingEntryWithAllocation(admin, fundId, group, userId, id, { investments })
         if ('error' in posted) { skipped.push({ id, reason: posted.error }); continue }
         removedTransactions.push(...(posted.removedTransactions ?? []))
         unlinkedRegisterRows.push(...(posted.unlinkedRegisterRows ?? []))

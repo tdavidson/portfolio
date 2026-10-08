@@ -1,4 +1,5 @@
-import { adoptEntry, keptAsDraft, removeAdopted, settleLostRace } from './adoption'
+import { adoptEntry, keptAsDraft, removeAdopted, settleLostRace, type AdoptOptions } from './adoption'
+import { NEEDS_INVESTMENTS_WRITE } from './investment-access'
 import { deleteOwners, planReversedOriginalRelease, type OwningTransaction } from './ownership'
 import { loadResolvedCommitments } from './terms'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -186,6 +187,8 @@ export interface PostedExisting {
 /** The canonical draft -> posted transition for entries that already exist. */
 export async function postExistingEntryWithAllocation(
   admin: SupabaseClient, fundId: string, group: string, userId: string | null, entryId: string,
+  /** What the caller may do to the tracker: adopting, or releasing a reversed entry's owners. */
+  opts: AdoptOptions = {},
 ): Promise<PostedExisting | { error: string }> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
   const [{ data: header, error: headerError }, { data: rows, error: rowsError }] = await Promise.all([
@@ -206,15 +209,18 @@ export async function postExistingEntryWithAllocation(
   const adoption = await adoptEntry(admin, fundId, {
     entryId, vehicleId: vehicleId!, entryDate: (header as any).entry_date, memo: (header as any).memo ?? null,
     sourceRef: (header as any).source_ref ?? null, postings,
-  })
+  }, opts)
   if ('refused' in adoption) return { error: adoption.refused }
   const adopted = adoption.adoptedIds
   // A reversal draft: the transactions that own the entry it reverses go when it posts. Planned
   // BEFORE the flip, so one that cannot go (a dependent conversion) refuses the post instead.
   const reversed = await planReversedOriginalRelease(admin, fundId, { id: entryId, source_ref: (header as any).source_ref ?? null })
-  if (reversed && 'error' in reversed) {
+  // Posting this reversal deletes the original's transactions: the caller must be allowed to.
+  const refusal = reversed && 'error' in reversed ? reversed.error
+    : reversed && opts.investments === false ? NEEDS_INVESTMENTS_WRITE : null
+  if (refusal) {
     const removed = await removeAdopted(admin, fundId, adopted)
-    return { error: removed.error ? keptAsDraft(entryId, removed.error) : reversed.error }
+    return { error: removed.error ? keptAsDraft(entryId, removed.error) : refusal }
   }
   // Compare-and-set: flip it only if it is STILL a draft. Two requests that both read the draft
   // (a bank match racing a "post without a bank match") would otherwise both post and both run
@@ -251,7 +257,7 @@ export async function postExistingEntryWithAllocation(
     if (removed.error) return { error: keptAsDraft(entryId, removed.error) }
     return allocated
   }
-  if (reversed) {
+  if (reversed && !('error' in reversed)) {
     const failed = await deleteOwners(admin, fundId, reversed.original, reversed.plan)
     if (failed) {
       return { ...allocated, removedTransactions: failed.removed, unlinkedRegisterRows: failed.unlinked, warning: `The reversal was posted, but ${failed.error}` }

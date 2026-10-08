@@ -64,3 +64,11 @@ describe('assistant edit', () => {
     expect(m.tables.journal_postings.filter((p: any) => p.journal_entry_id === 'e1')).toEqual([])
   })
 })
+
+describe('assistant edit without investments write (security M2)', () => {
+  it('refuses to edit an owned entry and deletes nothing', async () => {
+    expect(await applyProposal(m.admin, 'f', 'Fund I', 'u', edit('e1'), { investments: false })).toEqual({ error: expect.stringMatching(/needs write access to investments/) })
+    expect(m.tables.investment_transactions).toHaveLength(1)
+    expect(m.tables.journal_entries[0].status).toBe('posted')
+  })
+})

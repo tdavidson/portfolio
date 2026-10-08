@@ -19,6 +19,7 @@ import { reversalOf, reversalDateError } from '@/lib/accounting/reversal'
 import { postExistingEntryWithAllocation, setGeneratedAllocationStatus } from '@/lib/accounting/continuous-allocation'
 import { owningTransactions, releaseOwnership, planRelease, deleteOwners, isLiveInvestmentReversalHalf, HALF_OF_A_PAIR } from '@/lib/accounting/ownership'
 import { isInvestmentAccount, loadVehicleChart } from '@/lib/accounting/investment-accounts'
+import { loadMayTouchInvestments, NEEDS_INVESTMENTS_WRITE } from '@/lib/accounting/investment-access'
 
 // A database failure after the owning transactions were already deleted: still generic to the
 // client, but it must say what is gone.
@@ -35,6 +36,11 @@ function currencyUnread(e: unknown) {
   console.error('[accounting-journal-currency]', e instanceof Error ? e.message : e)
   return NextResponse.json({ error: "The fund's currency could not be read, so nothing was saved. Try again." }, { status: 500 })
 }
+
+// Void, unpost, edit and reverse of an OWNED entry delete its investment transactions; posting can
+// adopt new ones. A caller without investments write may still do all of it to entries that touch
+// no transaction (lib/accounting/investment-access.ts).
+const investmentsDenied = () => NextResponse.json({ error: NEEDS_INVESTMENTS_WRITE }, { status: 403 })
 
 // GET — the vehicle's journal entries with postings, or a single entry via ?id=.
 export async function GET(req: NextRequest) {
@@ -168,8 +174,12 @@ export async function PUT(req: NextRequest) {
 
   // A derived draft (the allocation-failure fallback) edited by hand no longer says what its
   // transaction says: delete the transaction, and the edited lines are adopted when it posts.
-  const released = await releaseOwnership(admin, gate.fundId, existing as any)
-  if ('error' in released) return NextResponse.json({ error: released.error, removedTransactions: released.removed ?? [], unlinkedRegisterRows: released.unlinked ?? [] }, { status: 400 })
+  const plan = await planRelease(admin, gate.fundId, existing as any)
+  if ('error' in plan) return NextResponse.json({ error: plan.error, removedTransactions: [], unlinkedRegisterRows: [] }, { status: 400 })
+  if (plan.removed.length > 0 && !(await loadMayTouchInvestments(admin, gate, user.id))) return investmentsDenied()
+  const releaseFailed = await deleteOwners(admin, gate.fundId, existing as any, plan)
+  if (releaseFailed) return NextResponse.json({ error: releaseFailed.error, removedTransactions: releaseFailed.removed, unlinkedRegisterRows: releaseFailed.unlinked }, { status: 400 })
+  const released = plan
 
   // Insert the new postings first, then drop the old ones — so a failure never
   // leaves the entry without lines.
@@ -217,8 +227,10 @@ export async function POST(req: NextRequest) {
 
   const vendorId = await vendorInFund(admin, gate.fundId, body.vendorId)
   const entry: JournalEntry = { fundId: gate.fundId, entryDate, memo: memo ?? null, sourceType: sourceType ?? 'manual', sourceRef: sourceRef ?? null, reference, adjusting: body.adjusting === true, vendorId, postings: normalized }
-  const result = await persistEntry(admin, gate.fundId, group, user.id, entry, status === 'posted' ? 'posted' : 'draft')
-  if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
+  // Posting adopts any investment lines as transactions — refused without investments write.
+  const adoptOpts = status === 'posted' ? { investments: await loadMayTouchInvestments(admin, gate, user.id) } : {}
+  const result = await persistEntry(admin, gate.fundId, group, user.id, entry, status === 'posted' ? 'posted' : 'draft', ACTUAL_BOOK, true, adoptOpts)
+  if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.error === NEEDS_INVESTMENTS_WRITE ? 403 : 400 })
 
   const { data: full } = await admin.from('journal_entries' as any).select('*, journal_postings(*)').eq('book', ACTUAL_BOOK).eq('id', result.entryId).single()
   return NextResponse.json(full ?? { id: result.entryId })
@@ -259,8 +271,16 @@ export async function PATCH(req: NextRequest) {
   if (!existing) return NextResponse.json({ error: 'Entry not found' }, { status: 404 })
 
   const status = (existing as any).status
-  // Void, unpost and reverse on an OWNED entry delete the transactions that own it (spec §1).
-  const release = async () => releaseOwnership(admin, gate.fundId, existing as any)
+  // Void, unpost and reverse on an OWNED entry delete the transactions that own it (spec §1) —
+  // which needs investments write as well as accounting write.
+  let mayInvest: boolean | null = null
+  const mayTouch = async () => (mayInvest ??= await loadMayTouchInvestments(admin, gate, user.id))
+  const release = async (): Promise<Awaited<ReturnType<typeof releaseOwnership>> | 'denied'> => {
+    const plan = await planRelease(admin, gate.fundId, existing as any)
+    if ('error' in plan) return plan
+    if (plan.removed.length > 0 && !(await mayTouch())) return 'denied'
+    return (await deleteOwners(admin, gate.fundId, existing as any, plan)) ?? plan
+  }
 
   // reverse → a dated contra-entry (lib/accounting/reversal.ts). The original stays posted and
   // may sit in a CLOSED period — that is the case a reversal exists for — so the closed-period
@@ -291,6 +311,8 @@ export async function PATCH(req: NextRequest) {
       .eq('book', ACTUAL_BOOK).eq('journal_entry_id', id)
     const plan = await planRelease(admin, gate.fundId, ex)
     if ('error' in plan) return NextResponse.json({ error: plan.error }, { status: 400 })
+    // A posted reversal deletes the transactions now; a draft one when it posts (checked then).
+    if (body.post === true && plan.removed.length > 0 && !(await mayTouch())) return investmentsDenied()
     const reversal = reversalOf({
       id, fundId: gate.fundId, entryDate: ex.entry_date, memo: ex.memo, sourceType: ex.source_type, reference: ex.reference, adjusting: ex.adjusting === true,
       postings: ((postingRows as any[]) ?? []).map(p => ({ accountId: p.account_id, amount: Number(p.amount), currency: p.currency ?? 'USD', lpEntityId: p.lp_entity_id ?? null })),
@@ -348,9 +370,9 @@ export async function PATCH(req: NextRequest) {
   if (action === 'post') {
     // postExistingEntryWithAllocation rolls its own failure back to draft. Reverting here as well
     // would undo ANOTHER request's post when this one merely lost the race to it.
-    const allocated = await postExistingEntryWithAllocation(admin, gate.fundId, group, user.id, id)
+    const allocated = await postExistingEntryWithAllocation(admin, gate.fundId, group, user.id, id, { investments: await mayTouch() })
     if ('error' in allocated) {
-      return NextResponse.json({ error: `Entry was not posted: ${allocated.error}` }, { status: 400 })
+      return NextResponse.json({ error: `Entry was not posted: ${allocated.error}` }, { status: allocated.error === NEEDS_INVESTMENTS_WRITE ? 403 : 400 })
     }
     // Keep any bank transaction that points at this entry in step.
     await admin.from('bank_transactions' as any).update({ status: 'reconciled' }).eq('journal_entry_id', id).eq('fund_id', gate.fundId)
@@ -378,6 +400,7 @@ export async function PATCH(req: NextRequest) {
 
   if (action === 'unpost') {
     const released = await release()
+    if (released === 'denied') return investmentsDenied()
     if ('error' in released) return NextResponse.json({ error: released.error, removedTransactions: released.removed ?? [], unlinkedRegisterRows: released.unlinked ?? [] }, { status: 400 })
     const linked = await setGeneratedAllocationStatus(admin, gate.fundId, id, 'draft')
     if (linked.error) return NextResponse.json({ error: linked.error, removedTransactions: released.removed, unlinkedRegisterRows: released.unlinked }, { status: 400 })
@@ -391,6 +414,7 @@ export async function PATCH(req: NextRequest) {
   // `posted_at: null` matches what the bank page's Ignore writes, so an entry voided from
   // either surface looks identical afterwards.
   const released = await release()
+  if (released === 'denied') return investmentsDenied()
   if ('error' in released) return NextResponse.json({ error: released.error, removedTransactions: released.removed ?? [], unlinkedRegisterRows: released.unlinked ?? [] }, { status: 400 })
   const linked = await setGeneratedAllocationStatus(admin, gate.fundId, id, 'void')
   if (linked.error) return NextResponse.json({ error: linked.error, removedTransactions: released.removed, unlinkedRegisterRows: released.unlinked }, { status: 400 })

@@ -13,7 +13,8 @@ import { accountIdByCode, persistEntry } from './persist'
 import { closedPeriodRanges, dateInAnyClosedPeriod } from './periods'
 import { fundCurrency } from './currency'
 import { vehicleIdByName } from './vehicle-id'
-import { releaseOwnership, isLiveInvestmentReversalHalf, HALF_OF_A_PAIR, type OwningTransaction } from './ownership'
+import { planRelease, deleteOwners, isLiveInvestmentReversalHalf, HALF_OF_A_PAIR, type OwningTransaction } from './ownership'
+import { NEEDS_INVESTMENTS_WRITE } from './investment-access'
 import { isInvestmentAccount, loadVehicleChart } from './investment-accounts'
 import { setGeneratedAllocationStatus } from './continuous-allocation'
 import { lpCapitalSummary } from './capital-calls'
@@ -236,7 +237,9 @@ export async function applyProposal(
   fundId: string,
   group: string,
   userId: string | null,
-  proposal: AssistantProposal
+  proposal: AssistantProposal,
+  /** May this caller delete investment transactions (investment-access.ts)? Omitted: yes. */
+  opts: { investments?: boolean } = {},
 ): Promise<({ entryId: string } | { error: string }) & { removedTransactions?: OwningTransaction[]; unlinkedRegisterRows?: string[] }> {
   const [codes, names] = await Promise.all([
     accountIdByCode(admin, fundId, group),
@@ -309,8 +312,12 @@ export async function applyProposal(
     // edited lines are adopted when it posts again). And bring a posted entry back to draft WITH
     // its generated partner allocation — leaving that posted credited partners for an entry that
     // is no longer on the books.
-    const released = await releaseOwnership(admin, fundId, existing as any)
-    if ('error' in released) return { error: released.error, removedTransactions: released.removed ?? [], unlinkedRegisterRows: released.unlinked ?? [] }
+    const plan = await planRelease(admin, fundId, existing as any)
+    if ('error' in plan) return { error: plan.error, removedTransactions: [], unlinkedRegisterRows: [] }
+    if (plan.removed.length > 0 && opts.investments === false) return { error: NEEDS_INVESTMENTS_WRITE }
+    const releaseFailed = await deleteOwners(admin, fundId, existing as any, plan)
+    if (releaseFailed) return { error: releaseFailed.error, removedTransactions: releaseFailed.removed, unlinkedRegisterRows: releaseFailed.unlinked }
+    const released = plan
     const gone = { removedTransactions: released.removed, unlinkedRegisterRows: released.unlinked }
     if ((existing as any).status !== 'draft') {
       const allocation = await setGeneratedAllocationStatus(admin, fundId, proposal.entryId, 'draft')

@@ -163,3 +163,15 @@ describe('adoptedEntryIds', () => {
     await expect(adoptedEntryIds(m.admin, 'f', ['e1'])).rejects.toThrow(/Ownership could not be checked: read failed/)
   })
 })
+
+describe('adoptEntry without investments write', () => {
+  it('refuses an entry that would adopt transactions, writing none', async () => {
+    const m = memoryAdmin({ chart_of_accounts: chart })
+    expect(await adoptEntry(m.admin, 'f', args(), { investments: false })).toEqual({ refused: expect.stringMatching(/needs write access to investments/) })
+    expect(m.tables.investment_transactions ?? []).toEqual([])
+  })
+  it('an entry with no investment lines is unaffected', async () => {
+    const m = memoryAdmin({ chart_of_accounts: chart })
+    expect(await adoptEntry(m.admin, 'f', args({ postings: [{ accountId: 'cash', amount: 0 }] }), { investments: false })).toEqual({ adoptedIds: [] })
+  })
+})

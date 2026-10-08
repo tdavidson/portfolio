@@ -2,7 +2,8 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 import { memoryAdmin } from '@/tests/helpers/memory-admin'
 
-const s = vi.hoisted(() => ({ m: null as any, n: 0, persistFails: false }))
+const s = vi.hoisted(() => ({ m: null as any, n: 0, persistFails: false, investments: true }))
+vi.mock('@/lib/accounting/investment-access', async (orig) => ({ ...(await orig<any>()), loadMayTouchInvestments: async () => s.investments }))
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: 'u' } } }) } }) }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => s.m.admin }))
 vi.mock('@/lib/api-helpers', async (orig) => ({ ...(await orig<any>()), assertWriteAccess: async () => ({ fundId: 'f', userId: 'u', role: 'admin' }), assertReadAccess: async () => ({ fundId: 'f', userId: 'u', role: 'admin' }) }))
@@ -24,6 +25,7 @@ const T1 = '00000000-0000-4000-8000-0000000000a1'
 
 beforeEach(() => {
   s.n = 0
+  s.investments = true
   s.persistFails = false
   s.m = memoryAdmin({
     companies: [{ id: 'co-a', fund_id: 'f', name: 'Acme' }],
@@ -162,5 +164,40 @@ describe('reverse whose reversed_by link fails', () => {
     expect(s.m.tables.investment_transactions).toHaveLength(1)
     expect(s.m.tables.journal_entries[0]).toMatchObject({ status: 'posted', reversed_by: null, source_ref: `txn:${T1}` })
     expect(s.m.tables.journal_entries.find((e: any) => e.id === 'new-1').status).toBe('void')
+  })
+})
+
+describe('without investments write (security M2)', () => {
+  beforeEach(() => { s.investments = false })
+  for (const action of ['void', 'unpost']) {
+    it(`${action} of an owned entry is refused and deletes nothing`, async () => {
+      const res = await patch({ action })
+      expect(res.status).toBe(403)
+      expect((await res.json()).error).toMatch(/needs write access to investments/)
+      expect(s.m.tables.investment_transactions).toHaveLength(1)
+      expect(s.m.tables.journal_entries[0].status).toBe('posted')
+    })
+  }
+  it('a posted reverse of an owned entry is refused before anything is written', async () => {
+    const res = await patch({ action: 'reverse', reverseDate: '2026-04-01', post: true })
+    expect(res.status).toBe(403)
+    expect(s.m.tables.journal_entries).toHaveLength(1)
+    expect(s.m.tables.investment_transactions).toHaveLength(1)
+  })
+  it('a draft reverse is allowed — it deletes nothing until it posts', async () => {
+    expect((await patch({ action: 'reverse', reverseDate: '2026-04-01' })).status).toBe(200)
+    expect(s.m.tables.investment_transactions).toHaveLength(1)
+  })
+  it('PUT on an owned draft is refused', async () => {
+    Object.assign(s.m.tables.journal_entries[0], { status: 'draft' })
+    const res = await PUT(new NextRequest('http://localhost/api/accounting/journal', {
+      method: 'PUT', body: JSON.stringify({ group: 'Fund I', id: 'e1', postings: [{ accountId: 'cost', amount: 50 }, { accountId: 'cash', amount: -50 }] }),
+    }))
+    expect(res.status).toBe(403)
+    expect(s.m.tables.investment_transactions).toHaveLength(1)
+  })
+  it('an entry no transaction owns is still voided', async () => {
+    Object.assign(s.m.tables.journal_entries[0], { source_ref: null })
+    expect((await patch({ action: 'void' })).status).toBe(200)
   })
 })

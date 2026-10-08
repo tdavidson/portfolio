@@ -18,6 +18,7 @@ import { loadVehicleChart } from './investment-accounts'
 import { readInvestmentLines, touchesInvestmentAccounts } from './adopt'
 import { vehicleNameById } from './vehicle-id'
 import { ACTUAL_BOOK } from './books'
+import { NEEDS_INVESTMENTS_WRITE } from './investment-access'
 
 const TXN = 'txn:'
 const REVERSAL = 'reversal:'
@@ -71,19 +72,26 @@ export async function entryIsOwned(
   return false
 }
 
+/**
+ * What the caller may do to the tracker. `investments: false` (an accounting writer without
+ * investments write — investment-access.ts) refuses an entry that would adopt transactions.
+ * Omitted means a system path (backfill, close, derivation), which may.
+ */
+export interface AdoptOptions { investments?: boolean }
+
 /** Never throws: its callers are the posting choke points. */
 export async function adoptEntry(
-  admin: SupabaseClient, fundId: string, args: AdoptArgs,
+  admin: SupabaseClient, fundId: string, args: AdoptArgs, opts: AdoptOptions = {},
 ): Promise<{ adoptedIds: string[] } | { refused: string }> {
   try {
-    return await adoptEntryUnguarded(admin, fundId, args)
+    return await adoptEntryUnguarded(admin, fundId, args, opts)
   } catch (e) {
     return { refused: `This entry was not posted: ${e instanceof Error ? e.message : String(e)}` }
   }
 }
 
 async function adoptEntryUnguarded(
-  admin: SupabaseClient, fundId: string, args: AdoptArgs,
+  admin: SupabaseClient, fundId: string, args: AdoptArgs, opts: AdoptOptions,
 ): Promise<{ adoptedIds: string[] } | { refused: string }> {
   // Callers are the posting choke points: never throw into them.
   let chart: Awaited<ReturnType<typeof loadVehicleChart>>
@@ -98,6 +106,7 @@ async function adoptEntryUnguarded(
   const read = readInvestmentLines(args.postings, chart)
   if ('refused' in read) return read
   if (read.transactions.length === 0) return { adoptedIds: [] }
+  if (opts.investments === false) return { refused: NEEDS_INVESTMENTS_WRITE }
 
   const vehicle = await vehicleNameById(admin, fundId, args.vehicleId)
   if (!vehicle) return { refused: 'This entry\'s entity could not be found, so its investments have nowhere to be recorded.' }

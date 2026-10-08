@@ -2,7 +2,8 @@ import { describe, expect, it, vi } from 'vitest'
 import { NextRequest } from 'next/server'
 
 // The apply route's error path forwards what an edit deleted before it failed.
-const h = vi.hoisted(() => ({ apply: vi.fn() }))
+const h = vi.hoisted(() => ({ apply: vi.fn(), investments: true }))
+vi.mock('@/lib/accounting/investment-access', async (orig) => ({ ...(await orig<any>()), loadMayTouchInvestments: async () => h.investments }))
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: 'u' } } }) } }) }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({}) }))
 vi.mock('@/lib/api-helpers', async (orig) => ({ ...(await orig<any>()), assertWriteAccess: async () => ({ fundId: 'f', userId: 'u', role: 'admin' }) }))
@@ -22,5 +23,14 @@ describe('POST /api/accounting/assistant apply', () => {
   it('a plain error stays plain', async () => {
     h.apply.mockResolvedValueOnce({ error: 'no' })
     expect(await (await post()).json()).toEqual({ error: 'no' })
+  })
+  it('passes the caller\'s investments access to the edit, and its refusal is a 403', async () => {
+    h.investments = false
+    const { NEEDS_INVESTMENTS_WRITE } = await import('@/lib/accounting/investment-access')
+    h.apply.mockResolvedValueOnce({ error: NEEDS_INVESTMENTS_WRITE })
+    const res = await post()
+    expect(res.status).toBe(403)
+    expect(h.apply).toHaveBeenLastCalledWith(expect.anything(), 'f', 'Fund I', 'u', { entryId: 'e1' }, { investments: false })
+    h.investments = true
   })
 })

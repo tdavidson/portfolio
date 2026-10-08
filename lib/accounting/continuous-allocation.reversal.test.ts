@@ -52,6 +52,13 @@ describe('posting a reversal draft', () => {
     expect(m.tables.journal_entries.find(e => e.id === 'r1')?.status).toBe('draft')
     expect(m.tables.investment_transactions).toHaveLength(2)
   })
+  it('is refused, still a draft, for a caller without investments write (security M2)', async () => {
+    const m = pair()
+    expect(await postExistingEntryWithAllocation(m.admin, 'f', 'Fund I', 'u', 'r1', { investments: false }))
+      .toEqual({ error: expect.stringMatching(/needs write access to investments/) })
+    expect(m.tables.journal_entries.find(e => e.id === 'r1')?.status).toBe('draft')
+    expect(m.tables.investment_transactions).toHaveLength(1)
+  })
 })
 
 describe('a failed allocation', () => {
