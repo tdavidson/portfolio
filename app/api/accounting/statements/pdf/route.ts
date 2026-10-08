@@ -31,8 +31,13 @@ export async function GET(req: NextRequest) {
   const [pkg, { data: fund }, currency] = await Promise.all([
     buildStatementPackage(admin, gate.fundId, group, req.nextUrl.searchParams),
     admin.from('funds').select('name').eq('id', gate.fundId).maybeSingle() as unknown as Promise<{ data: { name: string } | null }>,
-    fundCurrency(admin, gate.fundId),
+    // A document labelled in the wrong currency is a wrong document: refuse rather than guess USD.
+    fundCurrency(admin, gate.fundId).catch((e: unknown) => ({ unread: e })),
   ])
+  if (typeof currency !== 'string') {
+    console.error('[statements-pdf] fund currency', currency.unread instanceof Error ? currency.unread.message : currency.unread)
+    return NextResponse.json({ error: "The fund's currency could not be read, so the document was not built. Try again." }, { status: 500 })
+  }
 
   const html = buildStatementsHtml(pkg, {
     fundName: fund?.name ?? 'Fund',

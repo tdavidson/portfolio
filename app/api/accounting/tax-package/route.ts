@@ -62,7 +62,8 @@ export async function GET(req: NextRequest) {
     // The same ledger read on a tax basis — the overlay spliced in — for the tax-basis trial balance.
     loadLedgerData(admin, gate.fundId, group, { basis: 'tax' }),
     admin.from('funds').select('name').eq('id', gate.fundId).maybeSingle() as unknown as Promise<{ data: { name: string } | null }>,
-    fundCurrency(admin, gate.fundId),
+    // A document labelled in the wrong currency is a wrong document: refuse rather than guess USD.
+    fundCurrency(admin, gate.fundId).catch((e: unknown) => ({ unread: e })),
     loadJournalForExport(admin, gate.fundId, group, { start, end, statuses: ['posted'] }),
     loadJournalForExport(admin, gate.fundId, group, { start, end, statuses: ['posted'], book: 'tax' }),
     loadChartForExport(admin, gate.fundId, group),
@@ -71,6 +72,10 @@ export async function GET(req: NextRequest) {
     loadRealizedGains(admin, gate.fundId, group, { start, end }),
     loadVendorPayments(admin, gate.fundId, group, year),
   ])
+  if (typeof currency !== 'string') {
+    console.error('[tax-package] fund currency', currency.unread instanceof Error ? currency.unread.message : currency.unread)
+    return NextResponse.json({ error: "The fund's currency could not be read, so the document was not built. Try again." }, { status: 500 })
+  }
   const fundName = fund?.name ?? 'Fund'
 
   // The year with the prior year beside it, from ONE ledger load — the same package the

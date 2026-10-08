@@ -30,6 +30,12 @@ function failedAfterRelease(error: { message: string }, context: string, release
   )
 }
 
+// The postings are stamped in the fund's currency; when it cannot be read, nothing is written.
+function currencyUnread(e: unknown) {
+  console.error('[accounting-journal-currency]', e instanceof Error ? e.message : e)
+  return NextResponse.json({ error: "The fund's currency could not be read, so nothing was saved. Try again." }, { status: 500 })
+}
+
 // GET — the vehicle's journal entries with postings, or a single entry via ?id=.
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
@@ -60,7 +66,14 @@ export async function GET(req: NextRequest) {
     if (error) return dbError(error, 'accounting-journal')
     if (!data) return NextResponse.json(null)
     // The transactions that own it — the entry view names them beside void, unpost and reverse.
-    return NextResponse.json({ ...(data as object), owned_by: await owningTransactions(admin, gate.fundId, data as any) })
+    // Display only: an unreadable list degrades to none (void/unpost/reverse re-read and refuse).
+    let ownedBy: Awaited<ReturnType<typeof owningTransactions>> = []
+    try {
+      ownedBy = await owningTransactions(admin, gate.fundId, data as any)
+    } catch (e) {
+      console.error('[accounting-journal-owned-by]', e instanceof Error ? e.message : e)
+    }
+    return NextResponse.json({ ...(data as object), owned_by: ownedBy })
   }
 
   // List path: resolve the period window (default YTD), then hand filtering + pagination
@@ -138,7 +151,8 @@ export async function PUT(req: NextRequest) {
   // The fund's currency, never a client-supplied one. The ledger is denominated in a single
   // currency by design (see lib/accounting/currency.ts); accepting `p.currency` from the body
   // would let a posting balance against the wrong denomination.
-  const currency = await fundCurrency(admin, gate.fundId)
+  let currency: string
+  try { currency = await fundCurrency(admin, gate.fundId) } catch (e) { return currencyUnread(e) }
   const normalized: Posting[] = postings.map((p: any) => ({ accountId: p.accountId, amount: Number(p.amount), currency, lpEntityId: p.lpEntityId ?? null }))
   if (normalized.some(p => !p.accountId || !Number.isFinite(p.amount))) {
     return NextResponse.json({ error: 'Each posting needs an accountId and a numeric amount' }, { status: 400 })
@@ -194,7 +208,8 @@ export async function POST(req: NextRequest) {
   // The fund's currency, never a client-supplied one. The ledger is denominated in a single
   // currency by design (see lib/accounting/currency.ts); accepting `p.currency` from the body
   // would let a posting balance against the wrong denomination.
-  const currency = await fundCurrency(admin, gate.fundId)
+  let currency: string
+  try { currency = await fundCurrency(admin, gate.fundId) } catch (e) { return currencyUnread(e) }
   const normalized: Posting[] = postings.map((p: any) => ({ accountId: p.accountId, amount: Number(p.amount), currency, lpEntityId: p.lpEntityId ?? null }))
   if (normalized.some(p => !p.accountId || !Number.isFinite(p.amount))) {
     return NextResponse.json({ error: 'Each posting needs an accountId and a numeric amount' }, { status: 400 })
@@ -283,7 +298,22 @@ export async function PATCH(req: NextRequest) {
     const reversalStatus = body.post === true ? 'posted' : 'draft'
     const result = await persistEntry(admin, gate.fundId, group, user.id, reversal, reversalStatus)
     if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
-    await admin.from('journal_entries' as any).update({ reversed_by: result.entryId }).eq('id', id).eq('fund_id', gate.fundId)
+    // Without the link a second reverse is allowed and the backfill no longer sees the pair (it
+    // would adopt the original as a fresh purchase). So a failed link undoes the reversal.
+    const { error: linkErr } = await admin.from('journal_entries' as any).update({ reversed_by: result.entryId }).eq('id', id).eq('fund_id', gate.fundId)
+    if (linkErr) {
+      console.error('[journal-reverse-link]', linkErr.message)
+      const allocation = await setGeneratedAllocationStatus(admin, gate.fundId, result.entryId, 'void')
+      const { error: voidErr } = await admin.from('journal_entries' as any).update({ status: 'void', posted_at: null })
+        .eq('book', ACTUAL_BOOK).eq('id', result.entryId).eq('fund_id', gate.fundId)
+      const undone = !allocation.error && !voidErr
+      return NextResponse.json({
+        error: undone
+          ? 'The reversal could not be linked to this entry, so it was discarded. Nothing changed — try again.'
+          : `The reversal could not be linked to this entry, and discarding it failed too. Void reversal ${result.entryId} from the journal, then try again.`,
+        removedTransactions: [], unlinkedRegisterRows: [],
+      }, { status: 500 })
+    }
     // A reversal saved as a draft changes nothing on the books, so the tracker keeps the
     // transaction; posting the draft releases it (postExistingEntryWithAllocation).
     if (reversalStatus === 'draft') {

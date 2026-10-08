@@ -141,12 +141,18 @@ export async function settleLostRace(admin: SupabaseClient, fundId: string, entr
   return others.length > 0 ? removeAdopted(admin, fundId, mine) : {}
 }
 
-/** Of these entries, the ones some investment transaction was adopted from. */
+/**
+ * Of these entries, the ones some investment transaction was adopted from. THROWS on a failed
+ * read, like derivedOwnedIds: "none adopted" would drop the `adopted:` ref from the text export
+ * (a re-import adopts again), put adopted entries back in the QuickBooks review, and drop them
+ * from bank candidates (the bank drafts a second entry for a wire already booked).
+ */
 export async function adoptedEntryIds(admin: SupabaseClient, fundId: string, entryIds: string[]): Promise<Set<string>> {
   const out = new Set<string>()
   for (let i = 0; i < entryIds.length; i += 200) {
-    const { data } = await admin.from('investment_transactions' as any)
+    const { data, error } = await admin.from('investment_transactions' as any)
       .select('adopted_entry_id').eq('fund_id', fundId).in('adopted_entry_id', entryIds.slice(i, i + 200))
+    if (error) throw new Error(`Ownership could not be checked: ${error.message}`)
     for (const r of (data as any[]) ?? []) if (r.adopted_entry_id) out.add(r.adopted_entry_id)
   }
   return out

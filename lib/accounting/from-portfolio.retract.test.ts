@@ -69,3 +69,22 @@ describe('retractEntriesForTransaction — partner allocations', () => {
     expect(writes).toEqual([])
   })
 })
+
+describe('retractEntriesForTransaction on a failed read', () => {
+  // A failed read must refuse, never read as "nothing to retract": the caller would then derive a
+  // fresh entry beside the one still posted — the position booked twice.
+  for (const table of ['investment_transactions', 'journal_entries']) {
+    it(`refuses when the ${table} read fails, and writes nothing`, async () => {
+      const { memoryAdmin } = await import('@/tests/helpers/memory-admin')
+      const m = memoryAdmin({
+        investment_transactions: [{ id: 't1', fund_id: 'f1', adopted_entry_id: null }],
+        journal_entries: [{ id: 'e1', fund_id: 'f1', book: 'actual', status: 'posted', entry_date: '2026-03-01', portfolio_group: 'Fund I', source_ref: 'txn:t1' }],
+        bank_transactions: [],
+      })
+      m.failNext(table, 'select', 'read failed')
+      const r = await retractEntriesForTransaction(m.admin, 'f1', 't1')
+      expect(r).toMatchObject({ retracted: 0, reason: expect.stringMatching(/Nothing was changed/) })
+      expect(m.tables.journal_entries[0].status).toBe('posted')
+    })
+  }
+})

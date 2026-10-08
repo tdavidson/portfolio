@@ -104,8 +104,11 @@ export async function retractEntriesForTransaction(
 ): Promise<LedgerRetractResult> {
   try {
     // An ADOPTED transaction's entry may own other transactions too — split it (retract-adopted.ts).
-    const { data: self } = await admin.from('investment_transactions' as any)
+    // Both reads fail CLOSED: "nothing to retract" on a failed read would let the caller derive a
+    // fresh entry beside the one still posted — the position booked twice.
+    const { data: self, error: selfError } = await admin.from('investment_transactions' as any)
       .select('*').eq('fund_id', fundId).eq('id', txnId).maybeSingle()
+    if (selfError) return { retracted: 0, reason: `Could not read the transaction to check its journal entry (${selfError.message}). Nothing was changed — try again.` }
     if ((self as any)?.adopted_entry_id) {
       const { retractAdoptedEntry } = await import('./retract-adopted')
       return retractAdoptedEntry(admin, fundId, {
@@ -113,13 +116,14 @@ export async function retractEntriesForTransaction(
       })
     }
 
-    const { data: entries } = await admin
+    const { data: entries, error: entriesError } = await admin
       .from('journal_entries' as any)
       .select('id, status, entry_date, portfolio_group')
       .eq('book', ACTUAL_BOOK)
       .eq('fund_id', fundId)
       .eq('source_ref', txnRef(txnId))
       .neq('status', 'void')
+    if (entriesError) return { retracted: 0, reason: `Could not read the transaction's journal entry (${entriesError.message}). Nothing was changed — try again.` }
 
     const rows = (entries as any[]) ?? []
     if (rows.length === 0) return { retracted: 0 }

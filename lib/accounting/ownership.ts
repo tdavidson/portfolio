@@ -9,25 +9,36 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { ACTUAL_BOOK } from './books'
 
 const TXN = 'txn:'
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const ownersUnread = (e: { message: string }) => new Error(`The investment transactions that own this entry could not be read, so nothing was changed. Try again. (${e.message})`)
 
 export interface OwningTransaction { id: string; companyId: string; company: string; type: string; date: string | null }
 
+/**
+ * The transactions that own this entry. THROWS on a failed read: "owns nothing" would let a void,
+ * unpost, reverse or edit go ahead and delete nothing, leaving the tracker with a transaction the
+ * books no longer carry (entryIsOwned, derivedOwnedIds and ownedReversals throw the same way).
+ */
 export async function owningTransactions(
   admin: SupabaseClient, fundId: string, entry: { id: string; source_ref: string | null },
 ): Promise<OwningTransaction[]> {
   const ref = entry.source_ref ?? ''
-  const [{ data: adopted }, { data: derived }] = await Promise.all([
+  const derivedId = ref.startsWith(TXN) && UUID.test(ref.slice(TXN.length)) ? ref.slice(TXN.length) : null
+  const [adopted, derived] = await Promise.all([
     admin.from('investment_transactions' as any).select('id, company_id, transaction_type, transaction_date')
       .eq('fund_id', fundId).eq('adopted_entry_id', entry.id),
-    ref.startsWith(TXN)
+    derivedId
       ? admin.from('investment_transactions' as any).select('id, company_id, transaction_type, transaction_date')
-          .eq('fund_id', fundId).eq('id', ref.slice(TXN.length))
-      : Promise.resolve({ data: [] as any[] }),
+          .eq('fund_id', fundId).eq('id', derivedId)
+      : Promise.resolve({ data: [] as any[], error: null }),
   ])
-  const rows = [...((derived as any[]) ?? []), ...((adopted as any[]) ?? [])]
+  if (adopted.error) throw ownersUnread(adopted.error)
+  if (derived.error) throw ownersUnread(derived.error)
+  const rows = [...((derived.data as any[]) ?? []), ...((adopted.data as any[]) ?? [])]
   if (rows.length === 0) return []
-  const { data: companies } = await admin.from('companies' as any).select('id, name')
+  const { data: companies, error } = await admin.from('companies' as any).select('id, name')
     .eq('fund_id', fundId).in('id', Array.from(new Set(rows.map(r => r.company_id))))
+  if (error) throw ownersUnread(error)
   const name = new Map(((companies as any[]) ?? []).map(c => [c.id as string, c.name as string]))
   return rows.map(r => ({
     id: r.id, companyId: r.company_id, company: name.get(r.company_id) ?? 'Investment',
@@ -42,25 +53,34 @@ export interface OwnershipPlan { removed: OwningTransaction[]; unlinked: string[
 export async function planRelease(
   admin: SupabaseClient, fundId: string, entry: Entry,
 ): Promise<OwnershipPlan | { error: string }> {
-  const removed = await owningTransactions(admin, fundId, entry)
+  // Every read here fails CLOSED: refuse the void/unpost/reverse/edit rather than delete nothing.
+  let removed: OwningTransaction[]
+  try {
+    removed = await owningTransactions(admin, fundId, entry)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
   if (removed.length === 0) return { removed, unlinked: [] }
   const ids = removed.map(t => t.id)
 
   // A conversion's basis is its source instrument; deleting the source would orphan it.
-  const { data: dependents } = await admin.from('investment_transactions' as any)
+  const { data: dependents, error: depError } = await admin.from('investment_transactions' as any)
     .select('id').eq('fund_id', fundId).in('converts_from_txn_id', ids)
+  if (depError) return { error: ownersUnread(depError).message }
   if (((dependents as any[]) ?? []).length > 0) {
     return { error: 'A conversion on this company converts from a transaction this entry records. Delete or re-point the conversion first.' }
   }
 
   // The register keeps its rows; they only lose the link (on delete set null). Say which.
-  const [{ data: events }, { data: navs }] = await Promise.all([
+  const [events, navs] = await Promise.all([
     admin.from('fund_capital_events' as any).select('kind, event_date').eq('fund_id', fundId).in('investment_transaction_id', ids),
     admin.from('fund_nav_statements' as any).select('as_of_date').eq('fund_id', fundId).in('investment_transaction_id', ids),
   ])
+  if (events.error) return { error: ownersUnread(events.error).message }
+  if (navs.error) return { error: ownersUnread(navs.error).message }
   const unlinked = [
-    ...((events as any[]) ?? []).map(e => `the ${e.kind} of ${e.event_date}`),
-    ...((navs as any[]) ?? []).map(n => `the NAV as of ${n.as_of_date}`),
+    ...((events.data as any[]) ?? []).map(e => `the ${e.kind} of ${e.event_date}`),
+    ...((navs.data as any[]) ?? []).map(n => `the NAV as of ${n.as_of_date}`),
   ]
   return { removed, unlinked }
 }
@@ -103,7 +123,6 @@ export async function releaseOwnership(
 // transaction until the draft posts (postExistingEntryWithAllocation releases them then).
 
 const REVERSAL = 'reversal:'
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const readFailed = (e: { message: string }) => new Error(`Could not check whether this entry is half of a reversal pair: ${e.message}`)
 
 export interface ReversedOriginal { original: Entry & { status: string; reversed_by: string | null }; plan: OwnershipPlan }

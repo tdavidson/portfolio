@@ -12,6 +12,8 @@ vi.mock('./load', () => ({
 vi.mock('./persist', async (orig) => ({ ...(await orig<any>()), accountIdByCode: async () => new Map() }))
 import { postExistingEntryWithAllocation } from './continuous-allocation'
 
+const T1 = '00000000-0000-4000-8000-0000000000a1'
+
 const O = '0a0a0a0a-0a0a-4a0a-8a0a-0a0a0a0a0a0a'
 const chart = [
   { id: 'cash', fund_id: 'f', vehicle_id: 'v', code: '1000', type: 'asset', subtype: 'cash', company_id: null },
@@ -24,9 +26,9 @@ function pair() {
   return memoryAdmin({
     chart_of_accounts: chart,
     companies: [{ id: 'co-a', fund_id: 'f', name: 'Acme' }],
-    investment_transactions: [{ id: 't1', fund_id: 'f', company_id: 'co-a', transaction_type: 'investment', transaction_date: '2026-03-01' }],
+    investment_transactions: [{ id: T1, fund_id: 'f', company_id: 'co-a', transaction_type: 'investment', transaction_date: '2026-03-01' }],
     journal_entries: [
-      { id: O, fund_id: 'f', vehicle_id: 'v', book: 'actual', status: 'posted', entry_date: '2026-03-01', source_ref: 'txn:t1', reversed_by: 'r1' },
+      { id: O, fund_id: 'f', vehicle_id: 'v', book: 'actual', status: 'posted', entry_date: '2026-03-01', source_ref: `txn:${T1}`, reversed_by: 'r1' },
       { id: 'r1', fund_id: 'f', vehicle_id: 'v', book: 'actual', status: 'draft', entry_date: '2026-04-01', memo: 'Reversal', source_type: 'investment', source_ref: `reversal:${O}`, reversed_by: null },
     ],
     journal_postings: [posting(O, 'a1100', 100, 0), posting(O, 'cash', -100, 1), posting('r1', 'a1100', -100, 0), posting('r1', 'cash', 100, 1)],
@@ -38,14 +40,14 @@ describe('posting a reversal draft', () => {
   it('deletes the transactions that owned the reversed entry, and says so', async () => {
     const m = pair()
     const r = await postExistingEntryWithAllocation(m.admin, 'f', 'Fund I', 'u', 'r1')
-    expect(r).toMatchObject({ allocationEntryIds: [], removedTransactions: [expect.objectContaining({ id: 't1', company: 'Acme' })], unlinkedRegisterRows: [] })
+    expect(r).toMatchObject({ allocationEntryIds: [], removedTransactions: [expect.objectContaining({ id: T1, company: 'Acme' })], unlinkedRegisterRows: [] })
     expect(m.tables.investment_transactions).toEqual([])
     expect(m.tables.journal_entries.find(e => e.id === 'r1')?.status).toBe('posted')
     expect(m.tables.journal_entries.find(e => e.id === O)?.source_ref).toBeNull()
   })
   it('is refused, still a draft, when a conversion depends on the transaction', async () => {
     const m = pair()
-    m.tables.investment_transactions.push({ id: 't2', fund_id: 'f', company_id: 'co-a', transaction_type: 'investment', converts_from_txn_id: 't1' })
+    m.tables.investment_transactions.push({ id: 't2', fund_id: 'f', company_id: 'co-a', transaction_type: 'investment', converts_from_txn_id: T1 })
     expect(await postExistingEntryWithAllocation(m.admin, 'f', 'Fund I', 'u', 'r1')).toEqual({ error: expect.stringMatching(/conversion/) })
     expect(m.tables.journal_entries.find(e => e.id === 'r1')?.status).toBe('draft')
     expect(m.tables.investment_transactions).toHaveLength(2)

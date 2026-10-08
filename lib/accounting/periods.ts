@@ -59,7 +59,12 @@ export async function closePeriod(
     return { error: 'This period overlaps an already-closed period' }
   }
 
-  const snapshot = await exportLedgerText(admin, fundId, group, periodEnd)
+  let snapshot: string
+  try {
+    snapshot = await exportLedgerText(admin, fundId, group, periodEnd)
+  } catch (e) {
+    return { error: `The ledger snapshot could not be taken, so the period was not closed: ${e instanceof Error ? e.message : String(e)}` }
+  }
   const vehicleId = await vehicleIdByName(admin, fundId, group)
   const { data, error } = await admin
     .from('fiscal_periods' as any)

@@ -1,7 +1,8 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { memoryAdmin } from '@/tests/helpers/memory-admin'
 
-vi.mock('./currency', () => ({ fundCurrency: async () => 'USD' }))
+const currency = vi.hoisted(() => ({ fail: false }))
+vi.mock('./currency', () => ({ fundCurrency: async () => { if (currency.fail) throw new Error("The fund's currency could not be read: db down"); return 'USD' } }))
 vi.mock('./periods', () => ({ closedPeriodRanges: async () => [], dateInAnyClosedPeriod: () => false }))
 vi.mock('./vehicle-id', () => ({ vehicleIdByName: async () => 'v', vehicleNameById: async () => 'Fund I' }))
 const allocate = vi.fn(async () => ({ allocationEntryIds: [] as string[] }))
@@ -20,7 +21,7 @@ const entry = (lines: [string, number][], over = {}) => ({
 })
 const purchase: [string, number][] = [['a1100', 1000], ['cash', -1000]]
 
-beforeEach(() => { allocate.mockReset().mockResolvedValue({ allocationEntryIds: [] }) })
+beforeEach(() => { currency.fail = false; allocate.mockReset().mockResolvedValue({ allocationEntryIds: [] }) })
 
 describe('persistEntry adopts before it posts', () => {
   it('an unowned investment entry is adopted, then posted', async () => {
@@ -76,5 +77,14 @@ describe('persistEntry adopts before it posts', () => {
     expect(r).toEqual({ error: expect.stringMatching(/kept as a draft.*boom/) })
     expect(m.tables.journal_entries).toEqual([expect.objectContaining({ status: 'draft' })])
     expect(m.tables.investment_transactions).toHaveLength(1)
+  })
+})
+
+describe('persistEntry when the fund currency cannot be read', () => {
+  it('refuses and writes nothing — never stamps a guessed USD', async () => {
+    currency.fail = true
+    const m = memoryAdmin({ chart_of_accounts: chart })
+    expect(await persistEntry(m.admin, 'f', 'Fund I', 'u', entry(purchase), 'posted')).toEqual({ error: expect.stringMatching(/currency could not be read.*Nothing was saved/) })
+    expect(m.tables.journal_entries ?? []).toEqual([])
   })
 })

@@ -245,6 +245,12 @@ export async function applyProposal(
   // partner lands on that partner's capital account rather than the pooled one.
   const entityByName = new Map(Array.from(names.entries()).map(([id, name]) => [name.toLowerCase(), id]))
 
+  let currency: string
+  try {
+    currency = await fundCurrency(admin, fundId)
+  } catch (e) {
+    return { error: `${e instanceof Error ? e.message : String(e)}. Nothing was changed — try again.` }
+  }
   const postings: Posting[] = []
   for (const p of proposal.postings ?? []) {
     const accountId = codes.get(String(p.accountCode))
@@ -252,7 +258,7 @@ export async function applyProposal(
     const lpEntityId = p.lpEntity ? entityByName.get(String(p.lpEntity).toLowerCase()) ?? null : null
     // Denominated in the fund's currency, not assumed dollars. The create path gets this from
     // persistEntry; the edit path inserts postings directly, so it has to stamp them itself.
-    postings.push({ accountId, amount: Number(p.amount), currency: await fundCurrency(admin, fundId), lpEntityId })
+    postings.push({ accountId, amount: Number(p.amount), currency, lpEntityId })
   }
   if (postings.length === 0) return { error: 'The proposal has no postings' }
 

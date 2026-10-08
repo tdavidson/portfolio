@@ -23,7 +23,14 @@ export async function GET(req: NextRequest) {
   if (group instanceof NextResponse) return group
 
   const asOf = sp.get('asOf')
-  const text = await exportLedgerText(admin, gate.fundId, group, asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : undefined)
+  let text: string
+  try {
+    text = await exportLedgerText(admin, gate.fundId, group, asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : undefined)
+  } catch (e) {
+    // An export missing its adopted: refs would be re-adopted on import — refuse rather than write it.
+    console.error('[ledger-text-export]', e instanceof Error ? e.message : e)
+    return NextResponse.json({ error: 'The ledger could not be exported because part of it could not be read. Try again.' }, { status: 500 })
+  }
   if (sp.get('download')) {
     const filename = `ledger-${group}${asOf ? `-${asOf}` : ''}`.replace(/[^a-zA-Z0-9\-]/g, '-')
     return new NextResponse(text, {

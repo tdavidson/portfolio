@@ -495,10 +495,13 @@ async function loadQuoteCloseInputs(
   observations: PriceObservation[]
   currency: string
 } | null> {
-  const { data: feedRows } = await (admin as any)
+  // THROWS on every failed read, like the FoF and wallet loaders: a failed feeds read is not "this
+  // fund has no feeds", and the caller turns the throw into a blocker.
+  const { data: feedRows, error: feedError } = await (admin as any)
     .from('price_feeds')
     .select('*')
     .eq('fund_id', fundId)
+  if (feedError) throw new Error(`price feeds read failed: ${feedError.message}`)
   const feeds = ((feedRows as any[]) ?? []).map(f => ({
     id: f.id,
     companyId: f.company_id,
@@ -514,13 +517,16 @@ async function loadQuoteCloseInputs(
   })) as PriceFeed[]
   if (feeds.length === 0) return null
 
-  const [{ data: obsRows }, { data: txnRows }, { data: companyRows }, ledger, currency] = await Promise.all([
+  const [{ data: obsRows, error: obsError }, { data: txnRows, error: txnError }, { data: companyRows, error: companyError }, ledger, currency] = await Promise.all([
     (admin as any).from('price_observations').select('*').eq('fund_id', fundId).lte('as_of_date', asOf),
     (admin as any).from('investment_transactions').select('*').eq('fund_id', fundId),
     (admin as any).from('companies').select('*').eq('fund_id', fundId),
     loadPostedLedger(admin, fundId, group, asOf),
     fundCurrency(admin, fundId),
   ])
+  if (obsError) throw new Error(`quotes read failed: ${obsError.message}`)
+  if (txnError) throw new Error(`transactions read failed: ${txnError.message}`)
+  if (companyError) throw new Error(`holdings read failed: ${companyError.message}`)
 
   const observations = ((obsRows as any[]) ?? []).map(o => ({
     feedId: o.feed_id,
@@ -721,7 +727,14 @@ export async function checkReadiness(
 
   // Quoted positions. Skipped entirely for a fund with no price feeds, so a private book is
   // unaffected — same posture as the FoF block above.
-  const quoted = await loadQuoteCloseInputs(admin, fundId, group, end)
+  // A quote check that could not run is a blocker, not "no feeds" — same rule as the FoF and wallet
+  // blocks around it.
+  let quoted: Awaited<ReturnType<typeof loadQuoteCloseInputs>> = null
+  try {
+    quoted = await loadQuoteCloseInputs(admin, fundId, group, end)
+  } catch (e) {
+    blockers.push(`The quoted positions could not be checked: ${(e as Error).message}. Try again before closing.`)
+  }
   if (quoted) {
     const issues = quoteCloseIssues(
       quoted.positions, quoted.feeds, quoted.observations, end, quoted.currency, vehicleId,
@@ -941,6 +954,15 @@ export async function closeThrough(
 }
 
 /**
+ * The second readiness check, taken at snapshot time inside a close. Any blocker refuses the
+ * close (the first pass, in closeThrough, already required none). @internal Exported for tests.
+ */
+export function snapshotRefusal(readiness: Pick<CloseReadiness, 'blockers'>): string | null {
+  if (readiness.blockers.length === 0) return null
+  return `Not ready to close, so nothing was locked. ${readiness.blockers.join(' ')}`
+}
+
+/**
  * Close a period: allocate its P&L to partners' capital, snapshot the ledger, and
  * lock the date range.
  *
@@ -1151,8 +1173,22 @@ export async function closePeriodWithAllocation(
   }
 
   // 3. Snapshot and lock.
-  const snapshot = await exportLedgerText(admin, fundId, group, periodEnd)
+  let snapshot: string
+  try {
+    snapshot = await exportLedgerText(admin, fundId, group, periodEnd)
+  } catch (e) {
+    await reopenPeriodWithReversal(admin, fundId, group, periodId)
+    return { error: `The ledger snapshot could not be taken, so the period was not closed: ${e instanceof Error ? e.message : String(e)}` }
+  }
   const readiness = await checkReadiness(admin, fundId, group, periodStart, periodEnd)
+  // closeThrough refused on any blocker before this month was touched, so a blocker now is new — a
+  // read that failed this time, or this month's own check finding what the span's did not. Fail
+  // closed: undo this month's entries rather than lock a period whose review says "blocked".
+  const refusal = snapshotRefusal(readiness)
+  if (refusal) {
+    await reopenPeriodWithReversal(admin, fundId, group, periodId)
+    return { error: refusal }
+  }
   const review = await persistCloseReview(admin, fundId, group, vehicleId!, periodId, userId, readiness, snapshot, periodEnd)
   if (review.error) {
     await reopenPeriodWithReversal(admin, fundId, group, periodId)

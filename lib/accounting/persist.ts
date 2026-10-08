@@ -107,7 +107,12 @@ export async function persistEntry(
   //
   // The ledger is single-currency by design: a foreign position is translated on the way in, and
   // the rate movement lives in 1250/4300. See currency.ts.
-  const currency = await fundCurrency(admin, fundId)
+  let currency: string
+  try {
+    currency = await fundCurrency(admin, fundId)
+  } catch (e) {
+    return { error: `${e instanceof Error ? e.message : String(e)}. Nothing was saved — try again.` }
+  }
   entry = { ...entry, postings: entry.postings.map(p => ({ ...p, currency })) }
 
   try {

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { balanceSheet } from './statements'
 import { computeCapitalAccounts, rollForwardTies } from './capital-account'
 import { allocateAmount } from './allocation'
-import { monthWindows, loadWalletCloseInputs, checkReadiness } from './close'
+import { monthWindows, loadWalletCloseInputs, checkReadiness, snapshotRefusal } from './close'
 import { memoryAdmin } from '@/tests/helpers/memory-admin'
 import type { Account, Posting } from './types'
 
@@ -229,5 +229,36 @@ describe('loadWalletCloseInputs', () => {
     b.failNext('crypto_wallet_balances', 'select', 'boom')
     const readiness = await checkReadiness(b.admin as any, 'f', 'Fund I', '2026-01-01', '2026-03-31')
     expect(readiness.blockers.some(x => x.includes('could not be read') && x.includes('boom'))).toBe(true)
+  })
+})
+
+describe('the quoted-positions check on a failed read', () => {
+  const feed = { id: 'pf1', fund_id: 'f', company_id: 'c1', kind: 'listed', symbol: 'ACME', exchange: null, quote_currency: 'USD', quote_scale: 1, active_from: null, active_until: null, restriction_until: null, restriction_discount: null }
+  const seed = () => ({
+    companies: [{ id: 'c1', fund_id: 'f', name: 'Acme', holding_type: 'company' }],
+    fund_vehicles: [{ id: 'v1', fund_id: 'f', name: 'Fund I' }],
+    price_feeds: [feed], price_observations: [], investment_transactions: [], fund_settings: [{ fund_id: 'f', currency: 'USD' }],
+  })
+  // Each read the loader makes: failing any one of them is a blocker, never "no feeds".
+  for (const table of ['price_feeds', 'price_observations', 'investment_transactions', 'fund_settings']) {
+    it(`a failed ${table} read blocks the close`, async () => {
+      const m = memoryAdmin(seed())
+      // The wallet loader reads investment_transactions only when wallets exist; there are none here.
+      m.failNext(table, 'select', 'boom')
+      const { forgetFundCurrency } = await import('./currency')
+      forgetFundCurrency('f')
+      const readiness = await checkReadiness(m.admin as any, 'f', 'Fund I', '2026-01-01', '2026-03-31')
+      expect(readiness.blockers).toContainEqual(expect.stringMatching(/quoted positions could not be checked: .*boom/))
+    })
+  }
+})
+
+describe('the snapshot-time readiness check', () => {
+  it('a clean second check lets the close lock the period', () => {
+    expect(snapshotRefusal({ blockers: [] })).toBeNull()
+  })
+  it('any blocker at snapshot time refuses the close instead of recording it on a locked period', () => {
+    expect(snapshotRefusal({ blockers: ['The quoted positions could not be checked: boom. Try again before closing.'] }))
+      .toBe('Not ready to close, so nothing was locked. The quoted positions could not be checked: boom. Try again before closing.')
   })
 })

@@ -19,18 +19,28 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
-/** Per-request memo. A fund's currency doesn't change mid-request, and persistEntry is hot. */
+/**
+ * MODULE-LEVEL memo, shared by every request this server instance handles — not per request. A
+ * fund's currency rarely changes, and persistEntry is hot; the settings route calls
+ * forgetFundCurrency when it does change. Only a SUCCESSFUL read is cached.
+ */
 const cache = new Map<string, string>()
 
+/**
+ * THROWS on a failed read. Falling back to USD stamped USD on a EUR fund's postings — and, cached,
+ * on every entry the instance wrote afterwards. A fund with no settings row (or no currency set)
+ * is USD by default; that is a successful read.
+ */
 export async function fundCurrency(admin: SupabaseClient, fundId: string): Promise<string> {
   const hit = cache.get(fundId)
   if (hit) return hit
 
-  const { data } = await admin
+  const { data, error } = await admin
     .from('fund_settings' as any)
     .select('currency')
     .eq('fund_id', fundId)
     .maybeSingle()
+  if (error) throw new Error(`The fund's currency could not be read: ${error.message}`)
 
   const currency = ((data as any)?.currency as string) || 'USD'
   cache.set(fundId, currency)

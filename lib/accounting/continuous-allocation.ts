@@ -188,12 +188,14 @@ export async function postExistingEntryWithAllocation(
   admin: SupabaseClient, fundId: string, group: string, userId: string | null, entryId: string,
 ): Promise<PostedExisting | { error: string }> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
-  const [{ data: header }, { data: rows }] = await Promise.all([
+  const [{ data: header, error: headerError }, { data: rows, error: rowsError }] = await Promise.all([
     admin.from('journal_entries' as any).select('entry_date, memo, source_type, source_ref, status')
       .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('id', entryId).maybeSingle(),
     admin.from('journal_postings' as any).select('account_id, amount, currency, lp_entity_id')
       .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('journal_entry_id', entryId),
   ])
+  // A failed postings read would adopt nothing and post the entry unowned: refuse instead.
+  if (headerError || rowsError) return { error: `The entry could not be read, so it was not posted: ${(headerError ?? rowsError)!.message}` }
   if (!header) return { error: 'Entry not found' }
   if ((header as any).status !== 'draft') return { error: 'Only a draft entry can be posted' }
   const postings = ((rows as any[]) ?? []).map(row => ({
@@ -241,7 +243,10 @@ export async function postExistingEntryWithAllocation(
     const { error: revertError } = await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null })
       .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', entryId)
     if (revertError) {
-      return { error: `${allocated.error}. The entry could not be put back to draft, so entry ${entryId} is posted without its partner allocation — unpost or void it from the journal. (${revertError.message})` }
+      // Both failures matter: an un-removed adoption leaves transactions owning an entry the
+      // person is about to unpost or void by hand.
+      const also = removed.error ? ` Its investment transactions could not be undone either (${removed.error}).` : ''
+      return { error: `${allocated.error}. The entry could not be put back to draft, so entry ${entryId} is posted without its partner allocation — unpost or void it from the journal. (${revertError.message})${also}` }
     }
     if (removed.error) return { error: keptAsDraft(entryId, removed.error) }
     return allocated

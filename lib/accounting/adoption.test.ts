@@ -3,7 +3,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { memoryAdmin } from '@/tests/helpers/memory-admin'
 
 vi.mock('./vehicle-id', () => ({ vehicleNameById: vi.fn(async () => 'Fund I (renamed)') }))
-import { adoptEntry, entryIsOwned, removeAdopted, settleLostRace } from './adoption'
+import { adoptEntry, adoptedEntryIds, entryIsOwned, removeAdopted, settleLostRace } from './adoption'
 
 const chart = [
   { id: 'cash', fund_id: 'f', vehicle_id: 'v', code: '1000', type: 'asset', subtype: 'cash', company_id: null },
@@ -149,5 +149,17 @@ describe('failure handling', () => {
     const m = memoryAdmin({ chart_of_accounts: chart })
     expect(await adoptEntry(m.admin, 'f', args())).toEqual({ refused: expect.stringMatching(/entity could not be found/) })
     expect(m.tables.investment_transactions ?? []).toEqual([])
+  })
+})
+
+describe('adoptedEntryIds', () => {
+  it('names the entries a transaction was adopted from', async () => {
+    const m = memoryAdmin({ investment_transactions: [{ id: 't', fund_id: 'f', adopted_entry_id: 'e1' }] })
+    expect(await adoptedEntryIds(m.admin, 'f', ['e1', 'e2'])).toEqual(new Set(['e1']))
+  })
+  it('throws on a failed read rather than reading as "none adopted"', async () => {
+    const m = memoryAdmin({ investment_transactions: [] })
+    m.failNext('investment_transactions', 'select', 'read failed')
+    await expect(adoptedEntryIds(m.admin, 'f', ['e1'])).rejects.toThrow(/Ownership could not be checked: read failed/)
   })
 })
