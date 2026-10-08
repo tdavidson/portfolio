@@ -1,45 +1,10 @@
-import { describe, it, expect } from 'vitest'
-import { postsOnRecord } from './from-portfolio'
+import { describe, it, expect, vi, beforeEach } from 'vitest'
 
 /**
- * The books follow the investments (plans/spec-books-follow-investments.md): an entry derived
- * from a tracker row POSTS when it has no cash leg, and waits as a draft for its bank match when
- * it has one. Decided from the postings, not the transaction type — a write-off is a `proceeds`
- * row with no cash, an in-kind reward is `income` with no cash, a pure SAFE conversion is an
- * `investment` with no cash, and none of them can ever be matched to a bank row.
+ * Every derived entry posts (plans/spec-ledger-one-writer.md §2); the only draft left is the
+ * allocation-failure fallback.
  */
-const line = (accountId: string, amount: number) => ({ accountId, amount, currency: 'USD', lpEntityId: null })
-const CASH = 'cash-1000'
-
-describe('postsOnRecord', () => {
-  it('posts a mark — no cash leg', () => {
-    expect(postsOnRecord([line('unreal', 500), line('unreal-income', -500)], CASH)).toBe(true)
-  })
-
-  it('drafts a purchase — it credits cash', () => {
-    expect(postsOnRecord([line('cost', 1000), line(CASH, -1000)], CASH)).toBe(false)
-  })
-
-  it('drafts cash income — it debits cash', () => {
-    expect(postsOnRecord([line(CASH, 40), line('dividends', -40)], CASH)).toBe(false)
-  })
-
-  it('posts a write-off — an exit with no proceeds has no wire to match', () => {
-    expect(postsOnRecord([line('gain', 1000), line('cost', -1000)], CASH)).toBe(true)
-  })
-
-  it('posts a pure conversion, drafts one with new cash', () => {
-    expect(postsOnRecord([line('cost', 100), line('accrued', -100)], CASH)).toBe(true)
-    expect(postsOnRecord([line('cost', 600), line('accrued', -100), line(CASH, -500)], CASH)).toBe(false)
-  })
-
-  it('ignores a zero cash line — it moves no money', () => {
-    expect(postsOnRecord([line('unreal', 5), line('unreal-income', -5), line(CASH, 0)], CASH)).toBe(true)
-  })
-})
-
-// ---- Wiring: draftEntryForTransaction hands persistEntry the disposition. ------------------
-import { vi, beforeEach } from 'vitest'
+// ---- Wiring: draftEntryForTransaction posts. ------------------
 import { draftEntryForTransaction } from './from-portfolio'
 import { persistEntry } from './persist'
 
@@ -47,7 +12,9 @@ vi.mock('./persist', () => ({
   accountIdByCode: vi.fn(async () => new Map([['1000', 'cash-1000'], ['4200', 'unreal-income'], ['4300', 'fx-income']])),
   persistEntry: vi.fn(async () => ({ entryId: 'e1' })),
 }))
-vi.mock('./vehicle-id', () => ({ vehicleIdByName: vi.fn(async () => 'veh-1') }))
+vi.mock('./vehicle-id', () => ({ vehicleIdByName: vi.fn(async () => 'veh-1'), ensureVehiclesByName: vi.fn() }))
+vi.mock('./vehicle-domain', () => ({ vehicleKindByName: vi.fn(async () => 'fund') }))
+vi.mock('./provision-accounts', () => ({ ensureVehicleAccounts: vi.fn() }))
 vi.mock('./investments', () => ({
   ensureInvestmentAccounts: vi.fn(async () => new Map([['co-1', { costId: 'cost', unrealizedId: 'unreal', fxId: 'fx' }]])),
 }))
@@ -64,10 +31,10 @@ describe('draftEntryForTransaction — disposition', () => {
     expect(r).toMatchObject({ drafted: true, posted: true, entryId: 'e1' })
   })
 
-  it('drafts a purchase to wait for its bank match', async () => {
+  it('posts a purchase', async () => {
     const r = await draftEntryForTransaction(admin, 'f1', 'u1', { ...base, transaction_type: 'investment', investment_cost: 1000 }, 'Acme')
-    expect(vi.mocked(persistEntry).mock.calls[0][5]).toBe('draft')
-    expect(r).toMatchObject({ drafted: true, posted: false })
+    expect(vi.mocked(persistEntry).mock.calls[0][5]).toBe('posted')
+    expect(r).toMatchObject({ drafted: true, posted: true })
   })
 
   it('keeps a mark as a draft when its partner allocation fails, rather than losing it', async () => {
@@ -97,10 +64,5 @@ describe('tallyLedgerResults', () => {
       { name: 'Gamma', result: { drafted: false, reason: 'Period closed through 2026-06-30.' } },
     ])
     expect(t).toEqual({ booked: 2, posted: 1, drafted: 1, errors: ['Gamma: Period closed through 2026-06-30.'] })
-  })
-
-  it('does not call a vehicle that keeps no books an error', () => {
-    const t = tallyLedgerResults([{ name: 'Acme', result: { drafted: false, reason: 'no chart', notOnboarded: true } }])
-    expect(t).toEqual({ booked: 0, posted: 0, drafted: 0, errors: [] })
   })
 })

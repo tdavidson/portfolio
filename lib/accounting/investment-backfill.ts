@@ -16,9 +16,7 @@
 // IN DATE ORDER, because an exit's entry reads the carried values earlier entries put there.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { draftEntryForTransaction, postsOnRecord, txnRef } from './from-portfolio'
-import { accountIdByCode } from './persist'
-import { postExistingEntryWithAllocation } from './continuous-allocation'
+import { draftEntryForTransaction, txnRef } from './from-portfolio'
 import { vehicleIdByName } from './vehicle-id'
 import { readAll } from './bank-quickbooks-match'
 import { ACTUAL_BOOK } from './books'
@@ -134,21 +132,8 @@ export async function backfillDerivedEntries(
   })
   out.toDerive = pending.length
 
-  const cashId = (await accountIdByCode(admin, fundId, group)).get('1000')
-  const oldDrafts = cashId
-    ? derived.filter(e => e.status === 'draft' && postsOnRecord(
-        (e.journal_postings ?? []).map((p: any) => ({ accountId: p.account_id, amount: Number(p.amount) })), cashId))
-    : []
-  out.toPost = oldDrafts.length
+  out.toPost = 0
   if (opts.dryRun) return out
-
-  const txnById = new Map<string, any>(txns.map(t => [t.id, t]))
-  for (const e of oldDrafts) {
-    const t = txnById.get(String(e.source_ref).slice(TXN_REF_PREFIX.length))
-    const r = await postExistingEntryWithAllocation(admin, fundId, group, userId, e.id)
-    if ('error' in r) out.refused.push(`${names.get(t?.company_id) ?? 'Investment'}, ${e.entry_date}: ${r.error}`)
-    else out.posted++
-  }
 
   for (const t of pending) {
     const name = names.get(t.company_id) ?? 'Investment'

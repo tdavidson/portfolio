@@ -1,7 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { backfillDerivedEntries } from './investment-backfill'
 import { draftEntryForTransaction } from './from-portfolio'
-import { postExistingEntryWithAllocation } from './continuous-allocation'
 
 vi.mock('./vehicle-id', () => ({ vehicleIdByName: vi.fn(async () => 'veh-1') }))
 vi.mock('./persist', () => ({ accountIdByCode: vi.fn(async () => new Map([['1000', 'cash']])) }))
@@ -109,37 +108,6 @@ describe('backfillDerivedEntries', () => {
     const r = await backfillDerivedEntries(world(), 'f1', 'Fund I', 'u1', { dryRun: true })
     expect(draftEntryForTransaction).not.toHaveBeenCalled()
     expect(r).toMatchObject({ toDerive: 4, alreadyDerived: 0, carriedElsewhere: [] })
-  })
-})
-
-describe('backfillDerivedEntries — drafts left by the old always-draft derivation', () => {
-  beforeEach(() => { vi.mocked(postExistingEntryWithAllocation).mockClear() })
-
-  const oldDrafts = {
-    journal_entries: [
-      { id: 'old-mark', fund_id: 'f1', vehicle_id: 'veh-1', book: 'actual', status: 'draft', source_ref: 'txn:t3', entry_date: '2026-06-30',
-        journal_postings: [{ account_id: 'unreal', amount: 250 }, { account_id: 'unreal-income', amount: -250 }] },
-      { id: 'old-buy', fund_id: 'f1', vehicle_id: 'veh-1', book: 'actual', status: 'draft', source_ref: 'txn:t1', entry_date: '2025-03-01',
-        journal_postings: [{ account_id: 'cost', amount: 1000 }, { account_id: 'cash', amount: -1000 }] },
-    ],
-  }
-
-  it('posts an old mark draft — it moves no cash — and leaves an old purchase draft for its bank match', async () => {
-    const r = await backfillDerivedEntries(world(oldDrafts), 'f1', 'Fund I', 'u1')
-    expect(vi.mocked(postExistingEntryWithAllocation).mock.calls.map(c => c[4])).toEqual(['old-mark'])
-    expect(r.posted).toBe(1 + 0) // t3 was already derived; its old draft is what posts
-    expect(r.alreadyDerived).toBe(2)
-  })
-
-  it('counts them in the preview without posting', async () => {
-    const r = await backfillDerivedEntries(world(oldDrafts), 'f1', 'Fund I', 'u1', { dryRun: true })
-    expect(postExistingEntryWithAllocation).not.toHaveBeenCalled()
-    expect(r.toPost).toBe(1)
-  })
-
-  it('reports an old draft that still cannot post', async () => {
-    const r = await backfillDerivedEntries(world({ journal_entries: [{ ...oldDrafts.journal_entries[0], id: 'old-refused' }] }), 'f1', 'Fund I', 'u1')
-    expect(r.refused).toContain('Acme, 2026-06-30: No partner participates.')
   })
 })
 

@@ -1,12 +1,12 @@
 // Portfolio → ledger: a transaction recorded in the tracker derives the journal entry
 // it implies.
 //
-// POSTED OR DRAFTED, SPLIT ON CASH. There is one fact, not two systems: the entry is derived
-// from the transaction, so it cannot disagree with it. What it CAN do is collide with the bank
-// import, which books the same wire from the bank feed. So an entry with no cash leg — a mark,
-// a rate move, a write-off — posts on record, and an entry that moves cash waits as a draft
-// until its cash leg is matched to the bank row that is the same payment. See postsOnRecord
-// and plans/spec-books-follow-investments.md.
+// EVERY DERIVED ENTRY POSTS. There is one fact, not two systems: the entry is derived from the
+// transaction, so it cannot disagree with it, and the books are complete whether or not anyone
+// ever opens accounting. The bank is reconciliation afterwards — the bank import matches a row to
+// the posted entry instead of booking the wire again (bank-import.ts), and deriving an entry links
+// an open bank row of the same amount (investment-bank-match.ts). The one draft left is the
+// fallback when the partner allocation fails. See plans/spec-ledger-one-writer.md §2.
 //
 // WHAT IT REFUSES TO GUESS. A row with no `portfolio_group` is company-wide pricing —
 // a round the fund didn't participate in still re-prices the position, but in WHICH
@@ -26,7 +26,9 @@ import { accountIdByCode, persistEntry } from './persist'
 import { ensureInvestmentAccounts } from './investments'
 import { loadPostedLedger } from './load'
 import { closedPeriodRanges, dateInAnyClosedPeriod } from './periods'
-import { vehicleIdByName } from './vehicle-id'
+import { vehicleIdByName, ensureVehiclesByName } from './vehicle-id'
+import { ensureVehicleAccounts } from './provision-accounts'
+import { vehicleKindByName } from './vehicle-domain'
 import { roundCents } from './ledger'
 import type { JournalEntry, Posting } from './types'
 import { ACTUAL_BOOK } from './books'
@@ -43,12 +45,9 @@ const DIVIDEND_INCOME = '4130'
 const PORTFOLIO_INCOME = '4120'
 
 export interface LedgerDraftResult {
-  /** An entry was created — posted, or drafted to wait for its bank match (see `posted`). */
+  /** An entry was created — posted, or (allocation fallback only) kept as a draft; see `posted`. */
   drafted: boolean
-  /**
-   * The entry posted on record (no cash leg — a mark, a write-off, an in-kind receipt), as
-   * opposed to waiting as a draft for its cash leg to be matched to a bank row.
-   */
+  /** False only when the partner allocation failed and the entry was kept as a draft (see reason). */
   posted?: boolean
   entryId?: string
   /** What kind of entry, for the message shown back. */
@@ -57,52 +56,19 @@ export interface LedgerDraftResult {
   vehicle?: string
   /** Why nothing was drafted — always set when `drafted` is false. */
   reason?: string
-  /**
-   * The vehicle simply isn't on the ledger yet — as opposed to a real problem with this row.
-   *
-   * A fund that has never onboarded a vehicle to accounting hasn't done anything wrong, so its
-   * every save shouldn't read like a warning. Callers use this to soften the message into an
-   * invitation. It is a flag rather than a string match on `reason` because the sentence is
-   * copy and will be rewritten; the condition is behaviour and won't.
-   */
-  notOnboarded?: boolean
 }
 
 const skip = (reason: string): LedgerDraftResult => ({ drafted: false, reason })
 
-/** Skipped only because this vehicle keeps no books yet. Nothing to fix, something to offer. */
-const skipNotOnboarded = (vehicle: string, reason: string): LedgerDraftResult =>
-  ({ drafted: false, reason, notOnboarded: true, vehicle })
-
-/**
- * Does an entry derived from a tracker row post the moment it is recorded?
- *
- * Only when no posting touches cash. That is exactly where double-representation becomes possible:
- * a purchase credits cash, and the bank import books the same wire from the bank feed, so the
- * derived entry waits as a draft until its cash leg is matched to that bank row. A mark, a
- * write-off, an in-kind reward or a pure conversion has no counterparty and no cash — nothing can
- * book it twice, and the closed-period trigger already refuses the one case where posting is wrong.
- *
- * Decided from the postings, not `transaction_type`: a write-off is a `proceeds` row and a pure
- * conversion is an `investment` row, and neither can ever be matched to a bank row.
- */
-export function postsOnRecord(postings: Pick<Posting, 'accountId' | 'amount'>[], cashId: string): boolean {
-  return !postings.some(p => p.accountId === cashId && roundCents(p.amount) !== 0)
-}
-
-/**
- * A batch of derivations, said back: how many posted, how many wait for a bank match, and every
- * refusal by name. A vehicle that keeps no books is not an error — see `notOnboarded`.
- */
+/** A batch of derivations, said back: how many posted, how many were kept as drafts, every refusal by name. */
 export function tallyLedgerResults(
-  rows: { name: string; result: Pick<LedgerDraftResult, 'drafted' | 'posted' | 'reason' | 'notOnboarded'> }[]
+  rows: { name: string; result: Pick<LedgerDraftResult, 'drafted' | 'posted' | 'reason'> }[]
 ): { booked: number; posted: number; drafted: number; errors: string[] } {
   const out = { posted: 0, drafted: 0, errors: [] as string[] }
   for (const { name, result } of rows) {
     if (result.drafted) result.posted ? out.posted++ : out.drafted++
-    else if (result.reason && !result.notOnboarded) out.errors.push(`${name}: ${result.reason}`)
+    else if (result.reason) out.errors.push(`${name}: ${result.reason}`)
   }
-  // Booked = an entry exists. A row the ledger refused is not booked, however it was recorded.
   return { booked: out.posted + out.drafted, ...out }
 }
 
@@ -355,7 +321,8 @@ async function companyCarrying(
   fundId: string,
   group: string,
   vehicleId: string,
-  accts: { costId: string; unrealizedId: string; fxId: string }
+  accts: { costId: string; unrealizedId: string; fxId: string },
+  excludeEntryIds: string[] = [],
 ): Promise<{ cost: number; unrealized: number; fx: number }> {
   const { postings } = await loadPostedLedger(admin, fundId, group)
   // PLUS the entries derived from tracker rows that are still drafts. A purchase now waits as a
@@ -372,6 +339,13 @@ async function companyCarrying(
     ...((drafts as any[]) ?? []).flatMap(e => (e.journal_postings ?? [])
       .map((p: any) => ({ accountId: p.account_id as string, amount: Number(p.amount) }))),
   ]
+  // Entries being retracted (an adopted entry being split) are not carrying value for the
+  // entries that replace them.
+  if (excludeEntryIds.length > 0) {
+    const { data: excluded } = await admin.from('journal_postings' as any)
+      .select('account_id, amount').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('journal_entry_id', excludeEntryIds)
+    for (const p of (excluded as any[]) ?? []) all.push({ accountId: p.account_id, amount: -Number(p.amount) })
+  }
   const sum = (accountId: string) =>
     roundCents(all.filter(p => p.accountId === accountId).reduce((s, p) => s + p.amount, 0))
   return {
@@ -381,10 +355,302 @@ async function companyCarrying(
   }
 }
 
+export interface BuiltEntry {
+  entry: JournalEntry
+  group: string
+  vehicleId: string
+  cashId: string
+  kind: LedgerDraftResult['kind']
+  amount: number
+}
+
 /**
- * Draft the journal entry a portfolio transaction implies. Returns why it didn't,
- * rather than throwing, when the transaction has no ledger meaning or the vehicle
- * isn't on the ledger at all.
+ * The entry a transaction implies, built but not written. `draftEntryForTransaction` persists it;
+ * retracting an adopted entry builds several and posts them only once the split is known to be
+ * clean (retract-adopted.ts).
+ */
+export async function buildEntryForTransaction(
+  admin: SupabaseClient,
+  fundId: string,
+  txn: any,
+  companyName: string,
+  opts: { excludeEntryIds?: string[] } = {},
+): Promise<BuiltEntry | { skip: LedgerDraftResult }> {
+  const group: string | null = txn?.portfolio_group ?? null
+  const companyId: string | null = txn?.company_id ?? null
+  const entryDate: string | null = txn?.transaction_date ?? null
+
+  if (!companyId) return { skip: skip('No company on the transaction.') }
+  if (!entryDate) return { skip: skip('No transaction date — the ledger needs one to place the entry in a period.') }
+  // A split is checked BEFORE the vehicle test, because it is never a ledger entry however it
+  // is tagged. It restates the share count and the per-share price by offsetting factors and
+  // moves the position's value by exactly zero — there is nothing to debit or credit. Booking
+  // one would post a balanced pair of zero-value postings and make the tie-out lie.
+  if (txn.transaction_type === 'split') {
+    return { skip: skip('A split restates the share count without changing value — no entry to book.') }
+  }
+  if (!group) {
+    return { skip: skip(
+      'This row has no vehicle, so it is company-wide pricing rather than a fund transaction. ' +
+      'Tag it to a vehicle if it should hit the books.'
+    ) }
+  }
+  if (txn.transaction_type === 'round_info') {
+    return { skip: skip('A round is a price signal, not a fund transaction — no entry to book.') }
+  }
+
+  // EVERY ENTITY HAS A LEDGER (spec §3). A name the registry has never seen is created — every
+  // caller has already refused a scoped member with groupWriteDenial, so this never lets a member
+  // create an entity — and an entity with no chart is seeded, by kind, on first touch.
+  let vehicleId = await vehicleIdByName(admin, fundId, group)
+  if (!vehicleId) {
+    await ensureVehiclesByName(admin, fundId, [group])
+    vehicleId = await vehicleIdByName(admin, fundId, group)
+  }
+  if (!vehicleId) return { skip: skip(`The entity "${group}" could not be created.`) }
+
+  // A management company's chart uses 1100 for receivables and 4000 for fee income; a GP entity's
+  // 4000 is carried interest. Booking an investment there would land a realized gain in income
+  // that is not one. Investments are recorded in the fund that holds them.
+  const vehicleKind = await vehicleKindByName(admin, fundId, group)
+  if (vehicleKind === 'manco' || vehicleKind === 'associate') {
+    const what = vehicleKind === 'manco' ? 'a management company' : 'a GP entity'
+    return { skip: skip(`${group} is ${what} — investments are recorded in the fund that holds them.`) }
+  }
+
+  let codes = await accountIdByCode(admin, fundId, group)
+  if (!codes.get(CASH)) {
+    await ensureVehicleAccounts(admin, fundId, group)
+    codes = await accountIdByCode(admin, fundId, group)
+  }
+  const cashId = codes.get(CASH)
+  if (!cashId) return { skip: skip(`${group} is missing account 1000 (Cash).`) }
+
+  const accts = await ensureInvestmentAccounts(admin, fundId, group, [{ id: companyId, name: companyName }])
+  const a = accts.get(companyId)
+  if (!a) return { skip: skip(`Could not resolve investment accounts for ${companyName}.`) }
+
+  const num = (v: any) => {
+    const n = Number(v)
+    return Number.isFinite(n) ? roundCents(n) : 0
+  }
+
+  let entry: JournalEntry | null = null
+  let kind: LedgerDraftResult['kind']
+  let amount = 0
+
+  // ---- A conversion: a SAFE/note becomes priced equity. -------------------
+  //
+  // The source instrument's principal already sits in 1100 from its own purchase date, so it is
+  // NOT re-posted here. What the conversion date DOES book, all in one entry:
+  //   • accrued interest capitalizing into basis   Dr 1100  / Cr 1150
+  //   • any new cash written at the priced round    Dr 1100  / Cr 1000
+  //   • the step-up to the round price (or a down-round loss)  Dr 1200 / Cr 4200
+  // No cash leg means a pure conversion lands in the cash-flow statement's non-cash section, and
+  // the valuation change is dated on the conversion, not the original SAFE/note date.
+  if (txn.transaction_type === 'investment' && txn.converts_from_txn_id) {
+    const { data: source } = await admin
+      .from('investment_transactions' as any)
+      .select('investment_cost')
+      .eq('id', txn.converts_from_txn_id)
+      .eq('fund_id', fundId)
+      .maybeSingle() as { data: { investment_cost: number | null } | null }
+    const carriedPrincipal = num(source?.investment_cost)
+    const interest = num(txn.interest_converted)
+    const newCash = num(txn.investment_cost)
+    const shares = num(txn.shares_acquired)
+    const price = num(txn.share_price)
+    const carriedBasis = roundCents(carriedPrincipal + interest + newCash)
+    const roundValue = shares > 0 && price > 0 ? roundCents(shares * price) : carriedBasis
+
+    if (interest !== 0 && !a.accruedInterestId) {
+      return { skip: skip(`${group} has no accrued-interest account for ${companyName} — re-sync the chart of accounts to convert note interest.`) }
+    }
+    const unrealizedIncomeId = codes.get(UNREALIZED_INCOME)
+    if (roundCents(roundValue - carriedBasis) !== 0 && !unrealizedIncomeId) {
+      return { skip: skip(`${group} is missing account ${UNREALIZED_INCOME} — re-sync the chart of accounts.`) }
+    }
+
+    const postings = conversionPostings(
+      { carriedPrincipal, interest, newCash, shares, price },
+      { costId: a.costId, cashId, unrealizedId: a.unrealizedId, accruedInterestId: a.accruedInterestId, unrealizedIncomeId },
+    )
+    if (postings.length === 0) {
+      return { skip: skip('This conversion carries no new cash, no converted interest, and no change in value — nothing to book.') }
+    }
+
+    amount = roundValue
+    kind = 'conversion'
+    entry = {
+      fundId,
+      entryDate,
+      sourceType: 'investment',
+      memo: `Conversion to equity — ${companyName}${txn.round_name ? ` (${txn.round_name})` : ''}`,
+      postings,
+    }
+  }
+
+  // ---- A purchase: cash out, cost on the books. --------------------------
+  // ---- Income the position produced. --------------------------------------
+  //
+  // Two shapes, and the difference is what gets debited. CASH income lands in the bank and
+  // changes no position. IN-KIND income lands in the POSITION: more units, whose fair value on
+  // the day becomes their cost — which is precisely what stops the same value being reported
+  // again as realized gain when they are eventually sold.
+  //
+  // Either way the credit is INCOME, never 4200. Booking a reward as a mark inflates change-in-
+  // unrealized with something that is not appreciation, and leaves the units with no basis.
+  else if (txn.transaction_type === 'income') {
+    const row = txn as any
+    const incomeAmount = roundCents(num(row.income_amount))
+    if (incomeAmount === 0) return { skip: skip('The income has no amount — nothing to book.') }
+
+    const incomeCode = row.income_kind === 'dividend' ? DIVIDEND_INCOME : PORTFOLIO_INCOME
+    const incomeId = codes.get(incomeCode)
+    if (!incomeId) {
+      return { skip: skip(`${group} is missing account ${incomeCode} — re-sync the chart of accounts to book portfolio income.`) }
+    }
+
+    const inKind = row.income_settlement === 'in_kind'
+    // Acquisition costs on an in-kind receipt capitalise with it; on cash income there is
+    // nothing to capitalise into, so a fee there would be an expense and is not booked here.
+    const fee = inKind ? roundCents(num(row.fee_amount)) : 0
+    const debitId = inKind ? a.costId : cashId
+    const label = row.income_kind === 'dividend' ? 'Dividend'
+      : row.income_kind === 'staking' ? 'Staking income'
+      : row.income_kind === 'airdrop' ? 'Airdrop'
+      : 'Portfolio income'
+
+    amount = incomeAmount
+    kind = 'income'
+    entry = {
+      fundId,
+      entryDate,
+      sourceType: 'income',
+      memo: `${label} — ${companyName}`,
+      postings: [
+        { accountId: debitId, amount: roundCents(incomeAmount + fee), currency: 'USD', lpEntityId: null },
+        { accountId: incomeId, amount: roundCents(-incomeAmount), currency: 'USD', lpEntityId: null },
+        // A fee paid to receive income is cash out; without this the entry does not balance.
+        ...(fee !== 0 ? [{ accountId: cashId, amount: roundCents(-fee), currency: 'USD', lpEntityId: null }] : []),
+      ],
+    }
+  }
+
+  else if (txn.transaction_type === 'investment') {
+    // Acquisition costs capitalise into the position rather than hitting the income statement.
+    const cost = roundCents(num(txn.investment_cost) + num((txn as any).fee_amount))
+    if (cost === 0) return { skip: skip('The investment has no cost — nothing to book.') }
+    amount = cost
+    kind = 'investment'
+    entry = {
+      fundId,
+      entryDate,
+      sourceType: 'investment',
+      memo: `Investment — ${companyName}${txn.round_name ? ` (${txn.round_name})` : ''}`,
+      postings: [
+        { accountId: a.costId, amount: cost, currency: 'USD', lpEntityId: null },
+        { accountId: cashId, amount: roundCents(-cost), currency: 'USD', lpEntityId: null },
+      ],
+    }
+  }
+
+  // ---- A valuation change: either the company moved, or the currency did. -
+  else if (txn.transaction_type === 'unrealized_gain_change') {
+    // Only 'fx' is a rate move. 'mark', 'quote' (a price feed) and 'nav' (a manager's statement)
+    // are all a change in the investment's own value, and book to 1200/4200.
+    const isFx = txn.valuation_change_source === 'fx'
+    const delta = num(isFx ? (txn.fx_value_change ?? txn.unrealized_value_change) : txn.unrealized_value_change)
+    if (delta === 0) return { skip: skip('The valuation did not change — nothing to book.') }
+
+    // The whole reason FX has its own accounts: a rate move is not investment
+    // performance, and must never land in 1200/4200.
+    const assetId = isFx ? a.fxId : a.unrealizedId
+    const incomeCode = isFx ? FX_INCOME : UNREALIZED_INCOME
+    const incomeId = codes.get(incomeCode)
+    if (!incomeId) {
+      return { skip: skip(`${group} is missing account ${incomeCode} — re-sync the chart of accounts.`) }
+    }
+
+    amount = delta
+    kind = isFx ? 'fx_revaluation' : 'valuation'
+    const rates = txn.prior_fx_rate && txn.fx_rate
+      ? ` (${txn.original_currency ?? 'FX'} ${txn.prior_fx_rate} → ${txn.fx_rate})`
+      : ''
+    entry = {
+      fundId,
+      entryDate,
+      sourceType: isFx ? 'fx_revaluation' : 'valuation',
+      memo: isFx
+        ? `Foreign currency revaluation — ${companyName}${rates}`
+        : `Mark to fair value — ${companyName}${txn.round_name ? ` (${txn.round_name})` : ''}`,
+      postings: [
+        { accountId: assetId, amount: delta, currency: 'USD', lpEntityId: null },
+        { accountId: incomeId, amount: roundCents(-delta), currency: 'USD', lpEntityId: null },
+      ],
+    }
+  }
+
+  // ---- An exit: cash in, cost retired, the difference is a realized gain. -
+  else if (txn.transaction_type === 'proceeds') {
+    const proceeds = num(txn.proceeds_received)
+    const escrow = num(txn.proceeds_escrow)
+    const basis = Math.abs(num(txn.cost_basis_exited))
+    if (proceeds === 0 && escrow === 0 && basis === 0) return { skip: skip('The exit has neither proceeds nor cost basis — nothing to book.') }
+
+    // Prefer the company's OWN realized-gain account (4000-<company>) so the ledger keeps which
+    // deal produced the gain; fall back to the pooled 4000 for charts seeded before it existed.
+    const gainId = a.realizedId ?? codes.get(REALIZED_GAIN)
+    if (!gainId) return { skip: skip(`${group} is missing account ${REALIZED_GAIN} (Realized gains).`) }
+
+    // REVERSE THE ACCUMULATED MARKS ON THE WAY OUT.
+    //
+    // A position that was marked up carries a balance in its 1200 (unrealized) and 1250
+    // (FX translation) accounts. Retiring only the COST on exit left those behind: a stale
+    // mark sitting on the balance sheet for a company the fund no longer owns, and
+    // cumulative P&L counting the same appreciation twice — once as the unrealized marks
+    // (4200), and again inside the full realized gain (4000). The replay path has always
+    // done this correctly (investments.ts drop-out reversal); the live draft did not.
+    //
+    // A partial exit reverses its share: the fraction of the cost basis being retired.
+    const carried = await companyCarrying(admin, fundId, group, vehicleId, a, opts.excludeEntryIds ?? [])
+
+    amount = proceeds
+    kind = 'proceeds'
+    entry = {
+      fundId,
+      entryDate,
+      sourceType: 'realized_gain',
+      memo: `Exit — ${companyName}${txn.round_name ? ` (${txn.round_name})` : ''}`,
+      postings: exitPostings({ proceeds, escrow, basis, carried }, {
+        cashId,
+        gainId,
+        costId: a.costId,
+        unrealizedId: a.unrealizedId,
+        fxId: a.fxId,
+        // Absent on a chart seeded before 1350 existed. Without it the escrow can't be
+        // recognized, so the entry falls back to cash-only — the old behaviour — rather
+        // than posting an unbalanced entry. Re-syncing the chart adds it.
+        escrowId: codes.get(ESCROW_RECEIVABLE),
+        unrealizedIncomeId: codes.get(UNREALIZED_INCOME),
+        fxIncomeId: codes.get(FX_INCOME),
+      }),
+    }
+  }
+
+  if (!entry) return { skip: skip(`No ledger entry is implied by a "${txn.transaction_type}" row.`) }
+
+  // Tag the entry with the transaction that produced it. Without this there is no link at
+  // all between a tracker row and the entry it drafted — which is why editing or deleting a
+  // transaction used to leave the ledger untouched and silently wrong. `source_ref` is the
+  // same mechanism the close uses to find and void its own allocation entries.
+  if (txn.id) entry.sourceRef = txnRef(txn.id)
+  return { entry, group, vehicleId, cashId, kind, amount }
+}
+
+/**
+ * Derive and POST the journal entry a portfolio transaction implies. Returns why it didn't,
+ * rather than throwing, when the transaction has no ledger meaning.
  */
 export async function draftEntryForTransaction(
   admin: SupabaseClient,
@@ -394,271 +660,16 @@ export async function draftEntryForTransaction(
   companyName: string
 ): Promise<LedgerDraftResult> {
   try {
-    const group: string | null = txn?.portfolio_group ?? null
-    const companyId: string | null = txn?.company_id ?? null
-    const entryDate: string | null = txn?.transaction_date ?? null
+    const built = await buildEntryForTransaction(admin, fundId, txn, companyName)
+    if ('skip' in built) return built.skip
+    const { entry, group, kind, amount } = built
 
-    if (!companyId) return skip('No company on the transaction.')
-    if (!entryDate) return skip('No transaction date — the ledger needs one to place the entry in a period.')
-    // A split is checked BEFORE the vehicle test, because it is never a ledger entry however it
-    // is tagged. It restates the share count and the per-share price by offsetting factors and
-    // moves the position's value by exactly zero — there is nothing to debit or credit. Booking
-    // one would post a balanced pair of zero-value postings and make the tie-out lie.
-    if (txn.transaction_type === 'split') {
-      return skip('A split restates the share count without changing value — no entry to book.')
-    }
-    if (!group) {
-      return skip(
-        'This row has no vehicle, so it is company-wide pricing rather than a fund transaction. ' +
-        'Tag it to a vehicle if it should hit the books.'
-      )
-    }
-    if (txn.transaction_type === 'round_info') {
-      return skip('A round is a price signal, not a fund transaction — no entry to book.')
-    }
-
-    // Is this vehicle even on the ledger? If the chart was never seeded, the fund isn't
-    // doing accounting here and we say so quietly rather than seeding it behind their back.
-    const vehicleId = await vehicleIdByName(admin, fundId, group)
-    if (!vehicleId) return skipNotOnboarded(group, `No accounting vehicle named "${group}".`)
-    const codes = await accountIdByCode(admin, fundId, group)
-    if (codes.size === 0) {
-      return skipNotOnboarded(group, `${group} has no chart of accounts — onboard it in Accounting to book entries.`)
-    }
-
-    const cashId = codes.get(CASH)
-    if (!cashId) return skip(`${group} is missing account 1000 (Cash).`)
-
-    const accts = await ensureInvestmentAccounts(admin, fundId, group, [{ id: companyId, name: companyName }])
-    const a = accts.get(companyId)
-    if (!a) return skip(`Could not resolve investment accounts for ${companyName}.`)
-
-    const num = (v: any) => {
-      const n = Number(v)
-      return Number.isFinite(n) ? roundCents(n) : 0
-    }
-
-    let entry: JournalEntry | null = null
-    let kind: LedgerDraftResult['kind']
-    let amount = 0
-
-    // ---- A conversion: a SAFE/note becomes priced equity. -------------------
-    //
-    // The source instrument's principal already sits in 1100 from its own purchase date, so it is
-    // NOT re-posted here. What the conversion date DOES book, all in one entry:
-    //   • accrued interest capitalizing into basis   Dr 1100  / Cr 1150
-    //   • any new cash written at the priced round    Dr 1100  / Cr 1000
-    //   • the step-up to the round price (or a down-round loss)  Dr 1200 / Cr 4200
-    // No cash leg means a pure conversion lands in the cash-flow statement's non-cash section, and
-    // the valuation change is dated on the conversion, not the original SAFE/note date.
-    if (txn.transaction_type === 'investment' && txn.converts_from_txn_id) {
-      const { data: source } = await admin
-        .from('investment_transactions' as any)
-        .select('investment_cost')
-        .eq('id', txn.converts_from_txn_id)
-        .eq('fund_id', fundId)
-        .maybeSingle() as { data: { investment_cost: number | null } | null }
-      const carriedPrincipal = num(source?.investment_cost)
-      const interest = num(txn.interest_converted)
-      const newCash = num(txn.investment_cost)
-      const shares = num(txn.shares_acquired)
-      const price = num(txn.share_price)
-      const carriedBasis = roundCents(carriedPrincipal + interest + newCash)
-      const roundValue = shares > 0 && price > 0 ? roundCents(shares * price) : carriedBasis
-
-      if (interest !== 0 && !a.accruedInterestId) {
-        return skip(`${group} has no accrued-interest account for ${companyName} — re-sync the chart of accounts to convert note interest.`)
-      }
-      const unrealizedIncomeId = codes.get(UNREALIZED_INCOME)
-      if (roundCents(roundValue - carriedBasis) !== 0 && !unrealizedIncomeId) {
-        return skip(`${group} is missing account ${UNREALIZED_INCOME} — re-sync the chart of accounts.`)
-      }
-
-      const postings = conversionPostings(
-        { carriedPrincipal, interest, newCash, shares, price },
-        { costId: a.costId, cashId, unrealizedId: a.unrealizedId, accruedInterestId: a.accruedInterestId, unrealizedIncomeId },
-      )
-      if (postings.length === 0) {
-        return skip('This conversion carries no new cash, no converted interest, and no change in value — nothing to book.')
-      }
-
-      amount = roundValue
-      kind = 'conversion'
-      entry = {
-        fundId,
-        entryDate,
-        sourceType: 'investment',
-        memo: `Conversion to equity — ${companyName}${txn.round_name ? ` (${txn.round_name})` : ''}`,
-        postings,
-      }
-    }
-
-    // ---- A purchase: cash out, cost on the books. --------------------------
-    // ---- Income the position produced. --------------------------------------
-    //
-    // Two shapes, and the difference is what gets debited. CASH income lands in the bank and
-    // changes no position. IN-KIND income lands in the POSITION: more units, whose fair value on
-    // the day becomes their cost — which is precisely what stops the same value being reported
-    // again as realized gain when they are eventually sold.
-    //
-    // Either way the credit is INCOME, never 4200. Booking a reward as a mark inflates change-in-
-    // unrealized with something that is not appreciation, and leaves the units with no basis.
-    else if (txn.transaction_type === 'income') {
-      const row = txn as any
-      const incomeAmount = roundCents(num(row.income_amount))
-      if (incomeAmount === 0) return skip('The income has no amount — nothing to book.')
-
-      const incomeCode = row.income_kind === 'dividend' ? DIVIDEND_INCOME : PORTFOLIO_INCOME
-      const incomeId = codes.get(incomeCode)
-      if (!incomeId) {
-        return skip(`${group} is missing account ${incomeCode} — re-sync the chart of accounts to book portfolio income.`)
-      }
-
-      const inKind = row.income_settlement === 'in_kind'
-      // Acquisition costs on an in-kind receipt capitalise with it; on cash income there is
-      // nothing to capitalise into, so a fee there would be an expense and is not booked here.
-      const fee = inKind ? roundCents(num(row.fee_amount)) : 0
-      const debitId = inKind ? a.costId : cashId
-      const label = row.income_kind === 'dividend' ? 'Dividend'
-        : row.income_kind === 'staking' ? 'Staking income'
-        : row.income_kind === 'airdrop' ? 'Airdrop'
-        : 'Portfolio income'
-
-      amount = incomeAmount
-      kind = 'income'
-      entry = {
-        fundId,
-        entryDate,
-        sourceType: 'income',
-        memo: `${label} — ${companyName}`,
-        postings: [
-          { accountId: debitId, amount: roundCents(incomeAmount + fee), currency: 'USD', lpEntityId: null },
-          { accountId: incomeId, amount: roundCents(-incomeAmount), currency: 'USD', lpEntityId: null },
-          // A fee paid to receive income is cash out; without this the entry does not balance.
-          ...(fee !== 0 ? [{ accountId: cashId, amount: roundCents(-fee), currency: 'USD', lpEntityId: null }] : []),
-        ],
-      }
-    }
-
-    else if (txn.transaction_type === 'investment') {
-      // Acquisition costs capitalise into the position rather than hitting the income statement.
-      const cost = roundCents(num(txn.investment_cost) + num((txn as any).fee_amount))
-      if (cost === 0) return skip('The investment has no cost — nothing to book.')
-      amount = cost
-      kind = 'investment'
-      entry = {
-        fundId,
-        entryDate,
-        sourceType: 'investment',
-        memo: `Investment — ${companyName}${txn.round_name ? ` (${txn.round_name})` : ''}`,
-        postings: [
-          { accountId: a.costId, amount: cost, currency: 'USD', lpEntityId: null },
-          { accountId: cashId, amount: roundCents(-cost), currency: 'USD', lpEntityId: null },
-        ],
-      }
-    }
-
-    // ---- A valuation change: either the company moved, or the currency did. -
-    else if (txn.transaction_type === 'unrealized_gain_change') {
-      // Only 'fx' is a rate move. 'mark', 'quote' (a price feed) and 'nav' (a manager's statement)
-      // are all a change in the investment's own value, and book to 1200/4200.
-      const isFx = txn.valuation_change_source === 'fx'
-      const delta = num(isFx ? (txn.fx_value_change ?? txn.unrealized_value_change) : txn.unrealized_value_change)
-      if (delta === 0) return skip('The valuation did not change — nothing to book.')
-
-      // The whole reason FX has its own accounts: a rate move is not investment
-      // performance, and must never land in 1200/4200.
-      const assetId = isFx ? a.fxId : a.unrealizedId
-      const incomeCode = isFx ? FX_INCOME : UNREALIZED_INCOME
-      const incomeId = codes.get(incomeCode)
-      if (!incomeId) {
-        return skip(`${group} is missing account ${incomeCode} — re-sync the chart of accounts.`)
-      }
-
-      amount = delta
-      kind = isFx ? 'fx_revaluation' : 'valuation'
-      const rates = txn.prior_fx_rate && txn.fx_rate
-        ? ` (${txn.original_currency ?? 'FX'} ${txn.prior_fx_rate} → ${txn.fx_rate})`
-        : ''
-      entry = {
-        fundId,
-        entryDate,
-        sourceType: isFx ? 'fx_revaluation' : 'valuation',
-        memo: isFx
-          ? `Foreign currency revaluation — ${companyName}${rates}`
-          : `Mark to fair value — ${companyName}${txn.round_name ? ` (${txn.round_name})` : ''}`,
-        postings: [
-          { accountId: assetId, amount: delta, currency: 'USD', lpEntityId: null },
-          { accountId: incomeId, amount: roundCents(-delta), currency: 'USD', lpEntityId: null },
-        ],
-      }
-    }
-
-    // ---- An exit: cash in, cost retired, the difference is a realized gain. -
-    else if (txn.transaction_type === 'proceeds') {
-      const proceeds = num(txn.proceeds_received)
-      const escrow = num(txn.proceeds_escrow)
-      const basis = Math.abs(num(txn.cost_basis_exited))
-      if (proceeds === 0 && escrow === 0 && basis === 0) return skip('The exit has neither proceeds nor cost basis — nothing to book.')
-
-      // Prefer the company's OWN realized-gain account (4000-<company>) so the ledger keeps which
-      // deal produced the gain; fall back to the pooled 4000 for charts seeded before it existed.
-      const gainId = a.realizedId ?? codes.get(REALIZED_GAIN)
-      if (!gainId) return skip(`${group} is missing account ${REALIZED_GAIN} (Realized gains).`)
-
-      // REVERSE THE ACCUMULATED MARKS ON THE WAY OUT.
-      //
-      // A position that was marked up carries a balance in its 1200 (unrealized) and 1250
-      // (FX translation) accounts. Retiring only the COST on exit left those behind: a stale
-      // mark sitting on the balance sheet for a company the fund no longer owns, and
-      // cumulative P&L counting the same appreciation twice — once as the unrealized marks
-      // (4200), and again inside the full realized gain (4000). The replay path has always
-      // done this correctly (investments.ts drop-out reversal); the live draft did not.
-      //
-      // A partial exit reverses its share: the fraction of the cost basis being retired.
-      const carried = await companyCarrying(admin, fundId, group, vehicleId, a)
-
-      amount = proceeds
-      kind = 'proceeds'
-      entry = {
-        fundId,
-        entryDate,
-        sourceType: 'realized_gain',
-        memo: `Exit — ${companyName}${txn.round_name ? ` (${txn.round_name})` : ''}`,
-        postings: exitPostings({ proceeds, escrow, basis, carried }, {
-          cashId,
-          gainId,
-          costId: a.costId,
-          unrealizedId: a.unrealizedId,
-          fxId: a.fxId,
-          // Absent on a chart seeded before 1350 existed. Without it the escrow can't be
-          // recognized, so the entry falls back to cash-only — the old behaviour — rather
-          // than posting an unbalanced entry. Re-syncing the chart adds it.
-          escrowId: codes.get(ESCROW_RECEIVABLE),
-          unrealizedIncomeId: codes.get(UNREALIZED_INCOME),
-          fxIncomeId: codes.get(FX_INCOME),
-        }),
-      }
-    }
-
-    if (!entry) return skip(`No ledger entry is implied by a "${txn.transaction_type}" row.`)
-
-    // Tag the entry with the transaction that produced it. Without this there is no link at
-    // all between a tracker row and the entry it drafted — which is why editing or deleting a
-    // transaction used to leave the ledger untouched and silently wrong. `source_ref` is the
-    // same mechanism the close uses to find and void its own allocation entries.
-    if (txn.id) entry.sourceRef = txnRef(txn.id)
-
-    // Post when nothing touches cash; otherwise draft and wait for the bank match (see
-    // postsOnRecord). persistEntry still refuses a closed period — which is the right answer,
-    // and worth surfacing rather than swallowing.
-    const posted = postsOnRecord(entry.postings, cashId)
-    const result = await persistEntry(admin, fundId, group, userId, entry, posted ? 'posted' : 'draft')
+    // persistEntry still refuses a closed period — the right answer, and worth surfacing.
+    const result = await persistEntry(admin, fundId, group, userId, entry, 'posted')
     if ('error' in result) {
       // Posting promises the partner allocation, and persistEntry rolls the entry back when that
-      // fails (no partner participates yet, a capital account missing). Losing the mark entirely
-      // would be worse than the old always-draft behaviour, so keep it as a draft and say why it
-      // did not post — it posts from the journal once the vehicle's partners are set up.
+      // fails (no partner participates yet, a capital account missing). Losing the entry would be
+      // worse, so keep it as a draft and say why — it posts from the journal once partners exist.
       if ('allocationFailed' in result && result.allocationFailed) {
         const draft = await persistEntry(admin, fundId, group, userId, entry, 'draft')
         if ('error' in draft) return skip(draft.error)
@@ -666,8 +677,7 @@ export async function draftEntryForTransaction(
       }
       return skip(result.error)
     }
-
-    return { drafted: true, posted, entryId: result.entryId, kind, amount, vehicle: group }
+    return { drafted: true, posted: true, entryId: result.entryId, kind, amount, vehicle: group }
   } catch (e) {
     // The portfolio write already succeeded. A ledger failure must not undo it.
     return skip(e instanceof Error ? e.message : 'Could not draft a journal entry.')
