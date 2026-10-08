@@ -33,7 +33,7 @@ describe('second NAV writers', () => {
   it('only fof-nav writes NAV statements', () => {
     const writers = ['app', 'components', 'lib'].flatMap(d => files(d))
       .filter(f => !/\.test\.tsx?$/.test(f) && f !== join('lib', 'portfolio', 'fof-nav.ts'))
-      .filter(f => /from\(\s*['"]fund_nav_statements['"]\)[\s\S]{0,80}\.(insert|upsert)\(/.test(readFileSync(f, 'utf8')))
+      .filter(f => /from\(\s*['"]fund_nav_statements['"]\)[\s\S]{0,80}\.(insert|upsert|update|delete)\(/.test(readFileSync(f, 'utf8')))
     expect(writers).toEqual([])
   })
 })

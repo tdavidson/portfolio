@@ -63,8 +63,6 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/chart': { domain: 'accounting' },
   'api/accounting/cutover': { domain: 'accounting' },
   'api/accounting/turn-on': { domain: 'accounting' },
-  // The fund-of-funds quarterly close: paste intake, bulk confirm, and period-end marks.
-  // Accounting, not portfolio — this is close-time work and the marks post to the ledger.
   'api/accounting/investment-bank-match': { domain: 'accounting' },
   // GET reads the plan, PUT writes it — `requiredLevel` derives read/write from the method.
   'api/accounting/construction': { domain: 'accounting' },

@@ -137,7 +137,8 @@ export function FundHoldingDetail({
       const json = await res.json()
       if (!res.ok) { setNotice(json?.error ?? 'Could not record the statement.'); return }
       setNavForm({ asOfDate: '', reportedNav: '', basis: 'final' })
-      setNotice([json?.booking?.message, json?.later?.message ? `Newer statement: ${json.later.message}` : null].filter(Boolean).join(' ') || null)
+      const laterMsgs = (json?.later ?? []).map((b: any) => b?.message).filter(Boolean)
+      setNotice([json?.booking?.message, ...laterMsgs.map((m: string) => `Newer statement: ${m}`)].filter(Boolean).join(' ') || null)
       await load(); onChanged?.()
     } finally { setBusy(false) }
   }
