@@ -3,6 +3,7 @@ import { listVehiclesWithId, listMancoVehicles, loadPostedLedger } from './load'
 import { trialBalance, scheduleOfInvestments } from './statements'
 import { ACTUAL_BOOK } from './books'
 import { MANCO_KIND } from '@/lib/vehicle-kinds'
+import { countUnderived } from './investment-backfill'
 
 // The firm overview: one row per entity — fund, SPV, GP entity, individual, management company —
 // with the state of its books. Where a preparer's "are we ready?" is answered for the whole firm
@@ -32,6 +33,8 @@ export interface FirmVehicleRow {
   /** Investments at carrying value — cost plus the mark plus FX. What the schedule of
    *  investments reports and what portfolio construction plans against. */
   investmentsAtValue: number
+  /** Investment transactions not on the ledger yet — the exception report the index shows instead of "—". */
+  underivedTransactions: number
 }
 
 export interface FirmOverview {
@@ -67,6 +70,17 @@ export async function loadFirmOverview(
     // Per-vehicle counts read by id where the vehicle is registered; a legacy name-only vehicle
     // has nothing to count against, so its counts read zero and its ledger still loads by name.
     const counts = v.id ? await vehicleCounts(admin, fundId, v.id) : { closedThrough: null, lastEntryDate: null, posted: 0, drafts: 0, openBank: 0 }
+    // One entity whose backlog cannot be counted must not fail the whole index: its count reads 0.
+    let underivedTransactions = 0
+    if (v.id && v.kind !== MANCO_KIND) {
+      try {
+        const { data: reg } = await admin.from('fund_vehicles' as any).select('name, aliases').eq('fund_id', fundId).eq('id', v.id).maybeSingle()
+        const names = [v.name, ...(((reg as any)?.aliases as string[] | null) ?? [])]
+        underivedTransactions = await countUnderived(admin, fundId, v.id, names)
+      } catch (err) {
+        console.error('[firm-load] could not count transactions not on the ledger', v.id, err)
+      }
+    }
     return {
       id: v.id, name: v.name, kind: v.kind,
       closedThrough: counts.closedThrough,
@@ -80,6 +94,7 @@ export async function loadFirmOverview(
       cash,
       investmentsAtCost: soi.totalCost,
       investmentsAtValue: soi.totalFairValue,
+      underivedTransactions,
     }
   }))
 

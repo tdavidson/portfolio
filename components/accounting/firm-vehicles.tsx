@@ -37,6 +37,7 @@ interface Row {
   postedEntries: number; draftEntries: number; openBankRows: number
   trialBalanced: boolean; totalDebits: number; empty: boolean; cash: number
   investmentsAtCost: number; investmentsAtValue: number
+  underivedTransactions: number
 }
 interface Overview { vehicles: Row[]; mancoOmitted: boolean }
 
@@ -108,13 +109,20 @@ const TIES: Col = {
         ? <span className="inline-flex items-center gap-1 text-success"><Check className="h-3.5 w-3.5" />Yes</span>
         : <span className="inline-flex items-center gap-1 text-destructive"><AlertTriangle className="h-3.5 w-3.5" />No</span>,
 }
+/** A vehicle whose tracker holds transactions the ledger does not carry says so, not "—". */
+const notOnLedger = (r: Row, link: LinkCell) =>
+  link(`${r.underivedTransactions} not on the ledger`, '/status#book-investments', true)
+
 const AT_COST: Col = {
   key: 'cost', label: 'At cost', align: 'right',
-  cell: (r, link, money) => (r.empty ? dash : link(money(r.investmentsAtCost), '/schedule-of-investments')),
+  cell: (r, link, money) => (r.underivedTransactions > 0 && r.investmentsAtCost === 0
+    ? notOnLedger(r, link)
+    : r.empty ? dash : link(money(r.investmentsAtCost), '/schedule-of-investments')),
 }
 const AT_VALUE: Col = {
   key: 'value', label: 'At value', align: 'right',
-  cell: (r, link, money) => (r.empty ? dash : link(money(r.investmentsAtValue), '/schedule-of-investments')),
+  cell: (r, link, money) => (r.empty || (r.underivedTransactions > 0 && r.investmentsAtValue === 0)
+    ? dash : link(money(r.investmentsAtValue), '/schedule-of-investments')),
 }
 
 /** The whole state of the books — the firm-wide Admin view, and the fallback for a section
@@ -160,11 +168,14 @@ function summaryFor(section: string | null, rows: Row[]): string | null {
       return n(live.filter(r => !r.trialBalanced).length, 'does not tie.', 'do not tie.')
         ?? 'Every trial balance ties.'
     case 'schedule-of-investments':
-    case 'construction':
-      return n(live.filter(r => r.investmentsAtValue !== 0).length, 'holds investments.', 'hold investments.')
-        ?? 'No entity carries an investment balance.'
+    case 'construction': {
+      const holding = rows.filter(r => (!r.empty || r.underivedTransactions > 0) && (r.investmentsAtValue !== 0 || r.underivedTransactions > 0))
+      const k = rows.filter(r => r.underivedTransactions > 0).length
+      const base = n(holding.length, 'holds investments.', 'hold investments.') ?? 'No entity carries an investment balance.'
+      return k > 0 ? `${base} ${k} ${k === 1 ? 'has' : 'have'} transactions not on the ledger yet.` : base
+    }
     default: {
-      const open = live.filter(r => r.draftEntries > 0 || r.openBankRows > 0 || !r.trialBalanced)
+      const open = rows.filter(r => (!r.empty && (r.draftEntries > 0 || r.openBankRows > 0 || !r.trialBalanced)) || r.underivedTransactions > 0)
       return open.length === 0
         ? 'Nothing waiting: no drafts, no open bank rows, every trial balance ties.'
         : `${open.length} of ${rows.length} entities have something waiting.`
@@ -196,6 +207,7 @@ export function FirmVehiclesTable({
   const [data, setData] = useState<Overview | null>(null)
   const [manco, setManco] = useState<MancoState[]>([])
   const [loading, setLoading] = useState(true)
+  const [booking, setBooking] = useState(false)
 
   const load = useCallback(() => {
     setLoading(true)
@@ -215,6 +227,19 @@ export function FirmVehiclesTable({
   }, [canSeeBooks, canSeeManco])
   useEffect(() => { load() }, [load])
 
+  async function bookAll() {
+    setBooking(true)
+    try {
+      const res = await fetch('/api/accounting/investments', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'backfill', all: true }),
+      })
+      if (res.ok) load()
+    } finally {
+      setBooking(false)
+    }
+  }
+
   if (loading) {
     return <div className="p-8 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
   }
@@ -231,10 +256,15 @@ export function FirmVehiclesTable({
       id: m.id, name: m.name, kind: 'manco',
       closedThrough: null, lastEntryDate: null, postedEntries: 0, draftEntries: 0, openBankRows: 0,
       trialBalanced: true, totalDebits: 0, empty: true, cash: 0,
-      investmentsAtCost: 0, investmentsAtValue: 0,
+      investmentsAtCost: 0, investmentsAtValue: 0, underivedTransactions: 0,
     })
   }
   const visible = rows.filter(r => hasSection(r, section))
+
+  // Booking every entity's transactions is an admin act; the role is not on the client, so the
+  // accounting write grant stands in and the route's own admin check is the boundary.
+  const showBookAll = (section === null || section === 'status' || section === 'schedule-of-investments')
+    && access('accounting') === 'write' && rows.some(r => r.underivedTransactions > 0)
 
   const addButton = showAdd ? <AddVehicleButton onCreated={load} /> : null
 
@@ -263,7 +293,14 @@ export function FirmVehiclesTable({
           {summary}
           {data?.mancoOmitted && !canSeeManco && ' Management companies are not shown; that needs the management-company grant.'}
         </p>
-        {addButton}
+        <div className="flex items-center gap-2">
+          {showBookAll && (
+            <Button size="sm" variant="outline" onClick={bookAll} disabled={booking}>
+              {booking ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null}Put every entity&rsquo;s transactions on the ledger
+            </Button>
+          )}
+          {addButton}
+        </div>
       </div>
 
       <div className="rounded-card border overflow-x-auto">
