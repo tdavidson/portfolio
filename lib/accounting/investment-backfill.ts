@@ -61,7 +61,7 @@ export function impliesNoEntry(t: any): boolean {
   return false
 }
 
-async function vehicleNames(admin: SupabaseClient, fundId: string, vehicleId: string, group: string): Promise<string[]> {
+export async function vehicleNames(admin: SupabaseClient, fundId: string, vehicleId: string, group: string): Promise<string[]> {
   const { data } = await admin.from('fund_vehicles' as any).select('name, aliases').eq('fund_id', fundId).eq('id', vehicleId).maybeSingle()
   const v = data as any
   return Array.from(new Set([v?.name ?? group, ...((v?.aliases as string[] | null) ?? [])].filter(Boolean)))

@@ -55,6 +55,11 @@ export function useCanRead(domain: Domain, feature?: FeatureKey): boolean {
   return level === 'read' || level === 'write'
 }
 
+/** Is the user a fund admin? For affordances only; the routes enforce it. */
+export function useIsAdmin(): boolean {
+  return useContext(AccessCtx).role === 'admin'
+}
+
 /** Can the user change things in this domain? */
 export function useCanWrite(domain: Domain, feature?: FeatureKey): boolean {
   return useAccess()(domain, feature) === 'write'

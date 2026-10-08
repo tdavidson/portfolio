@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { Loader2, Check, AlertTriangle, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useCurrency, formatCurrencyFull } from '@/components/currency-context'
-import { useAccess } from '@/components/access-context'
+import { useAccess, useIsAdmin } from '@/components/access-context'
 import { VEHICLE_KIND_LABELS, isVehicleKind } from '@/lib/vehicle-kinds'
 import { hasSectionForKind, sectionForSlug } from '@/lib/accounting/nav'
 import { withCapitalAction, type CapitalAction } from '@/lib/accounting/capital-action'
@@ -201,6 +201,7 @@ export function FirmVehiclesTable({
 }) {
   const currency = useCurrency()
   const access = useAccess()
+  const isAdmin = useIsAdmin()
   const canSeeBooks = access('accounting') !== 'none'
   const canSeeManco = access('management_company') !== 'none'
 
@@ -208,6 +209,11 @@ export function FirmVehiclesTable({
   const [manco, setManco] = useState<MancoState[]>([])
   const [loading, setLoading] = useState(true)
   const [booking, setBooking] = useState(false)
+  const [bookError, setBookError] = useState<string | null>(null)
+  const [bookNote, setBookNote] = useState<string | null>(null)
+
+  // The backlog count costs queries per entity, so only the pages that show it ask for it.
+  const withBacklog = section === null || section === 'status' || section === 'schedule-of-investments' || section === 'construction'
 
   const load = useCallback(() => {
     setLoading(true)
@@ -215,7 +221,7 @@ export function FirmVehiclesTable({
       // The books of every entity — an `accounting` route. A manco-only bookkeeper cannot call it,
       // and gets the management companies alone from the second request rather than an error.
       canSeeBooks
-        ? fetch('/api/accounting/firm').then(r => (r.ok ? r.json() : null)).catch(() => null)
+        ? fetch(withBacklog ? '/api/accounting/firm?backlog=1' : '/api/accounting/firm').then(r => (r.ok ? r.json() : null)).catch(() => null)
         : Promise.resolve(null),
       canSeeManco
         ? fetch('/api/manco/vehicles').then(r => (r.ok ? r.json() : [])).catch(() => [])
@@ -224,17 +230,27 @@ export function FirmVehiclesTable({
       setData(firm)
       setManco(Array.isArray(mancos) ? mancos : [])
     }).finally(() => setLoading(false))
-  }, [canSeeBooks, canSeeManco])
+  }, [canSeeBooks, canSeeManco, withBacklog])
   useEffect(() => { load() }, [load])
 
   async function bookAll() {
-    setBooking(true)
+    setBooking(true); setBookError(null); setBookNote(null)
     try {
       const res = await fetch('/api/accounting/investments', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'backfill', all: true }),
       })
-      if (res.ok) load()
+      const body = await res.json().catch(() => null)
+      if (!res.ok) {
+        setBookError(body?.error ?? 'Could not put the transactions on the ledger.')
+        return
+      }
+      const refused = ((body?.vehicles ?? []) as { result?: { refused?: string[] } }[])
+        .reduce((sum, v) => sum + (v.result?.refused?.length ?? 0), 0)
+      if (refused > 0) setBookNote(`${refused} could not be booked — see each entity’s status page.`)
+      load()
+    } catch {
+      setBookError('Could not put the transactions on the ledger.')
     } finally {
       setBooking(false)
     }
@@ -261,10 +277,9 @@ export function FirmVehiclesTable({
   }
   const visible = rows.filter(r => hasSection(r, section))
 
-  // Booking every entity's transactions is an admin act; the role is not on the client, so the
-  // accounting write grant stands in and the route's own admin check is the boundary.
+  // Booking every entity's transactions is admin-only; the route enforces it, this just hides the button.
   const showBookAll = (section === null || section === 'status' || section === 'schedule-of-investments')
-    && access('accounting') === 'write' && rows.some(r => r.underivedTransactions > 0)
+    && isAdmin && access('accounting') === 'write' && rows.some(r => r.underivedTransactions > 0)
 
   const addButton = showAdd ? <AddVehicleButton onCreated={load} /> : null
 
@@ -302,6 +317,9 @@ export function FirmVehiclesTable({
           {addButton}
         </div>
       </div>
+
+      {bookError && <p className="text-sm text-destructive">{bookError}</p>}
+      {bookNote && <p className="text-sm text-muted-foreground">{bookNote}</p>}
 
       <div className="rounded-card border overflow-x-auto">
         <table className="w-full text-sm">

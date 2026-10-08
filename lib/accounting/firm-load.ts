@@ -3,7 +3,7 @@ import { listVehiclesWithId, listMancoVehicles, loadPostedLedger } from './load'
 import { trialBalance, scheduleOfInvestments } from './statements'
 import { ACTUAL_BOOK } from './books'
 import { MANCO_KIND } from '@/lib/vehicle-kinds'
-import { countUnderived } from './investment-backfill'
+import { countUnderived, vehicleNames } from './investment-backfill'
 
 // The firm overview: one row per entity — fund, SPV, GP entity, individual, management company —
 // with the state of its books. Where a preparer's "are we ready?" is answered for the whole firm
@@ -48,6 +48,8 @@ export async function loadFirmOverview(
   fundId: string,
   opts: {
     includeManco: boolean
+    /** Count each entity's investment transactions not on the ledger. Costs queries per entity, so only when the page shows it. */
+    includeBacklog?: boolean
     /** Which entities the caller may see (entity access). Omitted = all — a server-side caller. */
     visible?: (vehicleId: string | null) => boolean
   },
@@ -72,10 +74,9 @@ export async function loadFirmOverview(
     const counts = v.id ? await vehicleCounts(admin, fundId, v.id) : { closedThrough: null, lastEntryDate: null, posted: 0, drafts: 0, openBank: 0 }
     // One entity whose backlog cannot be counted must not fail the whole index: its count reads 0.
     let underivedTransactions = 0
-    if (v.id && v.kind !== MANCO_KIND) {
+    if (opts.includeBacklog && v.id && v.kind !== MANCO_KIND) {
       try {
-        const { data: reg } = await admin.from('fund_vehicles' as any).select('name, aliases').eq('fund_id', fundId).eq('id', v.id).maybeSingle()
-        const names = [v.name, ...(((reg as any)?.aliases as string[] | null) ?? [])]
+        const names = await vehicleNames(admin, fundId, v.id, v.name)
         underivedTransactions = await countUnderived(admin, fundId, v.id, names)
       } catch (err) {
         console.error('[firm-load] could not count transactions not on the ledger', v.id, err)
