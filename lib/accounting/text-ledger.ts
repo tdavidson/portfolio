@@ -52,6 +52,7 @@ export interface TextEntryInput {
   entryDate: string
   memo?: string | null
   sourceType?: string | null
+  sourceRef?: string | null
   status?: string
   postings: TextPostingInput[]
 }
@@ -75,6 +76,9 @@ export function serializeLedger(accounts: Account[], entries: TextEntryInput[]):
     const narration = (e.memo || e.sourceType || 'Entry').replace(/"/g, "'")
     lines.push(`${e.entryDate} ${flag} "${narration}"`)
     if (e.sourceType) lines.push(`  source: "${e.sourceType}"`)
+    // What produced the entry (txn:<id>, qb:<hash>, …). Re-importing an exported ledger must not
+    // book these a second time — postLedgerText refuses an entry whose ref is already live.
+    if (e.sourceRef) lines.push(`  ref: "${e.sourceRef}"`)
     for (const p of e.postings) {
       const acct = byId.get(p.accountId)
       const name = acct ? textAccountName(acct) : `Equity:Unknown:${p.accountId.slice(0, 8)}`
@@ -95,6 +99,7 @@ export interface ParsedTextEntry {
   flag: string // '*' posted, '!' draft
   narration: string
   sourceType?: string
+  ref?: string
   postings: ParsedTextPosting[]
 }
 export interface ParseTextResult {
@@ -184,7 +189,7 @@ export function parseLedgerText(text: string): ParseTextResult {
       if (!cur) continue
       // Metadata (lowercase key: value) — capture `source` for the roll-forward.
       const meta = line.match(META_RE)
-      if (meta) { if (meta[1] === 'source') cur.sourceType = meta[2]; continue }
+      if (meta) { if (meta[1] === 'source') cur.sourceType = meta[2]; else if (meta[1] === 'ref') cur.ref = meta[2]; continue }
       const m = line.match(POSTING_RE)
       if (m) { cur.postings.push({ account: m[1], amount: roundCents(Number(m[2].replace(/,/g, ''))), currency: m[3] ?? 'USD' }); continue }
       const em = line.match(POSTING_ELIDED_RE)

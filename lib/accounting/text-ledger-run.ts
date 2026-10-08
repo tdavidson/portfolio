@@ -25,7 +25,7 @@ export async function exportLedgerText(admin: SupabaseClient, fundId: string, gr
   const vehicleId = await vehicleIdByName(admin, fundId, group)
   let q = admin
     .from('journal_entries' as any)
-    .select('id, entry_date, memo, source_type, status, journal_postings(account_id, amount, currency)')
+    .select('id, entry_date, memo, source_type, source_ref, status, journal_postings(account_id, amount, currency)')
     .eq('book', ACTUAL_BOOK)
     .eq('fund_id', fundId)
     .eq('vehicle_id', vehicleId)
@@ -37,6 +37,7 @@ export async function exportLedgerText(admin: SupabaseClient, fundId: string, gr
     entryDate: e.entry_date,
     memo: e.memo,
     sourceType: e.source_type,
+    sourceRef: e.source_ref,
     status: e.status,
     postings: (e.journal_postings ?? []).map((p: any) => ({ accountId: p.account_id, amount: Number(p.amount), currency: p.currency ?? 'USD' })),
   }))
@@ -80,6 +81,17 @@ export async function postLedgerText(
     prepared.push({ entry, status: defaultStatus ?? (e.flag === '!' ? 'draft' : 'posted') })
   }
   if (errors.length || unknownAccounts.size) return { posted: 0, errors, unknownAccounts: Array.from(unknownAccounts) }
+  // An exported ledger re-imported must not book its entries twice — least of all derived and
+  // adopted ones, which posting would otherwise adopt as new transactions.
+  const refs = entries.map(e => e.ref).filter((r): r is string => !!r)
+  if (refs.length > 0) {
+    const vehicleId = await vehicleIdByName(admin, fundId, group)
+    const { data: live } = await admin.from('journal_entries' as any).select('source_ref')
+      .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('vehicle_id', vehicleId).neq('status', 'void').in('source_ref', refs)
+    const already = new Set(((live as any[]) ?? []).map(r => r.source_ref as string))
+    for (const e of entries) if (e.ref && already.has(e.ref)) errors.push(`Entry ${e.date} "${e.narration}" is already in the books (${e.ref}). Remove it from the text, or void the original first.`)
+    if (errors.length) return { posted: 0, errors, unknownAccounts: [] }
+  }
   const importReview = await reviewImport(admin, fundId, group, { entries: prepared.map(p => p.entry), includeLp })
   if (importReview.differences.length && reviewToken !== importReview.token) return { posted: 0, errors: [], unknownAccounts: [], importReview, reviewRequired: true }
   for (const { entry, status } of prepared) {

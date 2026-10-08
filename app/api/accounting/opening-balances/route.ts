@@ -9,6 +9,7 @@ import { assertWriteAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { accountIdByCode, ensureCapitalAccounts, persistEntry } from '@/lib/accounting/persist'
 import { roundCents } from '@/lib/accounting/ledger'
+import { isInvestmentAccount } from '@/lib/accounting/investment-accounts'
 import type { Posting, JournalEntry } from '@/lib/accounting/types'
 
 // POST — book per-LP opening capital balances as a posted opening entry (cutover).
@@ -53,6 +54,13 @@ export async function POST(req: NextRequest) {
   const codes = await accountIdByCode(admin, gate.fundId, group)
   const offsetId = codes.get(offsetCode)
   if (!offsetId) return NextResponse.json({ error: `Offset account ${offsetCode} not found — seed the chart first` }, { status: 400 })
+  // Opening POSITIONS are investment transactions, not an opening-balance offset: an offset on an
+  // investment account would post value no transaction owns (plans/spec-ledger-one-writer.md §1).
+  const { data: offsetAccount } = await admin.from('chart_of_accounts' as any)
+    .select('type, subtype, company_id').eq('id', offsetId).eq('fund_id', gate.fundId).maybeSingle()
+  if (offsetAccount && isInvestmentAccount({ type: (offsetAccount as any).type, subtype: (offsetAccount as any).subtype, companyId: (offsetAccount as any).company_id })) {
+    return NextResponse.json({ error: 'Opening positions are recorded as investment transactions on each company, not as an opening-balance offset. Choose cash or another account.' }, { status: 400 })
+  }
 
   const capMap = await ensureCapitalAccounts(admin, gate.fundId, group, balances.map(b => b.lpEntityId))
 
