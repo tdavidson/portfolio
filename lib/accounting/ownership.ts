@@ -35,9 +35,13 @@ export async function owningTransactions(
   }))
 }
 
-export async function releaseOwnership(
-  admin: SupabaseClient, fundId: string, entry: { id: string; source_ref: string | null },
-): Promise<{ removed: OwningTransaction[]; unlinked: string[] } | { error: string }> {
+type Entry = { id: string; source_ref: string | null }
+export interface OwnershipPlan { removed: OwningTransaction[]; unlinked: string[] }
+
+/** Read-only: who owns the entry, whether deleting them is allowed, and which register rows lose a link. */
+export async function planRelease(
+  admin: SupabaseClient, fundId: string, entry: Entry,
+): Promise<OwnershipPlan | { error: string }> {
   const removed = await owningTransactions(admin, fundId, entry)
   if (removed.length === 0) return { removed, unlinked: [] }
   const ids = removed.map(t => t.id)
@@ -58,11 +62,30 @@ export async function releaseOwnership(
     ...((events as any[]) ?? []).map(e => `the ${e.kind} of ${e.event_date}`),
     ...((navs as any[]) ?? []).map(n => `the NAV as of ${n.as_of_date}`),
   ]
+  return { removed, unlinked }
+}
 
-  const { error } = await admin.from('investment_transactions' as any).delete().eq('fund_id', fundId).in('id', ids)
+/** The write step: delete the planned transactions and clear a derived entry's source_ref. */
+export async function deleteOwners(
+  admin: SupabaseClient, fundId: string, entry: Entry, plan: OwnershipPlan,
+): Promise<{ error: string } | null> {
+  if (plan.removed.length === 0) return null
+  const { error } = await admin.from('investment_transactions' as any).delete()
+    .eq('fund_id', fundId).in('id', plan.removed.map(t => t.id))
   if (error) return { error: `Its investment transactions could not be deleted: ${error.message}` }
   if ((entry.source_ref ?? '').startsWith(TXN)) {
-    await admin.from('journal_entries' as any).update({ source_ref: null }).eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', entry.id)
+    const { error: refErr } = await admin.from('journal_entries' as any).update({ source_ref: null })
+      .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', entry.id)
+    if (refErr) return { error: `The investment transactions were deleted but the entry could not be unlinked: ${refErr.message}` }
   }
-  return { removed, unlinked }
+  return null
+}
+
+export async function releaseOwnership(
+  admin: SupabaseClient, fundId: string, entry: Entry,
+): Promise<OwnershipPlan | { error: string }> {
+  const plan = await planRelease(admin, fundId, entry)
+  if ('error' in plan) return plan
+  const failed = await deleteOwners(admin, fundId, entry, plan)
+  return failed ?? plan
 }

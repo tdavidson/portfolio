@@ -13,7 +13,7 @@ import { accountIdByCode, persistEntry } from './persist'
 import { closedPeriodRanges, dateInAnyClosedPeriod } from './periods'
 import { fundCurrency } from './currency'
 import { vehicleIdByName } from './vehicle-id'
-import { releaseOwnership } from './ownership'
+import { releaseOwnership, type OwningTransaction } from './ownership'
 import { setGeneratedAllocationStatus } from './continuous-allocation'
 import { lpCapitalSummary } from './capital-calls'
 import { ENTRY_SOURCE_TYPES } from './source-types'
@@ -236,7 +236,7 @@ export async function applyProposal(
   group: string,
   userId: string | null,
   proposal: AssistantProposal
-): Promise<{ entryId: string } | { error: string }> {
+): Promise<({ entryId: string } | { error: string }) & { removedTransactions?: OwningTransaction[]; unlinkedRegisterRows?: string[] }> {
   const [codes, names] = await Promise.all([
     accountIdByCode(admin, fundId, group),
     loadEntityNames(admin, fundId, group),
@@ -294,9 +294,10 @@ export async function applyProposal(
     // is no longer on the books.
     const released = await releaseOwnership(admin, fundId, existing as any)
     if ('error' in released) return { error: released.error }
+    const gone = { removedTransactions: released.removed, unlinkedRegisterRows: released.unlinked }
     if ((existing as any).status !== 'draft') {
       const allocation = await setGeneratedAllocationStatus(admin, fundId, proposal.entryId, 'draft')
-      if (allocation.error) return { error: allocation.error }
+      if (allocation.error) return { error: allocation.error, ...gone }
       await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null }).eq('id', proposal.entryId).eq('fund_id', fundId)
       await admin.from('bank_transactions' as any).update({ status: 'drafted' }).eq('journal_entry_id', proposal.entryId).eq('fund_id', fundId)
     }
@@ -305,11 +306,11 @@ export async function applyProposal(
     const { error: insErr } = await admin.from('journal_postings' as any).insert(
       postings.map(p => ({ fund_id: fundId, portfolio_group: group, vehicle_id: vehicleId, journal_entry_id: proposal.entryId, account_id: p.accountId, amount: p.amount, currency: p.currency, lp_entity_id: p.lpEntityId }))
     )
-    if (insErr) return { error: insErr.message }
+    if (insErr) return { error: insErr.message, ...gone }
     const oldIds = ((oldRows as any[]) ?? []).map(r => r.id)
     if (oldIds.length) await admin.from('journal_postings' as any).delete().in('id', oldIds)
     await admin.from('journal_entries' as any).update({ entry_date: proposal.entryDate, memo: proposal.memo ?? null }).eq('id', proposal.entryId).eq('fund_id', fundId)
-    return { entryId: proposal.entryId }
+    return { entryId: proposal.entryId, ...gone }
   }
 
   const entry: JournalEntry = {
