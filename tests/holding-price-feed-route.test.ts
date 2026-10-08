@@ -29,6 +29,9 @@ const req = (method: string, body?: object, qs = '') =>
   new NextRequest(`http://x/api/companies/k1/price-feed${qs}`, { method, ...(body ? { body: JSON.stringify(body) } : {}) })
 const setFeed = (o: object = {}) => POST(req('POST', { action: 'set', symbol: 'ETH', activeFrom: '2026-01-01', ...o }), ctx)
 
+const seeAll = () => { s.scope = { ...s.scope, access: { vehicles: { all: true, ids: [] } } } }
+const seeOne = () => { s.scope = { ...s.scope, access: { vehicles: { all: false, ids: ['v1'] } } } }
+
 beforeEach(() => {
   s.booked = []
   s.scope = { access: { vehicles: { all: false, ids: ['v1'] } }, vehicleNames: ['Fund I'], companyIds: ['k1'] }
@@ -43,6 +46,7 @@ beforeEach(() => {
 
 describe('the price feed on a holding', () => {
   it('sets one feed for the holding, and replaces it rather than adding a second', async () => {
+    seeAll()
     expect((await setFeed()).status).toBe(200)
     expect((await setFeed({ activeFrom: '2026-02-01', quoteCurrency: 'usd' })).status).toBe(200)
     expect(s.m.tables.price_feeds).toHaveLength(1)
@@ -50,10 +54,12 @@ describe('the price feed on a holding', () => {
   })
 
   it('refuses a feed with no start date', async () => {
+    seeAll()
     expect((await POST(req('POST', { action: 'set', symbol: 'ETH' }), ctx)).status).toBe(400)
   })
 
   it('records a quote against that feed', async () => {
+    seeAll()
     await setFeed()
     expect((await POST(req('POST', { action: 'record-quote', asOfDate: '2026-03-31', price: 150 }), ctx)).status).toBe(200)
     expect(s.m.tables.price_observations[0]).toMatchObject({ feed_id: s.m.tables.price_feeds[0].id, as_of_date: '2026-03-31', price: 150, basis: 'close' })
@@ -70,13 +76,16 @@ describe('the price feed on a holding', () => {
   })
 
   it("lists the marks owed by the caller's entities only", async () => {
+    seeAll()
     await setFeed()
+    seeOne()
     const body = await (await GET(req('GET', undefined, '?asOf=2026-03-31'), ctx)).json()
     expect(body.feed.symbol).toBe('ETH')
     expect(body.marks.map((m: any) => m.entity)).toEqual(['Fund I'])
   })
 
   it('removes the feed', async () => {
+    seeAll()
     await setFeed()
     expect((await DELETE(req('DELETE'), ctx)).status).toBe(200)
     expect(s.m.tables.price_feeds).toEqual([])
@@ -90,6 +99,7 @@ describe('the price feed on a holding', () => {
 
 describe('validation and failed reads', () => {
   it('refuses a quote currency that is not a 3-letter code', async () => {
+    seeAll()
     for (const quoteCurrency of ['US', 'DOLLAR', 'U1D', 'us$']) {
       expect((await setFeed({ quoteCurrency })).status).toBe(400)
     }
@@ -97,6 +107,7 @@ describe('validation and failed reads', () => {
   })
 
   it('refuses dates that are not real calendar dates', async () => {
+    seeAll()
     expect((await setFeed({ activeFrom: '2026-02-30' })).status).toBe(400)
     expect((await setFeed({ activeFrom: 'soon' })).status).toBe(400)
     expect((await setFeed({ activeUntil: '2026-13-01' })).status).toBe(400)
@@ -151,8 +162,46 @@ describe('validation and failed reads', () => {
   })
 
   it('answers 500 when the recorded quotes cannot be read', async () => {
+    seeAll()
     await setFeed()
     failRead('price_observations')
     expect((await GET(req('GET'), ctx)).status).toBe(500)
+  })
+})
+
+describe('a feed shared across entities', () => {
+  const seedFeed = () => s.m.tables.price_feeds.push({ id: 'pf', fund_id: 'f', company_id: 'k1', kind: 'digital_asset', symbol: 'ETH', quote_currency: 'USD', quote_scale: 1, provider: 'manual', notes: 'keep me', active_from: '2026-01-01', created_at: '2026-01-01' })
+
+  it('is not editable by a caller who cannot see every entity it prices', async () => {
+    seedFeed()
+    expect((await setFeed()).status).toBe(403)
+    expect((await POST(req('POST', { action: 'record-quote', asOfDate: '2026-03-31', price: 1 }), ctx)).status).toBe(403)
+    expect((await DELETE(req('DELETE'), ctx)).status).toBe(403)
+    expect(s.m.tables.price_feeds).toHaveLength(1)
+    expect(s.m.tables.price_observations).toEqual([])
+    expect((await POST(req('POST', { action: 'book', group: 'Fund I', asOf: '2026-03-31' }), ctx)).status).toBe(200)
+    expect((await (await GET(req('GET'), ctx)).json()).canEditFeed).toBe(false)
+  })
+
+  it('is editable when the caller sees every entity', async () => {
+    s.scope = { ...s.scope, access: { vehicles: { all: true, ids: [] } } }
+    expect((await setFeed()).status).toBe(200)
+    expect((await (await GET(req('GET'), ctx)).json()).canEditFeed).toBe(true)
+  })
+
+  it('refuses inverted dates, a future quote and non-text fields', async () => {
+    s.scope = { ...s.scope, access: { vehicles: { all: true, ids: [] } } }
+    expect((await setFeed({ activeUntil: '2025-12-31' })).status).toBe(400)
+    expect((await setFeed({ restrictionUntil: '2025-12-31', restrictionDiscount: 0.2 })).status).toBe(400)
+    for (const f of ['exchange', 'chain', 'contractAddress', 'notes', 'provider']) expect((await setFeed({ [f]: 5 })).status).toBe(400)
+    await setFeed()
+    expect((await POST(req('POST', { action: 'record-quote', asOfDate: '2999-01-01', price: 1 }), ctx)).status).toBe(400)
+  })
+
+  it('keeps stored fields the body omits', async () => {
+    s.scope = { ...s.scope, access: { vehicles: { all: true, ids: [] } } }
+    seedFeed()
+    expect((await POST(req('POST', { action: 'set', symbol: 'ETH2' }), ctx)).status).toBe(200)
+    expect(s.m.tables.price_feeds[0]).toMatchObject({ symbol: 'ETH2', notes: 'keep me', active_from: '2026-01-01', provider: 'manual' })
   })
 })
