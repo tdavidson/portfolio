@@ -117,6 +117,20 @@ describe('bookQuoteMark', () => {
     })
   })
 
+  it('refuses a second mark for the same entity and date, even when the first stayed a draft', async () => {
+    // No partner participates yet: the entry is kept as a draft, which the posted ledger does not see.
+    h.persistEntry
+      .mockResolvedValueOnce({ error: 'No partner participates yet.', allocationFailed: true })
+      .mockResolvedValueOnce({ entryId: 'd1' })
+    const m = seed()
+    expect(await bookQuoteMark(m.admin, 'f', 'u', 'co', 'Fund I', '2026-03-31'))
+      .toMatchObject({ booked: true, ledger: { drafted: true, posted: false, entryId: 'd1' } })
+    expect(await bookQuoteMark(m.admin, 'f', 'u', 'co', 'Fund I', '2026-03-31'))
+      .toEqual({ booked: false, reason: 'A quoted mark is already booked for Fund I on 2026-03-31.' })
+    expect(quoteMarks(m)).toHaveLength(1)
+    expect(h.persistEntry).toHaveBeenCalledTimes(2)
+  })
+
   it('refuses a quote in another currency rather than booking pence as pounds', async () => {
     const m = seed({ currency: 'USD', quoteCurrency: 'GBP' })
     expect(await bookQuoteMark(m.admin, 'f', 'u', 'co', 'Fund I', '2026-03-31'))

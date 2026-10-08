@@ -35,6 +35,13 @@ const none = (problem: string): QuoteMarkCheck => ({ mark: null, problem })
 const unread = (what: string, error: { message?: string } | unknown) =>
   none(`Could not read ${what}: ${(error as { message?: string })?.message ?? String(error)}`)
 
+/** A thrown read, carrying what was being read so the refusal names the right thing. */
+class ReadFailure {
+  constructor(readonly what: string, readonly error: unknown) {}
+}
+const labelled = <T>(what: string, p: Promise<T>): Promise<T> =>
+  p.catch(e => { throw new ReadFailure(what, e) })
+
 /**
  * The mark `group` owes on `companyId` at `asOf`, or why there is none.
  *
@@ -78,11 +85,11 @@ export async function quoteMarkForHolding(
       (admin as any).from('investment_transactions').select('*').eq('fund_id', fundId).eq('company_id', companyId),
       (admin as any).from('companies').select('id, name, holding_type, status, industry, stage, portfolio_group')
         .eq('fund_id', fundId).eq('id', companyId).maybeSingle(),
-      loadPostedLedger(admin, fundId, group, asOf, new Map([[group, vehicleId]])),
-      fundCurrency(admin, fundId),
+      labelled(`${group}'s ledger`, loadPostedLedger(admin, fundId, group, asOf, new Map([[group, vehicleId]]))),
+      labelled("the fund's currency", fundCurrency(admin, fundId)),
     ])
   } catch (e) {
-    return unread(`${group}'s ledger`, e)
+    return e instanceof ReadFailure ? unread(e.what, e.error) : unread("the holding's data", e)
   }
   if (obs.error) return unread(`the ${feed.symbol} quotes`, obs.error)
   if (txns.error) return unread("the holding's transactions", txns.error)
@@ -132,6 +139,19 @@ export async function bookQuoteMark(
   const check = await quoteMarkForHolding(admin, fundId, companyId, group, asOf)
   if (!check.mark) return { booked: false, reason: check.problem ?? 'Nothing to book.' }
   const m = check.mark
+
+  // The ledger only sees POSTED entries, so a mark whose entry was kept as a draft (the partner
+  // allocation failed) still looks owed — as does the first click of a double click. One quoted
+  // mark per (holding, entity, date): a second would book the same gain twice.
+  const { data: existing, error: existingError } = await (admin as any)
+    .from('investment_transactions').select('id')
+    .eq('fund_id', fundId).eq('company_id', companyId).eq('portfolio_group', group)
+    .eq('transaction_date', asOf).eq('transaction_type', 'unrealized_gain_change')
+    .eq('valuation_change_source', 'quote').limit(1)
+  if (existingError) return { booked: false, reason: `Could not read the holding's marks: ${existingError.message}` }
+  if (((existing as unknown[]) ?? []).length > 0) {
+    return { booked: false, reason: `A quoted mark is already booked for ${group} on ${asOf}.` }
+  }
 
   const { data: txn, error } = await (admin as any)
     .from('investment_transactions')
