@@ -92,6 +92,9 @@ export const TABLE_RULES: Record<string, TableRule> = {
   // NOT feature 'imports': that key gates the import ROUTES (api/import*), not the review
   // queue. Gating the queue on it made /review return nothing for a member of a fund whose
   // imports switch is admin-only — a blank page, proven against the live database.
+  // Its FUND proposals (issue_type fund_*) are narrower, by restrictive policy: readable only with the
+  // investments feature, and written only by the service role
+  // (20261009200000_parsing_reviews_fund_rows_service_only.sql).
   parsing_reviews: { scope: 'fund', domain: 'portfolio' },
   ask_response_overrides: { scope: 'fund', domain: 'portfolio', feature: 'asks' },
   investment_transactions: { scope: 'fund', domain: 'portfolio', feature: 'investments' },

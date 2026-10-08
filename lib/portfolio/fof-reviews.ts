@@ -4,7 +4,7 @@ import type { AccessContext } from '@/lib/access/effective'
 import { canSeeVehicle } from '@/lib/access/scope'
 import { saveNavStatement, type NavBooking } from './fof-nav'
 import { resolveHoldingVehicle } from './fof-register'
-import { applyEdits, isFundReviewType, type FundProposal } from './fof-review-types'
+import { applyEdits, checkProposal, isFundReviewType } from './fof-review-types'
 
 /**
  * Approving a manager-email proposal (fof-email.ts) writes the register row it proposes, exactly as
@@ -47,7 +47,10 @@ export async function approveFundReview(
     vehicleId = resolved.vehicleId
   }
 
-  const proposal = applyEdits(review.payload as FundProposal, choice.edits)
+  // The stored proposal is re-checked before anything is written from it, then the corrections.
+  const stored = checkProposal(review.issue_type, review.payload)
+  if ('error' in stored) return { ok: false, status: 400, error: stored.error }
+  const proposal = applyEdits(stored, choice.edits)
   if ('error' in proposal) return { ok: false, status: 400, error: proposal.error }
 
   if (proposal.kind === 'nav') {

@@ -93,4 +93,21 @@ describe('approveFundReview', () => {
     expect(await approveFundReview(m.admin, ctx(), navReview({ issue_type: 'low_confidence' }))).toMatchObject({ ok: false, status: 400 })
     expect(h.save).not.toHaveBeenCalled()
   })
+
+  it('re-checks the stored proposal before writing: a forged or malformed payload books nothing', async () => {
+    const forged = [
+      navReview({ payload: { ...(navReview().payload as object), reportedNav: -1 } }),
+      navReview({ payload: { ...(navReview().payload as object), reportedNav: '9445000' } }),
+      navReview({ payload: { ...(navReview().payload as object), asOfDate: '2025-02-30' } }),
+      navReview({ payload: { ...(callReview().payload as object) } }),
+      callReview({ payload: { ...(callReview().payload as object), amount: 0 } }),
+      callReview({ payload: { ...(callReview().payload as object), dueDate: 'soon' } }),
+      callReview({ payload: [] }),
+    ]
+    for (const r of forged) {
+      expect(await approveFundReview(m.admin, ctx(), r)).toMatchObject({ ok: false, status: 400, error: expect.stringMatching(/can be approved/) })
+    }
+    expect(h.save).not.toHaveBeenCalled()
+    expect(m.tables.fund_capital_events).toEqual([])
+  })
 })

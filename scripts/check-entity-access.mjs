@@ -10,7 +10,7 @@
 // 20260716000009_access_context_rpc.sql. `auth.uid()` reads `request.jwt.claim.sub`, as Supabase's does.
 
 import { execFileSync } from 'node:child_process'
-import { mkdirSync, readFileSync, rmSync } from 'node:fs'
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import { join } from 'node:path'
 
 const WORK = process.env.ENTITY_SQL_WORKDIR ?? '/tmp/entsql'
@@ -28,6 +28,7 @@ const MIGRATIONS = (process.env.ENTITY_MIGRATIONS ?? [
   '20261007100700_entity_documents.sql',
   '20261008030109_notes_entity_required.sql',
   '20261009100000_parsing_reviews_fund_register.sql',
+  '20261009200000_parsing_reviews_fund_rows_service_only.sql',
 ].join(',')).split(',')
 
 const run = (cmd, args) => execFileSync(cmd, args, { stdio: 'pipe' })
@@ -163,9 +164,24 @@ try {
   started = true
 
   psql(STUB)
+  // The domain resolver (public.domain_access, fund_ids_readable/_writable), verbatim from the
+  // migration that defines it: section 1 of 20260902174637, which needs only the stub's tables.
+  const RESOLVER = readFileSync('supabase/migrations/20260902174637_enforce_domain_access_rls.sql', 'utf8')
+  const resolverSql = RESOLVER.slice(RESOLVER.indexOf('-- 1. The resolver'), RESOLVER.indexOf('-- 2. Preflight'))
+  if (!resolverSql.includes('fund_ids_readable')) throw new Error('could not find the resolver in 20260902174637')
+  const resolverFile = join(WORK, 'resolver.sql')
+  writeFileSync(resolverFile, resolverSql)
+  applyFile(resolverFile)
+  // parsing_reviews' write policies as 20260903000000 states them: portfolio write.
+  psql(`grant insert, update, delete on parsing_reviews to authenticated;
+        create policy "write" on parsing_reviews for insert to authenticated with check (fund_id = any(public.fund_ids_writable('portfolio')));
+        create policy "update" on parsing_reviews for update to authenticated
+          using (fund_id = any(public.fund_ids_writable('portfolio'))) with check (fund_id = any(public.fund_ids_writable('portfolio')));
+        create policy "delete" on parsing_reviews for delete to authenticated using (fund_id = any(public.fund_ids_writable('portfolio')))`)
   psql(`insert into auth.users values ('${ADMIN}'), ('${MEMBER}'), ('${LATE}'), ('${FULL}');
         insert into funds values ('${F}'), ('${OTHER_F}');
         insert into fund_members values ('${F}', '${ADMIN}', 'admin'), ('${F}', '${MEMBER}', 'member'), ('${F}', '${FULL}', 'member');
+        insert into fund_domain_defaults values ('${F}', 'portfolio', 'write');
         insert into fund_vehicles (id, fund_id, name) values ('${V1}', '${F}', 'Fund I'), ('${V2}', '${F}', 'Fund II'),
           ('${VX}', '${OTHER_F}', 'Elsewhere');`)
 
@@ -543,6 +559,34 @@ try {
     tryAs(`insert into parsing_reviews (fund_id, company_id, issue_type) values ('${F}', '${C}', 'fund_nav')`), 'refused')
   check('an unknown issue type is still refused',
     tryAs(`insert into parsing_reviews (fund_id, company_id, issue_type) values ('${F}', '${C}', 'made_up')`), 'refused')
+
+  // ---- Fund proposals are the service role's to write, and need the investments feature to read. ----
+  const reviewsAs = who => psql(`select string_agg(extracted_value, ',' order by extracted_value) from parsing_reviews`, { as: who })
+  const changed = (sql, who) => psql(`with x as (${sql} returning 1) select count(*) from x`, { as: who })
+  check('a member with portfolio write may still file an ordinary review',
+    tryAs(`insert into parsing_reviews (fund_id, company_id, issue_type, extracted_value) values ('${F}', '${C}', 'low_confidence', 'by-member')`, MEMBER), 'accepted')
+  check('…but may not insert a fund proposal, even for their own entity',
+    tryAs(`insert into parsing_reviews (fund_id, company_id, vehicle_id, issue_type, payload, extracted_value)
+             values ('${F}', '${C}', '${V1}', 'fund_nav', '{"kind":"nav","reportedNav":1}', 'forged')`, MEMBER), 'refused')
+  check('…nor rewrite a genuine proposal\'s payload or entity',
+    changed(`update parsing_reviews set payload = '{"kind":"nav","reportedNav":1}', vehicle_id = '${V1}' where extracted_value = 'fund-i-nav'`, MEMBER) + ',' +
+    psql(`select payload->>'reportedNav' is null from parsing_reviews where extracted_value = 'fund-i-nav'`), '0,t')
+  check('…nor turn an ordinary review into a fund proposal',
+    tryAs(`update parsing_reviews set issue_type = 'fund_nav', payload = '{"kind":"nav"}', vehicle_id = '${V1}' where extracted_value = 'by-member'`, MEMBER), 'refused')
+  check('…nor delete one',
+    changed(`delete from parsing_reviews where extracted_value = 'fund-i-nav'`, MEMBER) + ',' +
+    psql(`select count(*) from parsing_reviews where extracted_value = 'fund-i-nav'`), '0,1')
+  check('…while an ordinary review is still theirs to resolve',
+    changed(`update parsing_reviews set resolution = 'accepted' where extracted_value = 'by-member'`, MEMBER), '1')
+  psql(`insert into fund_settings (fund_id, feature_visibility) values ('${F}', '{"investments":"admin"}')
+          on conflict (fund_id) do update set feature_visibility = excluded.feature_visibility`)
+  check('with investments set to admins only, a member reads no fund proposal, only ordinary reviews',
+    reviewsAs(MEMBER), 'by-member,metric')
+  check('…and an admin still reads every one',
+    psql(`select count(*) from parsing_reviews where issue_type like 'fund_%'`, { as: ADMIN }), '3')
+  psql(`update fund_settings set feature_visibility = '{}' where fund_id = '${F}'; delete from parsing_reviews where extracted_value = 'by-member'`)
+  check('with investments on, the member reads their entity\'s proposal again',
+    reviewsAs(MEMBER), 'fund-i-nav,metric')
 
   // ---- Re-runnable. ----
   for (const m of MIGRATIONS.slice(1)) applyFile(join('supabase/migrations', m))

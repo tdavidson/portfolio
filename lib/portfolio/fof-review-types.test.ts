@@ -1,6 +1,6 @@
 // lib/portfolio/fof-review-types.test.ts
 import { describe, expect, it } from 'vitest'
-import { CAPS, applyEdits, isFundReviewType, scopeFundReviews, type FundProposal } from './fof-review-types'
+import { CAPS, applyEdits, checkProposal, isFundReviewType, scopeFundReviews, type FundProposal } from './fof-review-types'
 
 const call: FundProposal = {
   kind: 'call', eventDate: '2025-09-30', dueDate: null, noticeNumber: null, purpose: null, amount: 1_250_000,
@@ -58,5 +58,21 @@ describe('applyEdits hardening', () => {
     const r: any = applyEdits(call, { noticeNumber: 'n'.repeat(500), purpose: 'p'.repeat(900) })
     expect(r.noticeNumber).toHaveLength(CAPS.noticeNumber)
     expect(r.purpose).toHaveLength(CAPS.purpose)
+  })
+})
+
+describe('checkProposal', () => {
+  it('passes a well-formed proposal whose kind matches the review type', () => {
+    expect(checkProposal('fund_nav', navP)).toBe(navP)
+    expect(checkProposal('fund_capital_call', call)).toBe(call)
+    expect(checkProposal('fund_distribution', { ...call, kind: 'distribution' })).toMatchObject({ kind: 'distribution' })
+  })
+  it('refuses a kind that does not match its type, and anything out of range or not a proposal', () => {
+    expect(checkProposal('fund_capital_call', navP)).toHaveProperty('error')
+    expect(checkProposal('low_confidence', navP)).toHaveProperty('error')
+    for (const p of [null, 'nav', [], {}, { ...navP, reportedNav: -1 }, { ...navP, reportedNav: Infinity }, { ...navP, asOfDate: '30/09/2025' },
+      { ...call, amount: 0 }, { ...call, amount: '5' }, { ...call, dueDate: '2025-02-30' }, { ...call, noticeNumber: 7 }]) {
+      expect(checkProposal(typeof p === 'object' && p && 'kind' in p && p.kind === 'nav' ? 'fund_nav' : 'fund_capital_call', p)).toHaveProperty('error')
+    }
   })
 })

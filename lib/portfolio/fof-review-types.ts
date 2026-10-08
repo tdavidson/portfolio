@@ -108,3 +108,28 @@ export function applyEdits(p: FundProposal, edits?: Record<string, unknown> | nu
   if (p.kind !== 'nav' && 'eventDate' in edits) out.dateAssumed = false
   return out as unknown as FundProposal
 }
+
+/**
+ * The stored proposal, checked again before approval writes it (security scan M1). The payload is
+ * written by the email pipeline with the service role, and the database refuses it from anyone else
+ * (20261009200000), but approval books a NAV mark or drafts a notice from it, so it is not trusted
+ * on shape alone: its kind must match the review's type, its dates must be real and its figures in
+ * range — the same rules applyEdits holds a person's corrections to.
+ */
+export function checkProposal(issueType: string, p: unknown): FundProposal | { error: string } {
+  const bad = { error: 'This proposal is not in a form that can be approved. Dismiss it and enter the figures on the holding.' }
+  if (!p || typeof p !== 'object' || Array.isArray(p)) return bad
+  const o = p as Record<string, unknown>
+  if (o.kind !== 'nav' && o.kind !== 'call' && o.kind !== 'distribution') return bad
+  if (!isFundReviewType(issueType) || issueTypeFor(o as unknown as FundProposal) !== issueType) return bad
+  if (o.kind === 'nav') {
+    if (!isRealDate(o.asOfDate)) return bad
+    if (typeof o.reportedNav !== 'number' || !Number.isFinite(o.reportedNav) || o.reportedNav < 0) return bad
+  } else {
+    if (!isRealDate(o.eventDate)) return bad
+    if (o.dueDate != null && !isRealDate(o.dueDate)) return bad
+    if (typeof o.amount !== 'number' || !Number.isFinite(o.amount) || o.amount <= 0) return bad
+    for (const k of ['noticeNumber', 'purpose'] as const) if (o[k] != null && typeof o[k] !== 'string') return bad
+  }
+  return p as FundProposal
+}
