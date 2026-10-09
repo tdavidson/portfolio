@@ -155,7 +155,7 @@ export async function vehicleStatus(
     const dates = evidence.filter(e => e.basis === 'reported').map(e => e.asOf!).sort()
     if (conflicts) issues.push({ level: 'warning', title: `${conflicts} reported balance${conflicts === 1 ? '' : 's'} differ from the books`, detail: 'Reported balances remain visible until the overlapping accounting records reconcile. Review the differences before relying on a combined report.', href: '/funds/capital-accounts', action: 'Reconcile balances' })
     if (incomplete) issues.push({ level: 'warning', title: `${incomplete} incomplete capital position${incomplete === 1 ? '' : 's'}`, detail: 'Missing amounts appear as a dash, including totals that depend on them. Enter the missing contributions, distributions, or NAV.', href: '/funds/capital-accounts', action: 'Review balances' })
-    if (dates.length) issues.push({ level: 'info', title: 'Reported capital balances', detail: `These balances are dated ${dates[0]}${dates.at(-1) !== dates[0] ? ` through ${dates.at(-1)}` : ''}. A later journal entry does not update their valuation date.`, href: '/funds/capital-accounts', action: 'View balances' })
+    if (dates.length) issues.push({ level: 'info', title: 'Check limited partner capital accounts', detail: `These balances are dated ${dates[0]}${dates.at(-1) !== dates[0] ? ` through ${dates.at(-1)}` : ''}. A later journal entry does not update their valuation date.`, href: '/funds/capital-accounts', action: 'View balances' })
   }
 
   if (!bs.check || Math.abs(bs.check) > 0.004) {

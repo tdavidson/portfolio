@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { Loader2, Check, AlertTriangle, Ban, Info, ChevronRight, SlidersHorizontal, Lock, Landmark, Plus, X, Pencil, FileArchive } from 'lucide-react'
+import { Loader2, Check, AlertTriangle, Ban, Info, ChevronRight, Lock, Landmark, Plus, X, Pencil, FileArchive, FileText } from 'lucide-react'
 import { TaxPackageLink } from '@/components/accounting/download-menu'
 import { useCurrency, formatCurrencyPrice } from '@/components/currency-context'
 import { useLedgerFetch, useFundSeg, useVehicle } from '@/components/accounting-vehicle'
@@ -52,7 +52,7 @@ function EntityStatusView() {
   const fmt = (v: number) => formatCurrencyPrice(v, currency)
   const lf = useLedgerFetch()
   const fundSeg = useFundSeg()
-  const { group, kind } = useVehicle()
+  const { group, kind, vehicleId } = useVehicle()
   const manco = isManagementCompany(kind)
   // The status issues carry bare /funds/<page> hrefs (built server-side, where the URL's
   // vehicle id isn't known); rewrite them fund-first for the current vehicle.
@@ -190,7 +190,7 @@ function EntityStatusView() {
       {/* Settings — configuration that used to live on the separate Allocation terms page, now
           folded in here as collapsible sections so it's all on one surface but hideable. */}
       <div className="pt-2 space-y-2">
-        <p className="text-sm font-medium flex items-center gap-1.5"><SlidersHorizontal className="h-4 w-4 text-muted-foreground" />Settings</p>
+        <p className="text-sm font-medium">Settings</p>
 
         {/* Carry rate, preferred return, catch-up, and the GP entity that receives it — the
             gp_economics domain, not plain accounting. Someone who runs the close does not
@@ -209,6 +209,21 @@ function EntityStatusView() {
         {!manco && <CollapsibleSection title="Payment instructions" subtitle="Bank details printed on this vehicle's capital call notices">
           <WireInstructionsCard />
         </CollapsibleSection>}
+
+        {/* The entity's governing documents — the LPA or operating agreement, side letters and
+            amendments — are managed on their own page; this is the way in. */}
+        {vehicleId && (
+          <CollapsibleSection title="Fund documents" subtitle="The LPA or operating agreement, side letters and amendments">
+            <div className="flex flex-wrap items-center justify-between gap-3">
+              <p className="text-xs text-muted-foreground">
+                Upload and manage this entity&apos;s governing documents. The Analyst can answer questions about their terms.
+              </p>
+              <Button asChild size="sm" variant="outline">
+                <Link href={`/entities/${vehicleId}/documents`}><FileText className="h-3.5 w-3.5 mr-1.5" />Documents</Link>
+              </Button>
+            </div>
+          </CollapsibleSection>
+        )}
 
         <CollapsibleSection title="Chart of accounts" subtitle="Add, rename, or hide the accounts this vehicle posts to">
           <ChartOfAccountsCard />

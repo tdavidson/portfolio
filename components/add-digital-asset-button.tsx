@@ -72,7 +72,7 @@ export function AddDigitalAssetButton() {
   return (
     <Dialog open={open} onOpenChange={o => { setOpen(o); setError(null) }}>
       <DialogTrigger asChild>
-        <Button size="sm" variant="outline"><Plus className="h-4 w-4 mr-1" />Add digital asset</Button>
+        <Button variant="outline" size="sm" className="gap-1.5 h-8 py-2 text-muted-foreground hover:text-foreground"><Plus className="h-3.5 w-3.5" />Add digital asset</Button>
       </DialogTrigger>
       <DialogContent>
         <DialogHeader>

@@ -532,6 +532,23 @@ export function JournalView({ onPlainText }: { onPlainText?: () => void } = {}) 
         <div className="flex items-center justify-end gap-2 text-xs text-muted-foreground">
           <span>Showing {page * PAGE + 1}–{Math.min((page + 1) * PAGE, total)} of {total}</span>
           <Button size="sm" variant="outline" disabled={page === 0 || loading} onClick={() => setPage(p => Math.max(0, p - 1))}>Prev</Button>
+          {total > PAGE && (
+            <label className="flex items-center gap-1.5">
+              Page
+              <select
+                aria-label="Page"
+                value={page}
+                disabled={loading}
+                onChange={e => setPage(Number(e.target.value))}
+                className="rounded-md border border-input bg-transparent px-1.5 py-1 text-xs tabular-nums text-foreground"
+              >
+                {Array.from({ length: Math.ceil(total / PAGE) }, (_, i) => (
+                  <option key={i} value={i}>{i + 1}</option>
+                ))}
+              </select>
+              of {Math.ceil(total / PAGE)}
+            </label>
+          )}
           <Button size="sm" variant="outline" disabled={(page + 1) * PAGE >= total || loading} onClick={() => setPage(p => p + 1)}>Next</Button>
         </div>
       )}
