@@ -147,7 +147,7 @@ export const DOMAIN_META: Record<Domain, DomainMeta> = {
      * The feature key still earns its place: it decides whether the fund does tax reporting AT
      * ALL, independently of whether it keeps books.
      */
-    features: ['accounting', 'tax_reporting'],
+    features: ['accounting', 'tax_reporting', 'budgeting'],
   },
   management_company: {
     label: 'Management company',

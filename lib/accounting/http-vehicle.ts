@@ -1,8 +1,10 @@
 import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { resolveVehicle } from './vehicle-resolver'
+import { resolveVehicle, VehicleResolutionError } from './vehicle-resolver'
 import { listVehicles as resolveVehicleList } from './load'
-import { assertVehicleDomain, assertMancoVehicle, type VehicleGate } from './vehicle-domain'
+import { assertVehicleDomain, assertMancoVehicle, vehicleKindByName, type VehicleGate } from './vehicle-domain'
+import { hasAccess, type AccessContext } from '@/lib/access/effective'
+import { isManagementCompany } from '@/lib/vehicle-kinds'
 import { assertVehicleVisible, visibleVehicleNames } from './vehicle-visibility'
 
 /**
@@ -80,4 +82,36 @@ export async function resolveMancoGroupOr400(
   const hidden = await assertVehicleVisible(admin, gate, group)
   if (hidden) return hidden
   return group
+}
+
+/**
+ * The service-layer twin of `resolveGroupOr400`, for callers that already hold the caller's
+ * AccessContext and run outside a route (the budgeting service, its MCP tools and Analyst
+ * actions — one code path for all of them). Resolves a fund vehicle OR a management company among
+ * the caller's own entities, and refuses the manco unless they hold `management_company` at
+ * `need`. Throws rather than returning a response; the caller maps the error.
+ *
+ * Lives here so the opt-in and its check stay in the one file tests/manco-vehicle-domain.test.ts
+ * watches, in the same function, check before return.
+ */
+export class VehicleAccessError extends Error {
+  readonly status = 403
+}
+
+export async function resolveVehicleWithAccess(
+  admin: SupabaseClient,
+  access: AccessContext,
+  requested: string,
+  need: 'read' | 'write',
+): Promise<{ name: string; kind: string | null }> {
+  if (!requested?.trim()) throw new VehicleResolutionError('A vehicle is required')
+  const name = await resolveVehicle(admin, access.fundId, requested, { includeManagementCompanies: true, access })
+  const kind = await vehicleKindByName(admin, access.fundId, name)
+  if (isManagementCompany(kind) && !hasAccess(access, 'management_company', need)) {
+    throw new VehicleAccessError(
+      `"${name}" is a management company. Its books are gated separately from the funds' — ` +
+        `ask an admin for ${need} access to Management company.`,
+    )
+  }
+  return { name, kind }
 }

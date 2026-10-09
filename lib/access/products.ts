@@ -47,7 +47,7 @@ export const PRODUCT_META: Record<ProductKey, ProductMeta> = {
     order: 4,
     shipsOn: false,
     domains: ['accounting', 'management_company', 'gp_economics', 'compliance'],
-    features: ['accounting', 'management_company', 'tax_reporting', 'gp_economics', 'compliance'],
+    features: ['accounting', 'management_company', 'tax_reporting', 'budgeting', 'gp_economics', 'compliance'],
   },
 }
 

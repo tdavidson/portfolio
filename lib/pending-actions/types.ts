@@ -7,6 +7,8 @@ export type ActionType =
   | 'record_investment'
   | 'issue_capital_call'
   | 'update_portfolio_construction'
+  | 'update_forecast_plan'
+  | 'publish_forecast_plan'
 
 export type PendingActionStatus = 'pending' | 'approved' | 'applied' | 'rejected' | 'failed'
 

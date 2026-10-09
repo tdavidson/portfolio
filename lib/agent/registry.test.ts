@@ -81,8 +81,26 @@ describe('agent tool registry', () => {
       'diligence_ask', 'diligence_checklist', 'diligence_evidence',
       'deals_list_inbound',
       'portfolio_construction',
+      'forecast_list_plans', 'forecast_series', 'forecast_explain', 'forecast_variance',
     ]) {
       expect(getTool(name), name).toBeTruthy()
+    }
+  })
+
+  it('exposes budget & forecast as fund-scoped reads behind the budgeting switch', () => {
+    for (const name of ['forecast_list_plans', 'forecast_series', 'forecast_explain', 'forecast_variance', 'forecast_fee_links']) {
+      const tool = getTool(name)!
+      expect(tool.scope, name).toBe('read')
+      expect(tool.domain, name).toBe('portfolio')
+      expect(tool.accessDomain, name).toBe('accounting')
+      expect(tool.accessFeature, name).toBe('budgeting')
+      expect(tool.inputSchema.required, name).toContain('vehicle')
+      expect(isLedgerTool(tool), name).toBe(false)
+    }
+    for (const name of ['forecast_create_plan', 'forecast_update_plan', 'forecast_publish', 'forecast_set_fee_link']) {
+      const tool = getTool(name)!
+      expect(tool.scope, name).toBe('write')
+      expect(tool.accessFeature, name).toBe('budgeting')
     }
   })
 

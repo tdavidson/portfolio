@@ -13,6 +13,17 @@ describe('write-action registry', () => {
     expect(getWriteAction('update_portfolio_construction')?.stageAccess).toBe('write')
   })
 
+  it('stages budget & forecast changes behind accounting write and the budgeting switch', () => {
+    for (const name of ['update_forecast_plan', 'publish_forecast_plan']) {
+      const a = getWriteAction(name)!
+      expect(a.domain, name).toBe('accounting')
+      expect(a.accessFeature, name).toBe('budgeting')
+      expect(a.stageAccess, name).toBe('write')
+      expect(a.entity, name).toBe('required')
+      expect(a.managementCompanies, name).toBe(true)
+    }
+  })
+
   it('carries the investments feature on record_investment', () => {
     expect(getWriteAction('record_investment')?.accessFeature).toBe('investments')
   })

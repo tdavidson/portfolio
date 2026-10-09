@@ -17,8 +17,8 @@ import path from 'node:path'
  *   1. `listVehicles` excludes management companies, so `resolveVehicle` — which every one of those
  *      surfaces goes through — cannot resolve one by default. A caller that forgets gets "unknown
  *      vehicle", not the payroll.
- *   2. Exactly two callers opt in (`includeManagementCompanies`), both in http-vehicle.ts, and both
- *      immediately check the `management_company` grant.
+ *   2. Only http-vehicle.ts opts in (`includeManagementCompanies`) — resolveGroupOr400 and
+ *      resolveVehicleWithAccess — and each immediately checks the `management_company` grant.
  *
  * These tests read the source rather than executing it, for the same reason
  * route-gates-honour-grants.test.ts does: what is being asserted is that no OTHER caller acquired
@@ -126,6 +126,14 @@ describe('a manco cannot be resolved without an explicit, checked opt-in', () =>
     expect(fn).toContain('assertVehicleDomain(admin, gate, group)')
     // The opt-in must not be able to return a group WITHOUT the check having run.
     expect(fn.indexOf('assertVehicleDomain')).toBeLessThan(fn.indexOf('return group'))
+  })
+
+  it('checks the grant in the service-layer resolver too, before returning', () => {
+    const http = read('lib/accounting/http-vehicle.ts')
+    const fn = http.slice(http.indexOf('export async function resolveVehicleWithAccess'))
+    expect(fn).toContain('includeManagementCompanies: true, access')
+    expect(fn).toContain("hasAccess(access, 'management_company', need)")
+    expect(fn.indexOf("hasAccess(access, 'management_company', need)")).toBeLessThan(fn.indexOf('return { name, kind }'))
   })
 
   it('requires the grant at the level the route declared, not merely read', () => {

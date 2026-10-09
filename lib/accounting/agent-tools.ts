@@ -36,6 +36,8 @@ import { LP_TOOL_MANIFEST } from '@/lib/agent/lp-tools-manifest'
 import { LP_HANDLERS } from '@/lib/agent/lp-tools'
 import { CONSTRUCTION_TOOL_MANIFEST } from '@/lib/agent/construction-tools-manifest'
 import { CONSTRUCTION_HANDLERS } from '@/lib/agent/construction-tools'
+import { FORECAST_TOOL_MANIFEST } from '@/lib/agent/forecast-tools-manifest'
+import { FORECAST_HANDLERS } from '@/lib/agent/forecast-tools'
 import { resolveVehicle } from './vehicle-resolver'
 import { ACTUAL_BOOK } from './books'
 
@@ -239,6 +241,7 @@ export const AGENT_TOOLS: AgentTool[] = [
   ...bind(DEALS_TOOL_MANIFEST, DEALS_HANDLERS),
   ...bind(LP_TOOL_MANIFEST, LP_HANDLERS),
   ...bind(CONSTRUCTION_TOOL_MANIFEST, CONSTRUCTION_HANDLERS),
+  ...bind(FORECAST_TOOL_MANIFEST, FORECAST_HANDLERS),
 ]
 
 export function getTool(name: string): AgentTool | undefined {

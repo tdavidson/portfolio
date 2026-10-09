@@ -4,7 +4,7 @@
 
 import {
   Landmark, Users, ScrollText, Gauge,
-  Lock, Layers, FileText, Target, Table2, Upload, ClipboardList, Settings2,
+  Lock, Layers, FileText, Target, Table2, Upload, ClipboardList, Settings2, TrendingUp,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Domain } from '@/lib/access/domains'
@@ -120,6 +120,13 @@ export const ACCOUNTING_SECTIONS: AccountingSection[] = [
     // individual's angel book, a GP entity's fund stake. Only a management company, which holds
     // no portfolio at all, has nothing to construct.
     hideFor: ['manco'],
+  },
+  {
+    href: '/funds/forecast',
+    label: 'Budget & forecast',
+    icon: TrendingUp,
+    desc: 'Monthly budgets and rolling forecasts beside the actuals, with P&L and cash by month, quarter or year.',
+    feature: 'budgeting',
   },
   {
     href: '/funds/statements',

@@ -8,6 +8,8 @@ import {
   previewUpdatePortfolioConstruction,
   executeUpdatePortfolioConstruction,
 } from './construction'
+import { previewUpdateForecast, executeUpdateForecast, previewPublishForecast, executePublishForecast } from './forecast'
+import { PUBLISH_PLAN_SCHEMA, UPDATE_PLAN_SCHEMA } from '@/lib/forecast/actions'
 
 /**
  * One write action the Analyst may DRAFT. Each maps to the access `domain` (+ optional feature)
@@ -27,6 +29,11 @@ export interface WriteAction {
    * the action can never be re-resolved to whoever later views or approves it.
    */
   entity: 'required' | 'optional' | 'none'
+  /**
+   * The entity may be a management company. Staging then resolves through resolveVehicleWithAccess,
+   * which requires the stager's management_company grant for one — never a bare opt-in.
+   */
+  managementCompanies?: true
   description: string
   inputSchema: Record<string, unknown>
   preview: (deps: ActionDeps, input: any) => Promise<PreviewResult>
@@ -170,6 +177,32 @@ export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
     },
     preview: previewUpdatePortfolioConstruction,
     execute: executeUpdatePortfolioConstruction,
+  },
+  update_forecast_plan: {
+    entity: 'required',
+    managementCompanies: true,
+    domain: 'accounting',
+    accessFeature: 'budgeting',
+    stageAccess: 'write',
+    description:
+      'Propose changes to a budget or forecast draft — account rules (by account code), month overrides, ' +
+      'or its cutoff/horizon. Stages a before/after preview for human approval; nothing changes until approved.',
+    inputSchema: UPDATE_PLAN_SCHEMA as any,
+    preview: previewUpdateForecast,
+    execute: executeUpdateForecast,
+  },
+  publish_forecast_plan: {
+    entity: 'required',
+    managementCompanies: true,
+    domain: 'accounting',
+    accessFeature: 'budgeting',
+    stageAccess: 'write',
+    description:
+      'Propose publishing a plan as an immutable version, or approving it as the budget baseline. ' +
+      'Stages for human approval.',
+    inputSchema: PUBLISH_PLAN_SCHEMA as any,
+    preview: previewPublishForecast,
+    execute: executePublishForecast,
   },
 }
 

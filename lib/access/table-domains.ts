@@ -170,6 +170,13 @@ export const TABLE_RULES: Record<string, TableRule> = {
   close_review_checks: { scope: 'service', note: 'Per-check results of a close review; worker-written, served with their review.' },
   accounting_schedules: { scope: 'service', note: 'Recurring accruals and amortization schedules the close posts; managed through accounting routes.' },
   accounting_schedule_lines: { scope: 'service', note: 'Posting lines of an accounting schedule; managed with their schedule.' },
+  forecast_plans: { scope: 'service', note: 'Budgets and rolling forecasts; served only by the budgeting routes/tools, which gate accounting + budgeting (and management_company for a manco).' },
+  forecast_rules: { scope: 'service', note: 'Account rules of a forecast plan; managed through the budgeting service with their plan.' },
+  forecast_overrides: { scope: 'service', note: 'Month overrides of a forecast plan; managed through the budgeting service with their plan.' },
+  forecast_versions: { scope: 'service', note: 'Immutable published/approved snapshots of a forecast plan; served by the budgeting routes.' },
+  forecast_entries: { scope: 'service', note: 'Compiled forecast entries (draft and per version) — never journal entries; served by the budgeting routes.' },
+  manco_fee_links: { scope: 'service', note: 'Which funds pay which management company and on what billing cycle; managed through the budgeting service, which needs both vehicles\' grants to write one.' },
+  forecast_postings: { scope: 'service', note: 'Balanced postings of forecast entries; read with their entries.' },
 
   // ---- Management company --------------------------------------------------------------------
   // NOTE the tables that are NOT here. A management company's ledger lives in the same
