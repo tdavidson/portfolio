@@ -174,4 +174,24 @@ export const FORECAST_TOOL_MANIFEST: AgentToolMeta[] = [
       },
     },
   },
+  {
+    name: 'forecast_suggest_rules',
+    description:
+      'Suggest a forecasting rule for every income and expense account of a vehicle from its own closed ' +
+      'history — at least 12 months, up to 36 — so annual and quarterly bills, seasonal shapes (a December ' +
+      'bonus), trends and step changes are recognised rather than averaged away. Each suggestion has its ' +
+      'method and parameters, a confidence and the evidence. Linked sources win where they exist (fee ' +
+      'links, construction). Creates nothing: pass the suggestions, adjusted for what the user said, to ' +
+      'create_forecast_plan.',
+    scope: 'read',
+    domain: 'portfolio',
+    accessDomain: 'accounting',
+    accessFeature: 'budgeting',
+    inputSchema: {
+      type: 'object',
+      properties: { vehicle: VEHICLE, lookbackMonths: { type: 'number', description: '12–36, default 36.' } },
+      required: ['vehicle'],
+      additionalProperties: false,
+    },
+  },
 ]

@@ -26,7 +26,8 @@ import { CashTimingError, validateCashTiming, type CashTiming, type CompiledEntr
 import { actualsByAccount, buildPlan, planWindow, type BuiltPlan, type PlanKind, type PlanOverrideRow, type PlanRuleRow } from './plan'
 import { buildReport, type FlowEntry, type Report, type ReportView } from './report'
 import { computeVariance, largestVariances, type VarianceResult } from './variance'
-import { cycleLabel, loadFeeLinks, loadLinkedDrivers, seesFund } from './linked'
+import { cycleLabel, fundSchedule, loadFeeLinks, loadLinkedDrivers, seesFund } from './linked'
+import { historyWindow, MAX_HISTORY_MONTHS, MIN_HISTORY_MONTHS, suggestRule, type RuleSuggestion } from './suggest'
 import { isManagementCompany } from '@/lib/vehicle-kinds'
 
 export interface ForecastServiceContext {
@@ -391,7 +392,7 @@ export interface CreatePlanInput {
   /** Fund/SPV: carry construction's investment, exit, call and distribution flows. */
   includeConstruction?: boolean
   /** 'blank', or 'actuals' (budget: last year's months; forecast: 3-month run rate), or another plan's rules. */
-  seed?: { from: 'blank' | 'actuals' | 'plan'; planId?: string }
+  seed?: { from: 'blank' | 'suggested' | 'last_year' | 'actuals' | 'plan'; planId?: string; lookbackMonths?: number }
 }
 
 export async function createPlan(ctx: ForecastServiceContext, input: CreatePlanInput): Promise<PlanDetail> {
@@ -455,7 +456,7 @@ async function seedRules(
   ctx: ForecastServiceContext,
   v: VehicleCtx,
   kind: PlanKind,
-  seed: { from: string; planId?: string },
+  seed: { from: string; planId?: string; lookbackMonths?: number },
   cutoff: MonthKey,
   fiscalYear: number | null,
 ): Promise<RuleView[]> {
@@ -465,20 +466,19 @@ async function seedRules(
     const { rules } = await loadInputs(ctx, src.id)
     return rules.map(r => ({ ...r, id: randomUUID(), source: 'seeded' }))
   }
-  if (seed.from !== 'actuals') throw new ForecastError("seed.from must be 'blank', 'actuals' or 'plan'")
-
-  const pnl = v.accounts.filter(a => (a.type === 'income' || a.type === 'expense') && !a.lpEntityId && !a.companyId)
-  if (kind === 'rolling_forecast') {
-    // A suggestion, not a forecast: every account that moved in the last year gets a 3-month run
-    // rate, marked 'suggested' so the drawer says where it came from.
-    const ledger = await loadPostedLedger(ctx.admin, ctx.fundId, v.name, lastDay(cutoff))
-    const history = actualsByAccount(v.accounts, ledger.postings)
-    const since = addMonths(cutoff, -11)
-    return pnl
-      .filter(a => [...(history.get(a.id)?.keys() ?? [])].some(m => m >= since))
-      .map(a => ({ id: randomUUID(), accountId: a.id, method: 'run_rate' as const, params: { window: 3 }, cashTiming: { mode: 'same' } as CashTiming, source: 'suggested', note: null }))
+  if (seed.from === 'suggested' || (seed.from === 'actuals' && kind === 'rolling_forecast')) {
+    // Each account's own pattern from 12–36 closed months (lib/forecast/suggest.ts), marked
+    // 'suggested' with its evidence so the drawer says where it came from. A draft, never published.
+    const { suggestions } = await suggestFor(ctx, v, seed.lookbackMonths)
+    return suggestions.map(x => ({
+      id: randomUUID(), accountId: x.accountId, method: x.method, params: x.params, cashTiming: { mode: 'same' } as CashTiming,
+      source: 'suggested', note: `${x.confidence} confidence — ${x.evidence}`.slice(0, 500),
+    }))
   }
-  // Budget from actuals: last year's month-by-month figures, moved forward a year, as manual amounts.
+  if (seed.from !== 'actuals' && seed.from !== 'last_year') throw new ForecastError("seed.from must be 'blank', 'suggested', 'last_year' or 'plan'")
+
+  // Last year's month-by-month figures, moved forward a year, as manual amounts.
+  const pnl = v.accounts.filter(a => (a.type === 'income' || a.type === 'expense') && !a.lpEntityId && !a.companyId)
   const prior = (fiscalYear ?? Number(cutoff.slice(0, 4))) - 1
   const ledger = await loadPostedLedger(ctx.admin, ctx.fundId, v.name, `${prior}-12-31`)
   const history = actualsByAccount(v.accounts, ledger.postings)
@@ -496,6 +496,84 @@ async function seedRules(
     }
   }
   return out
+}
+
+export interface AccountSuggestion extends RuleSuggestion {
+  accountId: string
+  code: string
+  name: string
+  type: 'income' | 'expense'
+}
+
+/**
+ * A suggested rule for every P&L account that moved in the history window. Linked sources win over
+ * history where they exist — a manco's fee income from its fee links, a fund's fees and expenses
+ * from its construction schedule — because history only says what WAS charged.
+ */
+async function suggestFor(ctx: ForecastServiceContext, v: VehicleCtx, lookbackMonths?: number) {
+  const warnings: string[] = []
+  let closedFrom = v.closedFrom
+  let closedThrough = v.closedThrough
+  let unclosedNote: string | null = null
+  if (!closedThrough) {
+    // Nothing closed: read through last month rather than suggest nothing, and say so on every rule.
+    closedThrough = addMonths(thisMonth(), -1)
+    unclosedNote = 'Based on unclosed months — no period is closed yet'
+    warnings.push(`No closed periods — suggestions read unclosed actuals through ${closedThrough}`)
+  }
+  const ledger = await loadPostedLedger(ctx.admin, ctx.fundId, v.name, lastDay(closedThrough))
+  if (!closedFrom) {
+    const first = ledger.postings.map(p => p.entryDate).filter(Boolean).sort()[0]
+    closedFrom = first ? monthOf(first) : closedThrough
+  }
+  const history = actualsByAccount(v.accounts, ledger.postings)
+  const window = historyWindow(closedFrom, closedThrough, lookbackMonths ?? MAX_HISTORY_MONTHS)
+  if (window.length < MIN_HISTORY_MONTHS) warnings.push(`Only ${window.length} months of history; annual and seasonal patterns need at least ${MIN_HISTORY_MONTHS}`)
+
+  const manco = isManagementCompany(v.kind)
+  const links = (await loadFeeLinks(ctx.admin, ctx.fundId, v.id)).filter(l => l.active)
+  const mancoLinks = links.filter(l => l.mancoVehicleId === v.id)
+  const fundLink = links.find(l => l.fundVehicleId === v.id)
+  let hasSchedule = false
+  if (!manco) {
+    try {
+      hasSchedule = !!(await fundSchedule(ctx, v.name, false)).monthly
+    } catch {
+      hasSchedule = false
+    }
+  }
+
+  const suggestions: AccountSuggestion[] = []
+  for (const a of v.accounts) {
+    if ((a.type !== 'income' && a.type !== 'expense') || a.lpEntityId || a.companyId) continue
+    const meta = { accountId: a.id, code: a.code, name: a.name, type: a.type as 'income' | 'expense' }
+    if (manco && a.subtype === 'management_fee_income' && mancoLinks.length) {
+      suggestions.push({ ...meta, method: 'linked_fee', params: {}, confidence: 'high', evidence: `${mancoLinks.length} linked fund${mancoLinks.length === 1 ? '' : 's'}' construction fee schedules`, warnings: [] })
+      continue
+    }
+    if (!manco && a.subtype === 'management_fee' && (fundLink || hasSchedule)) {
+      suggestions.push(fundLink
+        ? { ...meta, method: 'linked_fee', params: {}, confidence: 'high', evidence: `Construction fee schedule, ${cycleLabel(fundLink)}`, warnings: [] }
+        : { ...meta, method: 'linked_construction', params: { flow: 'fees' }, confidence: 'high', evidence: 'Portfolio construction fee schedule', warnings: [] })
+      continue
+    }
+    if (!manco && a.subtype === 'partnership_expense' && hasSchedule) {
+      suggestions.push({ ...meta, method: 'linked_construction', params: { flow: 'expenses' }, confidence: 'medium', evidence: 'Portfolio construction partnership expenses (annual, spread by month)', warnings: [] })
+      continue
+    }
+    const s = suggestRule({ actuals: history.get(a.id) ?? new Map(), closedFrom, closedThrough, lookbackMonths })
+    if (!s) continue
+    if (unclosedNote) s.warnings.unshift(unclosedNote)
+    if (manco && a.subtype === 'management_fee_income' && !mancoLinks.length) s.warnings.push('Fee income could be linked to the funds’ fee schedules — add fee links')
+    suggestions.push({ ...meta, ...s })
+  }
+  return { suggestions, window: window.length ? { first: window[0], last: window[window.length - 1] } : null, warnings }
+}
+
+export async function suggestRules(ctx: ForecastServiceContext, input: { vehicle: string; lookbackMonths?: number }) {
+  const v = await loadVehicle(ctx, input.vehicle, 'read')
+  const r = await suggestFor(ctx, v, input.lookbackMonths)
+  return { vehicle: v.name, closedThrough: v.closedThrough, history: r.window, warnings: r.warnings, suggestions: r.suggestions }
 }
 
 export interface SavePlanInput {
@@ -894,6 +972,9 @@ function describeRule(r: RuleView): string {
       case 'recurring': return `${p.amount} every ${p.everyMonths} month(s) from ${p.anchor}`
       case 'run_rate': return p.from ? `Average of ${p.from}–${p.to}` : `Trailing ${p.window}-month average`
       case 'growth': return `${p.base} from ${p.baseMonth}, +${p.rate * 100}%/${p.per}`
+      case 'seasonal': return `Repeating 12-month profile from ${p.anchor}${p.annualGrowth ? `, +${p.annualGrowth * 100}%/yr` : ''}`
+      case 'linked_fee': return 'Linked management fee'
+      case 'linked_construction': return `Portfolio construction ${p.flow}`
       default: return r.method
     }
   } catch {

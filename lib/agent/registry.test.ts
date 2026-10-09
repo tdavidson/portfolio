@@ -88,7 +88,7 @@ describe('agent tool registry', () => {
   })
 
   it('exposes budget & forecast as fund-scoped reads behind the budgeting switch', () => {
-    for (const name of ['forecast_list_plans', 'forecast_series', 'forecast_explain', 'forecast_variance', 'forecast_fee_links']) {
+    for (const name of ['forecast_list_plans', 'forecast_series', 'forecast_explain', 'forecast_variance', 'forecast_fee_links', 'forecast_suggest_rules']) {
       const tool = getTool(name)!
       expect(tool.scope, name).toBe('read')
       expect(tool.domain, name).toBe('portfolio')

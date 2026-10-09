@@ -2,7 +2,7 @@
 // service. Shared by the MCP write tools (which run directly) and the Analyst's staged actions
 // (preview now, execute on approval), so the two cannot interpret the same request differently.
 
-import { getPlan, savePlan, publishPlan, createPlan, ForecastError, type ForecastServiceContext, type PlanDetail, type SavePlanInput } from './service'
+import { getPlan, savePlan, publishPlan, createPlan, suggestRules, ForecastError, type CreatePlanInput, type ForecastServiceContext, type PlanDetail, type SavePlanInput } from './service'
 import { isMonthKey } from './months'
 
 export interface UpdatePlanAction {
@@ -113,10 +113,23 @@ export const CREATE_PLAN_SCHEMA = {
     includeConstruction: { type: 'boolean', description: "Fund/SPV: include construction's investment and capital flows." },
     seed: {
       type: 'object',
-      properties: { from: { type: 'string', enum: ['blank', 'actuals', 'plan'] }, planId: { type: 'string' } },
+      description:
+        "'suggested' (default) = a rule per account from its own 12–36 months of closed history (forecast_suggest_rules); " +
+        "'last_year' = last year's actuals month by month (budgets); 'plan' = copy another plan's rules; 'blank'.",
+      properties: {
+        from: { type: 'string', enum: ['blank', 'suggested', 'last_year', 'plan'] },
+        planId: { type: 'string' },
+        lookbackMonths: { type: 'number', description: '12–36; default 36 (as much as the books have).' },
+      },
       required: ['from'],
       additionalProperties: false,
     },
+    rules: {
+      type: 'array',
+      description: 'Rules to set after seeding — your adjustments to the suggestions (same shape as forecast_update_plan rules).',
+      items: UPDATE_PLAN_SCHEMA.properties.rules.items,
+    },
+    explanation: { type: 'string', description: 'What you changed from the suggestions and why — shown to the approver.' },
   },
 } as const
 
@@ -214,6 +227,51 @@ export async function describePublish(ctx: ForecastServiceContext, a: PublishAct
   }
 }
 
-export async function applyCreate(ctx: ForecastServiceContext, input: any) {
-  return createPlan(ctx, input)
+export interface CreatePlanAction extends Omit<CreatePlanInput, 'seed'> {
+  seed?: { from: 'blank' | 'suggested' | 'last_year' | 'plan'; planId?: string; lookbackMonths?: number }
+  rules?: UpdatePlanAction['rules']
+  explanation?: string
+}
+
+/** Create the plan, seeded, then apply any adjustments — one plan, one approval. */
+export async function applyCreate(ctx: ForecastServiceContext, input: CreatePlanAction): Promise<PlanDetail> {
+  const { rules, explanation: _explanation, ...create } = input
+  const plan = await createPlan(ctx, { ...create, seed: create.seed ?? { from: 'suggested' } })
+  if (!rules?.length) return plan
+  return savePlan(ctx, toSaveInput(plan, { vehicle: plan.plan.vehicle, planId: plan.plan.id, rules }))
+}
+
+/** What the new plan would hold, account by account, with each suggestion's evidence. */
+export async function describeCreate(ctx: ForecastServiceContext, input: CreatePlanAction) {
+  const seed = input.seed ?? { from: 'suggested' as const }
+  const s = seed.from === 'suggested' ? await suggestRules(ctx, { vehicle: input.vehicle, lookbackMonths: seed.lookbackMonths }) : null
+  const byCode = new Map((s?.suggestions ?? []).map(x => [x.code, x]))
+  const adjusted = new Map((input.rules ?? []).map(r => {
+    const hit = s?.suggestions.find(x => x.code === r.account || x.accountId === r.account)
+    return [hit?.code ?? r.account, r]
+  }))
+  const rules = [
+    ...[...byCode.values()].map(x => ({
+      account: `${x.code} ${x.name}`,
+      method: adjusted.get(x.code)?.method ?? x.method,
+      params: adjusted.get(x.code)?.params ?? x.params,
+      source: adjusted.has(x.code) ? 'adjusted' : 'suggested',
+      confidence: x.confidence,
+      evidence: x.evidence,
+      warnings: x.warnings,
+    })),
+    ...[...adjusted.entries()].filter(([code]) => !byCode.has(code)).map(([code, r]) => ({ account: code, method: r.method, params: r.params, source: 'added' })),
+  ]
+  const kind = input.kind === 'budget' ? `${input.fiscalYear} budget` : `${input.horizonMonths ?? 12}-month rolling forecast`
+  return {
+    summary: `Create "${input.name}" — a ${kind} for ${s?.vehicle ?? input.vehicle} with ${rules.length} account rule${rules.length === 1 ? '' : 's'}${adjusted.size ? ` (${adjusted.size} adjusted)` : ''}. Draft only; nothing is published.`,
+    details: {
+      vehicle: s?.vehicle ?? input.vehicle,
+      seed: seed.from,
+      history: s?.history ?? null,
+      rules,
+      warnings: s?.warnings ?? [],
+      ...(input.explanation ? { explanation: input.explanation } : {}),
+    },
+  }
 }

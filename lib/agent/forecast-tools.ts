@@ -1,5 +1,5 @@
 import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-tools'
-import { getPlan, getSeries, getVariance, listFeeLinks, listPlans, saveFeeLink, type ForecastServiceContext } from '@/lib/forecast/service'
+import { getPlan, getSeries, getVariance, listFeeLinks, listPlans, saveFeeLink, suggestRules, type ForecastServiceContext } from '@/lib/forecast/service'
 import { applyCreate, applyPublish, applyUpdate } from '@/lib/forecast/actions'
 
 const svc = ({ admin, fundId, userId, access }: AgentToolContext): ForecastServiceContext => ({
@@ -41,6 +41,7 @@ export const FORECAST_HANDLERS: Record<string, AgentToolHandler> = {
   forecast_create_plan: async (ctx, input) => applyCreate(svc(ctx), { ...input, vehicle: vehicleOf(input) }),
   forecast_update_plan: async (ctx, input) => applyUpdate(svc(ctx), { ...input, vehicle: vehicleOf(input) }),
   forecast_publish: async (ctx, input) => applyPublish(svc(ctx), { ...input, vehicle: vehicleOf(input) }),
+  forecast_suggest_rules: async (ctx, input) => suggestRules(svc(ctx), { vehicle: vehicleOf(input), lookbackMonths: input.lookbackMonths }),
   forecast_fee_links: async (ctx, input) => listFeeLinks(svc(ctx), { vehicle: vehicleOf(input) }),
   forecast_set_fee_link: async (ctx, input) => saveFeeLink(svc(ctx), { ...input, manco: vehicleOf(input) }),
 }

@@ -9,6 +9,7 @@ export type ActionType =
   | 'update_portfolio_construction'
   | 'update_forecast_plan'
   | 'publish_forecast_plan'
+  | 'create_forecast_plan'
 
 export type PendingActionStatus = 'pending' | 'approved' | 'applied' | 'rejected' | 'failed'
 

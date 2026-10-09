@@ -16,10 +16,11 @@ export type RuleMethod =
   | 'recurring'
   | 'run_rate'
   | 'growth'
+  | 'seasonal'
   | 'linked_fee'
   | 'linked_construction'
 
-export const RULE_METHODS: RuleMethod[] = ['manual', 'fixed', 'recurring', 'run_rate', 'growth', 'linked_fee', 'linked_construction']
+export const RULE_METHODS: RuleMethod[] = ['manual', 'fixed', 'recurring', 'run_rate', 'growth', 'seasonal', 'linked_fee', 'linked_construction']
 
 /** Methods the engine can evaluate today. Linked drivers arrive with their source mappings. */
 export const SUPPORTED_METHODS: RuleMethod[] = RULE_METHODS
@@ -82,6 +83,15 @@ export interface GrowthParams {
   rate: number
   /** 'month' compounds every month; 'year' steps once every 12 months from baseMonth. */
   per: 'month' | 'year'
+}
+
+export interface SeasonalParams {
+  /** Amount by calendar month, '1'…'12'. A missing month is nothing that month. */
+  profile: Record<string, number>
+  /** First month the profile applies as stated; each 12 months after it, growth applies once. */
+  anchor: MonthKey
+  /** Year-on-year change, e.g. 0.04. */
+  annualGrowth?: number
 }
 
 export interface RuleInput {
@@ -206,6 +216,18 @@ export function validateRule(method: unknown, raw: unknown): RuleInput {
       if (p.flow !== 'fees' && p.flow !== 'expenses') throw new RuleError("flow must be 'fees' or 'expenses'")
       return { method: m, params: { flow: p.flow } satisfies LinkedConstructionParams }
     }
+    case 'seasonal': {
+      const prof = obj(p.profile)
+      const profile: Record<string, number> = {}
+      for (const [k, v] of Object.entries(prof)) {
+        const n = Number(k)
+        if (!Number.isInteger(n) || n < 1 || n > 12) throw new RuleError('profile keys are calendar months 1–12')
+        profile[String(n)] = roundCents(num(v, `profile.${k}`))
+      }
+      const g = p.annualGrowth == null ? undefined : num(p.annualGrowth, 'annualGrowth')
+      if (g != null && (g <= -1 || g > 10)) throw new RuleError('annualGrowth is out of range')
+      return { method: m, params: { profile, anchor: month(p.anchor, 'anchor'), annualGrowth: g } satisfies SeasonalParams }
+    }
     case 'growth': {
       if (p.per !== 'month' && p.per !== 'year') throw new RuleError("per must be 'month' or 'year'")
       const rate = num(p.rate, 'rate')
@@ -304,6 +326,18 @@ export function evaluateRule(rule: RuleInput, months: MonthKey[], history: Histo
         basis: `Average of ${eligible.length} month${eligible.length === 1 ? '' : 's'} ${eligible[0]}–${eligible[eligible.length - 1]}: ${fmt(avg)}/mo`,
         warnings,
       }
+    }
+
+    case 'seasonal': {
+      const p = rule.params as SeasonalParams
+      for (const m of months) {
+        const base = p.profile[String(parseMonth(m).month)]
+        if (!base) continue
+        const years = Math.max(0, Math.floor(monthDiff(p.anchor, m) / 12))
+        amounts.set(m, roundCents(base * Math.pow(1 + (p.annualGrowth ?? 0), years)))
+      }
+      const g = p.annualGrowth ? `, +${fmt(p.annualGrowth * 100)}%/yr` : ''
+      return { amounts, basis: `Repeats a 12-month profile (${fmt(Object.values(p.profile).reduce((a, b) => a + b, 0))}/yr) from ${p.anchor}${g}`, warnings }
     }
 
     case 'growth': {

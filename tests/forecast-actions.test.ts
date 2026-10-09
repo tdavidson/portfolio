@@ -92,3 +92,29 @@ describe('staging a forecast action on a management company', () => {
     expect(mocks.resolveVehicleWithAccess).not.toHaveBeenCalled()
   })
 })
+
+describe('create_forecast_plan (AI draft)', () => {
+  it('previews every suggested rule with its evidence, marking the ones the Analyst adjusted', async () => {
+    const svc = await import('@/lib/forecast/service')
+    const spy = vi.spyOn(svc, 'suggestRules').mockResolvedValue({
+      vehicle: 'Hemrock Management', closedThrough: '2026-09', history: { first: '2024-10', last: '2026-09' }, warnings: [],
+      suggestions: [
+        { accountId: 'a5210', code: '5210', name: 'Audit', type: 'expense', method: 'recurring', params: { amount: 12600, everyMonths: 12, anchor: '2026-03' }, confidence: 'high', evidence: 'Every year: 12,000 in Mar 2025, 12,600 in Mar 2026', warnings: [] },
+        { accountId: 'a5000', code: '5000', name: 'Salaries', type: 'expense', method: 'run_rate', params: { window: 12 }, confidence: 'high', evidence: 'Steady', warnings: [] },
+      ],
+    } as any)
+    const { describeCreate } = await import('@/lib/forecast/actions')
+    const p = await describeCreate(ctx, {
+      vehicle: 'Hemrock Management', kind: 'rolling_forecast', name: 'FY27', horizonMonths: 12,
+      rules: [{ account: '5000', method: 'fixed', params: { amount: 90000 } }],
+      explanation: 'Two hires in January',
+    })
+    expect(p.summary).toContain('2 account rules (1 adjusted)')
+    expect((p.details as any).rules).toEqual([
+      expect.objectContaining({ account: '5210 Audit', source: 'suggested', evidence: expect.stringContaining('Mar 2025') }),
+      expect.objectContaining({ account: '5000 Salaries', source: 'adjusted', method: 'fixed' }),
+    ])
+    expect((p.details as any).explanation).toBe('Two hires in January')
+    spy.mockRestore()
+  })
+})

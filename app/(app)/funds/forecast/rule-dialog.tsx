@@ -22,6 +22,7 @@ const METHODS: { value: string; label: string; hint: string }[] = [
   { value: 'recurring', label: 'Recurring schedule', hint: 'Every N months from an anchor month — an annual bill lands in one month, not twelve.' },
   { value: 'run_rate', label: 'Historical run rate', hint: 'Average of closed months; unclosed months are left out unless you include them.' },
   { value: 'growth', label: 'Growth', hint: 'A base amount growing by a rate per month or per year.' },
+  { value: 'seasonal', label: 'Seasonal profile', hint: 'A 12-month shape repeated each year — payroll with a December bonus — with optional yearly growth.' },
   { value: 'linked_fee', label: 'Linked management fee', hint: 'The fund’s construction fee schedule, on the fee link’s billing cycle. Set up the link under Fee links.' },
   { value: 'linked_construction', label: 'Portfolio construction', hint: 'This fund’s construction fees or expenses by month (construction states them per year; they are spread evenly).' },
 ]
@@ -65,6 +66,8 @@ export function RuleDialog({ account, rule, open, saving, error, onClose, onSave
       window: str(p.window ?? 12), from: str(p.from), to: str(p.to), includeUnclosed: p.includeUnclosed ? '1' : '',
       base: str(p.base), baseMonth: str(p.baseMonth), rate: p.rate != null ? String(Number(p.rate) * 100) : '', per: str(p.per ?? 'year'),
       fundVehicle: str(p.fundVehicle), flow: str(p.flow ?? 'fees'),
+      seasonAnchor: str(p.anchor), annualGrowth: p.annualGrowth != null ? String(Number(p.annualGrowth) * 100) : '',
+      ...Object.fromEntries(Array.from({ length: 12 }, (_, i) => [`m${i + 1}`, str((p.profile as any)?.[String(i + 1)])])),
     })
     const t = (rule?.cashTiming ?? { mode: 'same' }) as Record<string, unknown>
     setTiming({ mode: str(t.mode), months: str(t.months ?? 1), month: str(t.month ?? 1), direction: str(t.direction ?? 'advance') })
@@ -96,6 +99,13 @@ export function RuleDialog({ account, rule, open, saving, error, onClose, onSave
         break
       case 'growth':
         params = { base: num(f.base), baseMonth: month(f.baseMonth), rate: f.rate ? Number(f.rate) / 100 : 0, per: f.per }
+        break
+      case 'seasonal':
+        params = {
+          profile: Object.fromEntries(Array.from({ length: 12 }, (_, i) => [String(i + 1), num(f[`m${i + 1}`] ?? '') ?? 0])),
+          anchor: month(f.seasonAnchor ?? ''),
+          annualGrowth: f.annualGrowth ? Number(f.annualGrowth) / 100 : undefined,
+        }
         break
       case 'linked_fee':
         params = f.fundVehicle?.trim() ? { fundVehicle: f.fundVehicle.trim() } : {}
@@ -176,6 +186,20 @@ export function RuleDialog({ account, rule, open, saving, error, onClose, onSave
                   <option value="year">Year (steps every 12 months)</option>
                 </select>
               </Field>
+            </div>
+          )}
+
+          {method === 'seasonal' && (
+            <div className="space-y-3">
+              <div className="grid grid-cols-4 gap-2">
+                {['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'].map((label, i) => (
+                  <Field key={label} label={label}><Input inputMode="decimal" value={f[`m${i + 1}`] ?? ''} onChange={e => set(`m${i + 1}`, e.target.value)} /></Field>
+                ))}
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <Field label="Applies from"><Input type="month" value={f.seasonAnchor ?? ''} onChange={e => set('seasonAnchor', e.target.value)} /></Field>
+                <Field label="Yearly growth %"><Input inputMode="decimal" value={f.annualGrowth ?? ''} onChange={e => set('annualGrowth', e.target.value)} /></Field>
+              </div>
             </div>
           )}
 

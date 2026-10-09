@@ -8,8 +8,11 @@ import {
   previewUpdatePortfolioConstruction,
   executeUpdatePortfolioConstruction,
 } from './construction'
-import { previewUpdateForecast, executeUpdateForecast, previewPublishForecast, executePublishForecast } from './forecast'
-import { PUBLISH_PLAN_SCHEMA, UPDATE_PLAN_SCHEMA } from '@/lib/forecast/actions'
+import {
+  previewUpdateForecast, executeUpdateForecast, previewPublishForecast, executePublishForecast,
+  previewCreateForecast, executeCreateForecast,
+} from './forecast'
+import { CREATE_PLAN_SCHEMA, PUBLISH_PLAN_SCHEMA, UPDATE_PLAN_SCHEMA } from '@/lib/forecast/actions'
 
 /**
  * One write action the Analyst may DRAFT. Each maps to the access `domain` (+ optional feature)
@@ -177,6 +180,21 @@ export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
     },
     preview: previewUpdatePortfolioConstruction,
     execute: executeUpdatePortfolioConstruction,
+  },
+  create_forecast_plan: {
+    entity: 'required',
+    managementCompanies: true,
+    domain: 'accounting',
+    accessFeature: 'budgeting',
+    stageAccess: 'write',
+    description:
+      'Propose a new budget or rolling forecast for a vehicle. Seeded by default with a rule per account ' +
+      'suggested from 12–36 months of its own closed history (call forecast_suggest_rules first to see ' +
+      'them); pass `rules` to adjust any for what the user told you (hires, price changes, new costs). ' +
+      'Stages one preview of every rule for human approval; creates a draft, never a published version.',
+    inputSchema: CREATE_PLAN_SCHEMA as any,
+    preview: previewCreateForecast,
+    execute: executeCreateForecast,
   },
   update_forecast_plan: {
     entity: 'required',

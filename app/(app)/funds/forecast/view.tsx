@@ -1,7 +1,8 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Download, Loader2, Plus, RefreshCw } from 'lucide-react'
+import { AlertTriangle, Download, Loader2, Plus, RefreshCw, Sparkles } from 'lucide-react'
+import { useAnalystContext } from '@/components/analyst-context'
 import { useCurrency, formatCurrency, formatCurrencyFull } from '@/components/currency-context'
 import { useLedgerFetch } from '@/components/accounting-vehicle'
 import { FundSubpageChrome } from '@/components/fund-subpage-chrome'
@@ -65,6 +66,14 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
   const [creating, setCreating] = useState(false)
   const [publishing, setPublishing] = useState(false)
   const [linking, setLinking] = useState(false)
+  const { ask, hasAIKey } = useAnalystContext()
+  // The Analyst drafts; a person approves. The prompt only starts the conversation — it is put in
+  // the input for the user to edit (add hires, price changes) and send.
+  const draftWithAi = () => ask(
+    `Draft a 12-month rolling forecast for ${vehicle}. Start from forecast_suggest_rules (it reads up to 36 months of closed history), ` +
+    `tell me which accounts you are unsure about and why, then stage it with create_forecast_plan. ` +
+    `Things to factor in: `,
+  )
   const [baseVersion, setBaseVersion] = useState<string>('approved')
   const [compare, setCompare] = useState<string>('actual')
   const [variance, setVariance] = useState<VarianceResponse | null>(null)
@@ -318,6 +327,9 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
           <Button variant="outline" size="sm" asChild>
             <a href={exportHref}><Download className="mr-1.5 h-4 w-4" /> CSV</a>
           </Button>
+          {hasAIKey && (
+            <Button variant="outline" size="sm" onClick={draftWithAi}><Sparkles className="mr-1.5 h-4 w-4" /> Draft with AI</Button>
+          )}
           <Button size="sm" onClick={() => setCreating(true)}><Plus className="mr-1.5 h-4 w-4" /> New plan</Button>
         </div>
       </div>
@@ -560,7 +572,7 @@ function CreatePlanDialog({ open, onClose, onCreated, plans }: {
   const [name, setName] = useState('')
   const [fiscalYear, setFiscalYear] = useState(String(year + 1))
   const [horizon, setHorizon] = useState('12')
-  const [seed, setSeed] = useState('actuals')
+  const [seed, setSeed] = useState('suggested')
   const [includeConstruction, setIncludeConstruction] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -629,7 +641,8 @@ function CreatePlanDialog({ open, onClose, onCreated, plans }: {
           <label className="block space-y-1">
             <span className="text-xs text-muted-foreground">Start from</span>
             <select className={cn(selectCls, 'w-full')} value={seed} onChange={e => setSeed(e.target.value)}>
-              <option value="actuals">{kind === 'budget' ? 'Last year’s actuals, month by month' : 'Suggested run rates from recent actuals'}</option>
+              <option value="suggested">Suggested from each account’s history (12–36 closed months)</option>
+              {kind === 'budget' && <option value="last_year">Last year’s actuals, month by month</option>}
               <option value="blank">Blank</option>
               {plans.map(p => <option key={p.id} value={`plan:${p.id}`}>Copy rules from {p.name}</option>)}
             </select>

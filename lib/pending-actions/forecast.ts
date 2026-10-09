@@ -1,6 +1,7 @@
 import type { ActionDeps, PreviewResult } from './types'
 import {
-  applyPublish, applyUpdate, describePublish, describeUpdate, type PublishAction, type UpdatePlanAction,
+  applyCreate, applyPublish, applyUpdate, describeCreate, describePublish, describeUpdate,
+  type CreatePlanAction, type PublishAction, type UpdatePlanAction,
 } from '@/lib/forecast/actions'
 
 // Budget & forecast changes the Analyst may draft. Preview reads the plan with the stager's access;
@@ -25,4 +26,13 @@ export async function previewPublishForecast(deps: ActionDeps, input: PublishAct
 
 export async function executePublishForecast(deps: ActionDeps, input: PublishAction): Promise<Record<string, unknown>> {
   return applyPublish(ctx(deps), input)
+}
+
+export async function previewCreateForecast(deps: ActionDeps, input: CreatePlanAction): Promise<PreviewResult> {
+  return describeCreate(ctx(deps), input)
+}
+
+export async function executeCreateForecast(deps: ActionDeps, input: CreatePlanAction): Promise<Record<string, unknown>> {
+  const plan = await applyCreate(ctx(deps), input)
+  return { planId: plan.plan.id, name: plan.plan.name, rules: plan.rules.length }
 }

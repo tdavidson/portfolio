@@ -14,7 +14,7 @@ describe('write-action registry', () => {
   })
 
   it('stages budget & forecast changes behind accounting write and the budgeting switch', () => {
-    for (const name of ['update_forecast_plan', 'publish_forecast_plan']) {
+    for (const name of ['create_forecast_plan', 'update_forecast_plan', 'publish_forecast_plan']) {
       const a = getWriteAction(name)!
       expect(a.domain, name).toBe('accounting')
       expect(a.accessFeature, name).toBe('budgeting')
