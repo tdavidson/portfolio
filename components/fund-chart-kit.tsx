@@ -21,7 +21,9 @@ export function ChartCard({ title, action, children }: { title: string; action?:
   return (
     <Card>
       <CardContent className="pt-4 pb-4 px-4">
-        <div className="flex items-center justify-between gap-2 mb-3">
+        {/* As tall as a segmented toggle whether or not the card has one, so two cards side by
+            side start their plots on the same line. */}
+        <div className="flex min-h-[30px] items-center justify-between gap-2 mb-3">
           <p className="text-sm font-medium">{title}</p>
           {action}
         </div>
@@ -72,3 +74,13 @@ export const INVEST_NEW = HUE.chart3
 export const INVEST_FOLLOW = 'hsl(var(--chart-3) / 0.5)'
 export const GAINS_HUE = HUE.chart1
 export const PROCEEDS_HUE = HUE.chart2
+
+// Called capital is the same money as invested capital seen from the partners' side, so it takes
+// the same slot. What is committed but not yet called is a tint of it: the two together are the
+// commitment, and a tint reads as "the rest of this" where a second hue would read as a second
+// thing. Lighter than INVEST_FOLLOW because it sits directly against the solid, not in a stack.
+export const CALLED_HUE = HUE.chart3
+export const UNCALLED_HUE = 'hsl(var(--chart-3) / 0.35)'
+// What is still held, at fair value: the slot unrealized gains already use, since on every
+// chart that plots both, the held value is the bar those gains are the visible part of.
+export const HELD_HUE = HUE.chart1

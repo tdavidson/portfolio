@@ -29,6 +29,8 @@ import { RenameInvestorDialog } from '@/components/lp/rename-investor-dialog'
 import { lpRatios } from '@/lib/lp-metrics'
 import { SortTh, nextSort, compareVals, type SortState } from '@/components/sortable-th'
 import { Metric as Stat } from '@/components/ui/metric'
+import { CapitalCharts } from '@/components/capital-charts'
+import { known } from '@/lib/charts/capital'
 
 interface LiveRow {
   entity_id: string
@@ -180,6 +182,16 @@ function LpsInner() {
 
   const grand = useMemo(() => total(visibleRows), [visibleRows])
 
+  // The charts draw the investors the table lists (vehicle filter and search applied), rolled up
+  // the same way, so a bar and its table row are always the same figure.
+  const capitalPositions = useMemo(
+    () => investors.map(i => ({
+      key: i.id, name: i.name, committed: i.totals.commitment, called: known(i.totals.paid_in_capital),
+      distributions: known(i.totals.distributions), nav: known(i.totals.nav),
+    })),
+    [investors],
+  )
+
   // Delete a ghost LP (from a rename/migration): removes the investor's entities. The endpoint
   // refuses any entity with ledger activity, but a tracking LP has none — so we surface the LP's
   // figures in the confirm and require an explicit destructive OK, to avoid deleting a real one.
@@ -321,6 +333,8 @@ function LpsInner() {
                 <Stat label="NAV" value={fmt(grand.nav)} />
                 <Stat label="TVPI" value={grand.tvpi != null ? `${grand.tvpi.toFixed(2)}x` : '—'} />
               </div>
+
+              <CapitalCharts positions={capitalPositions} noun="partners" />
 
               {delErr && (
                 <div className="mb-2 flex items-center justify-between gap-3 rounded-md border border-destructive bg-destructive-subtle px-3 py-2 text-sm text-destructive dark:bg-destructive-subtle/40">

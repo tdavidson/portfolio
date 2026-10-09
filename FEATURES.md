@@ -79,11 +79,15 @@ The Investments page provides a fund-level view of all investment transactions a
 
 Realized/Cost MOIC is calculated as realized proceeds divided by the cost basis exited. Unrealized/Cost MOIC is unrealized value divided by current cost (total invested minus cost basis exited). These provide a more precise view of returns relative to the capital actually at work, rather than total invested capital.
 
+Two charts sit above the tables and follow the same filters. **Fair value and cost by holding** ranks what is still held: the bar is fair value and the tick is current cost, so markups and markdowns read at a glance. **Invested and total value by multiple** sorts every holding into a band by gross multiple and shows the capital that went into each band beside what it has returned and is still worth.
+
 ![Investments](public/screenshots/investments.png)
 
 ## Funds
 
 The Funds page is a per-vehicle performance overview, with every figure derived from the capital accounts rather than typed in. It reads the same whether a vehicle runs on light capital tracking (no double-entry books) or a full ledger, because both feed the same capital accounts.
+
+**Charts** — with two or more vehicles, **called against committed** shows how much of each commitment has been drawn, and **total value against called** stacks distributions and NAV against a tick at called capital. The second opens on multiples (DPI and RVPI against 1.00x), since vehicles differ in size, and switches to dollars. Both follow the search and the lens.
 
 **Filters and lens** — search vehicles, filter by source (Fund Accounting or LP tracking), set an "As of" date, and toggle **Net to LP** (the LP-class partners' own accounts, already net of the carry the close accrued to the GP) against **Whole fund** (every partner, GP included). The toggle appears only when there is a GP class to carve out.
 
@@ -116,6 +120,8 @@ After generation, the letter opens in an editor with two views: "Sections" shows
 LPs is where you track and report on your limited partner positions across every vehicle. It's a layered capability, off by default: turn on **LP capital tracking** to track LP capital, and optionally the **LP portal** and **LP documents** on top of it — independent of whether you keep full fund accounting.
 
 **The LPs page is a live aggregate.** Every LP across every vehicle, rolled up to the investor, as of any date — commitment, paid-in, distributions, NAV, DPI, TVPI, IRR. It reads live from the underlying data (pasted positions or the ledger), so it's never stale. Expand an investor to see their per-vehicle lines. A member who invests through your GP or associate entity is looked through to their share of what that entity holds.
+
+**Two charts lead the table**, drawn from the investors it lists: called against committed, and total value (distributions, then NAV) against called capital, in dollars or as multiples. The ten largest are shown, the rest folded into one row that expands in place.
 
 **Capital tracking, per vehicle.** On the LP capital accounts page, pick a vehicle and see its capital accounts. For a vehicle you don't keep books on, you feed it by pasting a statement — commitments, called/paid-in, distributions, NAV — and AI maps the columns into a **dated position**. Every import is stamped with its as-of date, so you keep a record over time: the set of dates *is* the history, and the capital account as of any date is the latest position on or before it. You can also type figures in or edit them by hand. Movements (the roll-forward lines) are derived by diffing consecutive dates, so what you store is exactly what you were given — no decomposition, nothing to drift. When a vehicle is on the ledger instead, the same page shows the same accounts, sourced from the books.
 

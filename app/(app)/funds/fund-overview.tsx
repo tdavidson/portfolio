@@ -8,6 +8,7 @@ import { useCurrency, formatCurrency, formatCurrencyFull } from '@/components/cu
 import { useVehicle, useFundSeg } from '@/components/accounting-vehicle'
 import { SortTh, nextSort, compareVals, type SortState } from '@/components/sortable-th'
 import { Metric as MetricBox } from '@/components/ui/metric'
+import { CapitalCharts } from '@/components/capital-charts'
 
 // The fund overview: performance per vehicle, DERIVED FROM THE LEDGER.
 //
@@ -188,6 +189,18 @@ export function FundOverview() {
         <MetricBox label="TVPI" value={moic(tTvpi)} />
         <MetricBox label="DPI" value={moic(tDpi)} />
       </div>
+
+      {/* Charts — the vehicles the table lists, through the same lens. They open on multiples:
+          vehicles differ in size by design, so dollars would mostly rank them by size. */}
+      <CapitalCharts
+        positions={filtered.map(v => {
+          const x = m(v)
+          return { key: v.vehicle, name: v.vehicle, committed: x.committed, called: x.paidIn, distributions: x.distributions, nav: x.nav }
+        })}
+        noun="vehicles"
+        defaultScale="multiple"
+        onSelect={name => { const v = filtered.find(f => f.vehicle === name); if (v) openVehicle(v) }}
+      />
 
       <div className="overflow-x-auto rounded-lg border">
         <table className="w-full text-sm">

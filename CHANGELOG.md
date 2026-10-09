@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+Added
+- **Charts on the Investments, Partners and Entities pages.** Each page now leads its table with two charts drawn from the same rows the table lists, so every filter, search and as-of date applies to both. *Investments*: fair value and cost by holding (the bar is the carrying value, the tick is current cost, so a markup runs past the tick and a markdown stops short of it), and invested capital against total value by gross multiple (below 1x through 10x and up, with total value split into proceeds received and fair value still held). A holding owned through several vehicles is one bar. *Partners* and *Entities*: called against committed (the solid bar inside the tint is what has been drawn), and total value against called capital (distributions, then NAV, with a tick at capital called), switchable between dollars and multiples; the Entities page opens on multiples and follows the net-to-LP lens. Charts list the ten largest with the rest folded into one "others" row that expands in place. The row form is the one the fund page's Portfolio chart uses, extracted to `components/ranked-bars.tsx`; the arithmetic is in `lib/charts/` with tests. Chart cards now keep one header height whether or not they carry a toggle, so side-by-side cards line up.
+
 Removed
 - **The shared-account demo.** `/demo` no longer signs visitors into a demo account: the public demo is www.hemrock.com/demo, a static build of the app's own pages on a recorded snapshot, with no session and no database. Gone with it: the `startDemo` action, the middleware exception for `/demo`, `DEMO_USER_EMAIL` / `DEMO_USER_PASSWORD`, the viewer's "Viewing demo" banner and the guard that signed viewers out when a tab closed — which, with the demo gone, would only have signed out real read-only members. The `demo_sessions` table is left in place; nothing writes to it.
 
