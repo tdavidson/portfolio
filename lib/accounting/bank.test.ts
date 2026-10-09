@@ -101,6 +101,40 @@ describe('parseTransactionsCsv', () => {
   })
 })
 
+describe('parseTransactionsCsv — one cell per line (copied from a bank web page)', () => {
+  const MS = ['Date', 'Activity Type', 'Description', 'Amount', '09/30/26', 'Interest Income', 'MORGAN STANLEY BANK N.A.', '(Period 09/01-09/30)', '0.49'].join('\n')
+
+  it('reads the stacked header and a description that wraps over two lines', () => {
+    const r = parseTransactionsCsv(MS)
+    expect(r.errors).toEqual([])
+    expect(r.rows).toEqual([{ date: '2026-09-30', amount: 0.49, description: 'MORGAN STANLEY BANK N.A. (Period 09/01-09/30)', counterparty: undefined, activity: 'Interest Income' }])
+  })
+
+  it('splits several transactions at each date line, with accounting negatives', () => {
+    const r = parseTransactionsCsv([MS, '09/15/26', 'Wire Out', 'AUDIT LLC', '(12,000.00)', '09/02/26', 'Deposit', 'CAPITAL CALL', 'FUND II', 'Q3', '50,000'].join('\n'))
+    expect(r.rows.map(x => [x.date, x.amount, x.description])).toEqual([
+      ['2026-09-30', 0.49, 'MORGAN STANLEY BANK N.A. (Period 09/01-09/30)'],
+      ['2026-09-15', -12000, 'AUDIT LLC'],
+      ['2026-09-02', 50000, 'CAPITAL CALL FUND II Q3'],
+    ])
+  })
+
+  it('skips a title above the header and blank lines in between', () => {
+    const r = parseTransactionsCsv('Account activity\n\nDate\nDescription\nAmount\n\n10/01/26\nFEE\n-5')
+    expect(r.rows).toEqual([expect.objectContaining({ date: '2026-10-01', amount: -5, description: 'FEE' })])
+  })
+
+  it('refuses a record too short to place its columns, rather than guessing', () => {
+    const r = parseTransactionsCsv('Date\nDescription\nDebit\nCredit\n10/01/26\nFEE\n5')
+    expect(r.rows).toEqual([])
+    expect(r.errors[0]).toMatch(/expected at least 4 values/)
+  })
+
+  it('still reports a paste with no recognisable header', () => {
+    expect(parseTransactionsCsv('hello\nworld').errors[0]).toMatch(/Could not find a date column/)
+  })
+})
+
 describe('dedupHash', () => {
   it('is stable and sensitive to the key fields', () => {
     const a = { date: '2026-06-01', amount: 100, description: 'Fee' }

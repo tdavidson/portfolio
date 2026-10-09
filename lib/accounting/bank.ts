@@ -153,6 +153,10 @@ export function parseTransactionsCsv(text: string): ParseResult {
     }
   }
   if (headerIdx === -1) {
+    // No delimited header. A table copied out of a bank's web page often arrives one CELL per line
+    // (no tabs, no commas), which the row parser above cannot see. Try that shape before giving up.
+    const stacked = parseStackedTransactions(text)
+    if (stacked) return stacked
     return { rows: [], errors: ['Could not find a date column and an amount (or debit/credit) column in the header'] }
   }
 
@@ -185,6 +189,100 @@ export function parseTransactionsCsv(text: string): ParseResult {
     })
   }
 
+  return { rows, errors }
+}
+
+/**
+ * A table pasted one cell per line:
+ *
+ *   Date / Activity Type / Description / Amount / 09/30/26 / Interest Income /
+ *   MORGAN STANLEY BANK N.A. / (Period 09/01-09/30) / 0.49
+ *
+ * The header is a run of lines that are each a column name (with a date and an amount, or
+ * debit/credit). Each transaction starts at a line that is a date, and runs to the next one. A
+ * description can wrap over several lines, so columns are filled from both ends: those before the
+ * description take one line each from the front, those after it one line each from the back, and
+ * the description is whatever is left in the middle. Returns null when the text is not this shape.
+ */
+export function parseStackedTransactions(text: string): ParseResult | null {
+  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0)
+
+  // Header candidates: every run of 2+ consecutive column-name lines that names a date and money.
+  // A title above the table ("Account activity") can look like a column name too, so every start
+  // inside a run is a candidate, and the one that parses the most rows cleanly wins.
+  const candidates: { start: number; cols: string[] }[] = []
+  for (let i = 0; i < Math.min(lines.length, 30); i++) {
+    const run: string[] = []
+    for (let j = i; j < lines.length; j++) {
+      const k = matchHeader(lines[j])
+      // A date value is not a header; stop at the first line that is data.
+      if (!k || normalizeDate(lines[j])) break
+      run.push(k)
+    }
+    if (run.length >= 2 && run.includes('date') && (run.includes('amount') || run.includes('credit') || run.includes('debit'))) {
+      candidates.push({ start: i, cols: run })
+    }
+  }
+  let best: ParseResult | null = null
+  for (const c of candidates) {
+    const r = parseStackedBody(lines, c.start, c.cols)
+    if (!r) continue
+    if (!best || r.rows.length > best.rows.length || (r.rows.length === best.rows.length && r.errors.length < best.errors.length)) best = r
+  }
+  return best
+}
+
+function parseStackedBody(lines: string[], start: number, cols: string[]): ParseResult | null {
+  const body = lines.slice(start + cols.length)
+  const records: { line: number; cells: string[] }[] = []
+  body.forEach((l, i) => {
+    if (normalizeDate(l)) records.push({ line: start + cols.length + i + 1, cells: [l] })
+    else if (records.length) records[records.length - 1].cells.push(l)
+  })
+  if (!records.length) return null
+
+  // Which column absorbs the extra lines: the description if there is one, else the last text column.
+  const wide = cols.includes('description') ? cols.indexOf('description')
+    : Math.max(...cols.map((c, i) => (['counterparty', 'activity'].includes(c) ? i : -1)))
+  const rows: ParsedTxn[] = []
+  const errors: string[] = []
+
+  for (const r of records) {
+    const cell: Record<string, string> = {}
+    // A blank cell (an empty debit, say) vanishes in this kind of paste, so a record shorter than the
+    // header cannot be placed with certainty. Say so rather than guess which column is missing.
+    if (r.cells.length < cols.length || (wide < 0 && r.cells.length !== cols.length)) {
+      errors.push(`Line ${r.line}: expected at least ${cols.length} values, found ${r.cells.length} — a blank cell may have been dropped; paste as CSV instead`)
+      continue
+    }
+    if (wide < 0) {
+      cols.forEach((c, i) => { cell[c] = r.cells[i] })
+    } else {
+      const before = cols.slice(0, wide)
+      const after = cols.slice(wide + 1)
+      before.forEach((c, i) => { cell[c] = r.cells[i] })
+      after.forEach((c, i) => { cell[c] = r.cells[r.cells.length - after.length + i] })
+      cell[cols[wide]] = r.cells.slice(before.length, r.cells.length - after.length).join(' ')
+    }
+
+    const date = normalizeDate(cell.date ?? '')
+    if (!date) { errors.push(`Line ${r.line}: unparseable date "${cell.date ?? ''}"`); continue }
+    let amount: number | null
+    if (cols.includes('amount')) amount = parseAmount(cell.amount ?? '')
+    else {
+      const credit = parseAmount(cell.credit ?? '') ?? 0
+      const debit = parseAmount(cell.debit ?? '') ?? 0
+      amount = roundCents(Math.abs(credit) - Math.abs(debit))
+    }
+    if (amount == null || isNaN(amount)) { errors.push(`Line ${r.line}: unparseable amount "${cell.amount ?? ''}"`); continue }
+    rows.push({
+      date,
+      amount: roundCents(amount),
+      description: (cell.description ?? '').replace(/\s+/g, ' ').trim(),
+      counterparty: cell.counterparty,
+      activity: cell.activity?.trim(),
+    })
+  }
   return { rows, errors }
 }
 

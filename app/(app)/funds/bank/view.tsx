@@ -241,7 +241,7 @@ export function BankView() {
       {/* Import */}
       <div className="border rounded-card p-4 space-y-2">
         <p className="text-sm font-medium">Import transactions</p>
-        <p className="text-xs text-muted-foreground">Paste a CSV/TSV export from your bank, Ramp, or QuickBooks. Columns matched automatically (date, description, amount, or debit/credit). Clear matches link to existing QuickBooks entries. Possible matches with the same cash amount within seven days are held for review; new transactions become drafts.</p>
+        <p className="text-xs text-muted-foreground">Paste a CSV/TSV export from your bank, Ramp, or QuickBooks — or copy the transaction table straight off your bank’s website. Columns matched automatically (date, description, amount, or debit/credit). Clear matches link to existing QuickBooks entries. Possible matches with the same cash amount within seven days are held for review; new transactions become drafts.</p>
         <textarea value={csv} onChange={e => { setCsv(e.target.value); setImportReview(null) }} rows={5} placeholder="Date,Description,Amount&#10;2026-06-01,Capital call Fund II,5000000&#10;2026-06-15,Audit fee,-12000" className="w-full border border-input rounded p-2 text-sm font-mono bg-transparent" />
         <div className="flex items-center gap-2">
           <Button size="sm" onClick={doImport} disabled={importing || csv.trim().length < 5}>{importing ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Upload className="h-4 w-4 mr-1" />}{importReview?.differences.length ? 'Import as drafts after review' : 'Import'}</Button>

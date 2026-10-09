@@ -173,8 +173,8 @@ export function PeriodsView() {
   ].sort((a, b) => (a.period_end < b.period_end ? 1 : -1))
 
   return (
-    <div className="space-y-6 max-w-3xl">
-      <div className="space-y-1">
+    <div className="space-y-6">
+      <div className="space-y-1 max-w-readable">
         <p className="text-sm font-medium">Periods</p>
         <p className="text-xs text-muted-foreground">
           Posted activity updates partner capital continuously. Closing reviews the books, preserves the evidence,
@@ -338,14 +338,22 @@ export function PeriodsView() {
       ) : rows.length === 0 ? (
         <p className="text-sm text-muted-foreground">Nothing to close yet — the ledger has no posted entries in a finished month.</p>
       ) : (
-        <div className="border rounded-lg overflow-x-auto">
-          <table className="w-full text-sm">
+        <div className="border rounded-card overflow-x-auto">
+          {/* Fixed layout: the columns are set here, not by their content, so an opened period's
+              wide transaction detail can never push the action column out of view. */}
+          <table className="w-full min-w-[40rem] table-fixed text-sm">
+            <colgroup>
+              <col className="w-[15rem]" />
+              <col />
+              <col className="w-32" />
+              <col className="w-36" />
+            </colgroup>
             <thead>
               <tr className="border-b bg-muted/50">
                 <th className="text-left px-3 py-2 font-medium">Period</th>
                 <th className="text-left px-3 py-2 font-medium">Label</th>
                 <th className="text-left px-3 py-2 font-medium">Status</th>
-                <th className="px-3 py-2" />
+                <th className="px-3 py-2"><span className="sr-only">Actions</span></th>
               </tr>
             </thead>
             <tbody>
@@ -368,7 +376,7 @@ export function PeriodsView() {
                           {p.period_start} → {p.period_end}
                         </span>
                       </td>
-                      <td className="px-3 py-2 text-muted-foreground">{p.label ?? '—'}</td>
+                      <td className="px-3 py-2 text-muted-foreground truncate">{p.label ?? '—'}</td>
                       <td className="px-3 py-2">
                         <span className={`text-[10px] uppercase tracking-wider px-1.5 py-0.5 rounded inline-flex items-center gap-1 ${isClosed ? 'bg-success-subtle text-success dark:bg-success-subtle/30 dark:text-success' : 'bg-muted text-muted-foreground'}`}>
                           {isClosed ? <Lock className="h-3 w-3" /> : <Unlock className="h-3 w-3" />}{p.status}
@@ -432,6 +440,8 @@ export function PeriodsView() {
                     {isClosed && open && (
                       <tr className="border-b last:border-b-0 bg-muted/10">
                         <td colSpan={4} className="px-3 py-2.5">
+                          {/* Wide detail scrolls inside this panel instead of widening the table. */}
+                          <div className="min-w-0 max-w-full overflow-x-auto">
                           {p.close_review && (
                             <div className="mb-3 rounded border bg-background overflow-hidden">
                               <div className="px-3 py-2 border-b bg-muted/30">
@@ -476,6 +486,7 @@ export function PeriodsView() {
                               ))}
                             </div>
                           )}
+                          </div>
                         </td>
                       </tr>
                     )}
