@@ -135,7 +135,11 @@ export interface ParseResult {
  * headers (date, description, amount OR debit/credit, counterparty). Rows that
  * can't be parsed are reported, not silently dropped.
  */
-export function parseTransactionsCsv(text: string): ParseResult {
+export function parseTransactionsCsv(raw: string): ParseResult {
+  // Bank websites wrap cell text in zero-width characters (and a BOM can lead a file). trim() does
+  // not remove them, so "09/30/26" plus an invisible space stops being a date and the header stops
+  // being found. Strip them before anything reads the text.
+  const text = raw.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '')
   const lines = splitRecords(text)
   if (lines.length === 0) return { rows: [], errors: ['No rows found'] }
 
@@ -189,6 +193,15 @@ export function parseTransactionsCsv(text: string): ParseResult {
     })
   }
 
+  // A web table copies as tab-separated cells, except that a cell holding a line break (a two-line
+  // description) breaks its row across lines. When the row reading stumbles, read the same text as a
+  // stream of cells and keep whichever reading parses more rows with fewer errors.
+  if (errors.length > 0) {
+    const stacked = parseStackedTransactions(text)
+    if (stacked && (stacked.rows.length > rows.length || (stacked.rows.length === rows.length && stacked.errors.length < errors.length))) {
+      return stacked
+    }
+  }
   return { rows, errors }
 }
 
@@ -205,21 +218,27 @@ export function parseTransactionsCsv(text: string): ParseResult {
  * the description is whatever is left in the middle. Returns null when the text is not this shape.
  */
 export function parseStackedTransactions(text: string): ParseResult | null {
-  const lines = text.split(/\r?\n/).map(l => l.trim()).filter(l => l.length > 0)
+  // Tabs and line breaks are both cell boundaries here: some cells arrive tab-separated, others on
+  // their own line, often in the same paste. Commas are not — descriptions contain them.
+  const lines = text.replace(/[\u200B-\u200D\u2060\uFEFF]/g, '').split(/\t|\r?\n/).map(l => l.trim()).filter(l => l.length > 0)
 
-  // Header candidates: every run of 2+ consecutive column-name lines that names a date and money.
-  // A title above the table ("Account activity") can look like a column name too, so every start
-  // inside a run is a candidate, and the one that parses the most rows cleanly wins.
-  const candidates: { start: number; cols: string[] }[] = []
+  // Header candidates. A header runs from a line that is a known column name down to the first line
+  // that is a date (where the data starts), and keeps the columns it does not use — Quantity, Price,
+  // Balance — as placeholders, because they still occupy a line in every row. A title above the table
+  // ("Account activity") can look like a column name too, so every start is a candidate, and the one
+  // that parses the most rows cleanly wins.
+  const candidates: { start: number; cols: (string | null)[] }[] = []
   for (let i = 0; i < Math.min(lines.length, 30); i++) {
-    const run: string[] = []
-    for (let j = i; j < lines.length; j++) {
-      const k = matchHeader(lines[j])
-      // A date value is not a header; stop at the first line that is data.
-      if (!k || normalizeDate(lines[j])) break
-      run.push(k)
+    if (!matchHeader(lines[i]) || normalizeDate(lines[i])) continue
+    const run: (string | null)[] = []
+    let ok = false
+    for (let j = i; j < lines.length && j < i + 25; j++) {
+      if (normalizeDate(lines[j])) { ok = true; break }
+      // A number or a dash is a value, not a column name: this start is inside the data.
+      if (parseAmount(lines[j]) != null || /^[-–—]$/.test(lines[j])) break
+      run.push(matchHeader(lines[j]))
     }
-    if (run.length >= 2 && run.includes('date') && (run.includes('amount') || run.includes('credit') || run.includes('debit'))) {
+    if (ok && run.length >= 2 && run.includes('date') && (run.includes('amount') || run.includes('credit') || run.includes('debit'))) {
       candidates.push({ start: i, cols: run })
     }
   }
@@ -232,7 +251,7 @@ export function parseStackedTransactions(text: string): ParseResult | null {
   return best
 }
 
-function parseStackedBody(lines: string[], start: number, cols: string[]): ParseResult | null {
+function parseStackedBody(lines: string[], start: number, cols: (string | null)[]): ParseResult | null {
   const body = lines.slice(start + cols.length)
   const records: { line: number; cells: string[] }[] = []
   body.forEach((l, i) => {
@@ -243,7 +262,7 @@ function parseStackedBody(lines: string[], start: number, cols: string[]): Parse
 
   // Which column absorbs the extra lines: the description if there is one, else the last text column.
   const wide = cols.includes('description') ? cols.indexOf('description')
-    : Math.max(...cols.map((c, i) => (['counterparty', 'activity'].includes(c) ? i : -1)))
+    : Math.max(...cols.map((c, i) => (c && ['counterparty', 'activity'].includes(c) ? i : -1)))
   const rows: ParsedTxn[] = []
   const errors: string[] = []
 
@@ -256,13 +275,13 @@ function parseStackedBody(lines: string[], start: number, cols: string[]): Parse
       continue
     }
     if (wide < 0) {
-      cols.forEach((c, i) => { cell[c] = r.cells[i] })
+      cols.forEach((c, i) => { if (c) cell[c] = r.cells[i] })
     } else {
       const before = cols.slice(0, wide)
       const after = cols.slice(wide + 1)
-      before.forEach((c, i) => { cell[c] = r.cells[i] })
-      after.forEach((c, i) => { cell[c] = r.cells[r.cells.length - after.length + i] })
-      cell[cols[wide]] = r.cells.slice(before.length, r.cells.length - after.length).join(' ')
+      before.forEach((c, i) => { if (c) cell[c] = r.cells[i] })
+      after.forEach((c, i) => { if (c) cell[c] = r.cells[r.cells.length - after.length + i] })
+      cell[cols[wide]!] = r.cells.slice(before.length, r.cells.length - after.length).join(' ')
     }
 
     const date = normalizeDate(cell.date ?? '')

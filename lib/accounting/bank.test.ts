@@ -130,6 +130,37 @@ describe('parseTransactionsCsv — one cell per line (copied from a bank web pag
     expect(r.errors[0]).toMatch(/expected at least 4 values/)
   })
 
+  it('reads a Morgan Stanley activity table, skipping Quantity, Price and Balance', () => {
+    const ms = 'Date\nActivity Type\nDescription\nQuantity\nPrice\nAmount($)\nBalance($)\n\n09/30/26\nInterest Income\nMORGAN STANLEY BANK N.A.\n(Period 09/01-09/30)\n-\n-\n0.49\n60,065.96'
+    const r = parseTransactionsCsv(ms)
+    expect(r.errors).toEqual([])
+    expect(r.rows).toEqual([{ date: '2026-09-30', amount: 0.49, description: 'MORGAN STANLEY BANK N.A. (Period 09/01-09/30)', counterparty: undefined, activity: 'Interest Income' }])
+    // Two rows, one with a one-line description and a negative amount.
+    const two = parseTransactionsCsv(`${ms}\n09/15/26\nFunds Paid\nWIRE TO AUDIT LLC\n-\n-\n(12,000.00)\n48,065.96`)
+    expect(two.rows.map(x => [x.date, x.amount, x.description])).toEqual([
+      ['2026-09-30', 0.49, 'MORGAN STANLEY BANK N.A. (Period 09/01-09/30)'],
+      ['2026-09-15', -12000, 'WIRE TO AUDIT LLC'],
+    ])
+  })
+
+  it('ignores the zero-width characters bank websites wrap cells in', () => {
+    const r = parseTransactionsCsv(MS.split('\n').map(x => `\u200b${x}\u200b`).join('\n'))
+    expect(r.rows).toHaveLength(1)
+    expect(r.rows[0]).toMatchObject({ date: '2026-09-30', amount: 0.49 })
+  })
+
+  it('reads a web table whose cells are tab-separated except where a cell wraps a line', () => {
+    const tsv = 'Date\tActivity Type\tDescription\tAmount\n09/30/26\tInterest Income\tMORGAN STANLEY BANK N.A.\n(Period 09/01-09/30)\t0.49'
+    expect(parseTransactionsCsv(tsv).rows).toEqual([expect.objectContaining({ amount: 0.49, description: 'MORGAN STANLEY BANK N.A. (Period 09/01-09/30)' })])
+    const headerOnly = 'Date\tActivity Type\tDescription\tAmount\n09/30/26\nInterest Income\nMORGAN STANLEY BANK N.A.\n(Period 09/01-09/30)\n0.49'
+    expect(parseTransactionsCsv(headerOnly).rows).toHaveLength(1)
+  })
+
+  it('leaves an ordinary TSV alone', () => {
+    const r = parseTransactionsCsv('Date\tDescription\tAmount\n2026-01-01\tA, B and C\t-5\n2026-01-02\tD\t7')
+    expect(r.rows.map(x => [x.description, x.amount])).toEqual([['A, B and C', -5], ['D', 7]])
+  })
+
   it('still reports a paste with no recognisable header', () => {
     expect(parseTransactionsCsv('hello\nworld').errors[0]).toMatch(/Could not find a date column/)
   })
