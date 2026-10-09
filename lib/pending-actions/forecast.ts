@@ -4,7 +4,7 @@ import {
   type CreatePlanAction, type PublishAction, type UpdatePlanAction,
 } from '@/lib/forecast/actions'
 
-// Budget & forecast changes the Analyst may draft. Preview reads the plan with the stager's access;
+// Forecast changes the Analyst may draft. Preview reads the plan with the stager's access;
 // execute re-reads it with the approver's and applies to the plan as it is THEN — unless the draft
 // named an expectedRevision, in which case a plan that moved since is refused (409) rather than
 // overwritten.

@@ -5,7 +5,7 @@ import { DEFAULT_FEATURE_VISIBILITY, type FeatureVisibilityMap } from '@/lib/typ
 import type { AccessContext } from '@/lib/access/effective'
 
 /**
- * Budget & forecast: who may read and write a plan, checked in the SERVICE so the route, MCP and the
+ * Forecast: who may read and write a plan, checked in the SERVICE so the route, MCP and the
  * Analyst share one answer (acceptance #12, #14). The route boundary is pinned by route-domains.
  */
 

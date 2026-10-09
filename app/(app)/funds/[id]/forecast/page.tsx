@@ -2,10 +2,10 @@ import type { Metadata } from 'next'
 import { requireVehicleAccess } from '../../guard'
 import { ForecastView } from '../../forecast/view'
 
-export const metadata: Metadata = { title: 'Budget & forecast' }
+export const metadata: Metadata = { title: 'Forecast' }
 
 /**
- * Budget & forecast — monthly budgets, rolling forecasts and their actuals, per vehicle
+ * Forecast — monthly budgets, rolling forecasts and their actuals, per vehicle
  * (plans/plan-budget-forecast.md).
  *
  * The page renders no fund data on the server: the view reads everything through

@@ -1,7 +1,7 @@
 import type { AgentToolMeta } from '@/lib/accounting/agent-tools-manifest'
 import { CREATE_PLAN_SCHEMA, PUBLISH_PLAN_SCHEMA, UPDATE_PLAN_SCHEMA } from '@/lib/forecast/actions'
 
-// Budget & forecast, read side. Same service as the page and the API (lib/forecast/service.ts),
+// Forecast, read side. Same service as the page and the API (lib/forecast/service.ts),
 // so a number quoted by the Analyst is the number on the screen. Gated on accounting + the
 // `budgeting` switch; a management company also needs its own grant, checked by the service.
 

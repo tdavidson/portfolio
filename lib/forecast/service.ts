@@ -1,4 +1,4 @@
-// Budget & forecast service — the one implementation behind the routes, the MCP tools and the
+// Forecast service — the one implementation behind the routes, the MCP tools and the
 // Analyst's staged actions.
 //
 // Every entry point authorizes before it reads: `accounting` + feature `budgeting` at the level
@@ -53,7 +53,7 @@ export const HORIZONS = [12, 18, 24, 36] as const
 function authorize(ctx: ForecastServiceContext, need: 'read' | 'write') {
   if (!hasAccess(ctx.access, 'accounting', need, 'budgeting')) {
     throw new ForecastError(
-      need === 'write' ? 'You need write access to Budget & forecast.' : 'You do not have access to Budget & forecast.',
+      need === 'write' ? 'You need write access to Forecast.' : 'You do not have access to Forecast.',
       403,
     )
   }
@@ -228,7 +228,7 @@ async function loadInputs(ctx: ForecastServiceContext, planId: string) {
 
 async function loadEntries(ctx: ForecastServiceContext, planId: string, versionId: string | null): Promise<FlowEntry[]> {
   const rows = await fetchAllRows((f, t) => {
-    let q = (ctx.admin as any).from('forecast_entries').select('id, entry_date, kind, forecast_postings(account_id, amount, currency)')
+    let q = (ctx.admin as any).from('forecast_entries').select('id, entry_date, kind, account_id, source, forecast_postings(account_id, amount, currency)')
       .eq('fund_id', ctx.fundId).eq('plan_id', planId)
     q = versionId ? q.eq('version_id', versionId) : q.is('version_id', null)
     return q.order('entry_date').order('id').range(f, t)
@@ -236,6 +236,7 @@ async function loadEntries(ctx: ForecastServiceContext, planId: string, versionI
   return (rows as any[]).map(e => ({
     date: e.entry_date,
     kind: e.kind,
+    driver: e.account_id,
     postings: ((e.forecast_postings as any[]) ?? []).map(p => ({ accountId: p.account_id, amount: Number(p.amount), currency: p.currency, entryDate: e.entry_date })),
   }))
 }
@@ -875,7 +876,7 @@ async function seriesFor(ctx: ForecastServiceContext, v: VehicleCtx, input: Seri
   if (view !== 'plan' && !v.closedThrough) warnings.push('No closed periods — every actual month is unclosed')
 
   const report = buildReport({
-    view, accounts: v.accounts, actuals: ledger.postings, plan: planEntries.flatMap(e => e.postings), planFirst, cutoff,
+    view, accounts: v.accounts, actuals: ledger.postings, plan: planEntries.flatMap(e => e.postings), planFirst, planLast, cutoff,
     actualsAvailableThrough, closedThrough: v.closedThrough, start: input.start, end: input.end, interval,
     actualEntries: actualFlowEntries(ledger.sourcedPostings), planEntries,
   })

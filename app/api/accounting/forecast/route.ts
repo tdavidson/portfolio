@@ -2,7 +2,7 @@ import { NextRequest } from 'next/server'
 import { createPlan, listPlans } from '@/lib/forecast/service'
 import { forecastRequest, readJson } from '@/lib/forecast/http'
 
-// Budget & forecast plans for one vehicle. GET lists them; POST creates one (seeded blank, from
+// Forecast plans for one vehicle. GET lists them; POST creates one (seeded blank, from
 // actuals, or from another plan) and returns it compiled.
 
 export async function GET(req: NextRequest) {

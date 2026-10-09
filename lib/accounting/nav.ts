@@ -123,7 +123,7 @@ export const ACCOUNTING_SECTIONS: AccountingSection[] = [
   },
   {
     href: '/funds/forecast',
-    label: 'Budget & forecast',
+    label: 'Forecast',
     icon: TrendingUp,
     desc: 'Monthly budgets and rolling forecasts beside the actuals, with P&L and cash by month, quarter or year.',
     feature: 'budgeting',

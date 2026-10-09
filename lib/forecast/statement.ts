@@ -10,7 +10,8 @@ import type { Account, Posting } from '@/lib/accounting/types'
 import { roundCents } from '@/lib/accounting/ledger'
 import { firstDay, monthOf, type MonthKey } from './months'
 
-export type MonthStatus = 'actual' | 'actual_unclosed' | 'forecast'
+/** 'none' = the range runs past what the view has: a month with no actuals yet, or outside the plan. */
+export type MonthStatus = 'actual' | 'actual_unclosed' | 'forecast' | 'none'
 
 export interface StatementMonth {
   month: MonthKey

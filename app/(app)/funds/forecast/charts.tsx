@@ -32,7 +32,8 @@ function boundaryLabel(s: SeriesResult): string | null {
   let sawForecast = false
   for (const p of s.periods) {
     if (isActual(p.status)) last = p.label
-    else sawForecast = true
+    // Trailing no-data periods (the range runs past the actuals) are not a forecast and draw no line.
+    else if (p.status === 'forecast' || p.status === 'mixed') sawForecast = true
   }
   return last && sawForecast ? last : null
 }
@@ -47,7 +48,7 @@ export function CashChart({ series, fmt }: { series: SeriesResult; fmt: Fmt }) {
         label: p.label,
         status: p.status,
         actual: i <= lastActual ? ending : null,
-        forecast: i >= lastActual ? ending : null,
+        forecast: i >= lastActual && p.status !== 'none' && (i > lastActual || series.periods.slice(i + 1).some(q => q.status === 'forecast' || q.status === 'mixed')) ? ending : null,
       }
     })
   }, [series])
@@ -132,6 +133,7 @@ const FLOW_META = [
   { key: 'invested', label: 'Investments', hue: 'var(--chart-3)' },
   { key: 'distributed', label: 'Distributions', hue: 'var(--chart-4)' },
   { key: 'operating', label: 'Fees and operating', hue: 'var(--chart-5)' },
+  { key: 'borrowed', label: 'Borrowings', hue: 'var(--cat-6)' },
 ] as const
 
 export function CashFlowTimeline({ series, fmt }: { series: SeriesResult; fmt: Fmt }) {

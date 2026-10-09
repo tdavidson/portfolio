@@ -24,8 +24,15 @@ export function seriesCsv(s: SeriesResult): string {
   rows.push(['', 'Net income', ...s.netIncome])
   rows.push([])
   rows.push(['', 'Opening cash', ...s.cash.map(c => c?.opening ?? null)])
+  for (const section of ['operating', 'investing', 'financing'] as const) {
+    const lines = (s.cashDetail ?? []).filter(l => l.section === section)
+    if (!lines.length) continue
+    for (const l of lines) rows.push([l.code ?? '', `${l.label} (${section})`, ...l.values])
+    rows.push(['', `Net cash from ${section}`, ...s.periods.map((_, i) => lines.reduce((t, l) => t + l.values[i], 0))])
+  }
   rows.push(['', 'Net cash movement', ...s.cash.map(c => c?.movement ?? null)])
   rows.push(['', 'Ending cash', ...s.cash.map(c => c?.ending ?? null)])
+  if (s.cashAccounts.length > 1) for (const a of s.cashAccounts) rows.push([a.code, `${a.name} (ending)`, ...a.ending])
   if (s.warnings.length) {
     rows.push([])
     for (const w of s.warnings) rows.push(['Note', w])

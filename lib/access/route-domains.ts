@@ -66,7 +66,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/investment-bank-match': { domain: 'accounting' },
   // GET reads the plan, PUT writes it — `requiredLevel` derives read/write from the method.
   'api/accounting/construction': { domain: 'accounting' },
-  // Budget & forecast (plans/plan-budget-forecast.md). Each route file is its own key. The service
+  // Forecast (plans/plan-budget-forecast.md). Each route file is its own key. The service
   // re-checks accounting + budgeting at the operation's level and the management_company grant for
   // a manco vehicle, so MCP and the Analyst get the same answer without this boundary.
   'api/accounting/forecast': { domain: 'accounting', feature: 'budgeting' },

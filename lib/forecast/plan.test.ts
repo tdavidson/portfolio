@@ -168,7 +168,7 @@ describe('fund plans with construction (acceptance #10, #11)', () => {
   const report = buildReport({
     view: 'plan', accounts: FUND, actuals: [], plan: postings, planFirst: built.first, cutoff: null,
     actualsAvailableThrough: '2026-05', closedThrough: null, start: '2026-06', end: '2027-05', interval: 'month',
-    planEntries: built.entries.map(e => ({ date: e.entryDate, kind: e.kind, postings: e.postings })),
+    planEntries: built.entries.map(e => ({ date: e.entryDate, kind: e.kind, driver: e.accountId, postings: e.postings })),
     actualEntries: [],
   })
 
@@ -191,6 +191,17 @@ describe('fund plans with construction (acceptance #10, #11)', () => {
     const j = report.months.findIndex(m => m.month === '2027-02')
     expect([f.proceeds[j], f.distributed[j]]).toEqual([3_000_000, -2_900_000])
     report.cash.forEach((c, k) => expect(f.operating[k] + f.invested[k] + f.proceeds[k] + f.called[k] + f.distributed[k]).toBeCloseTo(c!.movement, 2))
+  })
+
+  it('the cash statement shows operating cash by account and capital flows by kind, re-adding to the movement', () => {
+    const d = report.cashDetail!
+    const i = report.months.findIndex(m => m.month === '2026-08')
+    const line = (key: string) => d.find(l => l.key === key)!
+    expect(line('f5000')).toMatchObject({ section: 'operating', code: '5000' })
+    expect(line('f5000').values[i]).toBe(-20_000)
+    expect(line('called')).toMatchObject({ section: 'financing', label: 'Capital contributions' })
+    expect(line('invested').values[i]).toBe(-1_000_000)
+    report.cash.forEach((c, k) => expect(d.reduce((s, l) => s + l.values[k], 0)).toBeCloseTo(c!.movement, 2))
   })
 
   it('every construction entry balances', () => {

@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Download, Loader2, Plus, RefreshCw, Sparkles } from 'lucide-react'
+import { AlertTriangle, Loader2, Plus, RefreshCw, Sparkles } from 'lucide-react'
 import { useAnalystContext } from '@/components/analyst-context'
 import { useCurrency, formatCurrency, formatCurrencyFull } from '@/components/currency-context'
 import { useLedgerFetch } from '@/components/accounting-vehicle'
@@ -16,11 +16,12 @@ import type { PlanDetail, SeriesResult, VarianceResponse } from '@/lib/forecast/
 import { CashChart, CashFlowTimeline, PnlChart } from './charts'
 import { FeeLinksDialog } from './fee-links'
 import { RuleDialog, type RuleSubmit } from './rule-dialog'
+import { MonthRangePicker, MoreMenu, type RangeChoice } from './toolbar'
 import { VarianceSection } from './variance'
 
 type PlanListItem = PlanDetail['plan'] & { versions: { id: string; versionNo: number; label: string | null; status: string; publishedAt: string }[] }
 type View = 'combined' | 'plan' | 'actual' | 'variance'
-type Preset = RangePreset | 'plan' | 'custom'
+type Preset = RangeChoice
 
 const selectCls = 'h-9 rounded-md border border-input bg-background px-2 text-sm'
 
@@ -29,6 +30,28 @@ const STATUS_LABEL: Record<string, string> = {
   actual_unclosed: 'Not closed',
   forecast: 'Forecast',
   mixed: 'Part forecast',
+  none: 'No data',
+}
+
+/**
+ * Blank out periods the view has no data for (status 'none'), so a month with no actuals yet reads
+ * "—" in the table and leaves a gap in the charts rather than plotting a zero.
+ */
+function maskNoData(s: SeriesResult): SeriesResult {
+  const none = s.periods.map(p => p.status === 'none')
+  if (!none.some(Boolean)) return s
+  const blank = <T,>(xs: T[]) => xs.map((x, i) => (none[i] ? null : x)) as any
+  return {
+    ...s,
+    lines: s.lines.map(l => ({ ...l, values: blank(l.values) })),
+    revenue: blank(s.revenue),
+    expenses: blank(s.expenses),
+    netIncome: blank(s.netIncome),
+    cash: blank(s.cash),
+    cashFlows: s.cashFlows ? Object.fromEntries(Object.entries(s.cashFlows).map(([k, v]) => [k, blank(v)])) as any : null,
+    cashDetail: s.cashDetail ? s.cashDetail.map(l => ({ ...l, values: blank(l.values) })) : null,
+    cashAccounts: s.cashAccounts.map(a => ({ ...a, ending: blank(a.ending) })),
+  }
 }
 
 const thisMonth = () => new Date().toISOString().slice(0, 7)
@@ -54,7 +77,7 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
   const [preset, setPreset] = useState<Preset>('plan')
   const [start, setStart] = useState<MonthKey>(`${thisMonth().slice(0, 4)}-01`)
   const [end, setEnd] = useState<MonthKey>(`${thisMonth().slice(0, 4)}-12`)
-  const [interval, setInterval] = useState<Interval>('month')
+  const [interval, setIntervalChoice] = useState<Interval>('month')
   const [statement, setStatement] = useState<'pnl' | 'cash'>('pnl')
   const [series, setSeries] = useState<SeriesResult | null>(null)
   const [seriesError, setSeriesError] = useState<string | null>(null)
@@ -145,7 +168,7 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
     if (start > end) { setSeriesError('The start month is after the end month'); return }
     setLoading(true)
     try {
-      setSeries(await json<SeriesResult>(await lf(`/api/accounting/forecast/series?${seriesQuery}`)))
+      setSeries(maskNoData(await json<SeriesResult>(await lf(`/api/accounting/forecast/series?${seriesQuery}`))))
       setSeriesError(null)
     } catch (e) {
       setSeriesError((e as Error).message)
@@ -245,16 +268,18 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
 
   return (
     <FundSubpageChrome
-      title="Budget & forecast"
+      title="Forecast"
       description="Monthly budgets and rolling forecasts from the posted books. Forecasts never post to the ledger."
       vehicle={vehicle}
       vehicleId={vehicleId}
     >
       {listError && <p className="mb-4 text-sm text-destructive">{listError}</p>}
 
+      {/* One row. What you are looking at (plan, version, view), over when (range, interval), and
+          what you can do — the everyday actions as buttons, the occasional ones under More. */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
         <select className={selectCls} value={planId} onChange={e => setPlanId(e.target.value)} aria-label="Plan">
-          <option value="">Actuals only</option>
+          <option value="">No plan — actuals</option>
           {(plans ?? []).map(p => (
             <option key={p.id} value={p.id}>{p.name} · {p.kind === 'budget' ? `Budget ${p.fiscalYear}` : 'Rolling forecast'}</option>
           ))}
@@ -288,49 +313,38 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
             </select>
           </>
         )}
-        <select className={selectCls} value={preset} onChange={e => setPreset(e.target.value as Preset)} aria-label="Range">
-          <option value="plan">{detail ? 'Plan range' : 'Current year'}</option>
-          <option value="ytd">Year to date</option>
-          <option value="current_year">Current year</option>
-          <option value="prior_year">Prior year</option>
-          <option value="next_12">Next 12 months</option>
-          <option value="next_24">Next 24 months</option>
-          <option value="custom">Custom</option>
+        <MonthRangePicker
+          preset={preset} onPreset={setPreset}
+          start={start} end={end}
+          onStart={m => { setPreset('custom'); setStart(m) }}
+          onEnd={m => { setPreset('custom'); setEnd(m) }}
+          planLabel={detail ? 'Plan range' : 'Current year'}
+        />
+        {/* Presentation only: storage and every calculation stay monthly; the server re-adds the
+            months into quarters or years for the table, every chart, the variance and the CSV alike. */}
+        <select className={selectCls} value={interval} onChange={e => setIntervalChoice(e.target.value as Interval)} aria-label="Show by">
+          <option value="month">Monthly</option>
+          <option value="quarter">Quarterly</option>
+          <option value="year">Annual</option>
         </select>
-        <Input type="month" className="h-9 w-[9.5rem]" value={start} aria-label="From" onChange={e => { setPreset('custom'); setStart(e.target.value) }} />
-        <Input type="month" className="h-9 w-[9.5rem]" value={end} aria-label="To" onChange={e => { setPreset('custom'); setEnd(e.target.value) }} />
-        <div className="inline-flex rounded-md border border-input p-0.5" role="group" aria-label="Interval">
-          {(['month', 'quarter', 'year'] as Interval[]).map(i => (
-            <button key={i} type="button" onClick={() => setInterval(i)}
-              className={cn('h-8 rounded-sm px-3 text-sm capitalize', interval === i ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}>
-              {i === 'month' ? 'Monthly' : i === 'quarter' ? 'Quarterly' : 'Annual'}
-            </button>
-          ))}
-        </div>
-        <div className="ml-auto flex flex-wrap items-center gap-2">
+        <div className="ml-auto flex items-center gap-2">
           {detail?.stale && !versionId && (
-            <Button variant="outline" size="sm" onClick={() => save({})} disabled={busy}>
-              <RefreshCw className="mr-1.5 h-4 w-4" /> Refresh actuals
+            <Button variant="outline" onClick={() => save({})} disabled={busy} title="The books have moved since this draft was compiled">
+              <RefreshCw className="mr-1.5 h-4 w-4" /> Refresh
             </Button>
           )}
-          {detail && !versionId && (
-            <Button variant="outline" size="sm" onClick={() => setPublishing(true)} disabled={busy}>Publish…</Button>
-          )}
-          {detail && !versionId && detail.vehicleKind !== 'manco' && (
-            <label className="flex items-center gap-1.5 text-sm text-muted-foreground" title="Include portfolio construction's investments, exits, capital calls and distributions">
-              <input type="checkbox" checked={detail.plan.includeConstruction} disabled={busy}
-                onChange={e => save({ patch: { includeConstruction: e.target.checked } })} />
-              Construction flows
-            </label>
-          )}
-          <Button variant="outline" size="sm" onClick={() => setLinking(true)}>Fee links</Button>
-          <Button variant="outline" size="sm" asChild>
-            <a href={exportHref}><Download className="mr-1.5 h-4 w-4" /> CSV</a>
-          </Button>
+          <MoreMenu items={[
+            { label: 'Publish…', onSelect: () => setPublishing(true), hidden: !detail || !!versionId, disabled: busy },
+            { label: 'Construction flows', checked: !!detail?.plan.includeConstruction, disabled: busy,
+              hidden: !detail || !!versionId || detail.vehicleKind === 'manco',
+              onSelect: () => save({ patch: { includeConstruction: !detail?.plan.includeConstruction } }) },
+            { label: 'Fee links…', onSelect: () => setLinking(true) },
+            { label: 'Download CSV', href: exportHref },
+          ]} />
           {hasAIKey && (
-            <Button variant="outline" size="sm" onClick={draftWithAi}><Sparkles className="mr-1.5 h-4 w-4" /> Draft with AI</Button>
+            <Button variant="outline" onClick={draftWithAi}><Sparkles className="mr-1.5 h-4 w-4" /> Draft with AI</Button>
           )}
-          <Button size="sm" onClick={() => setCreating(true)}><Plus className="mr-1.5 h-4 w-4" /> New plan</Button>
+          <Button onClick={() => setCreating(true)}><Plus className="mr-1.5 h-4 w-4" /> New plan</Button>
         </div>
       </div>
 
@@ -392,6 +406,9 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
               ))}
             </div>
             {editable && statement === 'pnl' && <span className="text-xs text-muted-foreground">Click a forecast month to override it; click an account to set its rule.</span>}
+            {!editable && detail && !versionId && interval !== 'month' && statement === 'pnl' && (
+              <span className="text-xs text-muted-foreground">Showing {interval === 'quarter' ? 'quarters' : 'years'} — switch to Monthly to override a month.</span>
+            )}
             {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
           </div>
 
@@ -403,7 +420,9 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
                   {series.periods.map(p => (
                     <th key={p.key} className={cn('min-w-[7rem] px-3 py-2 text-right font-medium', series.boundary && p.months.includes(series.boundary) && p.months[p.months.length - 1] === series.boundary && 'border-r-2 border-r-foreground/30')}>
                       <div>{p.label}</div>
-                      <div className={cn('text-xs', p.status === 'actual_unclosed' ? 'font-medium text-foreground' : p.status === 'actual' ? 'font-normal text-muted-foreground' : 'font-normal text-info')}>{STATUS_LABEL[p.status]}</div>
+                      <div className={cn('text-xs', p.status === 'actual_unclosed' ? 'font-medium text-foreground' : p.status === 'actual' || p.status === 'none' ? 'font-normal text-muted-foreground' : 'font-normal text-info')}>
+                        {STATUS_LABEL[p.status]}{p.partial ? ' (part)' : ''}
+                      </div>
                     </th>
                   ))}
                 </tr>
@@ -428,8 +447,24 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
                 ) : (
                   <>
                     <TotalRow label="Opening cash" values={series.cash.map(c => c?.opening ?? null)} fmt={full} />
+                    {(['operating', 'investing', 'financing'] as const).map(section => {
+                      const lines = (series.cashDetail ?? []).filter(l => l.section === section)
+                      if (!lines.length) return null
+                      const total = series.periods.map((p, i) => (p.status === 'none' ? null : lines.reduce((s, l) => s + (l.values[i] ?? 0), 0)))
+                      return (
+                        <CashSectionRows key={section} section={section} lines={lines} total={total} span={series.periods.length} fmt={full} />
+                      )
+                    })}
                     <TotalRow label="Net cash movement" values={series.cash.map(c => c?.movement ?? null)} fmt={full} />
                     <TotalRow label="Ending cash" values={series.cash.map(c => c?.ending ?? null)} fmt={full} strong />
+                    {series.cashAccounts.length > 1 && series.cashAccounts.map(a => (
+                      <tr key={a.accountId} className="border-b">
+                        <td className="sticky left-0 z-10 bg-card px-3 py-2 pl-6 text-muted-foreground">
+                          <span className="font-mono text-xs">{a.code}</span> {a.name}
+                        </td>
+                        {a.ending.map((v, i) => <td key={i} className="px-3 py-2 text-right tabular-nums text-muted-foreground">{full(v)}</td>)}
+                      </tr>
+                    ))}
                   </>
                 )}
               </tbody>
@@ -488,6 +523,36 @@ function SectionRow({ label, span }: { label: string; span: number }) {
       <td className="sticky left-0 z-10 bg-card px-3 pt-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</td>
       <td colSpan={span} />
     </tr>
+  )
+}
+
+const SECTION_LABEL = { operating: 'Operating activities', investing: 'Investing activities', financing: 'Financing activities' } as const
+
+/**
+ * One section of the cash-flow statement: money in positive, money out negative. Operating lines
+ * are the accounts the cash was for (a bill's payment shows against its expense, not the payable it
+ * cleared); investing and financing lines are the capital flows.
+ */
+function CashSectionRows({ section, lines, total, span, fmt }: {
+  section: keyof typeof SECTION_LABEL
+  lines: NonNullable<SeriesResult['cashDetail']>
+  total: (number | null)[]
+  span: number
+  fmt: (v: number | null) => string
+}) {
+  return (
+    <>
+      <SectionRow label={SECTION_LABEL[section]} span={span} />
+      {lines.map(l => (
+        <tr key={l.key} className="border-b hover:bg-accent/40">
+          <td className="sticky left-0 z-10 bg-card px-3 py-2">
+            {l.code && <span className="font-mono text-xs text-muted-foreground">{l.code}</span>} {l.label}
+          </td>
+          {l.values.map((v, i) => <td key={i} className="px-3 py-2 text-right tabular-nums">{fmt(v)}</td>)}
+        </tr>
+      ))}
+      <TotalRow label={`Net cash from ${section}`} values={total} fmt={fmt} />
+    </>
   )
 }
 
