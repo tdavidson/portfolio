@@ -1,8 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { resolveAgentAuth, authorizeToolUse, loadCredentialAccess, type ResolvedKey } from '@/lib/accounting/api-keys'
-import { AGENT_TOOLS, getTool, resolveVehicleForTool, accessDomainFor, accessDomainForCall, accessFeatureFor, type AgentToolContext } from '@/lib/accounting/agent-tools'
-import { hasAccess, type AccessContext } from '@/lib/access/effective'
+import { resolveAgentAuth, loadCredentialAccess, type ResolvedKey } from '@/lib/accounting/api-keys'
+import { resolveVehicleForTool, type AgentToolContext } from '@/lib/accounting/agent-tools'
+import type { AccessContext } from '@/lib/access/effective'
+import {
+  authorizeMcpTool, describeTool, getMcpTool, listableTools, listResources, negotiateProtocolVersion,
+  readResource, toolResult,
+} from '@/lib/mcp-apps/server'
 import { rateLimit } from '@/lib/rate-limit'
 import { agentApiEnabled } from '@/lib/oauth/enabled'
 import { wwwAuthenticate } from '@/lib/oauth/metadata'
@@ -11,8 +15,9 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 
 // Minimal MCP server over Streamable HTTP (stateless JSON mode). Exposes the
-// ledger + portfolio tool registry so any MCP client can drive the books.
-// Implements initialize, tools/list, tools/call.
+// ledger + portfolio tool registry so any MCP client can drive the books, and the
+// dashboard tools with the `ui://` view a host draws them in (lib/mcp-apps/server.ts).
+// Implements initialize, tools/list, tools/call, resources/list, resources/read.
 //
 // AUTH — two accepted credentials, one security model:
 //   * `lk_…`      static fund API key (CLI / headless clients)
@@ -25,8 +30,7 @@ export const dynamic = 'force-dynamic'
 // from a bare 401 — without it, a connector that hasn't been told where to look
 // has nowhere to start.
 
-const PROTOCOL_VERSION = '2024-11-05'
-const SERVER_INFO = { name: 'reporting-ledger', version: '0.1.0' }
+const SERVER_INFO = { name: 'reporting-ledger', version: '0.2.0' }
 
 interface RpcRequest { jsonrpc: string; id?: string | number | null; method: string; params?: any }
 
@@ -42,7 +46,11 @@ type BaseCtx = Omit<AgentToolContext, 'portfolioGroup'>
 async function handle(rpc: RpcRequest, ctx: BaseCtx, auth: ResolvedKey, access: AccessContext): Promise<any | null> {
   switch (rpc.method) {
     case 'initialize':
-      return ok(rpc.id, { protocolVersion: PROTOCOL_VERSION, capabilities: { tools: {} }, serverInfo: SERVER_INFO })
+      return ok(rpc.id, {
+        protocolVersion: negotiateProtocolVersion(rpc.params?.protocolVersion),
+        capabilities: { tools: {}, resources: {} },
+        serverInfo: SERVER_INFO,
+      })
     case 'ping':
       return ok(rpc.id, {})
     case 'notifications/initialized':
@@ -52,27 +60,32 @@ async function handle(rpc: RpcRequest, ctx: BaseCtx, auth: ResolvedKey, access: 
       // Filtered by what the credential's owner may actually reach, so an agent is never shown a
       // tool it would be refused — and the tool list itself stops being a map of the fund's
       // contents to someone who can't read them.
-      return ok(rpc.id, {
-        tools: AGENT_TOOLS
-          .filter(t => hasAccess(access, accessDomainFor(t), t.scope, accessFeatureFor(t)))
-          .map(t => ({ name: t.name, description: t.description, inputSchema: t.inputSchema })),
-      })
+      return ok(rpc.id, { tools: listableTools(access).map(describeTool) })
     case 'tools/call': {
       const name = rpc.params?.name
-      const tool = getTool(name)
+      const tool = getMcpTool(name)
       if (!tool) return err(rpc.id, -32602, `Unknown tool: ${name}`)
       const args = rpc.params?.arguments ?? {}
-      // The CALL's domain, not just the tool's: `allocation` is ordinary accounting until its
-      // action is 'carry'.
-      const denied = authorizeToolUse(tool.scope, auth, access, accessDomainForCall(tool, args), accessFeatureFor(tool))
+      const denied = authorizeMcpTool(tool, auth, access, args)
       if (denied) return ok(rpc.id, { content: [{ type: 'text', text: denied }], isError: true })
       try {
         const portfolioGroup = await resolveVehicleForTool(tool, ctx.admin, ctx.fundId, args.vehicle, access)
         const result = await tool.handler({ ...ctx, portfolioGroup }, args)
-        return ok(rpc.id, { content: [{ type: 'text', text: JSON.stringify(result) }] })
+        return ok(rpc.id, toolResult(tool, result))
       } catch (e) {
         return ok(rpc.id, { content: [{ type: 'text', text: (e as Error).message }], isError: true })
       }
+    }
+    // The dashboard view. It is the same static document for every caller and carries no fund
+    // data (the figures arrive with each tool result), so it needs no grant beyond the credential
+    // this request already presented.
+    case 'resources/list':
+      return ok(rpc.id, listResources())
+    case 'resources/templates/list':
+      return ok(rpc.id, { resourceTemplates: [] })
+    case 'resources/read': {
+      const resource = readResource(rpc.params?.uri)
+      return resource ? ok(rpc.id, resource) : err(rpc.id, -32002, `Resource not found: ${rpc.params?.uri}`)
     }
     default:
       return err(rpc.id, -32601, `Method not found: ${rpc.method}`)
@@ -160,7 +173,7 @@ async function meter(
 ): Promise<NextResponse | null> {
   const isWrite = calls.some(c => {
     if (c?.method !== 'tools/call') return false
-    const tool = getTool(c?.params?.name)
+    const tool = getMcpTool(c?.params?.name)
     return tool?.scope === 'write'
   })
 

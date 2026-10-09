@@ -294,6 +294,42 @@ The two are told apart on a home screen by the icon: the manager app is the mark
 
 **Known gaps.** For a named fund both apps carry the same home-screen *label* (the fund's name); only the icon distinguishes them. The full names differ and install prompts show those. Web push notifications are not wired up on any platform.
 
+### Dashboards in Claude and ChatGPT
+
+Members can open the fund's dashboards inside a Claude or ChatGPT conversation, ask questions about what they are looking at, and save a dashboard to reopen later. There are four: the portfolio overview, a company with its KPIs, a vehicle's financial statements, and LP capital.
+
+It needs **Settings > Agent access** switched on by an admin, which is off by default. Everything below is then per member, under **Settings > API and MCP**.
+
+**How it works.** The app's MCP endpoint (`/api/mcp`) serves the dashboards as [MCP Apps](https://modelcontextprotocol.io/extensions/apps/overview), an extension both assistants implement: a `show_…` tool returns the figures, and the assistant draws them in a view the endpoint also serves. An assistant that cannot draw the view shows the same figures as text. Each dashboard is the figures of the read tools beside it, so a dashboard and an answer in prose cannot disagree.
+
+**Access is the member's own.** The assistant acts as the person who connected it. A dashboard for an area their access does not include is refused there exactly as it is in the app, and fund performance on the portfolio overview and the carry line in partners' capital are left out for a member without those grants. Switching Agent access off stops every connection at once.
+
+**Saved dashboards** are kept in this deployment's database (`saved_dashboards`), because neither assistant keeps a view beyond the conversation it appeared in. What is saved is the view and its filters, never the figures, so a saved dashboard always opens on current data, in either assistant. A member can share one with the fund; a colleague opening it sees their own figures or a refusal. Saving and deleting need a connection approved for changes; a read-only connection can open any dashboard but not save one.
+
+**Connecting Claude.** Download **Plugin for Claude** from Settings. In Claude, go to **Customize > Plugins > Add > Upload plugin** and select the file, then open the plugin's **Connectors** tab, connect it and sign in. The plugin is the connector plus two skills that tell Claude when to open a dashboard and how to save one. The connector alone (add the MCP URL as a custom connector) also draws the dashboards; the skills make Claude better at choosing them.
+
+**Connecting ChatGPT.** In **Plugins**, choose the plus button, then **Add custom MCP server**, paste the MCP URL from Settings, and create it as a plugin. That is all the dashboards need. To add the skills in the ChatGPT desktop app or Codex, download **Plugin for ChatGPT**, unzip it to `~/.agents/plugins/portfolio/`, list it in `~/.agents/plugins/marketplace.json`, and restart the app:
+
+```json
+{
+  "name": "personal",
+  "plugins": [
+    {
+      "name": "portfolio",
+      "source": { "source": "local", "path": "./portfolio" },
+      "policy": { "installation": "AVAILABLE", "authentication": "ON_INSTALL" },
+      "category": "Productivity"
+    }
+  ]
+}
+```
+
+Use the `name` from the unzipped `plugin.json` in place of `portfolio`; it carries this deployment's host, so two funds' plugins do not collide.
+
+**Why the app builds the plugin.** Both assistants require a plugin's connector address to be fixed inside the package, and this app runs at a different address for every fund. So each deployment builds its own package, with its own address in it, at `/api/plugin?target=claude` and `?target=chatgpt`. The package contains no key and no fund data. This is also why there is no listing in either assistant's public directory: a listing needs one address for everyone.
+
+**Changing the view.** The view is plain TypeScript in `lib/mcp-apps/app/`, and the skills are Markdown in `plugin/`. Both are embedded into generated modules that the routes serve, so after editing either, run `npm run mcp:app` and commit the result; a unit test fails if the generated files are out of date. `npm run mcp:check` renders every dashboard inside the official MCP Apps host and checks the protocol exchange (add `-- --shots <dir>` for screenshots).
+
 ## Local Development
 
 ```bash

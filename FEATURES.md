@@ -229,6 +229,16 @@ On **portfolio-wide pages**, the Analyst has access to fund-level data across al
 
 **Team notes as context** — the Analyst incorporates your team's internal discussion notes into its analysis, so it's aware of qualitative observations alongside the quantitative data.
 
+## Dashboards in Claude and ChatGPT
+
+Open the fund's dashboards inside the assistant you already use. Ask Claude or ChatGPT to "show me the portfolio" and the portfolio overview appears in the conversation: fair value, cost and gross MOIC, fair value against cost by company, and the holdings table. Click a company to see its position, its KPI history as charts and its rounds. Ask for the balance sheet and get the statements for a period, with the balance check. Ask who has funded and see every investor's paid-in capital against their commitment.
+
+Each dashboard expands to full screen, follows the assistant's light or dark theme, carries the fund's own accent colour, and works on a phone. The assistant has the same figures as text, so "which of these is marked below cost?" is answered from what is on screen.
+
+**Save a dashboard** by asking ("save this as Q3 LP review"), and reopen it in any later conversation, in either assistant. A saved dashboard keeps the view and its filters, not the numbers, so it always opens on current figures. Share one with the fund and colleagues can open it too, each seeing only what their own access allows.
+
+Everything runs against your own deployment, signed in as you. Setup is in [DOCS](./DOCS.md#dashboards-in-claude-and-chatgpt).
+
 ## Notes
 
 Notes are available on each company's detail page, on the Portfolio dashboard, and on the dedicated Notes page. They provide a lightweight way for team members to share observations, context, and follow-up items.

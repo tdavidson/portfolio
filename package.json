@@ -17,6 +17,8 @@
     "demo:snapshot": "npx tsx --env-file=.env.local scripts/demo-snapshot.ts",
     "demo:answers": "npx tsx --env-file-if-exists=.env.local scripts/demo-answers.ts",
     "demo:styles": "node scripts/demo-styles.mjs",
+    "mcp:app": "node scripts/build-mcp-app.mjs",
+    "mcp:check": "node scripts/mcp-app-check.mjs",
     "sql:check:accounting": "node scripts/run-unified-accounting-sql-checks.mjs"
   },
   "dependencies": {

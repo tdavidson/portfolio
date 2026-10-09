@@ -292,6 +292,7 @@ export const TABLE_RULES: Record<string, TableRule> = {
   allowed_signups: { scope: 'service', note: 'The signup allowlist decides who may exist at all.' },
   rate_limit_entries: { scope: 'service', note: 'Counters; readable rows would make the limiter forgeable.' },
   demo_sessions: { scope: 'service', note: 'Anonymous demo telemetry, written server-side.' },
+  saved_dashboards: { scope: 'service', note: 'A member\'s saved dashboard recipes (name, view, arguments; no figures). Read and written only by the MCP dashboard tools, which scope to the credential\'s fund and member and re-check the view\'s domain on open (lib/agent/dashboard-tools.ts).' },
   memo_agent_jobs: { scope: 'service', note: 'Already locked down by 20260509000002_memo_agent_jobs_lockdown.sql.' },
   api_idempotency_keys: { scope: 'service', note: 'Stored response bodies for /api/v1 financial approvals, replayed on retry.' },
   // ---- Tax reporting (merged from the SPV branch, 2026-09-03) ----------------------------------
