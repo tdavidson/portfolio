@@ -9,7 +9,8 @@ const FUND = 'fund-1'
 const ME = 'user-me'
 const COLLEAGUE = 'user-colleague'
 
-const db = (rows: Record<string, any>[] = []) => memoryAdmin({ saved_dashboards: rows })
+const MEMBERS = [ME, COLLEAGUE, 'user-third'].map(user_id => ({ fund_id: FUND, user_id }))
+const db = (rows: Record<string, any>[] = [], members = MEMBERS) => memoryAdmin({ saved_dashboards: rows, fund_members: members })
 
 describe('sanitizeArguments: a saved recipe is only ever the keys its view takes', () => {
   it('keeps the known keys and drops everything else', () => {
@@ -108,6 +109,24 @@ describe('listDashboards', () => {
     const ids = (await listDashboards(db(rows).admin, FUND, ME)).map(d => d.id)
     expect(ids).not.toContain('private')
     expect(ids).not.toContain('elsewhere')
+  })
+
+  it('stops listing a shared dashboard once its author has left the fund', async () => {
+    // Nobody else could delete it, so it would otherwise sit in everyone's list for good.
+    const stillHere = MEMBERS.filter(m => m.user_id !== COLLEAGUE)
+    const ids = (await listDashboards(db(rows, stillHere).admin, FUND, ME)).map(d => d.id)
+    expect(ids).toContain('mine')
+    expect(ids).not.toContain('shared')
+  })
+
+  it('resolves only inside the list the caller is allowed to see', async () => {
+    const { admin } = db(rows)
+    const hideShared = (d: { kind: string }) => d.kind !== 'shared'
+    await expect(resolveDashboard(admin, FUND, ME, 'shared', hideShared)).rejects.toThrow(/No dashboard called "shared"/)
+    const message = await resolveDashboard(admin, FUND, ME, 'Team', hideShared).then(() => '', (e: Error) => e.message)
+    expect(message).toMatch(/Available: /)
+    expect(message.replace('"Team"', '')).not.toContain('Team')
+    await expect(deleteDashboard(admin, FUND, ME, 'mine', hideShared)).resolves.toEqual({ deleted: 'Mine' })
   })
 
   it('lists a dashboard that is both the caller\'s and shared once', async () => {

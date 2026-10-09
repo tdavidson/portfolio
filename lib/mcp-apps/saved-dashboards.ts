@@ -147,8 +147,19 @@ export async function listSaved(admin: SupabaseClient, fundId: string, userId: s
     if (isMissingTable(error)) return []
     throw new SavedDashboardError('Could not read saved dashboards.')
   }
+  // A shared dashboard outlives nothing: once its author leaves the fund it is no longer listed.
+  // (The row is deleted with the account; this covers a member removed from the fund but not
+  // deleted, whose dashboards nobody else could remove.)
+  let sharedRows = ((shared.data as Row[]) ?? []).filter(row => row.user_id !== userId)
+  if (sharedRows.length > 0) {
+    const { data: members, error } = await (admin as any).from('fund_members').select('user_id').eq('fund_id', fundId)
+    if (error) throw new SavedDashboardError('Could not read saved dashboards.')
+    const current = new Set(((members as { user_id: string }[]) ?? []).map(m => m.user_id))
+    sharedRows = sharedRows.filter(row => current.has(row.user_id))
+  }
+
   const seen = new Set<string>()
-  return [...((own.data as Row[]) ?? []), ...((shared.data as Row[]) ?? [])]
+  return [...((own.data as Row[]) ?? []), ...sharedRows]
     .filter(row => (seen.has(row.id) ? false : (seen.add(row.id), true)))
     .sort((a, b) => String(b.updated_at ?? '').localeCompare(String(a.updated_at ?? '')))
     .map(row => toSummary(row, userId))
@@ -168,13 +179,24 @@ export async function listDashboards(admin: SupabaseClient, fundId: string, user
 /**
  * Resolve a reference (an id, or a name) to one dashboard the caller can open.
  *
+ * `visible` is the caller's view of the list, and resolution happens INSIDE it: a dashboard the
+ * caller may not see is not found, by name or by id, and is not named in an error. Without that,
+ * "no dashboard called x. Available: ..." would recite exactly the shared dashboards that
+ * `list_dashboards` withholds.
+ *
  * The caller's own dashboard wins over a shared one of the same name, and a name that still
  * matches two shared dashboards is refused: picking one silently would open the wrong figures.
  */
-export async function resolveDashboard(admin: SupabaseClient, fundId: string, userId: string, ref: unknown): Promise<SavedDashboardSummary> {
+export async function resolveDashboard(
+  admin: SupabaseClient,
+  fundId: string,
+  userId: string,
+  ref: unknown,
+  visible: (dashboard: SavedDashboardSummary) => boolean = () => true,
+): Promise<SavedDashboardSummary> {
   if (typeof ref !== 'string' || !ref.trim()) throw new SavedDashboardError('Say which dashboard: its id or its name.')
   const needle = ref.trim()
-  const all = await listDashboards(admin, fundId, userId)
+  const all = (await listDashboards(admin, fundId, userId)).filter(visible)
 
   const byId = all.find(d => d.id === needle)
   if (byId) return byId
@@ -198,13 +220,24 @@ export interface SaveInput {
   shared?: unknown
 }
 
-/** Create, or replace the caller's own dashboard of the same name. */
-export async function saveDashboard(admin: SupabaseClient, fundId: string, userId: string, input: SaveInput): Promise<SavedDashboardSummary> {
+/** A dashboard as it will be stored: checked, and with any name already resolved to what it names. */
+export interface SaveRecipe {
+  name: string
+  view: DashboardView
+  params: Record<string, string>
+  shared: boolean
+}
+
+/** Validate a save request's shape. Resolving the names in it is the caller's job (it needs access). */
+export function parseSave(input: SaveInput): SaveRecipe {
   const name = cleanName(input.name)
   if (!isDashboardView(input.view)) throw new SavedDashboardError(`view must be one of: ${DASHBOARD_VIEWS.join(', ')}.`)
-  const view = input.view
-  const params = sanitizeArguments(view, input.arguments)
-  const shared = input.shared === true
+  return { name, view: input.view, params: sanitizeArguments(input.view, input.arguments), shared: input.shared === true }
+}
+
+/** Create, or replace the caller's own dashboard of the same name. */
+export async function saveDashboard(admin: SupabaseClient, fundId: string, userId: string, input: SaveInput | SaveRecipe): Promise<SavedDashboardSummary> {
+  const { name, view, params, shared } = 'params' in input ? input : parseSave(input)
 
   if (STANDARD_DASHBOARDS.some(d => d.name.toLowerCase() === name.toLowerCase())) {
     throw new SavedDashboardError(`"${name}" is the name of a standard dashboard. Choose another name.`)
@@ -248,8 +281,14 @@ export async function saveDashboard(admin: SupabaseClient, fundId: string, userI
 }
 
 /** Delete one of the caller's OWN dashboards. A shared dashboard is its author's to delete. */
-export async function deleteDashboard(admin: SupabaseClient, fundId: string, userId: string, ref: unknown): Promise<{ deleted: string }> {
-  const target = await resolveDashboard(admin, fundId, userId, ref)
+export async function deleteDashboard(
+  admin: SupabaseClient,
+  fundId: string,
+  userId: string,
+  ref: unknown,
+  visible?: (dashboard: SavedDashboardSummary) => boolean,
+): Promise<{ deleted: string }> {
+  const target = await resolveDashboard(admin, fundId, userId, ref, visible)
   if (target.kind === 'standard') throw new SavedDashboardError('The standard dashboards cannot be deleted.')
   if (target.kind !== 'mine') throw new SavedDashboardError(`"${target.name}" was shared by a colleague. Only they can delete it.`)
 

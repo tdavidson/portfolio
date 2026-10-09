@@ -29,6 +29,13 @@ export interface DashboardToolMeta extends AgentToolMeta {
    * A personal WRITE still needs a write-scoped credential and a role that may change things.
    * The consent screen tells a read-only connection it "cannot change anything", and the
    * read-only demo account must not be a place anyone can leave rows.
+   *
+   * KNOWN CONSEQUENCE: the OAuth flow issues a write scope only to a member who can write in some
+   * domain (lib/oauth/store.ts `grantableScope`), so a member whose every grant is read-only can
+   * open dashboards, including shared ones, but cannot save their own. That is the price of the
+   * consent screen's sentence staying true. To let every member keep bookmarks, treat a personal
+   * write as needing no scope in `authorizeMcpTool` and reword that sentence; do not do one
+   * without the other.
    */
   personal?: boolean
 }

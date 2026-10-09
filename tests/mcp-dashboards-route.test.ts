@@ -17,6 +17,8 @@ const store = memoryAdmin({
   saved_dashboards: [],
   funds: [{ id: 'fund-1', name: 'Northgate' }],
   fund_settings: [{ fund_id: 'fund-1', currency: 'USD', theme: null }],
+  fund_members: [{ fund_id: 'fund-1', user_id: 'user-me', role: 'member' }],
+  fund_vehicles: [{ id: 'v1', fund_id: 'fund-1', name: 'Fund I', active: true, kind: 'fund', aliases: null }],
 })
 
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => store.admin }))
@@ -37,7 +39,6 @@ vi.mock('@/lib/agent/portfolio-tools', async importOriginal => {
       positions: [{ company: 'Acme', companyId: 'c1', status: 'active', stage: 'Seed', industry: [], cost: 100, fairValue: 250, unrealized: 150, realized: 0, moic: 2.5, pctOfPortfolio: 100 }],
       totals: { cost: 100, fairValue: 250, unrealized: 150, realized: 0, grossMoic: 2.5 },
     }),
-    fund_performance: async () => [],
   } }
 })
 
@@ -136,7 +137,8 @@ describe('tools/call', () => {
   })
 
   it('saves a dashboard, lists it, opens it by name, and deletes it', async () => {
-    const saved = (await call('save_dashboard', { name: 'Board pack', view: 'portfolio', arguments: { vehicle: 'Fund I' } })).body.result
+    // Typed loosely, as a model would: it is stored under the vehicle's own spelling.
+    const saved = (await call('save_dashboard', { name: 'Board pack', view: 'portfolio', arguments: { vehicle: 'fund i' } })).body.result
     expect(saved.isError).toBeUndefined()
     expect(store.tables.saved_dashboards).toHaveLength(1)
     expect(store.tables.saved_dashboards[0]).toMatchObject({ fund_id: 'fund-1', user_id: 'user-me', name: 'Board pack' })

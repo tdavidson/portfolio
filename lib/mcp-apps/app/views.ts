@@ -292,7 +292,7 @@ function sectionLines(fmt: Formatters, s: { label: string; rows: { code?: string
   ]
 }
 
-function capitalTable(fmt: Formatters, data: StatementsData['partnersCapital']): HTMLElement {
+function capitalTable(fmt: Formatters, data: NonNullable<StatementsData['partnersCapital']>): HTMLElement {
   const labels = data.totals.activity.map(a => a.label)
   const row = (r: PartnerCapitalRow, total = false) => h('tr', { class: total ? 'line-grand' : undefined },
     h('th', { scope: 'row' }, r.name),
@@ -345,7 +345,7 @@ function statements(payload: StatementsPayload, ctx: ViewContext): Node[] {
     { value: 'balance', label: 'Balance sheet' },
     { value: 'income', label: 'Income statement' },
     ...(d.cashFlows ? [{ value: 'cash' as const, label: 'Cash flows' }] : []),
-    { value: 'capital', label: "Partners' capital" },
+    ...(d.partnersCapital ? [{ value: 'capital' as const, label: "Partners' capital" }] : []),
   ]
   const tab = tabs.some(t => t.value === ctx.statementTab) ? ctx.statementTab : 'balance'
   out.push(h('div', { class: 'filters' }, segmented('Statement', tabs, tab, ctx.setStatementTab)))
@@ -374,7 +374,7 @@ function statements(payload: StatementsPayload, ctx: ViewContext): Node[] {
       { label: 'Net change in cash', amount: fmt.money(d.cashFlows.netChange), kind: 'total' },
       { label: 'Cash at end of period', amount: fmt.money(d.cashFlows.endingCash), kind: 'grand' },
     ]))
-  } else {
+  } else if (d.partnersCapital) {
     if (d.partnersCapital.partners.length === 0) {
       out.push(empty('No partner capital activity in this period.'))
     } else {

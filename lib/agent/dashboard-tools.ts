@@ -14,10 +14,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-tools'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
 import { DOMAIN_META, type Domain } from '@/lib/access/domains'
-import { PORTFOLIO_HANDLERS } from './portfolio-tools'
+import { PORTFOLIO_HANDLERS, resolveCompany } from './portfolio-tools'
 import { LP_HANDLERS } from './lp-tools'
 import { DASHBOARD_TOOL_MANIFEST, type DashboardToolMeta } from './dashboard-tools-manifest'
 import { resolveVehicle } from '@/lib/accounting/vehicle-resolver'
+import { fundEconomics } from '@/lib/accounting/fund-economics'
+import { entityScopeFor } from '@/lib/access/entity-scope'
+import { canSeeVehicle } from '@/lib/access/scope'
 import { buildStatementPackage } from '@/lib/accounting/statement-package'
 import { ACTIVITY_FIELDS, CAPITAL_ACCOUNT_LABELS, type CapitalAccount } from '@/lib/accounting/capital-account'
 import { lpRatios } from '@/lib/lp-metrics'
@@ -27,10 +30,10 @@ import {
   STATEMENT_PRESETS, VIEW_LABEL,
   type CompanyPayload, type DashboardBranding, type DashboardPayload, type DashboardView,
   type LpPayload, type LpRow, type PartnerCapitalRow, type PortfolioPayload,
-  type StatementsPayload,
+  type SavedDashboardSummary, type StatementsPayload, type VehiclePerformance,
 } from '@/lib/mcp-apps/payload'
 import {
-  deleteDashboard, listDashboards, resolveDashboard, sanitizeArguments, saveDashboard,
+  deleteDashboard, listDashboards, parseSave, resolveDashboard, sanitizeArguments, saveDashboard,
 } from '@/lib/mcp-apps/saved-dashboards'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -40,10 +43,13 @@ const ratio = (v: number | null | undefined) => (v == null ? null : r2(v))
 
 function isoDate(value: unknown, label: string): string | undefined {
   if (value === undefined || value === null || value === '') return undefined
-  if (typeof value !== 'string' || !ISO_DATE.test(value) || Number.isNaN(Date.parse(`${value}T00:00:00Z`))) {
-    throw new Error(`${label} must be an ISO date (YYYY-MM-DD)`)
+  // A real calendar day, not just the shape of one: JavaScript reads 2026-02-31 as 3 March, and
+  // a statement silently struck on a different day than the one asked for is a wrong statement.
+  const parsed = typeof value === 'string' && ISO_DATE.test(value) ? new Date(`${value}T00:00:00Z`) : null
+  if (!parsed || Number.isNaN(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== value) {
+    throw new Error(`${label} must be a real date in ISO form (YYYY-MM-DD)`)
   }
-  return value
+  return value as string
 }
 
 const text = (value: unknown): string | undefined =>
@@ -73,18 +79,48 @@ async function loadBranding(admin: SupabaseClient, fundId: string): Promise<Dash
 // The four views
 // ---------------------------------------------------------------------------------------------
 
+/**
+ * Committed, called, distributed and NAV per vehicle, as of a date, from the books.
+ *
+ * `fundEconomics` rather than the `fund_performance` tool, for two reasons. It takes an as-of, so
+ * these figures are struck on the same day as the positions beside them. And it is what the app's
+ * own fund overview shows (api/accounting/fund-economics), derived from the ledger the way the LP
+ * dashboard is, so the two dashboards agree on called capital and NAV. Only the caller's entities.
+ */
+async function vehiclePerformance(ctx: AgentToolContext, vehicle: string | undefined, asOf: string | undefined): Promise<VehiclePerformance[]> {
+  const all = await fundEconomics(ctx.admin, ctx.fundId, asOf)
+  const wanted = vehicle?.toLowerCase()
+  return all
+    .filter(v => canSeeVehicle(ctx.access, v.id))
+    .filter(v => !wanted || v.vehicle.toLowerCase() === wanted)
+    .map(v => {
+      const f = v.fund
+      const called = r2(num(f.paidIn))
+      return {
+        vehicle: v.vehicle,
+        committed: r2(num(f.committed)),
+        called,
+        unfunded: r2(f.uncalled == null ? num(f.committed) - called : num(f.uncalled)),
+        distributed: r2(num(f.distributions)),
+        nav: r2(num(f.nav)),
+        dpi: ratio(f.dpi), rvpi: ratio(f.rvpi), tvpi: ratio(f.tvpi),
+      }
+    })
+    .sort((a, b) => a.vehicle.localeCompare(b.vehicle))
+}
+
 async function portfolioView(ctx: AgentToolContext, input: any): Promise<PortfolioPayload> {
   const vehicle = text(input?.vehicle)
   const asOf = isoDate(input?.as_of, 'as_of')
   const args = { ...(vehicle ? { vehicle } : {}), ...(asOf ? { as_of: asOf } : {}) }
 
   // Fund performance is committed / called / distributed / NAV: the fund's financial position,
-  // gated `accounting` (see fund_performance in portfolio-tools-manifest.ts). The overview's
+  // gated `accounting` (as fund_performance and api/accounting/fund-economics are). The overview's
   // own domain is `portfolio`, so this half is included only for a caller who holds both.
   const showPerformance = hasAccess(ctx.access, 'accounting', 'read')
   const [summary, performance, branding] = await Promise.all([
     PORTFOLIO_HANDLERS.portfolio_summary(ctx, args),
-    showPerformance ? PORTFOLIO_HANDLERS.fund_performance(ctx, vehicle ? { vehicle } : {}) : Promise.resolve(null),
+    showPerformance ? vehiclePerformance(ctx, vehicle, asOf) : Promise.resolve(null),
     loadBranding(ctx.admin, ctx.fundId),
   ])
 
@@ -207,6 +243,11 @@ async function statementsView(ctx: AgentToolContext, input: any): Promise<Statem
   // The carried-interest line is GP economics, and the General Partner's row IS the carry. Both
   // are dropped, not zeroed, for a caller without that grant: zero would read as "none accrued".
   // Same rule as capital_accounts and lp_statement. `carryWithheld` tells the view to say so.
+  //
+  // The roll-forward itself is LP capital. Holding `accounting` normally confers it (the partner
+  // accounts ARE the ledger), but a fund that has switched LPs off or hidden them denies it to
+  // everyone, and then this tab is left out, as capital_accounts is refused.
+  const showCapital = hasAccess(ctx.access, 'lp_capital', 'read')
   const showCarry = hasAccess(ctx.access, 'gp_economics', 'read')
   const cpc = p.changesInPartnersCapital
   const partners = showCarry ? cpc.partners : cpc.partners.filter(row => row.id !== 'gp')
@@ -263,11 +304,13 @@ async function statementsView(ctx: AgentToolContext, input: any): Promise<Statem
             endingCash: p.cashFlows.endingCash,
           }
         : null,
-      partnersCapital: {
-        partners: partners.map(row => capitalRow(row.name, row, fields)),
-        totals: capitalRow('Total', totals, fields),
-        carryWithheld,
-      },
+      partnersCapital: showCapital
+        ? {
+            partners: partners.map(row => capitalRow(row.name, row, fields)),
+            totals: capitalRow('Total', totals, fields),
+            carryWithheld,
+          }
+        : null,
     },
   }
 }
@@ -359,6 +402,57 @@ function requireUser(ctx: AgentToolContext): string {
   return ctx.userId
 }
 
+/**
+ * Which dashboards this caller may be told about.
+ *
+ * Two tests, and a shared dashboard must pass both:
+ *   - the view's domain (`viewDenial`), so a colleague's "Carry by partner" is not listed for a
+ *     member without that area: its name alone says something;
+ *   - the caller's ENTITIES. A recipe names a vehicle or a company, and a member scoped to Fund I
+ *     is not shown Fund II's name by `list_vehicles` or a Fund II company by `list_companies`.
+ *     A shared recipe pointing at either would show them exactly that, so it is withheld.
+ *
+ * The caller's own dashboards skip the second test (they wrote the names) and, when resolving,
+ * the first: asking for your own dashboard after losing the grant gets the refusal that explains
+ * why, not "no such dashboard".
+ */
+async function dashboardVisibility(ctx: AgentToolContext): Promise<{
+  listed: (d: SavedDashboardSummary) => boolean
+  resolvable: (d: SavedDashboardSummary) => boolean
+}> {
+  const scope = await entityScopeFor(ctx.admin, ctx.access)
+  const vehicles = scope.vehicleNames === null ? null : new Set(scope.vehicleNames.map(n => n.toLowerCase()))
+  const companies = scope.companyIds === null ? null : new Set(scope.companyIds)
+
+  const inScope = (d: SavedDashboardSummary) => {
+    const vehicle = typeof d.arguments.vehicle === 'string' ? d.arguments.vehicle : null
+    const company = typeof d.arguments.company === 'string' ? d.arguments.company : null
+    if (vehicle && vehicles && !vehicles.has(vehicle.toLowerCase())) return false
+    // Saved as an id (see `canonical`). Anything else is not something a scoped caller can be
+    // shown to be theirs, so it is not shown.
+    if (company && companies && !companies.has(company)) return false
+    return true
+  }
+  const allowed = (d: SavedDashboardSummary) => viewDenial(ctx.access, d.view) === null
+  return {
+    listed: d => allowed(d) && (d.kind !== 'shared' || inScope(d)),
+    resolvable: d => d.kind === 'mine' || (allowed(d) && (d.kind !== 'shared' || inScope(d))),
+  }
+}
+
+/**
+ * A recipe with its names resolved to what they name: the vehicle's stored spelling, the
+ * company's id. Both through the caller's own access, so nobody saves (or shares) a pointer to
+ * something they cannot see, and a stored argument is never free text a colleague's assistant
+ * would later read. A company saved by id also survives the company being renamed.
+ */
+async function canonical(ctx: AgentToolContext, params: Record<string, string>): Promise<Record<string, string>> {
+  const out = { ...params }
+  if (out.vehicle) out.vehicle = await resolveVehicle(ctx.admin, ctx.fundId, out.vehicle, { access: ctx.access })
+  if (out.company) out.company = (await resolveCompany(ctx.admin, ctx.fundId, out.company, ctx.access)).id
+  return out
+}
+
 export const DASHBOARD_HANDLERS: Record<string, AgentToolHandler> = {
   show_portfolio_dashboard: portfolioView,
   show_company_dashboard: companyView,
@@ -366,14 +460,17 @@ export const DASHBOARD_HANDLERS: Record<string, AgentToolHandler> = {
   show_lp_dashboard: lpView,
 
   list_dashboards: async (ctx: AgentToolContext) => {
-    const all = await listDashboards(ctx.admin, ctx.fundId, requireUser(ctx))
-    // Only what this member could actually open. A shared dashboard for a domain they lack is
-    // left out rather than listed and refused: its name alone ("Carry by partner") says something.
-    return { dashboards: all.filter(d => viewDenial(ctx.access, d.view) === null) }
+    const [all, visible] = await Promise.all([
+      listDashboards(ctx.admin, ctx.fundId, requireUser(ctx)),
+      dashboardVisibility(ctx),
+    ])
+    // Only what this member could actually open, and only what they may be told exists.
+    return { dashboards: all.filter(visible.listed) }
   },
 
   open_dashboard: async (ctx: AgentToolContext, input: any) => {
-    const dashboard = await resolveDashboard(ctx.admin, ctx.fundId, requireUser(ctx), input?.dashboard)
+    const visible = await dashboardVisibility(ctx)
+    const dashboard = await resolveDashboard(ctx.admin, ctx.fundId, requireUser(ctx), input?.dashboard, visible.resolvable)
     const denied = viewDenial(ctx.access, dashboard.view)
     if (denied) throw new Error(denied)
     const payload = await VIEW_BUILDERS[dashboard.view](ctx, sanitizeArguments(dashboard.view, dashboard.arguments))
@@ -383,17 +480,18 @@ export const DASHBOARD_HANDLERS: Record<string, AgentToolHandler> = {
 
   save_dashboard: async (ctx: AgentToolContext, input: any) => {
     const userId = requireUser(ctx)
+    const recipe = parseSave(input ?? {})
     // Saving a view the member cannot open would only ever produce a refusal later.
-    if (typeof input?.view === 'string' && input.view in VIEW_ACCESS_DOMAIN) {
-      const denied = viewDenial(ctx.access, input.view as DashboardView)
-      if (denied) throw new Error(denied)
-    }
-    const saved = await saveDashboard(ctx.admin, ctx.fundId, userId, input ?? {})
+    const denied = viewDenial(ctx.access, recipe.view)
+    if (denied) throw new Error(denied)
+    const saved = await saveDashboard(ctx.admin, ctx.fundId, userId, { ...recipe, params: await canonical(ctx, recipe.params) })
     return { saved, note: `Saved. Ask for "${saved.name}" in any conversation to open it with current figures.` }
   },
 
-  delete_dashboard: async (ctx: AgentToolContext, input: any) =>
-    deleteDashboard(ctx.admin, ctx.fundId, requireUser(ctx), input?.dashboard),
+  delete_dashboard: async (ctx: AgentToolContext, input: any) => {
+    const visible = await dashboardVisibility(ctx)
+    return deleteDashboard(ctx.admin, ctx.fundId, requireUser(ctx), input?.dashboard, visible.resolvable)
+  },
 }
 
 export interface DashboardTool extends DashboardToolMeta {

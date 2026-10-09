@@ -175,8 +175,10 @@ describe('authorizeMcpTool', () => {
     }
   })
 
-  it('lets a member with a write-scoped credential save, with no domain write grant', () => {
-    // Their own list of dashboards is not fund data: a read grant is enough to keep a bookmark.
+  it('asks a save for a write-scoped credential and nothing more: no write grant in the view\'s domain', () => {
+    // A bookmark is not fund data, so the domain's WRITE grant is not consulted. The credential's
+    // own scope still is; the sign-in only issues it to a member who can write somewhere
+    // (grantableScope), which is why a member with read-only grants throughout cannot save.
     expect(authorizeMcpTool(tool('save_dashboard'), key('member', ['read', 'write']), access('member', { portfolio: 'read' }), {})).toBeNull()
   })
 

@@ -190,7 +190,11 @@ export interface StatementsData {
     openingCash: number
     endingCash: number
   } | null
-  partnersCapital: {
+  /**
+   * Null when the caller may not see LP capital (the fund has switched it off or hidden it). The
+   * per-partner roll-forward is LP capital even though it is derived from the books.
+   */
+  partnersCapital: null | {
     partners: PartnerCapitalRow[]
     totals: PartnerCapitalRow
     /**
