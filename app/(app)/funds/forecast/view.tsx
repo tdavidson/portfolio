@@ -278,40 +278,64 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
     >
       {listError && <p className="mb-4 text-sm text-destructive">{listError}</p>}
 
-      {/* One row. What you are looking at (plan, version, view), over when (range, interval), and
-          what you can do — the everyday actions as buttons, the occasional ones under More. */}
-      <div className="mb-4 flex flex-wrap items-center gap-2">
-        {/* Which plan is on screen — said, not hidden in a dropdown. Nothing when there is no plan
-            (the page is the actuals); one chip for one plan; a chip each to switch between several.
-            "Actual only" is a view of any plan, below. */}
-        {(plans ?? []).length > 0 && (
-          <div className="flex flex-wrap items-center gap-1.5" role={(plans ?? []).length > 1 ? 'radiogroup' : undefined} aria-label="Plan">
-            {(plans ?? []).map(p => {
+      {/* Two rows. Top: which plan this is, and what you can do with it. Below: how you are
+          looking at it — version, view, range, interval — in one row of controls. */}
+      <div className="mb-3 flex items-center gap-3">
+        {/* Which plan is on screen — said, not hidden in a dropdown. One plan: its name, as the
+            page's subject. Several: a chip each to switch. None: nothing (the page is the actuals). */}
+        {(plans ?? []).length === 1 && (() => {
+          const p = plans![0]
+          return (
+            <p className="min-w-0 truncate text-base font-medium" title={p.name}>
+              {p.name}
+              <span className="ml-2 text-sm font-normal text-muted-foreground">{p.kind === 'budget' ? `Budget ${p.fiscalYear}` : 'Rolling forecast'}</span>
+            </p>
+          )
+        })()}
+        {(plans ?? []).length > 1 && (
+          <div className="flex min-w-0 flex-wrap items-center gap-1.5" role="radiogroup" aria-label="Plan">
+            {plans!.map(p => {
               const active = p.id === planId
-              const kind = p.kind === 'budget' ? `Budget ${p.fiscalYear}` : 'Rolling forecast'
-              const multiple = (plans ?? []).length > 1
               return (
                 <button
                   key={p.id}
                   type="button"
-                  role={multiple ? 'radio' : undefined}
-                  aria-checked={multiple ? active : undefined}
-                  disabled={!multiple}
+                  role="radio"
+                  aria-checked={active}
                   onClick={() => setPlanId(p.id)}
+                  title={p.name}
                   className={cn(
-                    'inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm',
+                    'inline-flex h-8 max-w-[22rem] items-center gap-1.5 rounded-md border px-3 text-sm',
                     active ? 'border-foreground/30 bg-muted text-foreground' : 'border-input bg-background text-muted-foreground hover:text-foreground',
-                    !multiple && 'cursor-default',
                   )}
                 >
-                  <span className="font-medium">{p.name}</span>
-                  <span className="text-xs text-muted-foreground">{kind}</span>
+                  <span className="truncate font-medium">{p.name}</span>
+                  <span className="shrink-0 text-xs text-muted-foreground">{p.kind === 'budget' ? `Budget ${p.fiscalYear}` : 'Forecast'}</span>
                 </button>
               )
             })}
           </div>
         )}
-        {detail && (
+        <div className="ml-auto flex shrink-0 items-center gap-2">
+          {detail?.stale && !versionId && (
+            <Button variant="outline" onClick={() => save({})} disabled={busy} title="The books have moved since this draft was compiled">
+              <RefreshCw className="mr-1.5 h-4 w-4" /> Refresh
+            </Button>
+          )}
+          <MoreMenu items={[
+            { label: 'Publish…', onSelect: () => setPublishing(true), hidden: !detail || !!versionId, disabled: busy },
+            { label: 'Construction flows', checked: !!detail?.plan.includeConstruction, disabled: busy,
+              hidden: !detail || !!versionId || detail.vehicleKind === 'manco',
+              onSelect: () => save({ patch: { includeConstruction: !detail?.plan.includeConstruction } }) },
+            { label: 'Fee links…', onSelect: () => setLinking(true) },
+            { label: 'Download CSV', href: exportHref },
+          ]} />
+          <NewPlanMenu onManual={() => setCreating(true)} onDraftWithAi={hasAIKey ? draftWithAi : undefined} />
+        </div>
+      </div>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        {/* Only once something has been published: before that the working draft is all there is. */}
+        {detail && detail.versions.length > 0 && (
           <select className={selectCls} value={versionId} onChange={e => setVersionId(e.target.value)} aria-label="Version">
             <option value="">Working draft</option>
             {detail.versions.map(v => (
@@ -354,24 +378,7 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
           <option value="quarter">Quarterly</option>
           <option value="year">Annual</option>
         </select>
-        <div className="ml-auto flex items-center gap-2">
-          {detail?.stale && !versionId && (
-            <Button variant="outline" onClick={() => save({})} disabled={busy} title="The books have moved since this draft was compiled">
-              <RefreshCw className="mr-1.5 h-4 w-4" /> Refresh
-            </Button>
-          )}
-          <MoreMenu items={[
-            { label: 'Publish…', onSelect: () => setPublishing(true), hidden: !detail || !!versionId, disabled: busy },
-            { label: 'Construction flows', checked: !!detail?.plan.includeConstruction, disabled: busy,
-              hidden: !detail || !!versionId || detail.vehicleKind === 'manco',
-              onSelect: () => save({ patch: { includeConstruction: !detail?.plan.includeConstruction } }) },
-            { label: 'Fee links…', onSelect: () => setLinking(true) },
-            { label: 'Download CSV', href: exportHref },
-          ]} />
-          <NewPlanMenu onManual={() => setCreating(true)} onDraftWithAi={hasAIKey ? draftWithAi : undefined} />
-        </div>
       </div>
-
       {plans && plans.length === 0 && !listError && (
         // No button: New plan is right above, and the actuals below are the page's content, not a void.
         <p className="mb-4 text-sm text-muted-foreground">
@@ -379,21 +386,26 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
         </p>
       )}
 
+      {/* Where the actuals stand, in one line — including that the latest months are not closed,
+          which used to be two warning banners saying the same thing. The version is in its own
+          control above, so it is not repeated here. */}
       {series && (
-        <div className="mb-4 flex flex-wrap gap-x-6 gap-y-1 text-sm text-muted-foreground">
-          <span>Books closed through <span className="text-foreground">{series.closedThrough ?? 'never'}</span></span>
-          {series.actualsThrough && <span>Actuals through <span className="text-foreground">{series.actualsThrough}</span></span>}
-          {series.plan && <span>{series.version ? `Version ${series.version.versionNo} (${series.version.status})` : 'Working draft'}</span>}
-        </div>
+        <p className="mb-3 text-sm text-muted-foreground">
+          Books closed through <span className="text-foreground">{monthLabel(series.closedThrough) ?? 'never'}</span>
+          {series.actualsThrough && <>
+            {' · '}Actuals through <span className="text-foreground">{monthLabel(series.actualsThrough)}</span>
+            {series.actualsThrough > (series.closedThrough ?? '') && <span className="text-warning"> (not closed after {monthLabel(series.closedThrough) ?? 'the start'})</span>}
+          </>}
+        </p>
       )}
 
-      {[...((view === 'variance' ? variance?.warnings : series?.warnings) ?? []), ...(detail && !versionId ? detail.warnings : [])]
-        .filter((w, i, all) => all.indexOf(w) === i)
-        .map(w => (
-          <div key={w} className="mb-2 flex items-start gap-2 rounded-md bg-warning-subtle px-3 py-2 text-sm text-warning">
-            <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /> <span>{w}</span>
-          </div>
-        ))}
+      <ForecastNotes
+        planKey={planId || `actuals:${vehicle}`}
+        notes={[...((view === 'variance' ? variance?.warnings : series?.warnings) ?? []), ...(detail && !versionId ? detail.warnings : [])]
+          // Said once, in the status line above.
+          .filter(w => !/include months that are not closed|later actual months are not final/.test(w))
+          .filter((w, i, all) => all.indexOf(w) === i)}
+      />
       {actionError && <p className="mb-3 text-sm text-destructive">{actionError}</p>}
       {seriesError && <p className="mb-3 text-sm text-destructive">{seriesError}</p>}
 
@@ -812,5 +824,72 @@ function PublishDialog({ open, detail, onClose, onPublished }: {
         </DialogFooter>
       </DialogContent>
     </Dialog>
+  )
+}
+
+/** "2026-08" → "Aug 2026". */
+function monthLabel(m: string | null | undefined): string | null {
+  if (!m || !/^\d{4}-\d{2}/.test(m)) return m ?? null
+  const [y, mo] = m.split('-').map(Number)
+  return `${['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'][mo - 1]} ${y}`
+}
+
+/**
+ * The forecast's notes — inferred exit months, missing accounts, a linked fund without a schedule —
+ * in one panel rather than a banner each. Collapsed to a count; each can be dismissed, and stays
+ * dismissed for this plan in this browser until its wording changes (a new note is a new fact).
+ * "Out of date — refresh" is never hidden: it is the one that asks for an action.
+ */
+function ForecastNotes({ planKey, notes }: { planKey: string; notes: string[] }) {
+  const storageKey = `forecast-notes-dismissed:${planKey}`
+  const [dismissed, setDismissed] = useState<string[]>([])
+  const [open, setOpen] = useState(false)
+  useEffect(() => {
+    try { setDismissed(JSON.parse(window.localStorage.getItem(storageKey) ?? '[]')) } catch { setDismissed([]) }
+  }, [storageKey])
+  const persist = (next: string[]) => {
+    setDismissed(next)
+    try { window.localStorage.setItem(storageKey, JSON.stringify(next)) } catch { /* private window: dismiss for this visit only */ }
+  }
+  const urgent = notes.filter(n => /refresh to recompile/.test(n))
+  const rest = notes.filter(n => !urgent.includes(n))
+  const shown = rest.filter(n => !dismissed.includes(n))
+  const hiddenCount = rest.length - shown.length
+  if (urgent.length === 0 && rest.length === 0) return null
+  return (
+    <div className="mb-4 space-y-2">
+      {urgent.map(n => (
+        <div key={n} className="flex items-start gap-2 rounded-md bg-warning-subtle px-3 py-2 text-sm text-warning">
+          <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" /><span>{n}</span>
+        </div>
+      ))}
+      {rest.length > 0 && (
+        <div className="rounded-md border text-sm">
+          <button type="button" onClick={() => setOpen(o => !o)} aria-expanded={open}
+            className="flex w-full items-center gap-2 px-3 py-2 text-left text-muted-foreground hover:text-foreground">
+            <AlertTriangle className="h-4 w-4 shrink-0 text-warning" />
+            <span>{shown.length > 0 ? `${shown.length} note${shown.length === 1 ? '' : 's'} on this forecast` : 'No open notes'}{hiddenCount > 0 ? ` · ${hiddenCount} dismissed` : ''}</span>
+            <span className="ml-auto text-xs">{open ? 'Hide' : 'Show'}</span>
+          </button>
+          {open && (
+            <ul className="divide-y border-t">
+              {shown.map(n => (
+                <li key={n} className="flex items-start gap-3 px-3 py-2">
+                  <span className="min-w-0 flex-1">{n}</span>
+                  <button type="button" onClick={() => persist([...dismissed, n])} className="shrink-0 text-xs text-muted-foreground hover:text-foreground">Dismiss</button>
+                </li>
+              ))}
+              {hiddenCount > 0 && (
+                <li className="px-3 py-2">
+                  <button type="button" onClick={() => persist(dismissed.filter(d => !rest.includes(d)))} className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground">
+                    Show {hiddenCount} dismissed
+                  </button>
+                </li>
+              )}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

@@ -83,14 +83,13 @@ export function PnlChart({ series, fmt }: { series: SeriesResult; fmt: Fmt }) {
       status: p.status,
       revenue: series.revenue[i],
       expenses: series.expenses[i],
-      net: series.netIncome[i],
     })),
     [series],
   )
   const edge = boundaryLabel(series)
   const any = data.some(d => d.revenue || d.expenses)
   return (
-    <ChartCard title="Revenue, expenses and net income">
+    <ChartCard title="Revenue and expenses">
       {!any ? <EmptyPlot label="No income or expense in this range" /> : (
         <ResponsiveContainer width="100%" height={240}>
           <ComposedChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 0 }} barGap={2}>
@@ -113,7 +112,6 @@ export function PnlChart({ series, fmt }: { series: SeriesResult; fmt: Fmt }) {
             <Bar dataKey="expenses" name="Expenses" radius={[4, 4, 0, 0]} fill={EXPENSES} isAnimationActive={false}>
               {data.map(d => <Cell key={d.label} fill={isActual(d.status) ? EXPENSES : EXPENSES_FC} />)}
             </Bar>
-            <Line type="monotone" dataKey="net" name="Net income" stroke={HUE.ink} strokeWidth={2} dot={{ r: 3 }} isAnimationActive={false} />
           </ComposedChart>
         </ResponsiveContainer>
       )}
