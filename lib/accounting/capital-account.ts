@@ -60,8 +60,13 @@ export function bucketForSourceType(sourceType: string | null | undefined): Roll
       return 'realizedGains'
     case 'valuation':
     case 'unrealized':
+    // The tax book's reversal of a partner's unrealized allocation: it lands on the same line, so
+    // a tax-basis capital account nets its unrealized gains to nothing.
+    case 'tax_adj_unrealized':
       return 'unrealizedGains'
     case 'fx_revaluation':
+    // The tax book's reversal of a partner's unrealized translation, on the same line.
+    case 'tax_adj_fx':
       // A currency swing is not investment performance. Its own line, so an LP can see
       // how the portfolio did apart from what the exchange rate did to it.
       return 'fxTranslation'
@@ -70,6 +75,7 @@ export function bucketForSourceType(sourceType: string | null | undefined): Roll
       return 'transfers'
     case 'carried_interest':
     case 'carry':
+    case 'tax_adj_carry':
       return 'carriedInterest'
     case 'carry_distribution':
       // Carried interest PAID out — a cash distribution of carry, kept separate from

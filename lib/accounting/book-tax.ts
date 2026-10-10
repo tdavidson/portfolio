@@ -15,6 +15,9 @@
 //
 //   Derivable, because the ledger already isolates it:
 //     * unrealized appreciation — its own accounts (1200 asset, 4200 income)
+//     * unrealized currency translation — its own accounts (1250 asset, 4300 income). Whatever
+//       character a position's currency gain has when it is realized (§988 ordinary, or part of a
+//       capital gain), nothing is recognised while it is unrealized, so the reversal is the same.
 //     * carried interest accrued on unrealized gains — its own source_type
 //     * organizational costs — its own account (5200), with §709 mechanics below
 //     * syndication costs — its own account (5250), permanently non-deductible
@@ -25,16 +28,19 @@
 //       difference is a judgment call for the preparer.
 //     * §751 hot assets, §754 / §743(b) basis step-ups on a transfer, wash sales, straddles,
 //       §1256 mark-to-market, state modifications. Each needs facts this app does not hold.
-//     * foreign currency under §988. The ledger separates FX translation into 1250 / 4300, so
-//       the number is available — but whether a given position's FX is a §988 item, a capital
-//       item, or neither is not something a subtype can answer.
+//     * the CHARACTER of realized foreign currency gain under §988. The unrealized part reverses
+//       (above); whether a realized one is ordinary or capital is not something a subtype can
+//       answer.
 //
 // Everything in the second list is why the tax book takes hand-authored entries at all.
 
 import { roundCents } from './ledger'
+import { bucketForSourceType, computeCapitalAccounts, type CapitalPosting } from './capital-account'
+import { carryAccrual, carryTarget, type DatedContribution, type LpEconomics, type VehicleCarryTerms } from './carry'
 
 export type TaxDifferenceKind =
   | 'unrealized'
+  | 'fx_translation'
   | 'carry_on_unrealized'
   | 'organizational_709'
   | 'syndication'
@@ -42,6 +48,7 @@ export type TaxDifferenceKind =
 /** Timing differences reverse; permanent ones never do. The distinction drives the disclosure. */
 export const DIFFERENCE_IS_PERMANENT: Record<TaxDifferenceKind, boolean> = {
   unrealized: false,
+  fx_translation: false,
   carry_on_unrealized: false,
   organizational_709: false,
   syndication: true,
@@ -49,6 +56,7 @@ export const DIFFERENCE_IS_PERMANENT: Record<TaxDifferenceKind, boolean> = {
 
 export const DIFFERENCE_LABEL: Record<TaxDifferenceKind, string> = {
   unrealized: 'Unrealized appreciation not recognised for tax',
+  fx_translation: 'Unrealized currency translation not recognised for tax',
   carry_on_unrealized: 'Carried interest accrued on unrealized gains',
   organizational_709: 'Organizational costs capitalised under §709',
   syndication: 'Syndication costs — permanently non-deductible',
@@ -158,6 +166,8 @@ export interface ProposedAdjustment {
 export interface ActualBookYear {
   /** Change in unrealized appreciation booked this year (account 4200). */
   unrealizedChange: number
+  /** Currency translation booked this year (account 4300), unrealized like the marks. */
+  fxChange?: number
   /** Carried interest accrued this year on UNREALIZED gains (source_type carried_interest). */
   carryAccruedOnUnrealized: number
   /** Organizational costs expensed this year (account 5200). */
@@ -183,6 +193,19 @@ export function proposeAdjustments(year: ActualBookYear): ProposedAdjustment[] {
       rationale:
         'Book marks positions to fair value; tax recognises nothing until realization. Reverses ' +
         'when the position is sold, at which point the realized gain is on both bases.',
+    })
+  }
+
+  const fx = roundCents(year.fxChange ?? 0)
+  if (fx !== 0) {
+    out.push({
+      kind: 'fx_translation',
+      amount: fx,
+      permanent: false,
+      label: DIFFERENCE_LABEL.fx_translation,
+      rationale:
+        'Book translates foreign-currency positions at each period-end rate; tax recognises the ' +
+        'currency movement only when the position is sold or settled.',
     })
   }
 
@@ -244,4 +267,72 @@ export function proposeAdjustments(year: ActualBookYear): ProposedAdjustment[] {
 /** Net book-over-tax income difference for a year — the sum a reconciliation reports. */
 export function netAdjustment(proposals: ProposedAdjustment[]): number {
   return roundCents(proposals.reduce((s, p) => s + p.amount, 0))
+}
+
+/**
+ * The part of the year's carry that was earned on UNREALIZED appreciation, per partner — what the
+ * tax book reverses.
+ *
+ * The close accrues carry on the whole NAV, realized and unrealized alike; tax allocates it only on
+ * what has been realized. So the carry target is measured twice, the same way both times — once on
+ * each partner's NAV, once with their unrealized appreciation (and currency translation, unrealized
+ * too) taken out — and the difference is the carry that exists only because of the marks. Both
+ * measurements use NAV before any carry, so a fund with nothing unrealized gets exactly nothing
+ * back, whatever cadence its closes accrued on. The year's figure is that difference at year end
+ * less the same at the prior year end, split by `carryAccrual` the way the close splits it.
+ *
+ * Signed as the capital accounts hold carry: positive debits a paying partner, negative credits a
+ * recipient. Realized carry is never in it, which is what keeps the GP's §1061 and box 20 figures.
+ */
+export function carryOnUnrealizedForYear(
+  capitalPostings: CapitalPosting[],
+  terms: VehicleCarryTerms,
+  priorYearEnd: string,
+  yearEnd: string,
+): Map<string, number> {
+  const out = new Map<string, number>()
+  if (terms.kind === 'none' || terms.carryRate <= 0 || terms.recipients.length === 0) return out
+  const recipientIds = new Set(terms.recipients.map(r => r.lpEntityId))
+
+  const economicsAt = (asOf: string, taxBasis: boolean) => {
+    const upTo = capitalPostings.filter(p => (p.entryDate ?? '') <= asOf)
+    const accounts = computeCapitalAccounts(upTo)
+    const lps: LpEconomics[] = Array.from(accounts.entries())
+      .filter(([id]) => !recipientIds.has(id))
+      .map(([lpEntityId, a]) => ({
+        lpEntityId,
+        contributed: roundCents(a.contributions),
+        distributed: roundCents(-a.distributions),
+        nav: roundCents(a.ending - a.carriedInterest - (taxBasis ? a.unrealizedGains + a.fxTranslation : 0)),
+      }))
+    const contributions: DatedContribution[] = upTo
+      .filter(p => !recipientIds.has(p.lpEntityId) && bucketForSourceType(p.sourceType) === 'contributions')
+      .map(p => ({ date: p.entryDate ?? asOf, amount: roundCents(-p.amount) }))
+      .filter(c => c.amount > 0)
+    return { lps, contributions, asOf }
+  }
+  const yearCarry = (taxBasis: boolean) => {
+    const prior = economicsAt(priorYearEnd, taxBasis)
+    const current = economicsAt(yearEnd, taxBasis)
+    const priorTarget = prior.lps.length ? carryTarget(prior, terms) : 0
+    return current.lps.length ? carryAccrual(current, terms, priorTarget).perLp : new Map<string, number>()
+  }
+
+  const book = yearCarry(false)
+  const tax = yearCarry(true)
+  let total = 0
+  for (const lp of new Set([...book.keys(), ...tax.keys()])) {
+    const amount = roundCents((book.get(lp) ?? 0) - (tax.get(lp) ?? 0))
+    if (amount === 0) continue
+    out.set(lp, amount)
+    total = roundCents(total + amount)
+  }
+  // The recipients' side, split by their percent the way buildCarryEntry splits it.
+  let allocated = 0
+  terms.recipients.forEach((r, i) => {
+    const amt = i === terms.recipients.length - 1 ? roundCents(total - allocated) : roundCents((total * r.pct) / 100)
+    allocated = roundCents(allocated + amt)
+    if (amt !== 0) out.set(r.lpEntityId, roundCents((out.get(r.lpEntityId) ?? 0) - amt))
+  })
+  return out
 }

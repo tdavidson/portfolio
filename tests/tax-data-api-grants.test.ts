@@ -29,6 +29,7 @@ const SERVICE_ROLE_ONLY = [
   'received_k1s',
   'k1_delivery_consents',
   'k1_deliveries',
+  'tax_year_close_events',
 ]
 
 function migrationFiles(): { name: string; sql: string }[] {

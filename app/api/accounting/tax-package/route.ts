@@ -3,7 +3,7 @@ import * as XLSX from 'xlsx'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 // accounting domain (lib/access/route-domains.ts). The K-1 part is gated again in the handler:
-// a K-1 package contains the carry, so it joins the bundle only for a caller who may see it.
+// a K-1 package holds every partner's figures and the carry, so it joins the bundle only for a caller who may read both.
 import { assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { rateLimit } from '@/lib/rate-limit'
@@ -18,7 +18,7 @@ import { fundCurrency } from '@/lib/accounting/currency'
 import { closedPeriodRanges } from '@/lib/accounting/periods'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { renderHtmlToPdf } from '@/lib/lp-report-pdf'
-import { refuseWithoutCarryAccess } from '@/lib/tax/access'
+import { canReadK1s } from '@/lib/tax/access'
 import { findFinalK1Package, buildK1WorkbookForPackage } from '@/lib/tax/k1-export'
 import { loadRealizedGains } from '@/lib/accounting/realized-gains-load'
 import { realizedGainsRows } from '@/lib/accounting/realized-gains'
@@ -98,8 +98,8 @@ export async function GET(req: NextRequest) {
   const k1Pkg = vehicleId ? await findFinalK1Package(admin, gate.fundId, vehicleId, year) : null
   if (!k1Pkg) {
     k1Omitted = `no finalised K-1 package for ${year} on this vehicle.`
-  } else if (await refuseWithoutCarryAccess(admin, gate, user.id)) {
-    k1Omitted = 'the K-1 package includes the carried-interest allocation, which your access does not cover.'
+  } else if (!(await canReadK1s(admin, gate, user.id))) {
+    k1Omitted = "the K-1 package holds each partner's figures and the carried-interest allocation, which your access does not cover."
   } else {
     const { wb } = await buildK1WorkbookForPackage(admin, gate.fundId, k1Pkg)
     k1 = { workbook: XLSX.write(wb, { type: 'buffer', bookType: 'xlsx' }) as Buffer, version: k1Pkg.version }

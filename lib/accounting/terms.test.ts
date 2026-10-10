@@ -71,6 +71,13 @@ describe('allocationWeights', () => {
     expect(split.has('gp')).toBe(false)
   })
 
+  it('currency translation follows the terms for unrealized gains', () => {
+    const terms: PartnerTerms[] = [
+      { lpEntityId: 'gp', category: 'valuation', participates: false, weightOverride: null, rateOverride: null },
+    ]
+    expect(allocationWeights(partners, terms, 'fx_revaluation').map(x => x.lpEntityId)).toEqual(['a', 'b'])
+  })
+
   it('terms are per category — the GP still bears expenses and still gets gains', () => {
     const terms: PartnerTerms[] = [
       { lpEntityId: 'gp', category: 'management_fee', participates: false, weightOverride: null, rateOverride: null },

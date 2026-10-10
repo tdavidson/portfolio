@@ -240,3 +240,20 @@ describe('isLotMethod', () => {
     expect(isLotMethod(null)).toBe(false)
   })
 })
+
+describe('holding period through a conversion', () => {
+  const txn = (o: Record<string, unknown>) => ({ fund_id: 'f', company_id: 'c', portfolio_group: 'Fund I', ...o }) as any
+
+  it("tacks the converted units to the SAFE's purchase date, and starts capitalised interest fresh", () => {
+    const txns = [
+      txn({ id: 'safe', transaction_type: 'investment', transaction_date: '2022-03-01', investment_cost: 100_000, shares_acquired: 0 }),
+      txn({ id: 'pref', transaction_type: 'investment', transaction_date: '2024-06-01', investment_cost: 100_000, interest_converted: 25_000, shares_acquired: 125_000, converts_from_txn_id: 'safe' }),
+      txn({ id: 'sale', transaction_type: 'proceeds', transaction_date: '2024-09-01', shares_acquired: 125_000, proceeds_received: 250_000 }),
+    ]
+    const [basis] = disposalBasis(txns, 'fifo')
+    expect(basis.allocations.map(a => [a.lotDate, Math.round(a.units), a.cost])).toEqual([
+      ['2022-03-01', 100_000, 100_000],
+      ['2024-06-01', 25_000, 25_000],
+    ])
+  })
+})

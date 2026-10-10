@@ -64,6 +64,8 @@ export interface K1PdfData {
     contributions: number
     distributions: number
     netIncome: number
+    /** Item L "Other increase (decrease)". */
+    otherChanges?: number
     ending: number
   }
   /** Package-level issues that touch this partner. Printed rather than withheld. */
@@ -161,6 +163,7 @@ export function buildK1Html(d: K1PdfData): string {
       ${capRow('Beginning capital account', capital.beginning)}
       ${capRow('Capital contributed during the year', capital.contributions)}
       ${capRow('Current year net income (loss)', capital.netIncome)}
+      ${capital.otherChanges ? capRow('Other increase (decrease)', capital.otherChanges) : ''}
       ${capRow('Withdrawals and distributions', -Math.abs(capital.distributions))}
       <tr>
         <td style="padding:6px 8px;border-top:2px solid #ccc;font-weight:600;">Ending capital account</td>

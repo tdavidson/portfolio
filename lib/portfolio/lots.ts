@@ -42,6 +42,12 @@ export interface Lot {
   cost: number
   /** cost / units. */
   unitCost: number
+  /**
+   * When the holding period began, if not `date`. Units received on converting a SAFE or a note
+   * are held from when the instrument was bought (the holding period tacks), not from the
+   * conversion — except any interest that capitalised into them, which is new basis on the day.
+   */
+  heldFrom?: string
 }
 
 export interface Disposal {
@@ -87,6 +93,18 @@ export function basisOf(t: InvestmentTransaction): number {
  */
 export function buildLots(txns: InvestmentTransaction[]): Lot[] {
   const adjusted = splitAdjust(txns)
+  const byId = new Map(txns.map(t => [t.id, t as any]))
+  // The date the original instrument was bought, through any chain of conversions (a note into a
+  // SAFE into preferred). Guarded against a cycle in bad data.
+  const originDate = (t: any): string | null => {
+    let cur = t, seen = 0
+    while (cur?.converts_from_txn_id && seen++ < 20) {
+      const from = byId.get(cur.converts_from_txn_id)
+      if (!from?.transaction_date) break
+      cur = from
+    }
+    return cur && cur !== t ? cur.transaction_date ?? null : null
+  }
   const lots: Lot[] = []
   for (const t of adjusted) {
     const acquires = t.transaction_type === 'investment'
@@ -95,6 +113,16 @@ export function buildLots(txns: InvestmentTransaction[]): Lot[] {
     const units = Number(t.shares_acquired ?? 0)
     if (!(units > 0) || !t.transaction_date) continue
     const cost = basisOf(t)
+    const origin = t.transaction_type === 'investment' ? originDate(t) : null
+    const interest = origin ? Number(t.interest_converted ?? 0) : 0
+    if (origin && origin < t.transaction_date) {
+      // A conversion: the principal's units tack to the instrument's purchase date; units bought
+      // with capitalised interest start their own clock on the conversion date.
+      const interestUnits = cost > 0 && interest > 0 ? units * (interest / cost) : 0
+      lots.push({ txnId: t.id, date: t.transaction_date, units: units - interestUnits, cost: cost - interest, unitCost: cost / units, heldFrom: origin })
+      if (interestUnits > 0) lots.push({ txnId: t.id, date: t.transaction_date, units: interestUnits, cost: interest, unitCost: cost / units })
+      continue
+    }
     lots.push({
       txnId: t.id,
       date: t.transaction_date,
@@ -214,7 +242,9 @@ export function computeDisposalBasis(
       want -= take
       basis += take * lot.unitCost
       allocations.push({
-        lotTxnId: lot.txnId, lotDate: lot.date, units: take, cost: r2(take * lot.unitCost),
+        // The holding period's start, which is what lotDate is read for (holding-period.ts,
+        // realized-gains.ts) — tacked back for converted units.
+        lotTxnId: lot.txnId, lotDate: lot.heldFrom ?? lot.date, units: take, cost: r2(take * lot.unitCost),
       })
     }
 

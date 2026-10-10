@@ -24,6 +24,8 @@ export type AllocationCategory =
   | 'organizational_expense'
   | 'realized_gain'
   | 'valuation'
+  /** Currency translation. Its own line on the roll-forward; allocated on the valuation terms. */
+  | 'fx_revaluation'
   | 'income'
   | 'carried_interest'
 
@@ -150,9 +152,12 @@ export function allocationWeights(
   terms: PartnerTerms[],
   category: AllocationCategory
 ): { lpEntityId: string; commitment: number }[] {
+  // Currency translation is a change in the value of the same holdings, so a partner's terms for
+  // unrealized gains govern it; there are no separate FX terms to set.
+  const termCategory: AllocationCategory = category === 'fx_revaluation' ? 'valuation' : category
   const byPartner = new Map<string, PartnerTerms>()
   for (const t of terms) {
-    if (t.category === category) byPartner.set(t.lpEntityId, t)
+    if (t.category === termCategory) byPartner.set(t.lpEntityId, t)
   }
 
   // A CARRY PARTICIPANT NEED NOT BE AN INVESTOR.

@@ -20,6 +20,8 @@ export interface TaxYearState {
   outstandingK1s: ReceivedK1[]
   /** Upstream K-1s that were amended after arriving — a prompt to amend ours. */
   amendedK1s: ReceivedK1[]
+  /** Every close and reopen of the year, oldest first (tax_year_close_events). */
+  history: { action: 'closed' | 'reopened'; at: string; reason: string | null }[]
 }
 
 export async function taxYearState(
@@ -31,7 +33,7 @@ export async function taxYearState(
   const vehicleId = await vehicleIdByName(admin, fundId, group)
   if (!vehicleId) return { error: `Unknown vehicle "${group}"` }
 
-  const [{ data: close }, { data: packages }] = await Promise.all([
+  const [{ data: close }, { data: packages }, { data: events }] = await Promise.all([
     admin
       .from('tax_year_closes' as any)
       .select('*')
@@ -46,6 +48,13 @@ export async function taxYearState(
       .eq('vehicle_id', vehicleId)
       .eq('tax_year', taxYear)
       .order('version', { ascending: true }),
+    admin
+      .from('tax_year_close_events' as any)
+      .select('action, reason, created_at')
+      .eq('fund_id', fundId)
+      .eq('vehicle_id', vehicleId)
+      .eq('tax_year', taxYear)
+      .order('created_at', { ascending: true }),
   ])
 
   const deps = await loadK1Dependencies(admin, fundId, vehicleId, taxYear)
@@ -60,6 +69,7 @@ export async function taxYearState(
     packages: ((packages as any[]) ?? []).map(p => ({ id: p.id, version: p.version, status: p.status })),
     outstandingK1s: deps.outstanding,
     amendedK1s: deps.amended,
+    history: ((events as any[]) ?? []).map(e => ({ action: e.action, at: e.created_at, reason: e.reason ?? null })),
   }
 }
 
@@ -76,6 +86,11 @@ export async function loadK1Dependencies(
   vehicleId: string,
   taxYear: number,
 ) {
+  // THIS vehicle's fund holdings only. Read firm-wide, one fund's missing K-1 blocked every other
+  // fund's year close, and a status recorded for one vehicle answered for all of them.
+  const { data: vehicle } = await admin.from('fund_vehicles' as any).select('name').eq('id', vehicleId).eq('fund_id', fundId).maybeSingle()
+  const group = (vehicle as any)?.name as string | undefined
+  if (!group) return reportK1Dependencies([], taxYear)
   const [{ data: holdings }, { data: statuses }] = await Promise.all([
     // Filtered in SQL, not in JS: holding-type.test.ts requires every company-shaped query to
     // answer the discriminator question, and a fund holding is the only kind that files a
@@ -84,15 +99,19 @@ export async function loadK1Dependencies(
       .from('companies' as any)
       .select('id, name, holding_type')
       .eq('fund_id', fundId)
-      .eq('holding_type', K1_EXPECTED_HOLDING_TYPE),
+      .eq('holding_type', K1_EXPECTED_HOLDING_TYPE)
+      .contains('portfolio_group', [group]),
     admin
       .from('received_k1s' as any)
-      .select('company_id, tax_year, status, received_date')
+      .select('company_id, tax_year, status, received_date, vehicle_id')
       .eq('fund_id', fundId)
       .eq('tax_year', taxYear),
   ])
 
-  const statusByCompany = new Map(((statuses as any[]) ?? []).map(r => [r.company_id as string, r]))
+  // A status recorded for this vehicle wins; one recorded without a vehicle (older rows) still counts.
+  const statusRows = ((statuses as any[]) ?? []).filter(r => !r.vehicle_id || r.vehicle_id === vehicleId)
+    .sort((a, b) => (a.vehicle_id ? 1 : 0) - (b.vehicle_id ? 1 : 0))
+  const statusByCompany = new Map(statusRows.map(r => [r.company_id as string, r]))
   const rows: ReceivedK1[] = ((holdings as any[]) ?? []).map(h => {
     const s = statusByCompany.get(h.id)
     return {
@@ -157,14 +176,23 @@ export async function closeTaxYear(
       status: 'closed',
       closed_at: new Date().toISOString(),
       closed_by: userId,
-      reopened_at: null,
-      reopened_by: null,
-      reopened_reason: null,
+      // The last reopen stays on the row — "closed, reopened in March because the underlying fund
+      // amended, closed again" is the history this record exists for. Every close and reopen is
+      // also logged in tax_year_close_events.
     },
     { onConflict: 'fund_id,vehicle_id,tax_year' },
   )
   if (error) return { error: error.message }
+  await logTaxYearEvent(admin, fundId, vehicleId, taxYear, 'closed', userId, null)
   return { ok: true }
+}
+
+/** Append-only history of a tax year's closes and reopens. Best effort: the close itself stands. */
+async function logTaxYearEvent(
+  admin: SupabaseClient, fundId: string, vehicleId: string, taxYear: number,
+  action: 'closed' | 'reopened', userId: string | null, reason: string | null,
+) {
+  await admin.from('tax_year_close_events' as any).insert({ fund_id: fundId, vehicle_id: vehicleId, tax_year: taxYear, action, actor_id: userId, reason })
 }
 
 /**
@@ -211,6 +239,7 @@ export async function reopenTaxYear(
     .eq('vehicle_id', vehicleId)
     .eq('tax_year', taxYear)
   if (error) return { error: error.message }
+  await logTaxYearEvent(admin, fundId, vehicleId, taxYear, 'reopened', userId, trimmed.slice(0, 1000))
 
   // Reported, not refused: the caller should be able to say "three issued K-1 packages depend on
   // this year" without the reopen being impossible. Correcting an issued K-1 is exactly why one

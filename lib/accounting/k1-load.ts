@@ -14,6 +14,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { roundCents } from './ledger'
 import { computeCapitalAccounts, type CapitalPosting } from './capital-account'
 import { fetchAllRows } from './load'
+import { txnsForVehicle } from './soi'
 import { vehicleIdByName } from './vehicle-id'
 import { disposalBasis, isLotMethod, type LotMethod } from '@/lib/portfolio/lots'
 import { splitGains, type DisposalGain, type GainSplit } from './holding-period'
@@ -95,8 +96,12 @@ export async function loadK1Year(
   const posted = postingRows.filter(r => r.journal_entries?.status === 'posted')
 
   // --- Partner activity -----------------------------------------------------
+  // Partner CAPITAL accounts only. A receivable (Due from LPs), a distribution payable or an
+  // advance carries a partner id too; counted as capital, a call's receivable cancelled the
+  // contribution it was raised for.
+  const capitalAccountIds = new Set(acctRows.filter(a => a.lp_entity_id).map(a => a.id as string))
   const capitalPostings: CapitalPosting[] = posted
-    .filter(r => r.lp_entity_id)
+    .filter(r => r.lp_entity_id && capitalAccountIds.has(r.account_id))
     .map(r => ({
       lpEntityId: r.lp_entity_id as string,
       amount: Number(r.amount),
@@ -119,6 +124,10 @@ export async function loadK1Year(
     realizedGains: a.realizedGains,
     expenses: Math.abs(a.managementFees) + Math.abs(a.expenses),
     carriedInterest: a.carriedInterest,
+    // Currency translation is unrealized too: once the year's adjustments are posted both net to
+    // nothing in tax capital, and anything left is the book-basis case k1-package.ts blocks on.
+    unrealizedGains: roundCents(a.unrealizedGains + a.fxTranslation),
+    otherChanges: roundCents(a.transfers + a.unclassified),
     endingCapital: a.ending,
   }))
 
@@ -138,10 +147,13 @@ export async function loadK1Year(
   // (below) instead of the classifier.
   const dividends = incomeOn(INCOME_CODES.dividends)
   const interest = roundCents(incomeOn(INCOME_CODES.interest) + incomeOn(INCOME_CODES.noteInterest))
-  const taggedDividends = await loadDividendIncome(admin, fundId, vehicleId, yearStart, yearEnd)
-  const qualified = await loadQualifiedDividends(admin, fundId, yearStart, yearEnd)
+  // The portfolio side is read for THIS vehicle only. A firm with several funds holds the same
+  // company in more than one, and a fund-wide read put one fund's sales and dividends on
+  // another's K-1s.
+  const taggedDividends = await loadDividendIncome(admin, fundId, group, yearStart, yearEnd)
+  const qualified = await loadQualifiedDividends(admin, fundId, group, yearStart, yearEnd)
 
-  const gains = await loadRealizedGainSplit(admin, fundId, vehicleId, taxYear)
+  const gains = await loadRealizedGainSplit(admin, fundId, group, taxYear)
 
   const deductions = roundCents(
     expenseOn(EXPENSE_CODES.managementFee) +
@@ -217,6 +229,8 @@ async function loadDistributionKinds(
     .select('kind, distribution_lines(lp_entity_id, amount)')
     .eq('fund_id', fundId)
     .eq('vehicle_id', vehicleId)
+    // A draft is a declaration that never completed — nothing was distributed.
+    .eq('status', 'declared')
     .gte('distribution_date', yearStart)
     .lte('distribution_date', yearEnd)
 
@@ -236,7 +250,7 @@ async function loadDistributionKinds(
 async function loadDividendIncome(
   admin: SupabaseClient,
   fundId: string,
-  vehicleId: string,
+  group: string,
   yearStart: string,
   yearEnd: string,
 ): Promise<number> {
@@ -246,6 +260,7 @@ async function loadDividendIncome(
     .eq('fund_id', fundId)
     .eq('transaction_type', 'income')
     .eq('income_kind', 'dividend')
+    .eq('portfolio_group', group)
     .gte('transaction_date', yearStart)
     .lte('transaction_date', yearEnd)
   return roundCents(((data as any[]) ?? []).reduce((s, r) => s + Number(r.income_amount ?? 0), 0))
@@ -255,7 +270,7 @@ async function loadDividendIncome(
 async function loadRealizedGainSplit(
   admin: SupabaseClient,
   fundId: string,
-  vehicleId: string,
+  group: string,
   taxYear: number,
 ): Promise<GainSplit> {
   const { data: settings } = await admin
@@ -268,13 +283,15 @@ async function loadRealizedGainSplit(
 
   // Every transaction for the fund's companies: lots are built from the full history, because a
   // disposal in this year can consume a lot bought in any prior one.
-  const txns = await fetchAllRows<any>((from, to) =>
+  // This vehicle's own rows, plus the company-wide price signals and splits it shares — the same
+  // set its schedule of investments is built from.
+  const txns = txnsForVehicle(await fetchAllRows<any>((from, to) =>
     admin
       .from('investment_transactions' as any)
       .select('*')
       .eq('fund_id', fundId)
       .range(from, to),
-  )
+  ), group)
 
   const byCompany = new Map<string, any[]>()
   for (const t of txns) {
@@ -315,6 +332,7 @@ async function loadRealizedGainSplit(
 async function loadQualifiedDividends(
   admin: SupabaseClient,
   fundId: string,
+  group: string,
   yearStart: string,
   yearEnd: string,
 ): Promise<QualifiedDividendSummary> {
@@ -324,6 +342,7 @@ async function loadQualifiedDividends(
     .eq('fund_id', fundId)
     .eq('transaction_type', 'income')
     .eq('income_kind', 'dividend')
+    .eq('portfolio_group', group)
     .gte('transaction_date', yearStart)
     .lte('transaction_date', yearEnd)
   const dividendRows = (rows as any[]) ?? []
@@ -344,6 +363,7 @@ async function loadQualifiedDividends(
       .from('investment_transactions' as any)
       .select('company_id, transaction_date, shares_acquired, transaction_type')
       .eq('fund_id', fundId)
+      .eq('portfolio_group', group)
       .in('company_id', companyIds)
       .range(from, to),
   )

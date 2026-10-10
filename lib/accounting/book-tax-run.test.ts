@@ -60,10 +60,16 @@ describe('taxSourceRef', () => {
 // ---------------------------------------------------------------------------
 
 const ACCOUNTS = [
-  { id: 'a-1200', code: '1200' },
-  { id: 'a-4200', code: '4200' },
+  { id: 'a-1200', code: '1200', type: 'asset', subtype: 'unrealized' },
+  { id: 'a-4200', code: '4200', type: 'income', subtype: 'unrealized' },
   { id: 'a-5200', code: '5200' },
   { id: 'a-5250', code: '5250' },
+  { id: 'cap-a', code: '3100-a', type: 'equity', lp_entity_id: 'lp-a' },
+  { id: 'cap-b', code: '3100-b', type: 'equity', lp_entity_id: 'lp-b' },
+  { id: 'cap-gp', code: '3100-gp', type: 'equity', lp_entity_id: 'gp' },
+  { id: 'due', code: '1300', type: 'asset' },
+  { id: 'a-4300', code: '4300', type: 'income', subtype: 'fx_translation' },
+  { id: 'fx-acme', code: '1250-acme', type: 'asset', subtype: 'fx_translation' },
 ]
 
 function posting(over: Partial<Record<string, any>>) {
@@ -77,12 +83,14 @@ function posting(over: Partial<Record<string, any>>) {
 }
 
 /** Chainable fake returning the right rows per table. */
-function fakeAdmin(postings: any[], vehicleName = 'Fund I') {
+function fakeAdmin(postings: any[], vehicleName = 'Fund I', accounts: any[] = ACCOUNTS) {
   const make = (rows: any[]) => {
     const q: any = {
       select: () => q,
       eq: () => q,
       in: () => q,
+      order: () => q,
+      range: (from: number) => Promise.resolve({ data: from === 0 ? rows : [], error: null }),
       maybeSingle: () => Promise.resolve({ data: rows[0] ?? null, error: null }),
       single: () => Promise.resolve({ data: rows[0] ?? null, error: null }),
       then: (resolve: (v: any) => void) => resolve({ data: rows, error: null }),
@@ -91,7 +99,7 @@ function fakeAdmin(postings: any[], vehicleName = 'Fund I') {
   }
   return {
     from: (table: string) => {
-      if (table === 'chart_of_accounts') return make(ACCOUNTS)
+      if (table === 'chart_of_accounts') return make(accounts)
       if (table === 'journal_postings') return make(postings)
       if (table === 'fund_vehicles') return make([{ id: 'veh-1', name: vehicleName }])
       return make([])
@@ -156,9 +164,9 @@ describe('loadActualBookYear', () => {
     const carryEntry = { entry_date: '2026-12-31', status: 'posted', source_type: 'carried_interest', book: 'actual' }
     const res = await loadActualBookYear(
       fakeAdmin([
-        posting({ account_id: 'cap-a', amount: 60_000, lp_entity_id: 'lp-a', journal_entries: carryEntry }),
-        posting({ account_id: 'cap-b', amount: 40_000, lp_entity_id: 'lp-b', journal_entries: carryEntry }),
-        posting({ account_id: 'cap-gp', amount: -100_000, lp_entity_id: 'gp', journal_entries: carryEntry }),
+        posting({ journal_entry_id: 'e-carry', account_id: 'cap-a', amount: 60_000, lp_entity_id: 'lp-a', journal_entries: carryEntry }),
+        posting({ journal_entry_id: 'e-carry', account_id: 'cap-b', amount: 40_000, lp_entity_id: 'lp-b', journal_entries: carryEntry }),
+        posting({ journal_entry_id: 'e-carry', account_id: 'cap-gp', amount: -100_000, lp_entity_id: 'gp', journal_entries: carryEntry }),
       ]),
       'fund-1',
       'Fund I',
@@ -170,6 +178,51 @@ describe('loadActualBookYear', () => {
     expect(res.year.carryAccruedOnUnrealized).toBe(100_000)
     expect(res.perLpCarry.get('lp-a')).toBe(60_000)
     expect(res.perLpCarry.get('gp')).toBe(-100_000)
+  })
+
+  it("does not read a GP entity's 4200 (management-fee income) as unrealized appreciation", async () => {
+    const admin = fakeAdmin([posting({ account_id: 'gp-4200', amount: -50_000 })], 'GP LLC', [
+      { id: 'gp-4200', code: '4200', type: 'income', subtype: 'management_fee_income' },
+    ])
+    const res = await loadActualBookYear(admin, 'fund-1', 'GP LLC', 2026)
+    if ('error' in res) throw new Error(res.error)
+    expect(res.year.unrealizedChange).toBe(0)
+  })
+
+  it("reads currency translation apart from the marks: the year's 4300, each partner's share, each company's 1250", async () => {
+    const reval = { entry_date: '2026-06-30', status: 'posted', source_type: 'fx_revaluation', book: 'actual' }
+    const res = await loadActualBookYear(
+      fakeAdmin([
+        posting({ journal_entry_id: 'e-fx', account_id: 'fx-acme', amount: 12_000, journal_entries: reval }),
+        posting({ journal_entry_id: 'e-fx', account_id: 'a-4300', amount: -12_000, journal_entries: reval }),
+        posting({ journal_entry_id: 'e-alloc', account_id: 'cap-a', amount: -12_000, lp_entity_id: 'lp-a', journal_entries: reval }),
+      ]),
+      'fund-1',
+      'Fund I',
+      2026,
+    )
+    if ('error' in res) throw new Error(res.error)
+    expect(res.year.fxChange).toBe(12_000)
+    expect(res.year.unrealizedChange).toBe(0)
+    expect(res.perLpFx).toEqual(new Map([['lp-a', -12_000]]))
+    expect(res.assetMoves.fx).toEqual(new Map([['fx-acme', 12_000]]))
+  })
+
+  it("collects each partner's unrealized allocation from their capital account, not a receivable", async () => {
+    const valuation = { entry_date: '2026-12-31', status: 'posted', source_type: 'valuation', book: 'actual' }
+    const res = await loadActualBookYear(
+      fakeAdmin([
+        posting({ journal_entry_id: 'e-val', account_id: 'cap-a', amount: -300_000, lp_entity_id: 'lp-a', journal_entries: valuation }),
+        posting({ journal_entry_id: 'e-val', account_id: 'cap-b', amount: -200_000, lp_entity_id: 'lp-b', journal_entries: valuation }),
+        // A per-partner receivable is tagged with the partner too, and is not capital.
+        posting({ journal_entry_id: 'e-val', account_id: 'due', amount: 999, lp_entity_id: 'lp-a', journal_entries: valuation }),
+      ]),
+      'fund-1',
+      'Fund I',
+      2026,
+    )
+    if ('error' in res) throw new Error(res.error)
+    expect(res.perLpUnrealized).toEqual(new Map([['lp-a', -300_000], ['lp-b', -200_000]]))
   })
 
   it('separates organizational from syndication costs', async () => {

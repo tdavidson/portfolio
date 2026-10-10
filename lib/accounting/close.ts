@@ -90,6 +90,9 @@ const SUBTYPE_TO_SOURCE: Record<string, string> = {
   operating_expense: 'partnership_expense',
   realized_gain: 'realized_gain',
   unrealized: 'valuation',
+  // Currency translation (4300) used to fall through to 'income' and reach partners as operating
+  // income. It is its own roll-forward line (bucketForSourceType: fx_revaluation → fxTranslation).
+  fx_translation: 'fx_revaluation',
   interest_income: 'income',
   portfolio_income: 'income',
   equity_method: 'income',
@@ -167,6 +170,7 @@ const CATEGORY_LABELS: Record<string, string> = {
   organizational_expense: 'Organizational expenses',
   realized_gain: 'Net realized gain / (loss)',
   valuation: 'Net unrealized gain / (loss)',
+  fx_revaluation: 'Foreign currency translation',
   income: 'Operating income',
 }
 
@@ -1779,7 +1783,7 @@ export async function reopenThrough(
   fundId: string,
   group: string,
   target: { periodId: string } | { fromDate: string }
-): Promise<{ ok: true; reopened: number; voided: number } | { error: string }> {
+): Promise<{ ok: true; reopened: number; voided: number; issuedK1Years: number[] } | { error: string }> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
 
   // Either a row ("this period and everything after it") or a date ("every close that
@@ -1810,6 +1814,21 @@ export async function reopenThrough(
     .order('period_start', { ascending: false })
   if (!closed?.length) return { error: 'No closed period covers or follows that date' }
 
+  // The tax years these periods fall in. A CLOSED tax year locks its books for the K-1s issued on
+  // them, so reopening a period inside one is refused until the tax year is reopened — with a
+  // reason, on the Tax page. An open tax year with issued K-1s is allowed (correcting one is why
+  // people reopen) and reported, so the caller can say those K-1s may now need amending.
+  const years = Array.from(new Set(((closed as any[]) ?? []).map(p => Number(String(p.period_end).slice(0, 4))))).sort()
+  const [{ data: taxCloses }, { data: issued }] = await Promise.all([
+    admin.from('tax_year_closes' as any).select('tax_year, status').eq('fund_id', fundId).eq('vehicle_id', vehicleId).in('tax_year', years),
+    admin.from('k1_packages' as any).select('tax_year').eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('status', 'final').in('tax_year', years),
+  ])
+  const lockedYears = ((taxCloses as any[]) ?? []).filter(r => r.status === 'closed').map(r => Number(r.tax_year)).sort()
+  if (lockedYears.length > 0) {
+    return { error: `Tax year ${lockedYears.join(', ')} is closed. Reopen it on the Tax page (a reason is required) before reopening its periods.` }
+  }
+  const issuedK1Years = Array.from(new Set(((issued as any[]) ?? []).map(r => Number(r.tax_year)))).sort()
+
   let reopened = 0
   let voided = 0
   for (const p of ((closed as any[]) ?? [])) {
@@ -1821,7 +1840,7 @@ export async function reopenThrough(
     reopened += 1
     voided += r.voided
   }
-  return { ok: true, reopened, voided }
+  return { ok: true, reopened, voided, issuedK1Years }
 }
 
 /**

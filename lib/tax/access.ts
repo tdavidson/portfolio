@@ -24,6 +24,22 @@ import { hasAccess, loadAccessContext } from '@/lib/access/effective'
  *
  * Returns the 403 to send, or null to proceed.
  */
+/**
+ * May this caller read K-1s — per-partner figures (`lp_capital`) that contain the carry
+ * (`gp_economics`)? The K-1 routes get the first from the registry and check the second in the
+ * handler; a route registered under another domain (the tax package, under `accounting`) that
+ * bundles a K-1 has to check both, or a member with the ledger and carry but not the partner
+ * register reads every partner's K-1 through it.
+ */
+export async function canReadK1s(
+  admin: SupabaseClient,
+  gate: { fundId: string; role: string },
+  userId: string,
+): Promise<boolean> {
+  const access = await loadAccessContext(admin, gate.fundId, userId, gate.role)
+  return hasAccess(access, 'gp_economics', 'read') && hasAccess(access, 'lp_capital', 'read')
+}
+
 export async function refuseWithoutCarryAccess(
   admin: SupabaseClient,
   gate: { fundId: string; role: string },

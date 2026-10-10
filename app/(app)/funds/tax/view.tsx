@@ -24,6 +24,7 @@ interface TaxYearState {
   taxYear: number; closed: boolean; closedAt: string | null; reopenedAt: string | null; reopenedReason: string | null
   packages: { id: string; version: number; status: string }[]
   outstandingK1s: unknown[]; amendedK1s: unknown[]
+  history?: { action: 'closed' | 'reopened'; at: string; reason: string | null }[]
 }
 interface Proposal { kind: string; amount: number; permanent: boolean; label: string; rationale: string }
 interface TaxRun { taxYear: number; proposals: Proposal[]; entryIds: string[]; skipped: { reason?: string; kind?: string }[]; voided: number; missingAccounts: string[] }
@@ -132,7 +133,7 @@ export function TaxView() {
   const entryList = (rows: JournalEntryRow[], book: 'actual' | 'tax', empty: string) => rows.length === 0
     ? <p className="text-sm text-muted-foreground">{empty}</p>
     : (
-      <div className="divide-y rounded-md border font-mono text-xs">
+      <div className="divide-y rounded-md border text-xs tabular-nums">
         {rows.map(e => (
           <div key={e.id} onClick={() => setViewing({ id: e.id, book })} className="cursor-pointer px-3 py-2 hover:bg-muted/30">
             <div><span className="text-muted-foreground">{e.entry_date}</span> {e.reference && <span className="text-muted-foreground">#{e.reference} </span>}&quot;{(e.memo || e.source_type || 'Entry').replace(/"/g, "'")}&quot;</div>
@@ -176,6 +177,13 @@ export function TaxView() {
                   ? <>Closed{state.data.closedAt ? ` on ${state.data.closedAt.slice(0, 10)}` : ''}. The tax book for {year} is locked.</>
                   : <>Open. {state.data.reopenedAt ? `Reopened ${state.data.reopenedAt.slice(0, 10)}${state.data.reopenedReason ? ` — ${state.data.reopenedReason}` : ''}. ` : ''}Close it once the adjustments are posted and the K-1s are final.</>}
               </p>
+              {(state.data.history?.length ?? 0) > 1 && (
+                <ul className="text-xs text-muted-foreground space-y-0.5">
+                  {state.data.history!.map((e, i) => (
+                    <li key={i}>{e.at.slice(0, 10)} · {e.action === 'closed' ? 'Closed' : 'Reopened'}{e.reason ? ` — ${e.reason}` : ''}</li>
+                  ))}
+                </ul>
+              )}
               {state.data.outstandingK1s.length > 0 && <p className="text-sm text-warning">{state.data.outstandingK1s.length} underlying fund{state.data.outstandingK1s.length === 1 ? '' : 's'} still owe this vehicle a K-1 for {year}.</p>}
               {canWrite && (
                 <div className="flex gap-2">

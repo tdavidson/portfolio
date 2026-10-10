@@ -62,6 +62,7 @@ export interface K1WorkbookPartner {
     contributions: number
     distributions: number
     netIncome: number
+    otherChanges?: number
     ending: number
   }
   tieOutVariance: number
@@ -174,6 +175,7 @@ function capitalSheet(input: K1WorkbookInput): XLSX.WorkSheet {
       'Capital contributed',
       'Withdrawals and distributions',
       'Current year net income (loss)',
+      'Other increase (decrease)',
       'Ending capital',
       'Lines vs allocated activity',
       'Roll-forward variance',
@@ -188,6 +190,7 @@ function capitalSheet(input: K1WorkbookInput): XLSX.WorkSheet {
       // Item L shows withdrawals as a negative; the package holds the magnitude.
       money(-Math.abs(c.distributions)),
       money(c.netIncome),
+      money(c.otherChanges ?? 0),
       money(c.ending),
       money(p.tieOutVariance),
       money(p.rollForwardVariance),
@@ -201,12 +204,13 @@ function capitalSheet(input: K1WorkbookInput): XLSX.WorkSheet {
       sum(p => p.capitalAccount.contributions),
       sum(p => -Math.abs(p.capitalAccount.distributions)),
       sum(p => p.capitalAccount.netIncome),
+      sum(p => p.capitalAccount.otherChanges ?? 0),
       sum(p => p.capitalAccount.ending),
       sum(p => p.tieOutVariance),
       sum(p => p.rollForwardVariance),
     ])
   }
-  return sheet(rows, [28, 20, 20, 28, 28, 20, 26, 22])
+  return sheet(rows, [28, 20, 20, 28, 28, 24, 20, 26, 22])
 }
 
 /** The fund-level character the partner lines were split from — the tie-out target. */

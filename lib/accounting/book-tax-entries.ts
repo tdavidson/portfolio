@@ -43,6 +43,7 @@ export interface TaxAdjustmentAccounts {
 /** `source_type` per difference, so a tax entry can be found and reversed by kind. */
 export const TAX_SOURCE_TYPE: Record<TaxDifferenceKind, string> = {
   unrealized: 'tax_adj_unrealized',
+  fx_translation: 'tax_adj_fx',
   carry_on_unrealized: 'tax_adj_carry',
   organizational_709: 'tax_adj_org_709',
   syndication: 'tax_adj_syndication',
@@ -63,20 +64,83 @@ function finalize(base: TaxEntryBase, sourceType: string, postings: Posting[]): 
 /**
  * Reverse the mark: undo `amount` of unrealized appreciation.
  *
- * Book posted Dr 1200 / Cr 4200. This posts the exact opposite, so the tax book carries
- * positions at cost and recognises nothing until the position is actually sold.
+ * Book posted Dr 1200 / Cr 4200, and the close then carried 4200 into each partner's capital
+ * (source `valuation`). This posts the opposite of both, so the tax book carries positions at cost
+ * and each partner's TAX capital holds none of the appreciation — which is what Item L reports.
+ * `perLp` is what the close allocated to each partner in the year, signed as posted (a gain is a
+ * credit, negative); the part of the year's mark not yet allocated is reversed on 4200 itself.
+ * Without `perLp` the whole reversal sits on 4200, at fund level — the old behaviour.
  */
 export function buildUnrealizedReversalEntry(
   base: TaxEntryBase,
   amount: number,
   accts: Pick<TaxAdjustmentAccounts, 'unrealizedAssetId' | 'unrealizedIncomeId'>,
   currency = 'USD',
+  perLp?: MarkReversalSplit,
+): JournalEntry {
+  return markReversal(base, TAX_SOURCE_TYPE.unrealized, amount, accts.unrealizedIncomeId, accts.unrealizedAssetId, currency, perLp)
+}
+
+/**
+ * Reverse unrealized currency translation — the same shape as the mark (Dr 1250 / Cr 4300 on the
+ * book, carried to partners as `fx_revaluation`), on the translation accounts.
+ */
+export function buildFxReversalEntry(
+  base: TaxEntryBase,
+  amount: number,
+  accts: { fxIncomeId: string; fxAssetId: string },
+  currency = 'USD',
+  perLp?: MarkReversalSplit,
+): JournalEntry {
+  return markReversal(base, TAX_SOURCE_TYPE.fx_translation, amount, accts.fxIncomeId, accts.fxAssetId, currency, perLp)
+}
+
+/**
+ * How a mark reversal spreads: `allocated` is each partner's share as the close posted it (a gain
+ * is a credit, negative); `assetMoves` is the year's movement on each asset account (per company,
+ * debit-positive), so each one is reversed by its own amount rather than all of it landing on the
+ * parent account.
+ */
+export interface MarkReversalSplit {
+  allocated?: Map<string, number>
+  capMap?: CapitalAccountMap
+  assetMoves?: Map<string, number>
+}
+
+function markReversal(
+  base: TaxEntryBase,
+  sourceType: string,
+  amount: number,
+  incomeId: string,
+  defaultAssetId: string,
+  currency: string,
+  perLp?: MarkReversalSplit,
 ): JournalEntry {
   const a = roundCents(amount)
-  return finalize(base, TAX_SOURCE_TYPE.unrealized, [
-    { accountId: accts.unrealizedIncomeId, amount: a, currency, lpEntityId: null },
-    { accountId: accts.unrealizedAssetId, amount: roundCents(-a), currency, lpEntityId: null },
-  ])
+  const postings: Posting[] = []
+  let allocated = 0
+  for (const [lpEntityId, posted] of Array.from(perLp?.allocated?.entries() ?? [])) {
+    const reversal = roundCents(-posted)
+    if (reversal === 0) continue
+    const accountId = perLp!.capMap?.get(lpEntityId)
+    if (!accountId) throw new Error(`No capital account for LP entity ${lpEntityId}`)
+    postings.push({ accountId, amount: reversal, currency, lpEntityId })
+    allocated = roundCents(allocated + reversal)
+  }
+  const onIncome = roundCents(a - allocated)
+  if (onIncome !== 0) postings.push({ accountId: incomeId, amount: onIncome, currency, lpEntityId: null })
+  // Each asset account by its own movement; anything the moves do not cover (a hand entry on the
+  // income side alone) goes to the default account, so the entry always balances on `amount`.
+  let onAssets = 0
+  for (const [accountId, move] of Array.from(perLp?.assetMoves?.entries() ?? [])) {
+    const reversal = roundCents(-move)
+    if (reversal === 0) continue
+    postings.push({ accountId, amount: reversal, currency, lpEntityId: null })
+    onAssets = roundCents(onAssets + reversal)
+  }
+  const rest = roundCents(-a - onAssets)
+  if (rest !== 0) postings.push({ accountId: defaultAssetId, amount: rest, currency, lpEntityId: null })
+  return finalize(base, sourceType, postings)
 }
 
 /**
@@ -154,6 +218,10 @@ export interface BuildTaxEntriesInput {
   accounts: TaxAdjustmentAccounts
   /** Required only when a carry adjustment is present. */
   carry?: { perLpReversal: Map<string, number>; capMap: CapitalAccountMap }
+  /** Each partner's unrealized allocation in the year, as the close posted it. */
+  unrealized?: MarkReversalSplit
+  /** The same for currency translation, with the accounts it posts to. */
+  fx?: MarkReversalSplit & { fxIncomeId: string; fxAssetId: string }
   currency?: string
 }
 
@@ -183,7 +251,14 @@ export function buildTaxAdjustmentEntries(input: BuildTaxEntriesInput): {
     if (p.amount === 0) continue
     switch (p.kind) {
       case 'unrealized':
-        entries.push(buildUnrealizedReversalEntry({ ...base, memo: p.label }, p.amount, accounts, currency))
+        entries.push(buildUnrealizedReversalEntry({ ...base, memo: p.label }, p.amount, accounts, currency, input.unrealized))
+        break
+      case 'fx_translation':
+        if (!input.fx) {
+          skipped.push({ kind: p.kind, reason: 'The chart has no currency-translation accounts (1250 / 4300) to reverse against.' })
+          break
+        }
+        entries.push(buildFxReversalEntry({ ...base, memo: p.label }, p.amount, input.fx, currency, input.fx))
         break
       case 'carry_on_unrealized': {
         if (!carry || carry.perLpReversal.size === 0) {

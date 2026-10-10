@@ -123,6 +123,13 @@ export interface PartnerYearActivity {
   expenses: number
   /** Carried interest allocated to or from this partner, signed as the capital account holds it. */
   carriedInterest: number
+  /**
+   * Unrealized appreciation still in the partner's tax capital. Zero once the year's book-to-tax
+   * adjustments are posted; anything else means Item L is on a book basis (see k1-package.ts).
+   */
+  unrealizedGains?: number
+  /** Item L "other increase (decrease)": transfers between partners, unclassified postings. */
+  otherChanges?: number
   endingCapital: number
 }
 
@@ -134,6 +141,10 @@ export interface PartnerK1 {
     contributions: number
     distributions: number
     netIncome: number
+    /** Item L "other increase (decrease)" — see PartnerYearActivity.otherChanges. */
+    otherChanges: number
+    /** Unrealized appreciation left in tax capital; non-zero blocks issuing (k1-package.ts). */
+    unrealized: number
     ending: number
   }
   /**
@@ -289,6 +300,8 @@ export function allocateK1(input: AllocateK1Input): AllocateK1Result {
         contributions: roundCents(p.contributions),
         distributions: roundCents(p.distributions),
         netIncome: fromCapital,
+        otherChanges: roundCents(p.otherChanges ?? 0),
+        unrealized: roundCents(p.unrealizedGains ?? 0),
         ending: roundCents(p.endingCapital),
       },
       tieOut: { computed, fromCapital, variance: roundCents(computed - fromCapital) },
@@ -305,8 +318,10 @@ export function allocateK1(input: AllocateK1Input): AllocateK1Result {
  * item L that has been forced to balance tells a preparer nothing about whether the books do.
  */
 export function capitalAccountFoots(k1: PartnerK1): { expected: number; actual: number; variance: number } {
-  const { beginning, contributions, distributions, netIncome, ending } = k1.capitalAccount
-  const expected = roundCents(beginning + contributions - distributions + netIncome)
+  const { beginning, contributions, distributions, netIncome, otherChanges, unrealized, ending } = k1.capitalAccount
+  // Unrealized appreciation is a line of its own here so the foot tests the books, not the tax
+  // adjustments: a book-basis Item L is caught separately, by name (k1-package.ts).
+  const expected = roundCents(beginning + contributions - distributions + netIncome + (otherChanges ?? 0) + (unrealized ?? 0))
   return { expected, actual: ending, variance: roundCents(ending - expected) }
 }
 

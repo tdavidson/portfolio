@@ -24,7 +24,7 @@ const SUBTYPE_TO_SOURCE: Record<string, AllocationCategory> = {
   management_fee: 'management_fee', partnership_expense: 'partnership_expense',
   organizational_expense: 'organizational_expense', interest_expense: 'partnership_expense',
   operating_expense: 'partnership_expense', realized_gain: 'realized_gain',
-  unrealized: 'valuation', interest_income: 'income', portfolio_income: 'income',
+  unrealized: 'valuation', fx_translation: 'fx_revaluation', interest_income: 'income', portfolio_income: 'income',
   equity_method: 'income',
 }
 

@@ -108,6 +108,7 @@ export async function buildK1WorkbookForPackage(
         contributions: Number(p.contributions),
         distributions: Number(p.distributions),
         netIncome: Number(p.net_income),
+        otherChanges: Number(p.other_changes ?? 0),
         ending: Number(p.ending_capital),
       },
       tieOutVariance: Number(p.tie_out_variance),

@@ -92,6 +92,7 @@ export async function GET(req: NextRequest) {
       contributions: Number(p.contributions),
       distributions: Number(p.distributions),
       netIncome: Number(p.net_income),
+      otherChanges: Number(p.other_changes ?? 0),
       ending: Number(p.ending_capital),
     },
     notes: warnings,

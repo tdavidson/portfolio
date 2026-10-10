@@ -16,6 +16,9 @@ import { roundCents } from './ledger'
 import { ACTUAL_BOOK } from './books'
 import { accountIdByCode, ensureCapitalAccounts, persistEntry } from './persist'
 import { vehicleIdByName } from './vehicle-id'
+import { assembleLoadedLedger, fetchAllRows } from './load'
+import { loadCarryTerms } from './carry'
+import { carryOnUnrealizedForYear } from './book-tax'
 import { proposeAdjustments, type ActualBookYear, type ProposedAdjustment } from './book-tax'
 import {
   buildTaxAdjustmentEntries,
@@ -59,7 +62,7 @@ export async function loadActualBookYear(
   group: string,
   taxYear: number,
   opts?: { inceptionDate?: string },
-): Promise<{ year: ActualBookYear; perLpCarry: Map<string, number> } | { error: string }> {
+): Promise<{ year: ActualBookYear; perLpCarry: Map<string, number>; perLpUnrealized: Map<string, number>; perLpFx: Map<string, number>; assetMoves: { unrealized: Map<string, number>; fx: Map<string, number> } } | { error: string }> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
   if (!vehicleId) return { error: `Unknown vehicle "${group}"` }
 
@@ -68,7 +71,7 @@ export async function loadActualBookYear(
 
   const { data: accts } = await admin
     .from('chart_of_accounts' as any)
-    .select('id, code')
+    .select('id, code, name, type, subtype, lp_entity_id, company_id')
     .eq('fund_id', fundId)
     .eq('vehicle_id', vehicleId)
   const idByCode = new Map(((accts as any[]) ?? []).map(a => [a.code as string, a.id as string]))
@@ -76,14 +79,18 @@ export async function loadActualBookYear(
 
   // Postings join their entry for the date, status and source_type. Actual book only: the tax
   // book is the OUTPUT of this run, and reading it here would compound each re-run onto the last.
-  const { data: rows } = await admin
+  // Paged: a single select stops at the API's row cap (1,000), and an adjustment computed from
+  // the first thousand postings is silently short for any fund with more.
+  const rows = await fetchAllRows<any>((from, to) => admin
     .from('journal_postings' as any)
-    .select('account_id, amount, lp_entity_id, journal_entries!inner(entry_date, status, source_type, book)')
+    .select('journal_entry_id, account_id, amount, currency, lp_entity_id, journal_entries!inner(entry_date, status, source_type, book)')
     .eq('book', ACTUAL_BOOK)
     .eq('fund_id', fundId)
     .eq('vehicle_id', vehicleId)
+    .order('id')
+    .range(from, to))
 
-  const flat: YearPostingRow[] = ((rows as any[]) ?? [])
+  const flat: YearPostingRow[] = rows
     .filter(r => r.journal_entries?.status === 'posted' && r.journal_entries?.book === ACTUAL_BOOK)
     .map(r => ({
       account_id: r.account_id,
@@ -100,15 +107,60 @@ export async function loadActualBookYear(
   // 4200 is an income account, so its postings are credits — negative under this ledger's
   // convention. Appreciation of 2.5m arrives as -2,500,000, and the difference book recognised is
   // the positive of that.
-  const unrealizedChange = roundCents(-total(flat.filter(r => inYear(r) && onCode(r, CODES.unrealizedIncome))))
-
-  // The close's carry accrual, per partner, exactly as posted: positive debits a partner. The
-  // reversal is the negation, taken in postTaxAdjustments.
-  const perLpCarry = new Map<string, number>()
-  for (const r of flat) {
-    if (!inYear(r) || r.source_type !== 'carried_interest' || !r.lp_entity_id) continue
-    perLpCarry.set(r.lp_entity_id, roundCents((perLpCarry.get(r.lp_entity_id) ?? 0) + Number(r.amount)))
+  //
+  // By SUBTYPE, not code: 4200 is the unrealized account on a fund's chart but management-fee
+  // income on a GP entity's and interest income on a management company's, and reversing either
+  // as "unrealized appreciation" would take real income out of the tax book.
+  const unrealizedIncomeIds = new Set(((accts as any[]) ?? []).filter(a => a.type === 'income' && a.subtype === 'unrealized').map(a => a.id as string))
+  const unrealizedChange = roundCents(-total(flat.filter(r => inYear(r) && unrealizedIncomeIds.has(r.account_id))))
+  // Currency translation, the same way (4300 income / 1250 assets, by subtype).
+  const chartRows = (accts as any[]) ?? []
+  const fxIncomeIds = new Set(chartRows.filter(a => a.type === 'income' && a.subtype === 'fx_translation').map(a => a.id as string))
+  const fxChange = roundCents(-total(flat.filter(r => inYear(r) && fxIncomeIds.has(r.account_id))))
+  // The year's movement on each asset account (per company), so each is reversed by its own amount.
+  const movesOn = (ids: Set<string>) => {
+    const m = new Map<string, number>()
+    for (const r of flat) if (inYear(r) && ids.has(r.account_id)) m.set(r.account_id, roundCents((m.get(r.account_id) ?? 0) + Number(r.amount)))
+    return m
   }
+  const assetMoves = {
+    unrealized: movesOn(new Set(chartRows.filter(a => a.type === 'asset' && a.subtype === 'unrealized').map(a => a.id as string))),
+    fx: movesOn(new Set(chartRows.filter(a => a.type === 'asset' && a.subtype === 'fx_translation').map(a => a.id as string))),
+  }
+
+  // Partners' capital, assembled the way the close's loader assembles it, from the rows already
+  // read: only partner capital accounts count (a receivable or a payable carries a partner id too,
+  // and is not capital).
+  const postedRows = ((rows as any[]) ?? []).filter(r => r.journal_entries?.status === 'posted' && r.journal_entries?.entry_date <= yearEnd)
+  const entryRows = Array.from(new Map(postedRows.map(r => [r.journal_entry_id, {
+    id: r.journal_entry_id, source_type: r.journal_entries.source_type ?? null, entry_date: r.journal_entries.entry_date, memo: null,
+  }])).values())
+  const { capitalPostings } = assembleLoadedLedger(fundId, { acctRows: (accts as any[]) ?? [], entryRows, postingRows: postedRows })
+  const capitalInYear = capitalPostings.filter(p => (p.entryDate ?? '') >= yearStart && (p.entryDate ?? '') <= yearEnd)
+
+  // Each partner's share of the year's mark, as the close allocated it (a gain is a credit).
+  const perLpUnrealized = new Map<string, number>()
+  const perLpFx = new Map<string, number>()
+  for (const p of capitalInYear) {
+    const into = p.sourceType === 'valuation' || p.sourceType === 'unrealized' ? perLpUnrealized
+      : p.sourceType === 'fx_revaluation' ? perLpFx : null
+    if (into) into.set(p.lpEntityId, roundCents((into.get(p.lpEntityId) ?? 0) + p.amount))
+  }
+
+  // The part of the year's carry earned on unrealized appreciation, per partner (positive debits a
+  // partner). Carry on what was realized stays in the tax book; only this is reversed — the
+  // negation, taken in postTaxAdjustments. Read only when the close booked carry this year.
+  // Without carry terms on file there is nothing to measure the split against, so what was posted
+  // is reversed whole, as before.
+  const bookedCarry = new Map<string, number>()
+  for (const p of capitalInYear) {
+    if (p.sourceType !== 'carried_interest' && p.sourceType !== 'carry') continue
+    bookedCarry.set(p.lpEntityId, roundCents((bookedCarry.get(p.lpEntityId) ?? 0) + p.amount))
+  }
+  const terms = bookedCarry.size > 0 ? await loadCarryTerms(admin, fundId, group) : null
+  const perLpCarry = !terms ? new Map<string, number>()
+    : terms.kind === 'none' || terms.recipients.length === 0 ? bookedCarry
+    : carryOnUnrealizedForYear(capitalPostings, terms, `${taxYear - 1}-12-31`, yearEnd)
   const carryAccruedOnUnrealized = roundCents(
     Array.from(perLpCarry.values()).filter(v => v > 0).reduce((s, v) => s + v, 0),
   )
@@ -127,6 +179,7 @@ export async function loadActualBookYear(
   return {
     year: {
       unrealizedChange,
+      fxChange,
       carryAccruedOnUnrealized,
       organizationalExpense,
       organizationalCostsToDate,
@@ -134,6 +187,9 @@ export async function loadActualBookYear(
       org,
     },
     perLpCarry,
+    perLpUnrealized,
+    perLpFx,
+    assetMoves,
   }
 }
 
@@ -190,12 +246,26 @@ export async function postTaxAdjustments(
 ): Promise<TaxRunResult | { error: string }> {
   const loaded = await loadActualBookYear(admin, fundId, group, taxYear, opts)
   if ('error' in loaded) return loaded
-  const { year, perLpCarry } = loaded
+  const { year, perLpCarry, perLpUnrealized, perLpFx, assetMoves } = loaded
 
   const proposals = proposeAdjustments(year)
   const codes = await accountIdByCode(admin, fundId, group)
+  // The unrealized pair by subtype (see loadActualBookYear); the code is only the fallback name.
+  const unrealizedPair = await subtypeAccounts(admin, fundId, group, 'unrealized')
+  const fxPair = await subtypeAccounts(admin, fundId, group, 'fx_translation')
+  if (unrealizedPair.assetId) codes.set(CODES.unrealizedAsset, unrealizedPair.assetId)
+  if (unrealizedPair.incomeId) codes.set(CODES.unrealizedIncome, unrealizedPair.incomeId)
+  else codes.delete(CODES.unrealizedIncome)
 
-  const missingAccounts = Object.values(CODES).filter(c => !codes.get(c))
+  // Only the accounts the proposed adjustments actually post to.
+  const needed = new Set<string>()
+  for (const p of proposals) {
+    if (p.kind === 'unrealized') { needed.add(CODES.unrealizedAsset); needed.add(CODES.unrealizedIncome) }
+    if (p.kind === 'fx_translation' && (!fxPair.assetId || !fxPair.incomeId)) needed.add('1250 / 4300')
+    if (p.kind === 'organizational_709') { needed.add(CODES.organizationalExpense); needed.add(CODES.deferredOrgCosts) }
+    if (p.kind === 'syndication') { needed.add(CODES.syndicationExpense); needed.add(CODES.capitalizedSyndication) }
+  }
+  const missingAccounts = Array.from(needed).filter(c => !codes.get(c))
   // Refuse rather than post what can be posted: a partial adjustment set reads as a complete one,
   // and the missing piece is invisible on the resulting statements. The fix is adding the account
   // under the entity's Admin → Chart of accounts, which is worth saying rather than making someone infer it.
@@ -221,9 +291,10 @@ export async function postTaxAdjustments(
 
   // The reversal is the negation of what the close posted, partner by partner.
   const perLpReversal = new Map(Array.from(perLpCarry.entries()).map(([id, amt]) => [id, roundCents(-amt)]))
+  const partnerIds = Array.from(new Set([...perLpReversal.keys(), ...perLpUnrealized.keys(), ...perLpFx.keys()]))
   const capMap =
-    perLpReversal.size > 0
-      ? await ensureCapitalAccounts(admin, fundId, group, Array.from(perLpReversal.keys()))
+    partnerIds.length > 0
+      ? await ensureCapitalAccounts(admin, fundId, group, partnerIds)
       : new Map<string, string>()
 
   const entryDate = opts?.entryDate ?? `${taxYear}-12-31`
@@ -232,6 +303,10 @@ export async function postTaxAdjustments(
     proposals,
     accounts,
     carry: perLpReversal.size > 0 ? { perLpReversal, capMap } : undefined,
+    unrealized: { allocated: perLpUnrealized, capMap, assetMoves: assetMoves.unrealized },
+    fx: fxPair.assetId && fxPair.incomeId
+      ? { fxIncomeId: fxPair.incomeId, fxAssetId: fxPair.assetId, allocated: perLpFx, capMap, assetMoves: assetMoves.fx }
+      : undefined,
   })
 
   if (opts?.preview) {
@@ -257,6 +332,18 @@ export async function postTaxAdjustments(
   }
 
   return { taxYear, proposals, entryIds, skipped: built.skipped, voided, missingAccounts: [] }
+}
+
+/** The vehicle's asset and income accounts of one subtype (the parent, lowest code, of each). */
+async function subtypeAccounts(admin: SupabaseClient, fundId: string, group: string, subtype: string): Promise<{ assetId: string | null; incomeId: string | null }> {
+  const vehicleId = await vehicleIdByName(admin, fundId, group)
+  if (!vehicleId) return { assetId: null, incomeId: null }
+  const { data } = await admin.from('chart_of_accounts' as any).select('id, code, type, subtype').eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('subtype', subtype)
+  const rows = ((data as any[]) ?? []).sort((a, b) => String(a.code).localeCompare(String(b.code)))
+  return {
+    assetId: rows.find(r => r.type === 'asset')?.id ?? null,
+    incomeId: rows.find(r => r.type === 'income')?.id ?? null,
+  }
 }
 
 /**

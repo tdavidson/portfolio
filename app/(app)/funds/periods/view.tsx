@@ -82,6 +82,8 @@ export function PeriodsView() {
   const [nextStart, setNextStart] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
+  // After a reopen inside a tax year whose K-1s were issued: they were built on the books just unlocked.
+  const [k1Note, setK1Note] = useState<string | null>(null)
   const [preview, setPreview] = useState<Preview | null>(null)
   const [allocationDetail, setAllocationDetail] = useState<{ month: MonthPreview; category: CloseCategory } | null>(null)
   const [selectedSuggestions, setSelectedSuggestions] = useState<Set<string>>(new Set())
@@ -186,10 +188,12 @@ export function PeriodsView() {
   }
 
   async function reopen(id: string) {
-    setBusy(true); setError(null); setConfirmReopen(null)
+    setBusy(true); setError(null); setK1Note(null); setConfirmReopen(null)
     const { ok, data } = await post({ action: 'reopen', id })
     setBusy(false)
     if (!ok) { setError(data.error ?? 'Could not reopen'); return }
+    const years: number[] = data.issuedK1Years ?? []
+    if (years.length) setK1Note(`K-1s for ${years.join(', ')} were issued on these books. If anything changes before you re-close, amend them on the Tax page.`)
     load()
   }
 
@@ -211,6 +215,7 @@ export function PeriodsView() {
           and locks the period; reopening also reopens every later period.
         </p>
         {error && <p className="text-sm text-destructive">{error}</p>}
+        {k1Note && <p className="text-sm text-warning">{k1Note}</p>}
       </div>
 
       {/* Nothing is posted until this is approved. */}

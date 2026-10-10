@@ -17,7 +17,7 @@ import { currentForm, formStanding, partnerFormStatus, type TaxFormRecord } from
 export type K1PackageStatus = 'draft' | 'final' | 'superseded'
 
 export interface K1PackageWarning {
-  kind: 'not_derivable' | 'undetermined_gain' | 'tie_out' | 'roll_forward' | 'tax_form' | 'unallocated'
+  kind: 'not_derivable' | 'undetermined_gain' | 'tie_out' | 'roll_forward' | 'tax_form' | 'unallocated' | 'book_basis' | 'stale'
   detail: string
   lpEntityId?: string
 }
@@ -34,7 +34,7 @@ export interface GeneratedPackage {
 }
 
 /** Warning kinds that stop a package being issued. */
-const BLOCKING_KINDS: K1PackageWarning['kind'][] = ['tax_form', 'roll_forward']
+const BLOCKING_KINDS: K1PackageWarning['kind'][] = ['tax_form', 'roll_forward', 'book_basis', 'stale']
 
 export function blockersIn(warnings: K1PackageWarning[]): K1PackageWarning[] {
   return warnings.filter(w => BLOCKING_KINDS.includes(w.kind))
@@ -99,6 +99,15 @@ export async function generateK1Package(
       warnings.push({
         kind: 'tie_out',
         detail: `Lines total ${p.tieOut.computed.toFixed(2)} against ${p.tieOut.fromCapital.toFixed(2)} of allocated activity.`,
+        lpEntityId: p.lpEntityId,
+      })
+    }
+    // Appreciation still in tax capital means the year's book-to-tax adjustments were not posted
+    // (or the books moved after they were): Item L would report book capital as tax capital.
+    if (Math.abs(p.capitalAccount.unrealized) >= 0.01) {
+      warnings.push({
+        kind: 'book_basis',
+        detail: `${p.capitalAccount.unrealized.toFixed(2)} of unrealized appreciation or currency translation is still in this partner's tax capital. Post the ${taxYear} book-to-tax adjustments, then regenerate.`,
         lpEntityId: p.lpEntityId,
       })
     }
@@ -176,6 +185,7 @@ export async function generateK1Package(
       contributions: p.capitalAccount.contributions,
       distributions: p.capitalAccount.distributions,
       net_income: p.capitalAccount.netIncome,
+      other_changes: p.capitalAccount.otherChanges,
       ending_capital: p.capitalAccount.ending,
       tie_out_variance: p.tieOut.variance,
       roll_forward_variance: foots.variance,
@@ -228,13 +238,24 @@ export async function finalizeK1Package(
 ): Promise<{ ok: true } | { error: string; blockers?: K1PackageWarning[] }> {
   const { data } = await admin
     .from('k1_packages' as any)
-    .select('id, status, warnings, tax_year')
+    .select('id, status, warnings, tax_year, vehicle_id')
     .eq('fund_id', fundId)
     .eq('id', packageId)
     .maybeSingle()
   const pkg = data as any
   if (!pkg) return { error: 'Package not found' }
   if (pkg.status !== 'draft') return { error: `This package is already ${pkg.status}.` }
+
+  // The draft is a snapshot of the books when it was generated. Issuing it asserts it still is —
+  // so recompute and compare, and refuse if a posting, a close or a tax adjustment has moved any
+  // partner's figures since.
+  const stale = await staleAgainstBooks(admin, fundId, pkg)
+  if (stale.length > 0) {
+    return {
+      error: `The books have changed since this draft was generated. Regenerate the ${pkg.tax_year} package, review it, then issue.`,
+      blockers: stale,
+    }
+  }
 
   const blockers = blockersIn((pkg.warnings ?? []) as K1PackageWarning[])
   if (blockers.length > 0) {
@@ -307,6 +328,43 @@ export async function amendK1Package(
   // filled in would look like a package that lost all its partners.
   void created
   return generateK1Package(admin, fundId, group, userId, taxYear)
+}
+
+/** Partners whose figures in the draft no longer match a fresh computation from the books. */
+async function staleAgainstBooks(admin: SupabaseClient, fundId: string, pkg: any): Promise<K1PackageWarning[]> {
+  const { data: vehicle } = await admin.from('fund_vehicles' as any).select('name').eq('id', pkg.vehicle_id).eq('fund_id', fundId).maybeSingle()
+  const group = (vehicle as any)?.name as string | undefined
+  if (!group) return [{ kind: 'stale', detail: 'The vehicle this package belongs to could not be found.' }]
+  const inputs = await loadK1Year(admin, fundId, group, Number(pkg.tax_year))
+  if ('error' in inputs) return [{ kind: 'stale', detail: inputs.error }]
+  const fresh = allocateK1({ fund: inputs.fund, partners: inputs.partners })
+
+  const [{ data: storedPartners }, { data: storedLines }] = await Promise.all([
+    admin.from('k1_partners' as any).select('lp_entity_id, beginning_capital, contributions, distributions, net_income, ending_capital').eq('fund_id', fundId).eq('package_id', pkg.id),
+    admin.from('k1_lines' as any).select('lp_entity_id, category, amount').eq('fund_id', fundId).eq('package_id', pkg.id),
+  ])
+  const linesOf = new Map<string, Map<string, number>>()
+  for (const l of ((storedLines as any[]) ?? [])) {
+    const m = linesOf.get(l.lp_entity_id) ?? new Map<string, number>()
+    m.set(l.category, Number(l.amount))
+    linesOf.set(l.lp_entity_id, m)
+  }
+  const storedById = new Map(((storedPartners as any[]) ?? []).map(p => [p.lp_entity_id as string, p]))
+  const differs = (a: number, b: number) => Math.abs(a - b) >= 0.01
+  const out: K1PackageWarning[] = []
+  for (const p of fresh.partners) {
+    const s = storedById.get(p.lpEntityId)
+    storedById.delete(p.lpEntityId)
+    const c = p.capitalAccount
+    const moved = !s
+      || differs(c.beginning, Number(s.beginning_capital)) || differs(c.contributions, Number(s.contributions))
+      || differs(c.distributions, Number(s.distributions)) || differs(c.netIncome, Number(s.net_income))
+      || differs(c.ending, Number(s.ending_capital))
+      || K1_CATEGORIES.some(cat => differs(p.lines[cat] ?? 0, linesOf.get(p.lpEntityId)?.get(cat) ?? 0))
+    if (moved) out.push({ kind: 'stale', detail: s ? 'Figures differ from the books as they now stand.' : 'A partner with activity this year is not in the draft.', lpEntityId: p.lpEntityId })
+  }
+  for (const id of storedById.keys()) out.push({ kind: 'stale', detail: 'In the draft, but no longer has activity on the books for this year.', lpEntityId: id })
+  return out
 }
 
 async function loadFormsByEntity(
