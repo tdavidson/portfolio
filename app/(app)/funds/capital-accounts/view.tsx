@@ -12,11 +12,12 @@ import { Loader2, Check, AlertTriangle, Landmark, ChevronRight, Share2, Search, 
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { useCurrency, formatCurrencyPrice } from '@/components/currency-context'
-import { useLedgerFetch, useFundSeg } from '@/components/accounting-vehicle'
+import { useLedgerFetch, useFundSeg, useVehicle } from '@/components/accounting-vehicle'
 import { type PeriodPreset } from '@/lib/accounting/statement-period'
 import { PeriodPicker } from '@/components/accounting/period-picker'
 import { NoticeAction } from '@/components/accounting/notice-action'
 import { ReceiptAction } from '@/components/accounting/receipt-action'
+import { CallActivity } from '@/components/accounting/call-activity'
 import { ReconciliationPanel } from './reconciliation-panel'
 import { GpPanel } from './gp-panel'
 import { useCanRead } from '@/components/access-context'
@@ -24,7 +25,9 @@ import { CapitalRollforwardTable, type Row } from '@/components/accounting/capit
 import { EmptyState } from '@/components/ui/empty-state'
 
 type LineStatus = 'open' | 'partial' | 'settled'
-interface CallLine { manualSettled?: number; settlementReview?: string; id: string; lpEntityId: string; name: string; amount: number; settled: number; outstanding: number; status: LineStatus; settledOn: string | null; ack?: { at: string; wiredOn: string | null; reference: string | null } | null }
+interface CallLine { manualSettled?: number; settlementReview?: string; id: string; lpEntityId: string; name: string; amount: number; settled: number; outstanding: number; status: LineStatus; settledOn: string | null; ack?: { at: string; wiredOn: string | null; reference: string | null } | null
+  /** Calls: charges collected with the line, and what an advance met. Distributions: deductions taken. */
+  charges?: { amount: number; description: string }[]; advanceApplied?: number; deductions?: { amount: number; description: string }[] }
 interface RegisterStatus { settlementReview?: string; status: LineStatus; settled: number; outstanding: number; overdue: boolean }
 interface CallRow extends RegisterStatus { id: string; callDate: string; dueDate: string | null; description: string | null; scope: string; total: number; lines: CallLine[] }
 interface Tiers { returnOfCapital: number; preferred: number; catchUp: number; carry: number; profitToLP: number; toLP: number; toGP: number }
@@ -52,6 +55,7 @@ export function CapitalAccountsView() {
   const currency = useCurrency()
   const fmt = (v: number) => formatCurrencyPrice(v, currency)
   const lf = useLedgerFetch()
+  const { group: fundName } = useVehicle()
   const fundSeg = useFundSeg()
 
   const [rows, setRows] = useState<Row[]>([])
@@ -79,6 +83,8 @@ export function CapitalAccountsView() {
   const [publishResult, setPublishResult] = useState<{ count: number; errors: string[] } | null>(null)
   // Share-with-LPs dialog: which LPs' statements to publish to the portal.
   const [showShare, setShowShare] = useState(false)
+  // Which issued call is open in the capital-activity review (components/accounting/call-activity.tsx).
+  const [reviewing, setReviewing] = useState<string | null>(null)
   const [shareSel, setShareSel] = useState<Set<string>>(new Set())
 
   // Issue-a-call (folded in from the old Capital calls page). /start links here with
@@ -105,6 +111,22 @@ export function CapitalAccountsView() {
   const [sheetText, setSheetText] = useState('')
   const [sheetNote, setSheetNote] = useState<{ ok: boolean; text: string } | null>(null)
   const [payments, setPayments] = useState<RegisterPayment[]>([])
+  // Other amounts on the call (charges a partner owes) or taken from the distribution (fees,
+  // withholding, an unpaid call netted off). Each books to an account from this entity's chart.
+  const [extras, setExtras] = useState<{ lpEntityId: string; description: string; accountId: string; amount: string }[]>([])
+  const [chart, setChart] = useState<{ id: string; code: string; name: string; type: string; lp_entity_id: string | null }[]>([])
+  useEffect(() => {
+    if (!showCall) return
+    lf('/api/accounting/chart').then(r => (r.ok ? r.json() : [])).then(d => setChart(Array.isArray(d) ? d : [])).catch(() => setChart([]))
+  }, [showCall, lf])
+  // Charges are income (late interest), a reimbursed expense or a liability; a deduction may also
+  // net an unpaid call (1300). Never a partner's own capital account, and never the account the
+  // register itself settles against (1300 for a charge, 2300 for a deduction).
+  const extraAccounts = chart.filter(a => !a.lp_entity_id
+    && ['income', 'expense', 'liability', 'asset'].includes(a.type)
+    && (a.type !== 'asset' || (isDist && a.code === '1300'))
+    && a.code !== (isDist ? '2300' : '1300'))
+  const extrasFor = (lp: string) => extras.filter(x => x.lpEntityId === lp).reduce((s, x) => s + (Number(x.amount) || 0), 0)
   // Calls only: a notice is a demand with a deadline, and the deadline is recorded at issue.
   const [dueDate, setDueDate] = useState('')
   const [amounts, setAmounts] = useState<Record<string, string>>({})
@@ -204,12 +226,25 @@ export function CapitalAccountsView() {
     if (parsed.error) { setSheetNote({ ok: false, text: parsed.error }); return }
     if (parsed.lines.length === 0) { setSheetNote({ ok: false, text: 'No rows matched a partner in this entity.' }); return }
     setAmounts(Object.fromEntries(parsed.lines.map(l => [l.lpEntityId, String(l.amount)])))
-    setPayments(parsed.lines.filter(l => l.paid > 0).map(l => ({ lpEntityId: l.lpEntityId, amount: l.paid, date: l.paidOn })))
+    // Prepaid (Carta's "Prepaid Contributions Applied"): what the books hold as an advance is applied
+    // by the call itself; any prepaid the books don't know about is recorded as received on the call.
+    const advanceOf = new Map(rows.map(r => [r.lpEntityId, r.advance ?? 0]))
+    const prepaidOffBooks = (l: (typeof parsed.lines)[number]) => Math.max(0, l.prepaid - (advanceOf.get(l.lpEntityId) ?? 0))
+    setPayments(parsed.lines
+      .map(l => ({ lpEntityId: l.lpEntityId, amount: Math.round((l.paid + prepaidOffBooks(l)) * 100) / 100, date: l.paidOn }))
+      .filter(p => p.amount > 0))
     if (isDist) { setPreview(null); setEdited(true) }
     const paidCount = parsed.lines.filter(l => l.paid > 0).length
+    const prepaidLines = parsed.lines.filter(l => l.prepaid > 0)
+    const prepaidOnBooks = prepaidLines.filter(l => prepaidOffBooks(l) === 0).length
+    // Carta's "Outstanding Balances Applied" is what earlier calls still have unpaid. Ours comes from
+    // the books; say so when they disagree rather than book a second receivable.
+    const earlierOff = parsed.lines.filter(l => Math.abs(l.outstandingApplied - (rows.find(r => r.lpEntityId === l.lpEntityId)?.receivable ?? 0)) > 0.5 && l.outstandingApplied > 0)
     setSheetNote({
-      ok: parsed.unmatched.length === 0,
+      ok: parsed.unmatched.length === 0 && earlierOff.length === 0,
       text: `Read ${parsed.lines.length} partner${parsed.lines.length === 1 ? '' : 's'}${paidCount ? `; ${paidCount} with ${isDist ? 'payments made' : 'payments received'}, recorded when you ${isDist ? 'declare' : 'issue'}` : ''}.`
+        + (prepaidLines.length ? ` ${prepaidLines.length} prepaid: ${prepaidOnBooks} from advances on the books, ${prepaidLines.length - prepaidOnBooks} recorded as received on the call date.` : '')
+        + (earlierOff.length ? ` Earlier unpaid balances differ from the books for ${earlierOff.map(l => l.name).join(', ')} — the books' figure is what the call shows.` : '')
         + (parsed.unmatched.length ? ` Not matched to a partner: ${parsed.unmatched.join(', ')}.` : ''),
     })
   }
@@ -230,6 +265,10 @@ export function CapitalAccountsView() {
     const carryLines = carryRecipients
       .map(id => ({ lpEntityId: id, amount: Number(carryAmounts[id]) || 0 }))
       .filter(l => l.amount > 0)
+    const extraLines = extras
+      .map(x => ({ lpEntityId: x.lpEntityId, accountId: x.accountId, description: x.description.trim(), amount: Number(x.amount) || 0 }))
+      .filter(x => x.amount > 0)
+    if (extraLines.some(x => !x.accountId)) { setMsg({ ok: false, text: `Choose an account for each ${isDist ? 'deduction' : 'charge'}` }); return }
     // Only payments for partners still on the register, never more than their line.
     const paidNow = payments
       .filter(p => lines.some(l => l.lpEntityId === p.lpEntityId))
@@ -243,21 +282,28 @@ export function CapitalAccountsView() {
             tiers: fromPreview && preview.method === 'waterfall' ? preview.tiers : null,
             character: fromPreview && preview.method === 'waterfall' ? preview.suggestedCharacter : undefined,
             ...(paidNow.length ? { payments: paidNow } : {}),
+            ...(extraLines.length ? { deductions: extraLines } : {}),
           })
-        : JSON.stringify({ action: 'issue', requestKey: operationNonce.current, callDate, dueDate: dueDate || null, description: description || null, scope: mode, lines, ...(paidNow.length ? { payments: paidNow } : {}) }),
+        : JSON.stringify({ action: 'issue', requestKey: operationNonce.current, callDate, dueDate: dueDate || null, description: description || null, scope: mode, lines, ...(paidNow.length ? { payments: paidNow } : {}), ...(extraLines.length ? { charges: extraLines } : {}) }),
     })
     const data = await res.json()
     setIssuing(false)
     if (!res.ok) { setMsg({ ok: false, text: data.error ?? (isDist ? 'Could not declare distribution' : 'Could not issue call') }); return }
-    const paidText = data.paymentsError
+    const appliedTotal = Object.values((data.advancesApplied ?? {}) as Record<string, number>).reduce((s, v) => s + v, 0)
+    const extraText = [
+      data.chargesError ? ` Charges not recorded: ${data.chargesError}` : data.chargesPosted ? ` ${data.chargesPosted} charge${data.chargesPosted === 1 ? '' : 's'} added.` : '',
+      data.deductionsError ? ` Deductions not recorded: ${data.deductionsError}` : data.deductionsPosted ? ` ${data.deductionsPosted} deduction${data.deductionsPosted === 1 ? '' : 's'} taken.` : '',
+      data.advancesError ? ` Advances not applied: ${data.advancesError}` : appliedTotal > 0 ? ` ${fmt(appliedTotal)} met from amounts received in advance.` : '',
+    ].join('')
+    const paidText = extraText + (data.paymentsError
       ? ` The payments from the sheet were not recorded: ${data.paymentsError}`
-      : data.paymentsPosted ? ` ${data.paymentsPosted} payment${data.paymentsPosted === 1 ? '' : 's'} from the sheet recorded.` : ''
-    setMsg({ ok: !data.paymentsError, text: (isDist
+      : data.paymentsPosted ? ` ${data.paymentsPosted} payment${data.paymentsPosted === 1 ? '' : 's'} from the sheet recorded.` : '')
+    setMsg({ ok: !data.paymentsError && !data.chargesError && !data.deductionsError && !data.advancesError, text: (isDist
       ? 'Distribution declared. Record or match the payment as it arrives.'
       : 'Call issued.') + paidText })
     operationNonce.current = null
     setAmounts({}); setCarryAmounts({}); setPreview(null); setEdited(false); setCallTotal(''); setDescription('')
-    setPayments([]); setSheetText(''); setSheetNote(null); setSheetOpen(false)
+    setPayments([]); setSheetText(''); setSheetNote(null); setSheetOpen(false); setExtras([])
     load()
   }
 
@@ -291,7 +337,14 @@ export function CapitalAccountsView() {
       : r.status === 'partial' ? 'bg-warning text-warning-foreground' : 'bg-muted text-muted-foreground'
     return <span className={`inline-flex items-center rounded-sm px-1.5 py-0.5 text-[11px] font-medium ${tone}`}>{label}</span>
   }
-  const lineNote = (l: CallLine, verb: 'funded' | 'paid') =>
+  // What else is on the line, before how it stands: charges added, an advance applied, deductions taken.
+  const lineExtras = (l: CallLine) => [
+    ...(l.charges ?? []).map(c => `+ ${fmt(c.amount)} ${c.description}`),
+    ...((l.advanceApplied ?? 0) > 0.004 ? [`${fmt(l.advanceApplied ?? 0)} met from advance`] : []),
+    ...(l.deductions ?? []).map(d => `− ${fmt(d.amount)} ${d.description}`),
+  ].join('; ')
+  const lineNote = (l: CallLine, verb: 'funded' | 'paid') => [lineExtras(l), baseNote(l, verb)].filter(Boolean).join('; ') || null
+  const baseNote = (l: CallLine, verb: 'funded' | 'paid') =>
     l.settlementReview ? l.settlementReview
     : l.status === 'settled' ? `${verb}${l.settledOn ? ` ${l.settledOn}` : ''}`
     : l.status === 'partial' ? `${fmt(l.settled)} ${verb}, ${fmt(l.outstanding)} outstanding`
@@ -464,8 +517,25 @@ export function CapitalAccountsView() {
                   placeholder={isDist ? 'Partner\tDistribution\tPaid\tPaid on' : 'Partner\tCalled\tPaid\tPaid on'}
                   className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm tabular-nums"
                 />
-                <div className="flex items-center gap-2">
+                <div className="flex flex-wrap items-center gap-2">
                   <Button size="sm" variant="outline" onClick={readSheet} disabled={!sheetText.trim()}>Read sheet</Button>
+                  {/* Or the file itself — a Carta capital-activity export reads as is. */}
+                  <label className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground cursor-pointer">
+                    Upload .xlsx or .csv
+                    <input type="file" accept=".xlsx,.xls,.csv,.tsv" className="sr-only" onChange={async e => {
+                      const file = e.target.files?.[0]
+                      e.target.value = ''
+                      if (!file) return
+                      try {
+                        const XLSX = await import('xlsx')
+                        const wb = XLSX.read(await file.arrayBuffer())
+                        setSheetText(XLSX.utils.sheet_to_csv(wb.Sheets[wb.SheetNames[0]], { FS: '\t' }))
+                        setSheetNote({ ok: true, text: `Loaded ${file.name}. Read sheet to fill the lines.` })
+                      } catch {
+                        setSheetNote({ ok: false, text: `Could not read ${file.name}.` })
+                      }
+                    }} />
+                  </label>
                   {sheetNote && <span className={`text-sm ${sheetNote.ok ? 'text-muted-foreground' : 'text-warning'}`}>{sheetNote.text}</span>}
                 </div>
               </div>
@@ -540,7 +610,11 @@ export function CapitalAccountsView() {
                   <th className="text-left px-3 py-2 font-medium">Partner</th>
                   <th className="text-right px-3 py-2 font-medium">Commitment</th>
                   <th className="text-right px-3 py-2 font-medium">{isDist ? 'Capital balance' : 'Unfunded'}</th>
+                  {!isDist && <th className="text-right px-3 py-2 font-medium" title="Called earlier and not yet paid">Unpaid before</th>}
+                  {!isDist && <th className="text-right px-3 py-2 font-medium" title="Sent before it was called; applied to this call first">Advance</th>}
                   <th className="text-right px-3 py-2 font-medium">{isDist ? 'Distribution' : 'Call amount'}</th>
+                  <th className="text-right px-3 py-2 font-medium">{isDist ? 'Deductions' : 'Charges'}</th>
+                  <th className="text-right px-3 py-2 font-medium">{isDist ? 'Net paid' : 'Due now'}</th>
                 </tr>
               </thead>
               <tbody>
@@ -549,6 +623,8 @@ export function CapitalAccountsView() {
                     <td className="px-3 py-2 max-w-[200px]"><div className="truncate" title={r.name}>{r.name}</div></td>
                     <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{fmt(r.commitment)}</td>
                     <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{fmt(isDist ? r.ending : r.outstanding)}</td>
+                    {!isDist && <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{(r.receivable ?? 0) > 0.004 ? fmt(r.receivable) : '—'}</td>}
+                    {!isDist && <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{(r.advance ?? 0) > 0.004 ? fmt(r.advance ?? 0) : '—'}</td>}
                     <td className="px-3 py-2 text-right">
                       <input
                         value={amounts[r.lpEntityId] ?? ''}
@@ -558,6 +634,14 @@ export function CapitalAccountsView() {
                         className="border border-input rounded px-2 py-1 text-sm tabular-nums bg-transparent w-32 text-right"
                       />
                     </td>
+                    <td className="px-3 py-2 text-right tabular-nums text-muted-foreground">{extrasFor(r.lpEntityId) > 0 ? fmt(extrasFor(r.lpEntityId)) : '—'}</td>
+                    <td className="px-3 py-2 text-right tabular-nums">{(() => {
+                      const amount = Number(amounts[r.lpEntityId]) || 0
+                      if (isDist) return amount > 0 ? fmt(Math.max(0, amount - extrasFor(r.lpEntityId))) : '—'
+                      const applied = Math.min(amount, r.advance ?? 0)
+                      const due = Math.max(0, (r.receivable ?? 0) + amount + extrasFor(r.lpEntityId) - applied)
+                      return due > 0.004 ? fmt(due) : '—'
+                    })()}</td>
                   </tr>
                 ))}
               </tbody>
@@ -582,11 +666,42 @@ export function CapitalAccountsView() {
               )}
               <tfoot>
                 <tr className="border-t bg-muted/30 font-semibold">
-                  <td className="px-3 py-2" colSpan={3}>{isDist ? 'Distribution total' : 'Call total'}</td>
+                  <td className="px-3 py-2" colSpan={isDist ? 3 : 5}>{isDist ? 'Distribution total' : 'Call total'}</td>
                   <td className="px-3 py-2 text-right tabular-nums">{fmt(enteredTotal + (isDist ? enteredCarry : 0))}</td>
+                  <td className="px-3 py-2 text-right tabular-nums">{extras.length ? fmt(extras.reduce((s, x) => s + (Number(x.amount) || 0), 0)) : '—'}</td>
+                  <td className="px-3 py-2" />
                 </tr>
               </tfoot>
             </table>
+          </div>
+
+          {/* Charges collected with the call, or deductions from the distribution. */}
+          <div className="space-y-2">
+            {extras.map((x, i) => {
+              const set = (patch: Partial<typeof x>) => setExtras(list => list.map((y, j) => (j === i ? { ...y, ...patch } : y)))
+              return (
+                <div key={i} className="flex flex-wrap items-center gap-2">
+                  <select value={x.lpEntityId} onChange={e => set({ lpEntityId: e.target.value })} aria-label="Partner" className="h-8 rounded border border-input bg-transparent px-2 text-sm">
+                    {rows.map(r => <option key={r.lpEntityId} value={r.lpEntityId}>{r.name}</option>)}
+                  </select>
+                  <input value={x.description} onChange={e => set({ description: e.target.value })} placeholder={isDist ? 'e.g. Tax withheld' : 'e.g. Late interest'} aria-label="Description" className="h-8 w-48 rounded border border-input bg-transparent px-2 text-sm" />
+                  <select value={x.accountId} onChange={e => set({ accountId: e.target.value })} aria-label="Account" className="h-8 max-w-[16rem] rounded border border-input bg-transparent px-2 text-sm">
+                    <option value="">Account…</option>
+                    {extraAccounts.map(a => <option key={a.id} value={a.id}>{a.code} {a.name}</option>)}
+                  </select>
+                  <input value={x.amount} onChange={e => set({ amount: e.target.value })} inputMode="decimal" placeholder="0.00" aria-label="Amount" className="h-8 w-28 rounded border border-input bg-transparent px-2 text-right text-sm tabular-nums" />
+                  <button type="button" onClick={() => setExtras(list => list.filter((_, j) => j !== i))} className="text-xs text-muted-foreground hover:text-foreground">Remove</button>
+                </div>
+              )
+            })}
+            <button
+              type="button"
+              onClick={() => setExtras(list => [...list, { lpEntityId: rows[0]?.lpEntityId ?? '', description: '', accountId: '', amount: '' }])}
+              disabled={rows.length === 0}
+              className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground"
+            >
+              {isDist ? '+ Add a deduction (fee, tax withheld, unpaid call)' : '+ Add a charge (late interest, expenses, fees owed)'}
+            </button>
           </div>
 
           <div className="flex items-center gap-2">
@@ -652,7 +767,19 @@ export function CapitalAccountsView() {
                   {c.lines.map(line => <SettlementReviewAction key={line.id} kind="call" line={line} onChanged={load} />)}
                   <NoticeAction kind="capital_call" id={c.id} lines={c.lines} fmt={fmt} />
                   {c.settled > 0 && <div className="mt-2"><ReceiptAction callId={c.id} fmt={fmt} /></div>}
+                  <Button size="sm" variant="outline" className="mt-2" onClick={() => setReviewing(r => (r === c.id ? null : c.id))}>
+                    {reviewing === c.id ? 'Hide review' : 'Review'}
+                  </Button>
                 </div>
+                {reviewing === c.id && (
+                  <CallActivity
+                    call={c}
+                    calls={calls}
+                    partners={rows.map(r => ({ lpEntityId: r.lpEntityId, name: r.name, commitment: r.commitment, called: r.called ?? null }))}
+                    fmt={fmt}
+                    fileName={`${(fundName ?? 'Fund').replace(/[^\w .,-]/g, '')} - Capital Call ${c.dueDate ? `Due ${c.dueDate}` : c.callDate}.xlsx`}
+                  />
+                )}
               </div>
             ))}
           </div>

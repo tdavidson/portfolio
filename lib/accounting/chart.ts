@@ -18,6 +18,8 @@ export interface ChartAccountSeed {
 export const RECEIVABLE_CODE = '1300'
 /** Distributions declared and not yet paid — the outbound mirror of RECEIVABLE_CODE. */
 export const DISTRIBUTION_PAYABLE_CODE = '2300'
+/** Money a partner sent before it was called: a liability until a call applies it (lib/accounting/call-extras.ts). */
+export const ADVANCE_CODE = '2350'
 
 export const DEFAULT_CHART: ChartAccountSeed[] = [
   // Assets
@@ -65,6 +67,10 @@ export const DEFAULT_CHART: ChartAccountSeed[] = [
   // Without a payable there is nothing for an outgoing wire to settle, so a distribution
   // could never be matched to the declaration it pays.
   { code: '2300', name: 'Distributions payable', type: 'liability', subtype: 'distributions_payable' },
+  // A partner's wire that arrives before the call it pays. It is not capital yet — capital is
+  // recognized at the call — so it waits here, per partner, and the next call applies it: the
+  // partner's line is met from the advance and only the rest is due.
+  { code: '2350', name: 'Capital contributions received in advance', type: 'liability', subtype: 'capital_advance' },
 
   // Equity — the GP account; per-LP capital accounts are added with lp_entity_id.
   { code: '3000', name: "Partners' capital — GP", type: 'equity', subtype: 'gp_capital' },

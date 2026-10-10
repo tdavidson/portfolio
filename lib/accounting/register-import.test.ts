@@ -21,11 +21,32 @@ describe('parseRegisterSheet', () => {
     const r = parseRegisterSheet(sheet, partners)
     expect(r.error).toBeNull()
     expect(r.lines).toEqual([
-      { lpEntityId: 'a', name: 'Hemrock Founders Capital LP', amount: 400000, paid: 400000, paidOn: '2026-10-05' },
-      { lpEntityId: 'b', name: 'Northstar Family Office I LLC', amount: 300000, paid: 0, paidOn: null },
-      { lpEntityId: 'c', name: 'Coastal University Endowment', amount: 250000, paid: 125000, paidOn: '2026-10-07' },
+      { lpEntityId: 'a', name: 'Hemrock Founders Capital LP', amount: 400000, paid: 400000, paidOn: '2026-10-05', prepaid: 0, outstandingApplied: 0 },
+      { lpEntityId: 'b', name: 'Northstar Family Office I LLC', amount: 300000, paid: 0, paidOn: null, prepaid: 0, outstandingApplied: 0 },
+      { lpEntityId: 'c', name: 'Coastal University Endowment', amount: 250000, paid: 125000, paidOn: '2026-10-07', prepaid: 0, outstandingApplied: 0 },
     ])
     expect(r.unmatched).toEqual(['Someone Else'])
+  })
+
+  it("reads Carta's capital-activity export: sections, prepaid applied, earlier balances, the Total row", () => {
+    const sheet = [
+      'Investor\tCommitment\tContribution\tPrepaid Contributions Applied\tCapital Received\tOutstanding Balances Applied\tTotal Due to Fund\tPost Call\tPost Call %',
+      'Participating Investors\t\t\t\t\t\t\t\t',
+      'Hemrock Founders Capital LP\t50000\t7500\t0\t7500\t0\t7500\t46500\t0.93',
+      'Northstar Family Office I LLC\t5000\t750\t750\t0\t0\t0\t4650\t0.93',
+      'Coastal University Endowment\t250000\t37500\t0\t0\t12000\t49500\t232500\t0.93',
+      'Non-Participating Investors\t\t\t\t\t\t\t\t',
+      'Someone Else\t\t\t\t\t\t\t\t',
+      'Total\t305000\t45750\t750\t\t12000\t57000\t283650\t',
+    ].join('\n')
+    const r = parseRegisterSheet(sheet, partners)
+    expect(r.error).toBeNull()
+    expect(r.lines.map(l => [l.name, l.amount, l.paid, l.prepaid, l.outstandingApplied])).toEqual([
+      ['Hemrock Founders Capital LP', 7500, 7500, 0, 0],
+      ['Northstar Family Office I LLC', 750, 0, 750, 0],
+      ['Coastal University Endowment', 37500, 0, 0, 12000],
+    ])
+    expect(r.unmatched).toEqual([])
   })
 
   it('reads comma-separated with quoted names, and caps a payment at the amount', () => {

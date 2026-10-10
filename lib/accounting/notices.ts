@@ -11,6 +11,7 @@
 // both decay as money moves, so deriving a notice from the ledger would restate what a partner was
 // told every time somebody paid.
 
+import { callExtras, distributionDeductions } from './call-extras'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runPool } from '@/lib/lp-report-pdf'
 import { generateNoticePdf, generateReceiptPdf, type NoticeKind } from './notice-pdf'
@@ -187,6 +188,18 @@ export async function publishNotices(
   const currency = (settingsRes as any).data?.currency || 'USD'
   const wireInstructions = (vehSettingsRes as any).data?.wire_instructions ?? null
   const summaryByLp = new Map(summary.map(r => [r.lpEntityId, r]))
+  // What else is on each partner's notice (lib/accounting/call-extras.ts): on a call, the charges
+  // collected with it, the advance applied to it, and what earlier calls still have outstanding;
+  // on a distribution, the deductions taken from it.
+  const extras = reg.kind === 'capital_call' ? (await callExtras(admin, fundId, vehicleId, [reg.id])).get(reg.id) : undefined
+  const deductions = reg.kind === 'distribution' ? (await distributionDeductions(admin, fundId, vehicleId, [reg.id])).get(reg.id) : undefined
+  const earlierUnpaid = new Map<string, number>()
+  if (reg.kind === 'capital_call') {
+    for (const c of await listCapitalCalls(admin, fundId, group)) {
+      if (c.id === reg.id || c.callDate > reg.noticeDate) continue
+      for (const l of c.lines) earlierUnpaid.set(l.lpEntityId, roundCents((earlierUnpaid.get(l.lpEntityId) ?? 0) + l.outstanding))
+    }
+  }
   const investorByEntity = new Map<string, string | null>(
     (((entityRows as any).data as any[]) ?? []).map(e => [e.id as string, (e.investor_id ?? null) as string | null])
   )
@@ -215,13 +228,27 @@ export async function publishNotices(
       // Context is the partner's standing position, which legitimately moves. The AMOUNT is
       // the frozen register line and never comes from here.
       const context: { label: string; value: number | null }[] = []
-      if (reg.kind === 'capital_call' && row) {
-        context.push(
-          { label: 'Commitment', value: row.commitment },
-          { label: 'Called to date', value: row.called },
-          { label: 'Remaining to be called', value: row.outstanding },
-        )
+      if (reg.kind === 'capital_call') {
+        const charges = extras?.charges.get(line.lpEntityId) ?? []
+        const applied = extras?.advance.get(line.lpEntityId) ?? 0
+        const earlier = earlierUnpaid.get(line.lpEntityId) ?? 0
+        for (const c of charges) context.push({ label: `Plus: ${c.description}`, value: c.amount })
+        if (applied > 0.004) context.push({ label: 'Less: received from you in advance', value: -applied })
+        if (earlier > 0.004) context.push({ label: 'Plus: unpaid from earlier calls', value: earlier })
+        if (charges.length || applied > 0.004 || earlier > 0.004) {
+          context.push({ label: 'Total due', value: roundCents(line.amount + charges.reduce((s, c) => s + c.amount, 0) - applied + earlier) })
+        }
+        if (row) {
+          context.push(
+            { label: 'Commitment', value: row.commitment },
+            { label: 'Called to date', value: row.called },
+            { label: 'Remaining to be called', value: row.outstanding },
+          )
+        }
       } else if (reg.kind === 'distribution') {
+        const taken = deductions?.get(line.lpEntityId) ?? []
+        for (const d of taken) context.push({ label: `Less: ${d.description}`, value: -d.amount })
+        if (taken.length) context.push({ label: 'Net paid to you', value: roundCents(line.amount - taken.reduce((s, d) => s + d.amount, 0)) })
         if (line.role === 'lp' && reg.tiers && reg.tiers.lpTotal > 0) {
           const share = line.amount / reg.tiers.lpTotal
           context.push({ label: 'Of which return of capital', value: roundCents(reg.tiers.returnOfCapital * share) })

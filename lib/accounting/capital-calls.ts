@@ -38,6 +38,7 @@ import { vehicleIdByName } from './vehicle-id'
 import { roundCents } from './ledger'
 import { RECEIVABLE_CODE, DISTRIBUTION_PAYABLE_CODE } from './chart'
 import { ACTUAL_BOOK } from './books'
+import { callExtras } from './call-extras'
 import { reconcileSettlements, registerStatus, settlementsFromPostings, type LineStatus, type RegisterStatus, type Settlement } from './settlement'
 
 // Re-exported for the callers that have always imported it from here.
@@ -236,6 +237,12 @@ export interface CapitalCallLineRow {
   noticeDocumentId: string | null
   /** The partner's own word, from their portal: "we wired on this date, with this reference". */
   ack: { at: string; wiredOn: string | null; reference: string | null; note: string | null } | null
+  /** Other amounts collected with the call from this partner (lib/accounting/call-extras.ts). */
+  charges: { amount: number; description: string }[]
+  /** What the partner owes on this line: the capital called plus the charges. `settled` and `outstanding` are of this. */
+  due: number
+  /** Of what was settled, how much came from money the partner sent ahead of the call. */
+  advanceApplied: number
 }
 
 export interface CapitalCallRow extends RegisterStatus {
@@ -288,11 +295,16 @@ export async function listCapitalCalls(
     loadSettlementReviews(admin, fundId, vehicleId, 'call'),
   ])
   const rows = ((calls as any[]) ?? []).filter(row => row.status !== 'draft')
+  const extras = await callExtras(admin, fundId, vehicleId, rows.map(c => c.id as string))
+  const chargesOf = (callId: string, lp: string) => extras.get(callId)?.charges.get(lp) ?? []
+  const chargeTotal = (callId: string, lp: string) => roundCents(chargesOf(callId, lp).reduce((s, c) => s + c.amount, 0))
 
   // Every line of every call goes through ONE FIFO pass, so a wire that covers two calls is
   // applied to both in order rather than counted against each.
+  // A line is settled against everything the partner owes on it: the capital and the charges.
   const registerLines = rows.flatMap(c => ((c.capital_call_lines as any[]) ?? []).map(l => ({
-    id: l.id as string, lpEntityId: l.lp_entity_id as string, date: c.call_date as string, amount: Number(l.amount),
+    id: l.id as string, lpEntityId: l.lp_entity_id as string, date: c.call_date as string,
+    amount: roundCents(Number(l.amount) + chargeTotal(c.id, l.lp_entity_id)),
   })))
   // Manual payments belong to their recorded lines, even after books are imported.
   const manual: (Settlement & { lineId: string })[] = rows.flatMap(c => ((c.capital_call_lines as any[]) ?? [])
@@ -308,8 +320,11 @@ export async function listCapitalCalls(
         lpEntityId: l.lp_entity_id,
         name: names.get(l.lp_entity_id) ?? l.lp_entity_id,
         amount: Number(l.amount),
+        charges: chargesOf(c.id, l.lp_entity_id),
+        due: roundCents(Number(l.amount) + chargeTotal(c.id, l.lp_entity_id)),
+        advanceApplied: extras.get(c.id)?.advance.get(l.lp_entity_id) ?? 0,
         settled: s?.settled ?? 0,
-        outstanding: s?.outstanding ?? Number(l.amount),
+        outstanding: s?.outstanding ?? roundCents(Number(l.amount) + chargeTotal(c.id, l.lp_entity_id)),
         status: s?.status ?? 'open',
         settledOn: s?.settledOn ?? null,
         settlementReview: s?.settlementReview,

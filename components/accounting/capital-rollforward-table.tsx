@@ -41,6 +41,8 @@ export interface Row extends Account {
   funded: number
   outstanding: number
   receivable: number
+  /** Sent before it was called, not yet applied to a call. Absent on an older response. */
+  advance?: number
   /** Per-LP Net IRR (derived from the ledger, or the pasted position figure). */
   irr?: number | null
   period: Account | null
@@ -57,12 +59,14 @@ export interface CapitalEdit {
   irr: number | null
 }
 
-export const COMMITMENT_COLUMNS: { key: 'commitment' | 'called' | 'funded' | 'outstanding' | 'receivable'; label: string }[] = [
+export const COMMITMENT_COLUMNS: { key: 'commitment' | 'called' | 'funded' | 'outstanding' | 'receivable' | 'advance'; label: string }[] = [
   { key: 'commitment', label: 'Committed' },
   { key: 'called', label: 'Called' },
   { key: 'funded', label: 'Funded' },
   { key: 'outstanding', label: 'Remaining to be called' },
   { key: 'receivable', label: 'Called, unpaid' },
+  // Sent before it was called; the next call applies it (lib/accounting/call-extras.ts).
+  { key: 'advance', label: 'Received in advance' },
 ]
 
 export const COLUMNS: { key: keyof Account; label: string }[] = [
@@ -133,7 +137,7 @@ export function CapitalRollforwardTable({
     [shown, scope], // eslint-disable-line react-hooks/exhaustive-deps
   )
   const commitmentCols = useMemo(
-    () => COMMITMENT_COLUMNS.filter(c => c.key !== 'receivable' || shown.some(r => Math.abs(r.receivable) > 0.004)),
+    () => COMMITMENT_COLUMNS.filter(c => (c.key !== 'receivable' && c.key !== 'advance') || shown.some(r => Math.abs(r[c.key] ?? 0) > 0.004)),
     [shown],
   )
 
@@ -166,7 +170,7 @@ export function CapitalRollforwardTable({
     return acc
   }, {} as Record<string, number>)
   const commitTotals = commitmentCols.reduce((acc, c) => {
-    acc[c.key] = shown.reduce((s, r) => s + r[c.key], 0)
+    acc[c.key] = shown.reduce((s, r) => s + (r[c.key] ?? 0), 0)
     return acc
   }, {} as Record<string, number>)
   // Ratio totals come from the summed commitment/called and the summed distributions/ending.
@@ -226,7 +230,7 @@ function RollforwardRow({
 }: {
   r: Row
   a: Account
-  commitmentCols: { key: 'commitment' | 'called' | 'funded' | 'outstanding' | 'receivable'; label: string }[]
+  commitmentCols: { key: 'commitment' | 'called' | 'funded' | 'outstanding' | 'receivable' | 'advance'; label: string }[]
   accountCols: { key: keyof Account; label: string }[]
   metrics: boolean
   fmt: (v: number) => string
@@ -297,7 +301,7 @@ function RollforwardRow({
         </td>
         {commitmentCols.map(c => (
           <td key={c.key} className="px-3 py-1.5 text-right tabular-nums">
-            {c.key === 'commitment' ? inp('commitment') : c.key === 'called' ? inp('calledCapital') : fmt(r[c.key])}
+            {c.key === 'commitment' ? inp('commitment') : c.key === 'called' ? inp('calledCapital') : fmt(r[c.key] ?? 0)}
           </td>
         ))}
         {accountCols.map(c => (
@@ -333,7 +337,7 @@ function RollforwardRow({
         </div>
       </td>
       {commitmentCols.map(c => (
-        <td key={c.key} className={`px-3 py-2 text-right tabular-nums ${Math.abs(r[c.key]) > 0.004 ? '' : 'text-muted-foreground'}`}>{r[c.key] == null ? '—' : fmt(r[c.key])}</td>
+        <td key={c.key} className={`px-3 py-2 text-right tabular-nums ${Math.abs(r[c.key] ?? 0) > 0.004 ? '' : 'text-muted-foreground'}`}>{r[c.key] == null ? '—' : fmt(r[c.key] ?? 0)}</td>
       ))}
       {accountCols.map(c => (
         <td key={c.key} className={`px-3 py-2 text-right tabular-nums ${c.key === 'ending' ? 'font-semibold' : ''} ${c.key === 'unclassified' && Math.abs(a[c.key]) > 0.004 ? 'text-warning' : ''}`}>{r.evidence?.missing.length ? (c.key === 'ending' && r.evidence.values.nav != null ? fmt(r.evidence.values.nav) : '—') : fmt(a[c.key])}</td>

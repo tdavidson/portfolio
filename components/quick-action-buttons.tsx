@@ -21,13 +21,18 @@ const LINK_ICONS: Record<string, LucideIcon> = {
 
 /**
  * The create shortcuts — add an investment or a company, import documents, issue a call, declare a
- * distribution — one row per group. Start shows them firm-wide; an entity's Admin page shows them
+ * distribution — a row per group on Start, firm-wide; one wrapping row on an entity's Admin page,
  * for that entity. The list and its gating are lib/start/quick-actions.ts; this only draws it.
  *
  * `vehicleId` sends the capital actions to that entity's capital accounts rather than the
  * firm-wide landing that asks which one.
  */
-export function QuickActionButtons({ actions, vehicleId }: { actions: CreateAction[]; vehicleId?: string | null }) {
+export function QuickActionButtons({ actions, vehicleId, inline = false }: {
+  actions: CreateAction[]
+  vehicleId?: string | null
+  /** One wrapping row for every group, a divider between them (an entity's Admin page), rather than a row per group (Start). */
+  inline?: boolean
+}) {
   const hrefFor = (href: string) =>
     vehicleId ? href.replace('/funds/capital-accounts', `/funds/${vehicleId}/capital-accounts`) : href
   // One row per group — see CreateAction.group. A group with nothing in it renders no row.
@@ -35,26 +40,36 @@ export function QuickActionButtons({ actions, vehicleId }: { actions: CreateActi
     .map(g => actions.filter(a => a.group === g))
     .filter(g => g.length > 0)
 
+  const render = (a: CreateAction) => {
+    if (a.kind === 'link') {
+      const Icon = LINK_ICONS[a.id]
+      return (
+        <Button key={a.id} variant="outline" size="sm" asChild className="gap-1.5 h-8 py-2 text-muted-foreground hover:text-foreground">
+          <Link href={hrefFor(a.href!)}>{Icon && <Icon className="h-3.5 w-3.5" />}{a.label}</Link>
+        </Button>
+      )
+    }
+    if (a.id === 'add-investment') return <AddInvestmentButton key={a.id} />
+    if (a.id === 'add-company') return <AddCompanyButton key={a.id} />
+    if (a.id === 'import-documents') return <ImportDocumentsButton key={a.id} />
+    if (a.id === 'add-vehicle') return <AddVehicleButton key={a.id} />
+    return null
+  }
+
+  if (inline) {
+    return (
+      <div className="flex flex-wrap items-center gap-2">
+        {groups.map((group, i) => [
+          i > 0 ? <span key={`divider-${i}`} aria-hidden className="mx-1 hidden h-6 w-px bg-border sm:block" /> : null,
+          ...group.map(render),
+        ])}
+      </div>
+    )
+  }
   return (
     <>
       {groups.map((group, i) => (
-        <div key={i} className="flex flex-wrap justify-start gap-2">
-          {group.map(a => {
-            if (a.kind === 'link') {
-              const Icon = LINK_ICONS[a.id]
-              return (
-                <Button key={a.id} variant="outline" size="sm" asChild className="gap-1.5 h-8 py-2 text-muted-foreground hover:text-foreground">
-                  <Link href={hrefFor(a.href!)}>{Icon && <Icon className="h-3.5 w-3.5" />}{a.label}</Link>
-                </Button>
-              )
-            }
-            if (a.id === 'add-investment') return <AddInvestmentButton key={a.id} />
-            if (a.id === 'add-company') return <AddCompanyButton key={a.id} />
-            if (a.id === 'import-documents') return <ImportDocumentsButton key={a.id} />
-            if (a.id === 'add-vehicle') return <AddVehicleButton key={a.id} />
-            return null
-          })}
-        </div>
+        <div key={i} className="flex flex-wrap justify-start gap-2">{group.map(render)}</div>
       ))}
     </>
   )

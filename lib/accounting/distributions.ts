@@ -1,4 +1,5 @@
 import { capitalOperationKey, validCapitalDate, validCapitalAmounts } from './capital-operation-key'
+import { distributionDeductions } from './call-extras'
 import { loadSettlementReviews } from './settlement-reviews'
 import { ensureVehicleAccounts } from './provision-accounts'
 // Declaring a distribution — the outbound mirror of issuing a capital call.
@@ -397,6 +398,9 @@ export async function listDistributions(
     loadSettlementReviews(admin, fundId, vehicleId, 'distribution'),
   ])
   const all = ((rows as any[]) ?? []).filter(row => row.status !== 'draft')
+  // Fees, tax withheld, a call netted off — taken from what each partner is owed. They settle the
+  // line like a wire (they debit the payable), so they are listed here only to say why.
+  const deductions = await distributionDeductions(admin, fundId, vehicleId, all.map(d => d.id as string))
 
   // One FIFO pass over every line — see listCapitalCalls.
   const registerLines = all.flatMap(d => ((d.distribution_lines as any[]) ?? []).map(l => ({
@@ -424,6 +428,7 @@ export async function listDistributions(
         settlementReview: s?.settlementReview,
         manualSettled: Number(l.settled_amount ?? 0),
         noticeDocumentId: (l.notice_document_id ?? null) as string | null,
+        deductions: deductions.get(d.id)?.get(l.lp_entity_id) ?? [],
       }
     })
     const total = roundCents(rawLines.reduce((s: number, l: any) => s + l.amount, 0))

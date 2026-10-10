@@ -1,4 +1,5 @@
 import { reportingIrr } from '@/lib/accounting/reporting-irr'
+import { advanceBalances } from '@/lib/accounting/call-extras'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -62,6 +63,8 @@ export async function GET(req: NextRequest) {
     loadStrandedCapital(admin, gate.fundId, group),
   ])
 
+  // Money each partner sent before it was called, not yet applied to a call (call-extras.ts).
+  const advances = await advanceBalances(admin, gate.fundId, group)
   const periodAccounts = computeCapitalAccounts(capitalPostings, period)
   const itdAccounts = computeCapitalAccounts(capitalPostings, { end: period.end })
   const summaryByLp = new Map(summary.map(s => [s.lpEntityId, s]))
@@ -93,6 +96,7 @@ export async function GET(req: NextRequest) {
         funded: s ? s.funded : null,
         outstanding: s ? s.outstanding : null,
         receivable: s ? s.receivable : null,
+        advance: advances.get(lpEntityId) ?? 0,
         fundedUnderflow: s?.fundedUnderflow ?? false,
         period: periodAccounts.get(lpEntityId) ?? null,
         itd: itd ?? zero,

@@ -7,6 +7,7 @@ import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { issueCapitalCall, proRataCall, lpCapitalSummary, listCapitalCalls } from '@/lib/accounting/capital-calls'
 import { recordRegisterPayments } from '@/lib/accounting/register-import'
+import { applyAdvancesToCall, postCallCharges } from '@/lib/accounting/call-extras'
 
 // GET — the per-LP capital summary (commitment/called/funded/outstanding) plus
 // the issued-call history for the vehicle.
@@ -59,16 +60,28 @@ export async function POST(req: NextRequest) {
       lines: Array.isArray(body?.lines) ? body.lines : [],
     })
     if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
-    // A call imported from a spreadsheet arrives with what each partner has already paid
-    // (lib/accounting/register-import.ts). The call stands either way; a payment that cannot be
-    // posted is reported, not a reason to unissue it.
+    // The call stands either way; anything below that cannot be posted is reported, not a reason
+    // to unissue it. Each step is idempotent, so retrying the same issue finishes what is left.
+    const callDate = String(body.callDate)
+    const lines = linesOf(body.lines)
+    const extras: Record<string, unknown> = {}
+    // 1. Other amounts the partners owe, collected with the call (lib/accounting/call-extras.ts).
+    if (Array.isArray(body?.charges) && body.charges.length > 0) {
+      const c = await postCallCharges(admin, gate.fundId, group, user.id, { callId: result.callId, callDate, charges: body.charges })
+      Object.assign(extras, 'error' in c ? { chargesError: c.error } : { chargesPosted: c.posted })
+    }
+    // 2. Money partners sent ahead of the call meets their lines first.
+    const adv = await applyAdvancesToCall(admin, gate.fundId, group, user.id, { callId: result.callId, callDate, lines })
+    Object.assign(extras, 'error' in adv ? { advancesError: adv.error } : { advancesApplied: Object.fromEntries(adv.applied) })
+    // 3. A call imported from a spreadsheet arrives with what each partner has already paid
+    //    (lib/accounting/register-import.ts).
     if (Array.isArray(body?.payments) && body.payments.length > 0) {
       const paid = await recordRegisterPayments(admin, gate.fundId, group, user.id, {
-        kind: 'call', registerId: result.callId, registerDate: String(body.callDate), lines: linesOf(body.lines), payments: body.payments,
+        kind: 'call', registerId: result.callId, registerDate: callDate, lines, payments: body.payments,
       })
-      return NextResponse.json({ ...result, ...('error' in paid ? { paymentsError: paid.error } : { paymentsPosted: paid.posted }) })
+      Object.assign(extras, 'error' in paid ? { paymentsError: paid.error } : { paymentsPosted: paid.posted })
     }
-    return NextResponse.json(result)
+    return NextResponse.json({ ...result, ...extras })
   }
 
   return NextResponse.json({ error: "action must be 'preview' or 'issue'" }, { status: 400 })

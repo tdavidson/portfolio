@@ -134,9 +134,7 @@ function EntityStatusView() {
           .filter(a => a.id !== 'add-deal' && a.id !== 'add-vehicle')
           .filter(a => !manco || a.group !== 'capital')
         return actions.length > 0 ? (
-          <div className="space-y-2">
-            <QuickActionButtons actions={actions} vehicleId={vehicleId} />
-          </div>
+          <QuickActionButtons actions={actions} vehicleId={vehicleId} inline />
         ) : null
       })()}
 

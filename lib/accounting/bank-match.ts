@@ -5,6 +5,9 @@
 //              (e.g. via the allocations page or draft-from-document): post that
 //              entry, drop the auto-draft, and mark the transaction reconciled.
 
+import { ADVANCE_CODE } from './chart'
+import { buildAdvanceEntry } from './call-extras'
+import { ensureVehicleAccounts } from './provision-accounts'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadOwnership, loadEntityNames } from './load'
 import { accountIdByCode, ensureCapitalAccounts, persistEntry } from './persist'
@@ -79,20 +82,21 @@ export async function bookCapitalCallFromInflow(
       )
       suggestedCode = RECEIVABLE_CODE
     } else {
-      // No open call — recognize and fund it at once: Dr Cash / Cr LP capital.
-      const capMap = await ensureCapitalAccounts(admin, fundId, group, [lpEntityId])
-      const capId = capMap.get(lpEntityId)
-      if (!capId) return { error: 'Could not resolve the LP capital account' }
-      entry = {
-        fundId,
-        entryDate: txn.txn_date,
-        memo: `Capital call — ${lpName}${txn.description ? ` — ${txn.description}` : ''}`,
-        sourceType: 'capital_call',
-        postings: [
-          { accountId: cashId, amount: roundCents(total), currency: 'USD', lpEntityId: null },
-          { accountId: capId, amount: roundCents(-total), currency: 'USD', lpEntityId },
-        ],
+      // Nothing called yet — the partner sent it AHEAD of the call. It is not capital until the
+      // call (capital is recognized there), so it waits in 2350, received in advance, and the next
+      // call applies it (lib/accounting/call-extras.ts). Booking it straight to capital, as this
+      // used to, made the call that followed ask the partner for the same money again.
+      let advanceId = codes.get(ADVANCE_CODE)
+      if (!advanceId) {
+        await ensureVehicleAccounts(admin, fundId, group)
+        advanceId = (await accountIdByCode(admin, fundId, group)).get(ADVANCE_CODE)
       }
+      if (!advanceId) return { error: `The chart is missing ${ADVANCE_CODE} Capital contributions received in advance — re-sync the chart of accounts.` }
+      entry = buildAdvanceEntry(
+        { fundId, entryDate: txn.txn_date, memo: `Received in advance — ${lpName}${txn.description ? ` — ${txn.description}` : ''}` },
+        lpEntityId, total, cashId, advanceId,
+      )
+      suggestedCode = ADVANCE_CODE
     }
   } else {
     // Same rule as the outflow: a deposit is one partner's money. Splitting it across every LP

@@ -7,6 +7,7 @@ import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { previewDistribution, declareDistribution, listDistributions } from '@/lib/accounting/distributions'
 import { recordRegisterPayments } from '@/lib/accounting/register-import'
+import { postDistributionDeductions } from '@/lib/accounting/call-extras'
 
 // GET — declared distributions for the vehicle, newest first.
 export async function GET(req: NextRequest) {
@@ -84,14 +85,22 @@ export async function POST(req: NextRequest) {
         : undefined,
     })
     if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
-    // Imported from a spreadsheet: what has already been paid out to each partner.
+    const date = String(body.distributionDate)
+    const lines = linesOf(body.lines)
+    const extras: Record<string, unknown> = {}
+    // 1. Fees, tax withheld or an unpaid call netted off — taken from what the partner is owed.
+    if (Array.isArray(body?.deductions) && body.deductions.length > 0) {
+      const d = await postDistributionDeductions(admin, gate.fundId, group, user.id, { distributionId: result.distributionId, date, lines, deductions: body.deductions })
+      Object.assign(extras, 'error' in d ? { deductionsError: d.error } : { deductionsPosted: d.posted })
+    }
+    // 2. Imported from a spreadsheet: what has already been paid out to each partner.
     if (Array.isArray(body?.payments) && body.payments.length > 0) {
       const paid = await recordRegisterPayments(admin, gate.fundId, group, user.id, {
-        kind: 'distribution', registerId: result.distributionId, registerDate: String(body.distributionDate), lines: linesOf(body.lines), payments: body.payments,
+        kind: 'distribution', registerId: result.distributionId, registerDate: date, lines, payments: body.payments,
       })
-      return NextResponse.json({ ...result, ...('error' in paid ? { paymentsError: paid.error } : { paymentsPosted: paid.posted }) })
+      Object.assign(extras, 'error' in paid ? { paymentsError: paid.error } : { paymentsPosted: paid.posted })
     }
-    return NextResponse.json(result)
+    return NextResponse.json({ ...result, ...extras })
   }
 
   return NextResponse.json({ error: "action must be 'preview' or 'declare'" }, { status: 400 })

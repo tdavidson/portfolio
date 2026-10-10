@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Added
+- **Advances, charges and deductions on capital calls and distributions.** A partner's wire that arrives before anything is called now waits in a new liability, *2350 Capital contributions received in advance*, instead of being booked straight to capital (which made the call that followed ask for the same money again); issuing a call applies it, so the partner's line is met from the advance and only the rest is due. A call can carry other charges a partner owes (late interest, expenses, fees), each booked to the account it belongs to and settled with the call; a distribution can carry deductions (fees, tax withheld, an unpaid call netted off), which count as paid so only the remainder is wired. The issue form shows each partner's unpaid amount from earlier calls, their advance, and what is due now; notices itemize the charges, the advance applied, earlier unpaid amounts and the total due (or the net paid). Nothing new is stored — charges, deductions and applied advances are their own journal entries, read back by the register (`lib/accounting/call-extras.ts`).
+- **Capital calls read and review in Carta's layout.** The call form takes the file itself (.xlsx or .csv) as well as a paste, and reads Carta's capital-activity export as is: *Contribution* is the call, *Capital Received* is recorded as paid, *Prepaid Contributions Applied* is met from the partner's advance on the books (or recorded as received when the books hold none), and *Outstanding Balances Applied* is checked against what earlier calls still have unpaid, with a note when the two disagree. Each issued call has a **Review** that lays it out in the same columns — commitment, contribution, prepaid applied, received, earlier balances, other charges, total due, post-call unfunded and % — and downloads as .xlsx.
+- **The entity's Admin page carries its actions in one row** — add an investment or company, import documents, issue a call, declare a distribution.
+
 ## 0.9.7 — 2026-10-09
 
 Highlights — a large release; everything since 0.9.6 (July 2026):

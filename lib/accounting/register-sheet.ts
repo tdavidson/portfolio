@@ -17,6 +17,10 @@ export interface SheetLine {
   paid: number
   /** When it was paid, if the sheet says; otherwise the register's own date is used. */
   paidOn: string | null
+  /** Met from money the partner sent before the call (Carta: "Prepaid Contributions Applied"). */
+  prepaid: number
+  /** Unpaid from earlier calls, carried onto this one (Carta: "Outstanding Balances Applied"). Informational. */
+  outstandingApplied: number
 }
 
 export interface ParsedSheet {
@@ -29,11 +33,15 @@ export interface ParsedSheet {
 
 const norm = (s: string) => s.toLowerCase().replace(/&/g, 'and').replace(/[^a-z0-9]+/g, ' ').replace(/\b(llc|lp|l p|inc|ltd|the)\b/g, ' ').replace(/\s+/g, ' ').trim()
 
-const COLUMNS: Record<'name' | 'amount' | 'paid' | 'paidOn', RegExp> = {
+// Header names, including Carta's capital-activity export: Investor, Commitment, Contribution,
+// Prepaid Contributions Applied, Capital Received, Outstanding Balances Applied, Total Due to Fund.
+const COLUMNS: Record<'name' | 'amount' | 'paid' | 'paidOn' | 'prepaid' | 'outstanding', RegExp> = {
   name: /^(partner|investor|lp|limited partner|name|entity|lp name|investor name)$/,
-  amount: /^(amount|called|call|call amount|capital called|this call|distribution|distributed|amount distributed|gross distribution|net distribution|total)$/,
-  paid: /^(paid|funded|received|amount paid|amount funded|amount received|paid in|wired)$/,
+  amount: /^(amount|called|call|call amount|capital called|this call|contribution|contributions|capital call|distribution|distributed|amount distributed|gross distribution|net distribution|total)$/,
+  paid: /^(paid|funded|received|amount paid|amount funded|amount received|paid in|wired|capital received|distribution paid|paid to investor)$/,
   paidOn: /^(paid on|funded on|received on|date paid|date funded|date received|payment date|wire date|date)$/,
+  prepaid: /^(prepaid contributions applied|prepaid applied|advance applied|prepaid)$/,
+  outstanding: /^(outstanding balances applied|prior outstanding|outstanding applied|unpaid from earlier calls)$/,
 }
 
 function splitRow(line: string): string[] {
@@ -79,7 +87,7 @@ export function parseRegisterSheet(text: string, partners: SheetPartner[]): Pars
   const nameCol = col('name') >= 0 ? col('name') : 0
   const amountCol = col('amount')
   if (amountCol < 0) return { lines: [], unmatched: [], error: 'No amount column. Name one "Amount", "Called" or "Distribution".' }
-  const paidCol = col('paid'), paidOnCol = col('paidOn')
+  const paidCol = col('paid'), paidOnCol = col('paidOn'), prepaidCol = col('prepaid'), outstandingCol = col('outstanding')
 
   const byName = new Map(partners.map(p => [norm(p.name), p]))
   const merged = new Map<string, SheetLine>()
@@ -93,13 +101,18 @@ export function parseRegisterSheet(text: string, partners: SheetPartner[]): Pars
       // A unique prefix match, so "Northstar Family Office" finds "Northstar Family Office I LLC".
       ?? (() => { const hits = partners.filter(p => norm(p.name).startsWith(norm(name)) || norm(name).startsWith(norm(p.name))); return hits.length === 1 ? hits[0] : undefined })()
     if (!partner) { unmatched.push(name); continue }
-    const paid = Math.min(amount, Math.max(0, paidCol >= 0 ? parseMoney(r[paidCol]) ?? 0 : 0))
+    const prepaid = Math.min(amount, Math.max(0, prepaidCol >= 0 ? parseMoney(r[prepaidCol]) ?? 0 : 0))
+    // Received and prepaid together never exceed the call.
+    const paid = Math.min(amount - prepaid, Math.max(0, paidCol >= 0 ? parseMoney(r[paidCol]) ?? 0 : 0))
+    const outstandingApplied = Math.max(0, outstandingCol >= 0 ? parseMoney(r[outstandingCol]) ?? 0 : 0)
     const prev = merged.get(partner.lpEntityId)
     merged.set(partner.lpEntityId, {
       lpEntityId: partner.lpEntityId, name: partner.name,
       amount: roundCents((prev?.amount ?? 0) + amount),
       paid: roundCents((prev?.paid ?? 0) + paid),
       paidOn: (paidOnCol >= 0 ? parseSheetDate(r[paidOnCol]) : null) ?? prev?.paidOn ?? null,
+      prepaid: roundCents((prev?.prepaid ?? 0) + prepaid),
+      outstandingApplied: roundCents((prev?.outstandingApplied ?? 0) + outstandingApplied),
     })
   }
   return { lines: [...merged.values()], unmatched, error: null }
