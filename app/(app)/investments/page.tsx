@@ -17,6 +17,7 @@ import { InvestmentVehicleFilters } from '@/components/investments-vehicle-filte
 import { AnalystPanel } from '@/components/analyst-panel'
 import { PortfolioNotesProvider, PortfolioNotesButton, PortfolioNotesPanel } from '@/components/portfolio-notes'
 import { useFeatureVisibility } from '@/components/feature-visibility-context'
+import { InvestmentCharts } from './charts'
 
 interface CompanySummary {
   companyId: string
@@ -535,6 +536,9 @@ export default function InvestmentsPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Charts — the same rows as the holdings table below, so every filter applies. */}
+      <InvestmentCharts rows={filtered} fmt={fmt} fmtFull={fmtFull} />
 
       {/* Group summary table, only shown when multiple groups exist */}
       {sortedGroups.length > 0 && groupTotals && (
