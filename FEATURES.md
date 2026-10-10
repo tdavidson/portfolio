@@ -3,7 +3,7 @@
 - Project overview at [README](./README.md)
 - Detailed feature descriptions at [FEATURES](./FEATURES.md)
 - Technical deployment details at [DOCS](./DOCS.md)
-- Fund accounting setup and double-entry reference at [ACCOUNTING](./ACCOUNTING.md)
+- Fund accounting, forecasting and the double-entry reference at [ACCOUNTING](./ACCOUNTING.md)
 
 ## How It Works
 
@@ -17,7 +17,7 @@ Once data starts flowing, the Portfolio dashboard gives you a real-time view of 
 
 The Portfolio page is the main dashboard and your starting point for monitoring the fund. It shows all active companies with key headline metrics (such as MRR and cash balance) so you can quickly scan the health of the portfolio without clicking into individual companies. Companies are displayed as cards with their most recently reported figures, sparkline charts, and badges for stage, industry, and vehicle.
 
-Filter by vehicle and sort by name, cash position, or other criteria. A shared notes section at the bottom lets team members post fund-level observations — market commentary, cross-portfolio themes, reminders for the next IC meeting.
+Choose which entities the dashboard shows with the entity picker — your choice is saved to your account and follows you across devices, and an admin sets the default for everyone under Settings → Portfolio → Dashboard entities — and sort by name, cash position, or other criteria. The notes section at the bottom holds the team's observations — market commentary, cross-portfolio themes, reminders for the next IC meeting — each note belonging to an entity, so it is read by the people who can see that entity.
 
 ![Portfolio Dashboard](public/screenshots/dashboard.png)
 
@@ -33,7 +33,7 @@ A **documents section** lists all files associated with the company — both upl
 
 The **Investments section** tracks the fund's transaction history with the company — investment rounds, proceeds from exits or distributions, and unrealized gain changes. It displays summary metrics (total invested, FMV, MOIC, total realized) along with a detailed transaction table.
 
-A **notes panel** on the right side lets your team leave company-specific observations visible to all members.
+A **notes panel** on the right side lets your team leave company-specific observations. Each note belongs to an entity: on a company two funds share, Fund I's notes are read only by people who can see Fund I.
 
 ![Company Detail](public/screenshots/company.png)
 
@@ -85,11 +85,11 @@ Two charts sit above the tables and follow the same filters. **Fair value and co
 
 ## Funds
 
-The Funds page is a per-vehicle performance overview, with every figure derived from the capital accounts rather than typed in. It reads the same whether a vehicle runs on light capital tracking (no double-entry books) or a full ledger, because both feed the same capital accounts.
+The Funds page is a per-vehicle performance overview, with every figure derived from the capital accounts rather than typed in. Every entity keeps double-entry books, so every figure comes from the same ledger.
 
 **Charts** — with two or more vehicles, **called against committed** shows how much of each commitment has been drawn, and **total value against called** stacks distributions and NAV against a tick at called capital. The second opens on multiples (DPI and RVPI against 1.00x), since vehicles differ in size, and switches to dollars. Both follow the search and the lens.
 
-**Filters and lens** — search vehicles, filter by source (Fund Accounting or LP tracking), set an "As of" date, and toggle **Net to LP** (the LP-class partners' own accounts, already net of the carry the close accrued to the GP) against **Whole fund** (every partner, GP included). The toggle appears only when there is a GP class to carve out.
+**Filters and lens** — search vehicles,  set an "As of" date, and toggle **Net to LP** (the LP-class partners' own accounts, already net of the carry the close accrued to the GP) against **Whole fund** (every partner, GP included). The toggle appears only when there is a GP class to carve out.
 
 **Summary cards** — Committed, Called, Distributed, NAV, TVPI, and DPI, totaled across the vehicles currently in view.
 
@@ -97,7 +97,7 @@ The Funds page is a per-vehicle performance overview, with every figure derived 
 
 Capital is recognized when it is called, so called capital may be unfunded. Carry is exact rather than estimated: the period close accrues it to the GP's own account, so an LP's reported numbers are already net of it, with no carry-rate heuristic and nothing to keep in sync.
 
-A vehicle gets its capital one of two ways, and both land in the same accounts. **Capital tracking** records what moved each LP's capital (contributions, distributions, marks) with no double-entry books, enough for an SPV or a fund whose admin sends a quarterly statement. The **full ledger** adds a chart of accounts, journal entries, capital calls against a receivable, period closes that accrue carry, and financial statements.
+Capital comes from the books: calls against a receivable cleared when the wire lands, distributions through the waterfall, and closes that true up carry. An administrator's statement can be kept beside them as dated positions and reconciled line by line.
 
 ![Funds](public/screenshots/funds.png)
 
@@ -117,13 +117,13 @@ After generation, the letter opens in an editor with two views: "Sections" shows
 
 ## LPs
 
-LPs is where you track and report on your limited partner positions across every vehicle. It's a layered capability, off by default: turn on **LP capital tracking** to track LP capital, and optionally the **LP portal** and **LP documents** on top of it — independent of whether you keep full fund accounting.
+LPs is where you track and report on your limited partner positions across every vehicle. It's a layered capability, off by default: turn on **LP capital tracking** to see LP capital, and optionally the **LP portal** and **LP documents** on top of it.
 
 **The LPs page is a live aggregate.** Every LP across every vehicle, rolled up to the investor, as of any date — commitment, paid-in, distributions, NAV, DPI, TVPI, IRR. It reads live from the underlying data (pasted positions or the ledger), so it's never stale. Expand an investor to see their per-vehicle lines. A member who invests through your GP or associate entity is looked through to their share of what that entity holds.
 
 **Two charts lead the table**, drawn from the investors it lists: called against committed, and total value (distributions, then NAV) against called capital, in dollars or as multiples. The ten largest are shown, the rest folded into one row that expands in place.
 
-**Capital tracking, per vehicle.** On the LP capital accounts page, pick a vehicle and see its capital accounts. For a vehicle you don't keep books on, you feed it by pasting a statement — commitments, called/paid-in, distributions, NAV — and AI maps the columns into a **dated position**. Every import is stamped with its as-of date, so you keep a record over time: the set of dates *is* the history, and the capital account as of any date is the latest position on or before it. You can also type figures in or edit them by hand. Movements (the roll-forward lines) are derived by diffing consecutive dates, so what you store is exactly what you were given — no decomposition, nothing to drift. When a vehicle is on the ledger instead, the same page shows the same accounts, sourced from the books.
+**Capital tracking, per vehicle.** On the LP capital accounts page, pick a vehicle and see its capital accounts. Capital comes from the books, and a statement from an administrator is kept beside them: you paste it — commitments, called/paid-in, distributions, NAV — and AI maps the columns into a **dated position**. Every import is stamped with its as-of date, so you keep a record over time: the set of dates *is* the history, and the capital account as of any date is the latest position on or before it. You can also type figures in or edit them by hand. Movements (the roll-forward lines) are derived by diffing consecutive dates, so what you store is exactly what you were given — no decomposition, nothing to drift. Reported balances are observations, never journal entries — they are reconciled against the ledger, not posted into it.
 
 **Report cards, live or frozen.** Print investor report cards — the per-investor summary aggregated across vehicles — straight from the live data, one at a time or the whole list at once, in your browser's font. Or freeze a **snapshot**: a point-in-time set of positions kept exactly as it was, in an admin-only archive, with its own bulk PDF printing and Excel export. Snapshots stop *driving* the numbers (that's live now) but remain the record for anything you've already sent. Every report footnotes when its data was last updated — **per vehicle**, since vehicles report on irregular cadences.
 
@@ -135,13 +135,13 @@ The snapshot archive keeps all the original tools: create a named snapshot, past
 
 ## Accounting
 
-Accounting gives each of your vehicles — a fund, an SPV, a direct deal, a GP entity — a real double-entry ledger, and turns it into the numbers your LPs actually see. It is optional: turn it on for one vehicle, or none, and the rest of the platform works exactly as before.
+Accounting gives each of your entities — a fund, an SPV, a direct deal, a GP entity, a management company — a real double-entry ledger, and turns it into the numbers your LPs actually see. **The books are always kept.** Every entity has its chart of accounts from the day it is created, and recording an investment, an exit, a mark, a conversion or a capital call posts its entry at once. The **Accounting** switch (Settings → Feature visibility, part of Fund Operations) decides whether the accounting pages are shown, the same way Investments and LP capital tracking do — not whether books exist. There is no activation step, no tracking-only mode, and nothing to set up before you start.
 
 > Setup guide, every entry type in T-account and plain-text form, and the checks that should always hold: [ACCOUNTING](./ACCOUNTING.md)
 
-**Starting a vehicle's books.** There is no setup step: a vehicle gets the chart of accounts for its kind when it is created (one created earlier gets it the first time its books are opened). Bring in history from the bank feed, or take over at a cutover date with each LP's opening capital balance. GP and associate entities get their own chart (Investment in Fund, members' capital, carried interest income) rather than the fund chart, because they keep different books. Investment transactions are the one writer of investment value: recording a purchase, exit or mark on a company posts its journal entry, and an entry written by hand or imported on an investment account is adopted as the matching transaction.
+**Bringing in history.** There is no setup step: an entity gets the chart of accounts for its kind when it is created (one created earlier gets it the first time its books are opened). Investment history already in the tracker is put on the ledger from the entity's status page ("N items have not reached the ledger" → *Put them on the ledger*), or for every entity at once from the entity index; it adopts entries already there, posts the missing ones on their own dates, and is safe to run again. For the rest, **import QuickBooks** (Migrate from QuickBooks on the status page), import the **bank feed**, or take over at a cutover date with **opening balances**. GP and associate entities get their own chart (Investment in Fund, members' capital, carried interest income) rather than the fund chart, because they keep different books. Investment transactions are the one writer of investment value: recording a purchase, exit or mark on a company posts its journal entry, and an entry written by hand or imported on an investment account is adopted as the matching transaction.
 
-**Bank transactions.** Paste or upload a CSV/TSV export from your bank, Ramp, or QuickBooks. Columns are matched automatically, rows are de-duplicated, and each becomes a balanced draft entry for review. AI categorization suggests the account and entry type for a whole batch at once. An inflow can be booked as a **capital call** — funding an LP's open call, or splitting across every LP pro-rata by commitment — and an outflow as a **distribution**, split by capital balance so it lands in each partner's capital account rather than a pooled one. Nothing posts itself; every entry waits as a draft.
+**Bank transactions.** Paste or upload a CSV/TSV export from your bank, Ramp, or QuickBooks. Columns are matched automatically, rows are de-duplicated, and each becomes a balanced draft entry for review. AI categorization suggests the account and entry type for a whole batch at once. An inflow can be booked as a **capital call** — funding an LP's open call, or splitting across every LP pro-rata by commitment — and an outflow as a **distribution**, split by capital balance so it lands in each partner's capital account rather than a pooled one. A bank row is a draft until you post it; a row that matches an entry already posted from an investment or a capital call is linked to it rather than booked twice.
 
 **Journal.** Every entry, in plain double-entry form, debit and credit columns. **New entry** is a menu: a plain entry, or one of the standard ones — management fee from the fund's rate and each partner's terms, partnership expense, realized gain, distribution or carry by partner — each built from its inputs and shown before it is written. An investment is marked to fair value from the company, as a valuation update. The entry form has a type-ahead account picker, the entry's type (which decides the line it lands on in each partner's capital account), a reference, and a *Reverses on* date for an accrual. A posted entry can be **reversed** (a dated contra-entry, saved as a draft to review, the original stays posted), **duplicated**, unposted to edit, or voided. A posted entry is never silently deleted, and an entry inside a closed period cannot be changed at all until the period is reopened — enforced in the database, not just in the app.
 
@@ -159,7 +159,7 @@ Accounting gives each of your vehicles — a fund, an SPV, a direct deal, a GP e
 
 **Calls and distributions, end to end.** Each issued call and declared distribution reads *open*, *partly funded* or *funded* (paid, for a distribution), with an *overdue* flag against its due date — derived from the ledger at read time, oldest call first, so it never needs advancing and a corrected wire corrects every status. A fund-wide distribution is split **through the vehicle's waterfall**: capital back to the LPs, then the preferred return, then the GP's catch-up and carry, with the tiers shown before you declare and stored with the register; carry posts as its own entry so it files against the accrued carry rather than reading as a return of the GP's capital. (A vehicle with no carry terms still splits pro-rata by capital balance.) **Notices** render one PDF per partner from the frozen register line and go out in one step — published to each partner's portal, emailed as a link, an attachment or both — after a review of the exact To and Cc for every partner. **Receipts** acknowledge what arrived against a call and when, for the lines whose money landed since the last receipt. Every send is logged, so "was this partner emailed the notice" is a question with an answer. Calls with money still outstanding join the daily ops-reminders digest three days before they are due. A capital-tracking vehicle gets the same register and notices; there funding is recorded on the line by hand rather than from a bank feed.
 
-**Capital tracking (no ledger required).** Not every vehicle needs full books. An SPV, a direct investment, or a fund whose administrator sends you a statement can instead be tracked as **dated positions** — paste the statement (or type it in) and it's stored as of a date, building a history over time. Those vehicles produce the same capital accounts, the same statements, and appear in the same live LP report as a fully-booked one — just with fewer lines, because there was no close behind them. The capital-tracking pages live in the LPs section and work whether or not fund accounting is on. You can promote a vehicle to a full ledger later.
+**Reported balances beside the books.** An administrator's quarterly statement can be pasted (or typed) as **dated positions** — stored as of a date, building a history — and reconciled against the capital accounts the ledger produces, line by line, so any difference between the administrator and the books is visible. Importing a statement never writes a journal entry.
 
 **Allocation terms.** How the close splits each category across partners: the allocation basis, each partner's commitment over time (effective-dated, including transfers between LPs), and who bears which category — a GP entity that pays no management fee, a side letter with a negotiated rate. Carry terms are set per vehicle: none, a straight split, or a European waterfall with a preferred return and catch-up.
 
@@ -173,7 +173,27 @@ Accounting gives each of your vehicles — a fund, an SPV, a direct deal, a GP e
 
 **Live capital report.** The LP report, derived from the books as of any date rather than frozen at import time — across every vehicle, with each LP's commitment, paid-in, distributions, NAV, DPI, TVPI and IRR. A member who invests through your GP or associate entity is **looked through** to their share of what that entity holds: capital follows their ownership, carried interest follows their carry points, and the two are allowed to differ (a partner can hold carry points and no commitment at all). You can compare a live report against any stored snapshot, line by line, to see exactly where the two disagree.
 
-**AI assistant.** An assistant scoped to the accounting section — read the books, interpret a statement, reconcile an account, draft an entry. It proposes; it never posts. Everything it produces lands as a draft for you to review. There is also an API-key-authenticated agent endpoint (REST and MCP) so an external agent can work against your books.
+**AI assistant.** An assistant scoped to the accounting section — read the books, interpret a statement, reconcile an account, draft an entry. It proposes; it never posts. Everything it produces lands as a draft for you to review. External agents reach the same books over MCP and the REST agent API — see *Claude, ChatGPT and other agents* below.
+
+## Forecast
+
+Forecast is budgeting and rolling forecasting for every entity — a fund, an SPV, a management company — built on the posted books and kept apart from them: a forecast never posts to the ledger. Switch it on under Settings → Feature visibility (**Forecast**, part of Fund Operations); it then appears in each entity's accounting navigation.
+
+**Budgets and rolling forecasts.** A **budget** is a fiscal year, planned month by month, published as an immutable version and approved as the baseline that variance is measured against; later revisions publish beside it without overwriting it. A **rolling forecast** starts the month after the last closed period and runs 12, 18, 24 or 36 months (or to a chosen month), moving forward as the books close. Every published version is kept exactly as it was, so a forecast can be compared later with what actually happened.
+
+**Account rules.** Each income and expense account carries one rule, and any single month can be overridden without losing the rule underneath: **manual** amounts; a **fixed** amount; a **recurring schedule** (every N months from an anchor month, with escalation, exceptions and one-off additions — a $12,000 tax bill lands in March, not spread over twelve months); a **historical run rate** over closed months only (an unclosed month is never treated as final); **growth** by month or by year; a **seasonal** twelve-month profile repeated with yearly growth; a **linked management fee** from the funds' fee schedules; and **portfolio construction**'s fees and expenses for a fund.
+
+**Cash timing.** A rule says when cash moves as well as when the P&L does: the same month, N months later or earlier, in one calendar month (an annual premium paid each September), or on a billing cycle (a quarterly fee billed in advance). It is recorded by double entry — accruals, prepayments, deferred revenue — so P&L and cash diverge exactly as they would in the books. Payables and receivables already open when the plan starts are settled in its first month.
+
+**Linked drivers.** A **fee link** says a fund pays a management company and on what cycle; the fee itself comes from the fund's portfolio-construction fee terms, so the fund's expense and the management company's revenue use one schedule. Nothing is inferred: a link is set by someone with write access to both entities, and a management company planner who cannot see a fund receives its fee amounts and nothing else. A fund or SPV plan can also include portfolio construction's **investments, exits, capital calls and distributions**, placed in real months from each deal's timing and re-adding to construction's annual figures; calls and distributions are capital and never touch the P&L.
+
+**Views.** Choose a plan and version; Actual + forecast, the plan alone, actuals alone, or **Variance**; any date range; and monthly, quarterly or annual. Storage and every calculation are monthly — quarters and years re-add the months, and cash takes the opening of the first month and the ending of the last. The table is a P&L or a **cash-flow statement** (operating cash by account, investing, financing, and each cash account's balance), with inline month overrides and a rule editor per account. Charts show ending cash, revenue/expenses/net income, cash flows by source, and — in Variance — the comparison and the largest variances by account. Periods with no data read "No data", never zero; actual, unclosed and forecast periods are labelled, and the boundary is marked on every chart. Everything exports to CSV.
+
+**Variance.** Actual against the approved budget, against any published version, or the latest forecast against the budget: dollar and percentage difference with favourable/unfavourable read correctly for expenses, months with no actuals left out of both sides, and quarterly and annual percentages recomputed from summed dollars, never averaged.
+
+**Drafted by AI.** **Draft with AI** opens the Analyst with a request to draft a forecast. It starts from a rule suggested for every account from its own closed history — at least 12 months to recognise annual and quarterly bills, up to 36 — and recognises recurring bills, seasonal shapes, trends, step changes, fixed amounts and one-offs, each with its evidence and a confidence. Investment marks and gains are never forecast from history. The Analyst adjusts the suggestions for what you tell it (hires, price changes, new costs) and stages one plan for approval; nothing is created or published until a person approves it. The same suggestions seed **New plan** by default.
+
+**API, MCP and the Analyst.** Every view and change is available through the authenticated API and MCP (`forecast_list_plans`, `forecast_series`, `forecast_explain`, `forecast_variance`, `forecast_suggest_rules`, `forecast_fee_links`, and the write tools `forecast_create_plan`, `forecast_update_plan`, `forecast_publish`, `forecast_set_fee_link`), on the same service as the page, under the same access: accounting and the Forecast switch, plus the management-company grant for a management company. The Analyst reads freely and stages every change for approval.
 
 ## Management company
 
@@ -181,7 +201,7 @@ The firm's own operating entity, on its own books — the company that employs t
 
 It is a separate section rather than another row on the Funds page because it is a different kind of thing. A management company has no commitments, no NAV, no TVPI and no limited partners, so every column of a fund performance table is a dash — and the questions a firm actually asks about it are different ones.
 
-**Its own chart of accounts.** Seeded when you set one up: cash, receivables, prepaid and fixed assets, payables, payroll liabilities, deferred fee revenue, members' capital and draws, fee and reimbursement income, and an operating expense structure that starts with four separate compensation accounts. A fund chart offers partners' capital, investments at cost and unrealized appreciation, and no salaries line at all.
+**Its own chart of accounts.** Seeded when it is created: cash, receivables, prepaid and fixed assets, payables, payroll liabilities, deferred fee revenue, members' capital and draws, fee and reimbursement income, and an operating expense structure that starts with four separate compensation accounts. A fund chart offers partners' capital, investments at cost and unrealized appreciation, and no salaries line at all.
 
 **The dashboard.** Cash across each bank account, monthly cash burn (depreciation excluded, because it is not money leaving the building) and the runway that implies; revenue and expenses **by quarter**, with the empty quarters drawn rather than skipped — a manco's revenue arrives in four lumps a year, so a missed or late fee should look like a hole, not a flat line; and expenses ranked by account with each one's share.
 
@@ -227,7 +247,7 @@ The Analyst is an interactive chat interface available on every page — company
 
 On a **company page**, the Analyst has access to that company's reported metrics, email content, uploaded documents, previous summaries, investment transactions, portfolio peer comparisons, and your team's internal discussion notes. Ask it to analyze performance trends, compare the company to peers, identify risks, draft summaries, or interpret financial data from reports.
 
-On **portfolio-wide pages**, the Analyst has access to fund-level data across all companies — investment amounts, FMV, MOIC, and team discussion notes. Use it to compare companies, get portfolio-level insights, or surface cross-portfolio themes.
+On **portfolio-wide pages**, the Analyst has access to fund-level data across the companies and entities you can see — investment amounts, FMV, MOIC, and team discussion notes. It never reads an entity you have not been granted, and neither do API keys, MCP or staged actions made in your name. Use it to compare companies, get portfolio-level insights, or surface cross-portfolio themes.
 
 **Persistent conversations** — chat history is saved to your account. Close the panel, navigate away, or close the browser — click the clock icon to open your conversation history and resume any previous thread. Conversations are scoped: company chats stay with that company, portfolio chats have their own history.
 
@@ -245,9 +265,23 @@ Each dashboard expands to full screen, follows the assistant's light or dark the
 
 Everything runs against your own deployment, signed in as you. Setup is in [DOCS](./DOCS.md#dashboards-in-claude-and-chatgpt).
 
+## Claude, ChatGPT and other agents
+
+Your deployment is an **MCP server** (`/api/mcp`) and a REST API, so Claude, ChatGPT, Claude Code, Codex or your own agent can work with the fund directly — and nothing goes anywhere but your own database and the assistant you chose.
+
+**A plugin built for your address.** Settings → API and MCP offers **Plugin for Claude** and **Plugin for ChatGPT**: the connector for this deployment plus two skills — one for dashboards, one for analysis — that tell the assistant which tool answers which question. Both assistants fix a connector's address inside the package, so each deployment builds its own; it holds no key and no fund data. Step-by-step install for each assistant is in [DOCS](./DOCS.md#dashboards-in-claude-and-chatgpt).
+
+**Sign in, no keys to copy.** Claude and ChatGPT connect with OAuth 2.1: the assistant registers itself, you sign in on your fund's own branded consent screen, and choose read, or read and change. Tokens last an hour and renew; revoking one, or switching Agent access off, cuts it off at once. Claude Code and scripts can use a personal **API key** instead (Settings → API and MCP, read or read & write).
+
+**What an agent can do.** More than sixty tools across the books (accounts, journal, statements, bank feed and reconciliation, periods, waterfall, capital calls), the portfolio (vehicles, companies, investments, KPIs, updates, fund performance), LPs (snapshots, live report, statements, calls), deals and diligence, portfolio construction, forecasting, and the dashboards. Changes are a separate scope: a read-only connection cannot write, and in the Analyst every change is staged for a person to approve.
+
+**Your access, exactly.** An agent acts as the person who connected it. Its tool list is filtered to the areas that person can read, every call is checked again against their live grants — a revoked grant takes effect on the next call — and it sees only their entities. **Agent access** (Settings, admin) is the fund-wide switch, off by default. Calls are rate-limited per fund (300 reads or 60 writes a minute, batches of up to 20).
+
+**For developers.** `/api/agent` runs one tool per request with an API key (`GET` lists the tools). `/api/v1` is the app's chat API — conversations, chat with streamed progress (Server-Sent Events: each lookup as it starts and finishes, then the answer), and approving or rejecting staged actions with an idempotency key.
+
 ## Notes
 
-Notes are available on each company's detail page, on the Portfolio dashboard, and on the dedicated Notes page. They provide a lightweight way for team members to share observations, context, and follow-up items.
+Notes are available on each company's detail page, on the Portfolio dashboard, and on the dedicated Notes page. They provide a lightweight way for team members to share observations, context, and follow-up items. Every note belongs to an entity — a fund, an SPV, the management company — and only people who can see that entity read it; a note's entity can be changed but not cleared, and the unread badge counts only notes you can read.
 
 Notes support **@mentions** — type @ while writing to see a dropdown of team members. You can also **follow companies** to get notified about notes on companies you care about. Notification preferences (all notes, @mentions only, or none) are managed in Settings.
 
@@ -300,10 +334,20 @@ Across all your active deals, the **Inbox** aggregates open partner-attention it
 
 Settings → Diligence has three controls: **Schemas** (the seven YAML editors), **Style Anchors** (reference memo library), and **Defaults** (per-deal and monthly token caps with current-month usage bar, plus per-stage AI provider overrides — e.g. cheap model for ingest, stronger model for draft).
 
+## Access
+
+Who sees what is answered on two axes, and both must allow it.
+
+**Domains — what kind of data.** Portfolio, relationships, deal flow, diligence, accounting, the management company, LP capital, GP economics, LP relations, compliance and admin, each at *none*, *read* or *read & write* per member, with a fund-wide default for members who have no explicit grant. A feature switched off in Feature visibility denies every surface to everyone, admins included.
+
+**Entities — whose data.** A member sees a domain's data only for the entities granted to them: **All entities** (including ones added later, and items assigned to no entity), **specific entities**, or none. Admins always see every entity. New members start with none, and approving a join request asks which entities they can see. On a company two funds hold, a Fund I member sees the company — its name, updates, KPIs and documents — and Fund I's position, transactions and books, but not Fund II's, nor that Fund II holds it. Deals and diligence records have an owning entity (unassigned ones are visible to admins only until assigned); an LP is visible through its positions in your entities, showing only those; notes, documents, emails, metrics and the review queue follow their company or entity. The Analyst, agent tools, MCP and API keys resolve only the caller's entities.
+
+Both axes are enforced at the API boundary, on every server page, and in the database (row-level security, including storage), so a link to something you cannot see is simply "not found". Configure both in **Settings → Organization → Team → Access**: the first column is the member's entities, the rest their domain grants.
+
 ## Settings
 
 Settings is where the platform is configured. Most settings are admin-only, but all users can update their display name and enable two-factor authentication.
 
-For admins, Settings covers: AI provider keys and model selection (Anthropic, OpenAI, and/or OpenRouter), fund currency, feature visibility (control which features are visible to everyone, admin-only, hidden, or off), inbound email setup (Postmark or Mailgun), outbound email providers (Gmail, Resend, Postmark, or Mailgun), file storage connections (Google Drive or Dropbox), the AI summary prompt, email templates for reporting asks, analytics (Fathom, Google Analytics, and custom scripts), authorized senders, team members and roles, and the signup allow-list. The **Deals** group configures the inbound-pitch screening flow: investment thesis, screening prompt, intake toggle, public submission URL, known referrers, routing confidence threshold, and optional per-stage routing-model override. The **Diligence** group has three sub-pages: Schemas (the seven YAML editors with version history), Style Anchors (reference memo library with text extraction), and Defaults (per-deal and monthly token caps, per-stage AI provider overrides). The current app version is shown at the bottom of Settings, with a link to the Updates page when a newer version is available.
+For admins, Settings covers: AI provider keys and model selection (Anthropic, OpenAI, and/or OpenRouter), fund currency, feature visibility (each feature on for members, admins only, or off — products such as Fund Operations turn their features on together), inbound email setup (Postmark or Mailgun), outbound email providers (Gmail, Resend, Postmark, or Mailgun), file storage connections (Google Drive or Dropbox), the AI summary prompt, email templates for reporting asks, analytics (Fathom, Google Analytics, and custom scripts), authorized senders, team members and roles, each member's **access** (entities and domain grants — see Access above), the dashboard's default entities, and the signup allow-list. The **Deals** group configures the inbound-pitch screening flow: investment thesis, screening prompt, intake toggle, public submission URL, known referrers, routing confidence threshold, and optional per-stage routing-model override. The **Diligence** group has three sub-pages: Schemas (the seven YAML editors with version history), Style Anchors (reference memo library with text extraction), and Defaults (per-deal and monthly token caps, per-stage AI provider overrides). The current app version is shown at the bottom of Settings, with a link to the Updates page when a newer version is available.
 
 ![Settings](public/screenshots/settings.png)

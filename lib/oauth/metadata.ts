@@ -65,7 +65,8 @@ export function authorizationServerMetadata(req: NextRequest) {
     token_endpoint_auth_methods_supported: ['none', 'client_secret_post'],
     scopes_supported: ['read', 'write'],
 
-    // RFC 8707 — we honour the `resource` parameter and bind it into the token.
+    // RFC 9207 — every authorization response carries `iss` (app/api/oauth/consent). Advertising
+    // this and omitting it is worse than not advertising it: ChatGPT refuses the response.
     authorization_response_iss_parameter_supported: true,
   }
 }

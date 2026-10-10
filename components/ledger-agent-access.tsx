@@ -141,11 +141,12 @@ export function LedgerAgentAccess({ isAdmin, section = 'keys' }: { isAdmin: bool
         It can ask what the fund owns, how each company and vehicle is performing, who the LPs are,
         and what the books say. Agents act as the person who authorized them: {isAdmin
           ? 'as an admin, yours can read everything and write — record investments, post entries, run allocations and closes.'
-          : 'yours can read the portfolio, performance and the ledger; writing requires an admin.'}
+          : 'yours read what you can read, for the entities you can see, and change only what your own access lets you change.'}
       </p>
       <p className="text-[11px] text-muted-foreground">
-        Agent writes to the ledger land as <strong>drafts</strong> for you to review — recording an
-        investment drafts the journal entry it implies rather than posting it.
+        An agent's writes behave exactly like yours in the app — recording an investment posts the
+        journal entry it implies, and a connection approved for reading only cannot change anything.
+        In the Analyst, every change is staged for you to approve first.
       </p>
 
       {enabled === false && (

@@ -14,19 +14,22 @@ Portfolio gives your team one source of truth from the first look at a deal thro
 
 The investment workflow classifies and fit-scores inbound opportunities, runs your diligence checklist against the data room, verifies claims with sourced external research, and drafts investment memos in your firm's structure and voice.
 
-LP reporting and fund operations are layered rather than all-or-nothing. Track dated LP capital positions without running a ledger, or turn on full double-entry accounting per vehicle so capital accounts, statements, carry, and reporting flow from the books. A secure LP portal delivers statements, letters, and fund documents and records engagement.
+Fund operations run on real double-entry books that keep themselves: every entity has its ledger from the day it is created, and recording an investment, a mark, an exit or a capital call posts it — so capital accounts, statements, carry and LP reporting flow from the books whether or not anyone opens the accounting pages. Turn on the views you need, when you need them. A secure LP portal delivers statements, letters, and fund documents and records engagement.
 
 ## How it works
 
 - **Portfolio Reporting** — Forward investor updates in any format or import existing spreadsheets. AI identifies each company, extracts metrics, investments, and cash flows, and sends uncertain results to a review queue. Track custom KPIs, valuations, proceeds, TVPI, DPI, and Net IRR in current dashboards.
 - **Investment Workflow** — Classify and thesis-score inbound pitches, manage the deal pipeline, run your diligence checklist against uploaded data rooms, verify claims through sourced external research, and draft an investment memo in your firm's voice with paragraph-level provenance.
 - **LP Reporting** — Track commitments, paid-in capital, distributions, and NAV across vehicles as dated positions; generate statements and quarterly letters; and deliver reports and documents through a secure, fund-branded LP portal with engagement tracking.
-- **Fund Operations** — Keep optional double-entry books by vehicle, import bank activity, book capital calls and distributions, run monthly closes, maintain partner capital accounts, model management fees and carried interest, and track compliance obligations.
+- **Fund Operations** — Double-entry books for every entity, kept as you record investments and capital calls; import bank activity, run monthly closes, maintain partner capital accounts, model management fees and carried interest, budget and forecast each entity, and track compliance obligations.
+- **Your AI, your data** — Connect Claude or ChatGPT to your own deployment over MCP with a plugin built for your address: ask questions, open live portfolio, company, statement and LP dashboards inside the conversation, and save them — every answer scoped to the access of the person signed in.
 - **AI Analyst and CRM** — Ask questions grounded in your fund's actual data, compare companies, surface trends, share Notes with your team, and log conversations and introductions through your inbound address.
+- **Access by entity and by area** — Grant each team member the funds, SPVs and entities they work on, and the areas (portfolio, accounting, LP capital, carry…) they may read or edit. Enforced at the API, on every page and in the database.
 - **Modular and self-hosted** — Enable only the workflows you use, add all of your funds, SPVs, and team members without per-seat fees, and install the fund-branded app on a phone.
 
 > Detailed feature descriptions at [FEATURES](./FEATURES.md)  
-> Fund accounting setup and double-entry reference at [ACCOUNTING](./ACCOUNTING.md)
+> Fund accounting, forecasting and the double-entry reference at [ACCOUNTING](./ACCOUNTING.md)  
+> Connecting Claude and ChatGPT at [DOCS](./DOCS.md#dashboards-in-claude-and-chatgpt)
 
 ![LP Portal](public/screenshots/lp-portal.png)
 

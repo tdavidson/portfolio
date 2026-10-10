@@ -20,18 +20,21 @@ export default function SupportPage() {
       <li><a href="#import" className="hover:text-foreground underline underline-offset-4">Import</a></li>
       <li><a href="#asks" className="hover:text-foreground underline underline-offset-4">Asks</a></li>
       <li><a href="#settings" className="hover:text-foreground underline underline-offset-4">Settings</a></li>
+      <li className="pl-4"><a href="#access" className="hover:text-foreground underline underline-offset-4">Access</a></li>
       <li><a href="#notes" className="hover:text-foreground underline underline-offset-4">Notes</a></li>
       <li><a href="#interactions" className="hover:text-foreground underline underline-offset-4">Interactions</a></li>
       <li><a href="#deals" className="hover:text-foreground underline underline-offset-4">Deals</a></li>
       <li><a href="#diligence" className="hover:text-foreground underline underline-offset-4">Diligence</a></li>
       <li><a href="#investments" className="hover:text-foreground underline underline-offset-4">Investments</a></li>
-      <li><a href="#funds" className="hover:text-foreground underline underline-offset-4">Funds</a></li>
+      <li><a href="#funds" className="hover:text-foreground underline underline-offset-4">Entities &amp; accounting</a></li>
+      <li><a href="#forecast" className="hover:text-foreground underline underline-offset-4">Forecast</a></li>
       <li><a href="#management-company" className="hover:text-foreground underline underline-offset-4">Management company</a></li>
       <li><a href="#letters" className="hover:text-foreground underline underline-offset-4">Letters</a></li>
       <li><a href="#lps" className="hover:text-foreground underline underline-offset-4">LPs</a></li>
       <li><a href="#compliance" className="hover:text-foreground underline underline-offset-4">Compliance</a></li>
       <li><a href="#usage" className="hover:text-foreground underline underline-offset-4">Usage</a></li>
       <li><a href="#analyst" className="hover:text-foreground underline underline-offset-4">Analyst</a></li>
+      <li><a href="#ai-assistants" className="hover:text-foreground underline underline-offset-4">Claude &amp; ChatGPT</a></li>
       <li><a href="#file-handling" className="hover:text-foreground underline underline-offset-4">File Handling &amp; Security</a></li>
       <li><a href="#updates" className="hover:text-foreground underline underline-offset-4">Updates</a></li>
       <li><a href="#sidebar" className="hover:text-foreground underline underline-offset-4">Theme &amp; Sidebar</a></li>
@@ -297,7 +300,8 @@ export default function SupportPage() {
           <p className="text-muted-foreground">
             The dashboard also includes a shared notes section at the bottom where team members can post
             fund-level observations &mdash; market commentary, cross-portfolio themes, reminders for the
-            next IC meeting, and so on. These notes are visible to everyone on the team.
+            next IC meeting, and so on. Each note belongs to an entity, and is read by the people who can see
+            that entity.
           </p>
         </div>
 
@@ -343,7 +347,8 @@ export default function SupportPage() {
             contact emails, an overview, investment thesis, or a current business update, those appear
             at the bottom. A <strong>notes panel</strong> on
             the right side (or toggled via the chat button on mobile) lets your team leave company-specific
-            observations visible to all members.
+            observations. Each note belongs to an entity: on a company two funds share, Fund I&rsquo;s notes are
+            read only by people who can see Fund I.
           </p>
           <p className="text-muted-foreground">
             The company page also includes an <strong>Investments</strong> section that tracks the
@@ -559,6 +564,30 @@ export default function SupportPage() {
             who can sign up for the platform. A danger zone at the bottom allows admins to permanently
             delete all fund data if needed.
           </p>
+          <div id="access" className="pl-4 border-l-2 border-border mb-2">
+            <h3 className="font-medium mb-1">Access</h3>
+            <p className="text-muted-foreground mb-2">
+              Two questions decide what a member sees, and both must say yes. <strong>Which areas</strong>:
+              portfolio, deal flow, diligence, accounting, the management company, LP capital, GP economics,
+              LP relations, compliance &mdash; each none, read, or read &amp; write. <strong>Whose data</strong>:
+              All entities (including ones added later, and items assigned to none), specific funds, SPVs and
+              entities, or none. Set both in <strong>Settings &rarr; Team &rarr; Access</strong>; the first column
+              is the member&rsquo;s entities. Approving a join request asks which entities the person can see,
+              and new members start with none. Admins always see everything.
+            </p>
+            <p className="text-muted-foreground mb-2">
+              On a company two funds hold, a Fund I member sees the company, its updates and KPIs, and Fund
+              I&rsquo;s position and books &mdash; not Fund II&rsquo;s, nor that Fund II holds it. Deals and diligence
+              records belong to an entity (unassigned ones are visible to admins until assigned); an LP shows
+              only their positions in your entities; notes, documents and emails follow their company or
+              entity; and the Analyst, MCP, the Claude and ChatGPT connections and API keys see exactly
+              what the member sees. Something you cannot see is simply &ldquo;not found&rdquo;.
+            </p>
+            <p className="text-muted-foreground">
+              <strong>Feature visibility</strong> is the ceiling above all of it: a feature is on for members,
+              admins only, or off &mdash; and off denies it to everyone, admins included, without deleting data.
+            </p>
+          </div>
           <p className="text-muted-foreground">
             For detailed technical setup instructions &mdash; configuring Supabase, environment
             variables, encryption keys, email providers, deployment, and more &mdash; see the{' '}
@@ -785,29 +814,61 @@ export default function SupportPage() {
         <div id="funds">
           <h2 className="text-base font-medium mb-2 flex items-center gap-2">
             <Briefcase className="h-4 w-4 text-muted-foreground" />
-            Funds
+            Entities &amp; accounting
           </h2>
           <p className="text-muted-foreground mb-2">
-            The Funds page provides fund-level LP metrics computed from cash flow data. Each portfolio
-            group gets its own tab showing committed capital, called capital (paid-in capital), uncalled
-            capital, distributions, gross residual value, estimated carry, net residual value, and total
-            value &mdash; along with calculated TVPI, DPI, RVPI, and Net IRR.
+            <strong>Entities</strong> lists every fund, SPV, GP entity, individual and management company,
+            with performance &mdash; committed, called, distributed, NAV, DPI, TVPI, IRR &mdash; derived from the
+            books, and a <em>Net to LP</em> lens. Open one for its pages: journal, bank, capital accounts,
+            schedule of investments, statements, portfolio construction, forecast, tax and close.
+          </p>
+          <div id="accounting" className="pl-4 border-l-2 border-border mb-2">
+            <h3 className="font-medium mb-1">Accounting is always on</h3>
+            <p className="text-muted-foreground mb-2">
+              Every entity keeps double-entry books from the day it is created. Recording an investment, an
+              exit, a mark, a conversion or a capital call posts its entry; a bank row matching one is linked to
+              it rather than booked twice; and each income or expense entry is allocated to the partners as it
+              posts. So the books are complete whether or not anyone opens them. The <strong>Accounting</strong> 
+              switch (Settings &rarr; Feature visibility, or <em>Turn on Fund Operations</em>) only decides whether
+              the pages are shown &mdash; like Investments and LP capital tracking.
+            </p>
+            <p className="text-muted-foreground mb-2">
+              <strong>Bringing in history:</strong> on the entity&rsquo;s status page, <em>Put them on the ledger</em> 
+              books investment history already in the tracker; <em>Migrate from QuickBooks</em> imports a general
+              ledger; the bank page takes a CSV or a table copied straight from your bank&rsquo;s website; and 
+              <em>Opening balances</em> takes over at a cutover date. An administrator&rsquo;s statement can be kept
+              beside the books as dated positions and reconciled against them.
+            </p>
+            <p className="text-muted-foreground">
+              <strong>Close</strong> reviews and locks each month: drafts and suggested recurring entries can be
+              posted right there, it reconciles ledger cash to the bank feed, trues up carried interest, and
+              lists every partner allocation in the month. The full guide is ACCOUNTING.md in the repository.
+            </p>
+          </div>
+        </div>
+
+        <div id="forecast">
+          <h2 className="text-base font-medium mb-2 flex items-center gap-2">
+            <Lightbulb className="h-4 w-4 text-muted-foreground" />
+            Forecast
+          </h2>
+          <p className="text-muted-foreground mb-2">
+            Budgets and rolling forecasts for each entity, built on the posted books and never written to them.
+            Turn on <strong>Forecast</strong> in Settings &rarr; Feature visibility (Fund Operations). A 
+            <strong>budget</strong> is a year planned by month and approved as the baseline; a 
+            <strong>rolling forecast</strong> starts after the last closed month and runs 12&ndash;36 months.
           </p>
           <p className="text-muted-foreground mb-2">
-            Cash flows are recorded per portfolio group with three types: <strong>commitments</strong> (capital
-            committed by LPs), <strong>called capital</strong> (capital actually called from LPs), and
-            <strong> distributions</strong> (capital returned to LPs). Each tab shows a chronological table
-            of cash flows with running cumulative totals for committed, called, uncalled, and distributed amounts.
-          </p>
-          <p className="text-muted-foreground mb-2">
-            The LP metrics are calculated automatically: TVPI (total value to paid-in capital), DPI (distributions
-            to paid-in capital), RVPI (net residual value to paid-in capital), and Net IRR (using XIRR with
-            capital calls as negative flows, distributions as positive, and net residual as a terminal value).
-            Estimated carry is computed as 20% of profit above remaining invested capital.
+            Each income and expense account has a rule &mdash; fixed, recurring schedule, historical run rate,
+            growth, seasonal, manual, a linked management fee, or portfolio construction &mdash; and any month
+            can be overridden. Cash timing (in advance, in arrears, a billing cycle) separates cash from P&amp;L.
+            View any range by month, quarter or year as a P&amp;L, a cash-flow statement, or variance against
+            the budget; every chart and table follows the same filters, and everything exports to CSV.
           </p>
           <p className="text-muted-foreground">
-            Cash flows can be added individually from the Funds page. The same computed metrics also
-            appear in the group summary table on the Investments page.
+            <strong>Draft with AI</strong> asks the Analyst to suggest a rule for every account from up to 36
+            months of history, adjust for what you tell it, and stage the plan for your approval. A 
+            <strong>fee link</strong> ties a management company&rsquo;s fee revenue to each fund&rsquo;s fee terms.
           </p>
         </div>
 
@@ -823,8 +884,8 @@ export default function SupportPage() {
             is a different kind of thing: it has no commitments, no NAV, no TVPI and no limited
             partners, so every column of a fund performance table would be a dash. Switch it on in
             Settings &rarr; Feature visibility, then add a vehicle of type{' '}
-            <strong>Management company</strong> and choose <strong>Set up books</strong> to seed its
-            chart of accounts.
+            <strong>Management company</strong>: its chart of accounts is there from creation. Members also
+            need the separate Management company grant (Settings &rarr; Team &rarr; Access).
           </p>
           <p className="text-muted-foreground mb-2">
             <strong>Its chart of accounts is its own.</strong> Cash, receivables, prepaid and fixed
@@ -1041,7 +1102,7 @@ export default function SupportPage() {
           </p>
           <p className="text-muted-foreground mb-2">
             On <strong>portfolio-wide pages</strong> (Portfolio, Investments, Asks, Notes), the Analyst has
-            access to fund-level data across all companies &mdash; investment amounts, FMV, MOIC, and your
+            access to fund-level data across the companies and entities you can see &mdash; investment amounts, FMV, MOIC, and your
             team&apos;s discussion notes. Use it to compare companies, get portfolio-level insights, or ask
             about cross-portfolio trends and themes.
           </p>
@@ -1075,6 +1136,51 @@ export default function SupportPage() {
             as Summary&rdquo; button that appears below each response on company pages. This lets you
             use the chat to iteratively refine a summary and then commit it to the company&apos;s record
             with one click.
+          </p>
+        </div>
+
+        <div id="ai-assistants">
+          <h2 className="text-base font-medium mb-2 flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-muted-foreground" />
+            Claude &amp; ChatGPT
+          </h2>
+          <p className="text-muted-foreground mb-2">
+            Use your fund from Claude or ChatGPT: ask questions, and open live portfolio, company, financial
+            statement and LP dashboards inside the conversation &mdash; signed in as you, seeing only what you
+            can see. An admin first switches on <strong>Settings &rarr; Agent access</strong>; then each member
+            finds their connection under <strong>Settings &rarr; API and MCP</strong>.
+          </p>
+          <div className="pl-4 border-l-2 border-border mb-2">
+            <h3 className="font-medium mb-1">Claude</h3>
+            <ol className="list-decimal pl-5 text-muted-foreground space-y-1">
+              <li>In Settings &rarr; API and MCP, download <strong>Plugin for Claude</strong>.</li>
+              <li>In Claude, open <strong>Customize &rarr; Plugins &rarr; Add &rarr; Upload plugin</strong> and choose the file.</li>
+              <li>Open the plugin&rsquo;s <strong>Connectors</strong> tab, choose <strong>Connect</strong>, sign in to your fund and approve.</li>
+            </ol>
+            <p className="text-muted-foreground mt-1">
+              Claude Code: <code className="font-mono text-xs">claude mcp add --transport http fund &lt;MCP URL&gt;</code> 
+              and sign in when prompted, or add an API key header from the same Settings page.
+            </p>
+          </div>
+          <div className="pl-4 border-l-2 border-border mb-2">
+            <h3 className="font-medium mb-1">ChatGPT</h3>
+            <ol className="list-decimal pl-5 text-muted-foreground space-y-1">
+              <li>Copy the <strong>MCP URL</strong> from Settings &rarr; API and MCP.</li>
+              <li>In ChatGPT, open <strong>Plugins</strong>, choose <strong>+</strong>, then <strong>Add custom MCP server</strong>; paste the URL and create it as a plugin.</li>
+              <li>Connect, sign in to your fund and approve.</li>
+            </ol>
+            <p className="text-muted-foreground mt-1">
+              For the skills in the ChatGPT desktop app or Codex, download <strong>Plugin for ChatGPT</strong>,
+              unzip it into <code className="font-mono text-xs">~/.agents/plugins/</code>, list it in 
+              <code className="font-mono text-xs">~/.agents/plugins/marketplace.json</code> and restart the app
+              (DOCS.md has the exact entry).
+            </p>
+          </div>
+          <p className="text-muted-foreground">
+            The plugin is built for your own deployment&rsquo;s address and contains no key and no data. You
+            choose read, or read and change, when you approve; revoking it or switching Agent access off
+            stops it at once. Ask the assistant to <em>save this dashboard</em> to reopen it later, in either
+            assistant, always on current figures.
           </p>
         </div>
 

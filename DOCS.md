@@ -3,7 +3,7 @@
 - Project overview at [README](./README.md)
 - Detailed feature descriptions at [FEATURES](./FEATURES.md)
 - Technical deployment details at [DOCS](./DOCS.md)
-- Fund accounting setup and double-entry reference at [ACCOUNTING](./ACCOUNTING.md)
+- Fund accounting, forecasting and the double-entry reference at [ACCOUNTING](./ACCOUNTING.md)
 
 ## Setup & Deployment
 
@@ -207,24 +207,23 @@ To automatically archive processed emails and attachments:
 5. Add `https://your-app.com/api/auth/google/callback` as an authorized redirect URI
 6. In the app, go to **Settings**, enter your Google Client ID and Client Secret, connect Google, and use the folder picker to select a Drive folder for archiving
 
-### Optional: Fund accounting
+### Fund accounting
 
-Accounting is a feature switch, and each vehicle keeps its own books — a fund, an SPV, a direct deal, or a GP/associate entity. Nothing else in the platform changes if you never turn it on.
+Every entity keeps double-entry books from the day it is created — a fund, an SPV, a direct deal, a GP/associate entity, an individual, a management company. There is nothing to turn on to start them: recording an investment, a mark, an exit, a conversion or a capital call posts its entry, so the books are complete whether or not anyone opens the accounting pages. The **Accounting** feature (Settings → Feature visibility, or **Turn on Fund Operations**) decides whether those pages are shown, like Investments and LP capital tracking.
 
-Before you start, define your vehicles in **Settings > Investment vehicles**. Every accounting page is scoped to one of them.
+Entities are added under **Entities** (one *Add vehicle* button for every kind). For each one you want to look after:
 
-For each vehicle you want books on:
+1. **The chart of accounts is already there** — the fund chart for a fund, SPV or direct vehicle; the GP-entity chart (investment in fund, members' capital, carried interest income) for an *associate*; the management-company chart for a management company. Edit it under the entity's **Admin → Chart of accounts**.
+2. **Bring in what came before.** Investment history already in the tracker: the entity's status page says how many items have not reached the ledger — choose *Put them on the ledger* (or book every entity at once from the entity index). It adopts entries already there and posts the missing ones on their own dates, and can be run again safely. For the rest: **Migrate from QuickBooks** on the status page, import the **bank** history, or take over at a cutover date on **Opening balances** with each LP's capital from their latest statement.
+3. **Set the allocation terms** (Admin → Allocation terms): the allocation basis, each partner's commitment, who bears which category, and the carry terms (none, a straight split, or a European waterfall with a preferred return and catch-up). Carry accrues at each close only if terms are set.
 
-1. **The chart of accounts is already there.** A vehicle gets its chart when it is created — the standard fund chart for a fund, SPV or direct vehicle; the GP-entity chart (investment in fund, members' capital, carried interest income) for one classified as an *associate*, because it keeps different books. A vehicle created before that gets its chart the first time its books are opened. Accounts are added, renamed or hidden under the vehicle's **Admin → Chart of accounts**.
-2. **Bring in what came before.** Import the bank history, or take over at a cutover date on the vehicle's **Opening balances** page with each LP's capital balance from their latest statement. Investments and marks are recorded on the companies; each posts its own journal entry.
-3. **Set the allocation terms.** Under **Accounting > Allocation terms**: the allocation basis, each partner's commitment, who bears which category, and — if the vehicle pays carry — the carry terms (none, a straight split, or a European waterfall with a preferred return and catch-up). Carry accrues at each close only if you set terms here; the default is no carry.
+Then work the entity: import a bank feed under **Bank** (a row that matches an entry already posted is linked to it rather than booked twice), post entries in the **Journal** — each income or expense entry is allocated to the partners as it posts — and **Close** each month to review, reconcile the bank, true up carry and lock it.
 
-Then work the vehicle: import a bank feed under **Bank transactions**, review the drafted entries in the **Journal**, and run a **Period close** to allocate to each partner's capital account.
+Worth knowing:
 
-Two things worth knowing:
-
-- **A vehicle does not need a ledger to appear in LP reporting.** If you don't keep books on an SPV, record its LP capital movements directly under **Accounting > LP capital events** — by hand or by pasting a spreadsheet — and it produces the same capital accounts, statements and LP report as a fully-booked vehicle. You can promote it to a full ledger later.
-- **Associates and GP entities.** If a GP/associate vehicle invests in one of your funds, set both halves of its link in **Settings > Investment vehicles**: which fund it is *GP of*, and which partner on that fund's books it *invests as*. Without both, its members won't appear in the LP report.
+- **Reported balances sit beside the books.** An administrator's statement can be pasted as dated positions under **LPs → Capital accounts** and reconciled against the ledger; it never writes a journal entry.
+- **Associates and GP entities.** If a GP/associate entity invests in one of your funds, set both halves of its link: which fund it is *GP of*, and which partner on that fund's books it *invests as*. Without both, its members won't appear in the LP report.
+- **Forecasting** (Settings → Feature visibility → **Forecast**) adds budgets, rolling forecasts and variance per entity on top of the posted books, without ever writing to them. See FEATURES → Forecast and ACCOUNTING → Forecasts and budgets.
 
 ### Optional: Two-factor authentication
 
@@ -232,7 +231,7 @@ Admins and team members can enable TOTP-based two-factor authentication from the
 
 ### Optional: Invite team members
 
-In **Settings > Team**, your team members can sign up (if their email matches the whitelist or your fund's email domain) and request to join. Admins approve requests and can assign admin or member roles.
+In **Settings > Team**, your team members can sign up (if their email matches the whitelist or your fund's email domain) and request to join. Admins approve requests, assign admin or member roles, and choose **which entities** the new member can see — All entities (including ones added later) or specific funds, SPVs and entities; a member must be given at least one, and starts with none otherwise. The **Access** grid under Team sets each member's entities and their domain grants (none / read / read & write for portfolio, accounting, LP capital, GP economics, and so on). Admins always see everything. See FEATURES → Access for what an entity grant hides.
 
 ### Onboarding LPs to the portal
 
@@ -293,6 +292,25 @@ The portal app is scoped to `/portal`: a link out of it opens in the browser rat
 The two are told apart on a home screen by the icon: the manager app is the mark on a light tile, the portal is the same mark inverted — knocked out of a filled tile in the fund's colour. One mark between them, because these are two doors into one product rather than two products. A dark tile against a light one is what survives being shrunk to 60px and cropped to a circle; two different drawings would not. The fill is taken from the brand ramp's 700 stop rather than the accent itself, so the knockout stays legible whichever accent a fund picks — several accents are far too light to carry white directly.
 
 **Known gaps.** For a named fund both apps carry the same home-screen *label* (the fund's name); only the icon distinguishes them. The full names differ and install prompts show those. Web push notifications are not wired up on any platform.
+
+### Connecting Claude, ChatGPT and other agents
+
+The deployment is an MCP server and a REST API. Everything an agent does runs against your database, as the person who connected it, under their access.
+
+**1. Turn on Agent access.** An admin switches on **Settings → Agent access** (off by default). Switching it off later stops every key and every connected assistant at once.
+
+**2. Connect.** Each member then finds their connection details under **Settings → API and MCP**:
+
+| Assistant | How |
+|-----------|-----|
+| **Claude** (claude.ai, Desktop) | Download **Plugin for Claude**, then in Claude: **Customize → Plugins → Add → Upload plugin**, choose the file, open the plugin's **Connectors** tab and connect — you sign in to your fund and approve. Or add the MCP URL as a custom connector (no skills). |
+| **ChatGPT** | **Plugins → + → Add custom MCP server**, paste the MCP URL, create it as a plugin, and sign in when asked. For the skills in the ChatGPT desktop app or Codex, install **Plugin for ChatGPT** as below. |
+| **Claude Code** | `claude mcp add --transport http fund https://<your-domain>/api/mcp --header "Authorization: Bearer <API key>"` with a key from Settings → API and MCP, or omit the header and sign in through OAuth when prompted. |
+| **Your own agent** | MCP at `https://<your-domain>/api/mcp`, or REST at `/api/agent` (`GET` lists tools, `POST {tool, input}` runs one) with `Authorization: Bearer <API key>`. |
+
+The MCP URL is `https://<your-domain>/api/mcp` (`/api/accounting/mcp` still answers). Claude and ChatGPT sign in with **OAuth 2.1** — dynamic client registration, PKCE, discovery at `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource` — on your fund's branded consent screen, where the member chooses read, or read and change. Access tokens last an hour and refresh for 30 days. **API keys** (`lk_…`) are per member, read or read & write, and revocable in Settings; a key's scope is a ceiling, and every write is still checked against the member's grant for that area.
+
+**What it can reach.** The tool list is filtered to the areas the member can read and the entities they can see, and re-checked on every call. Requests are limited per fund to 300 reads or 60 writes a minute, in batches of up to 20 calls. The Analyst never writes directly — it stages changes for approval — and `/api/v1` (chat, streamed chat over Server-Sent Events, conversations, approving staged actions with an `Idempotency-Key`) takes only OAuth tokens issued for it.
 
 ### Dashboards in Claude and ChatGPT
 
@@ -379,16 +397,26 @@ Each provider has a model selector in Settings — after saving your API key, yo
 
 ### Feature Visibility
 
-Admins can control which optional features are visible in the sidebar and accessible across the platform. Each feature can be set to one of four visibility levels:
+Admins control which features the fund uses, in **Settings → Feature visibility**. Each feature is set to one of three levels:
 
 | Level | Behavior |
 |-------|----------|
-| **Everyone** | Visible to all team members in the sidebar and fully accessible |
-| **Admin only** | Only visible to admin users; hidden from members |
-| **Hidden** | Removed from the sidebar for all users, but still accessible via direct URL |
-| **Off** | Functionally disabled — the feature is completely inaccessible |
+| **Members** | On; each member reaches it subject to their own access grant |
+| **Admins only** | On for admins only, whatever a member's grant says |
+| **Off** | Denied on every surface — page, API, Analyst, MCP — to everyone, admins included. Its data is kept |
 
-The features that can be configured are: **Interactions** (CRM-style email logging), **Investments** (fund transaction tracking), **Funds** (fund-level cash flows and LP metrics), **Notes** (team discussion and observations), **Letters** (quarterly LP update generation), **LPs** (LP position tracking and reporting), **Compliance** (regulatory filing calendar and tracking), **Imports** (bulk data import), and **Asks** (portfolio company reporting requests).
+A feature's level is the ceiling; a member's access grant (Settings → Team → Access) can narrow it, never widen it. A stored "Hidden" from older versions behaves as Off.
+
+Features are grouped into products, and a product's **Turn on** sets all of its features at once (to Admins only, ready to widen):
+
+| Product | Features |
+|---------|----------|
+| **Portfolio Reporting** | Investments, Imports, Notes, Interactions, Asks |
+| **Investment Workflow** | Deals, Diligence |
+| **LP Reporting** | LPs, LP capital tracking, LP letters, LP portal, LP activity log |
+| **Fund Operations** | Accounting, Management company, Tax reporting, **Forecast**, GP economics, Compliance |
+
+Turning a feature off hides and denies it; it never deletes data, and for accounting it never stops the books being kept — investments and capital calls still post. Separately, **Agent access** (Settings, admin) is the fund-wide switch for MCP, API keys and the Claude and ChatGPT plugins.
 
 ### Tech stack
 

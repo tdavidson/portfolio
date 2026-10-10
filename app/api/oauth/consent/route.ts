@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getClient, redirectUriAllowed, issueAuthorizationCode, grantableScope } from '@/lib/oauth/store'
 import { canWriteAnywhere, loadAccessContext } from '@/lib/access/effective'
 import { agentApiEnabled } from '@/lib/oauth/enabled'
+import { issuerFor } from '@/lib/oauth/metadata'
 
 /**
  * The user's decision on the consent screen. This is the ONLY place an
@@ -50,7 +51,7 @@ export async function POST(req: NextRequest) {
   // Denial is a normal OAuth outcome, and it DOES redirect back — the client needs
   // to learn the user said no. (Safe: the URI is now known-registered.)
   if (!approve) {
-    return NextResponse.json({ redirect: withParams(redirectUri, { error: 'access_denied', state }) })
+    return NextResponse.json({ redirect: withParams(redirectUri, { error: 'access_denied', state, iss: issuerFor(req) }) })
   }
 
   if (!codeChallenge) {
@@ -92,7 +93,10 @@ export async function POST(req: NextRequest) {
     resource,
   })
 
-  return NextResponse.json({ redirect: withParams(redirectUri, { code, state }) })
+  // RFC 9207: the issuer rides on every authorization response. The metadata promises it
+  // (`authorization_response_iss_parameter_supported`), and a client that checks — ChatGPT does —
+  // rejects a response without it as a possible mix-up attack ("missing the expected issuer").
+  return NextResponse.json({ redirect: withParams(redirectUri, { code, state, iss: issuerFor(req) }) })
 }
 
 function withParams(uri: string, params: Record<string, string | null>): string {

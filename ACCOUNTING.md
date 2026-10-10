@@ -4,9 +4,13 @@
 - Detailed feature descriptions at [FEATURES](./FEATURES.md)
 - Technical deployment details at [DOCS](./DOCS.md)
 
-Fund accounting is an **optional** double-entry ledger, off by default. Turn it on when you want LP
-numbers to come from real books rather than pasted statements. This covers both halves: standing the
-books up for a vehicle, and how every entry is booked once they're running.
+Every entity keeps a double-entry ledger, **always**. Its chart of accounts exists from the day the
+entity is created, and recording an investment, an exit, a mark, a conversion or a capital call posts
+its entry — so the books are complete whether or not anyone opens the accounting pages. The
+**Accounting** feature (Settings → Feature visibility, part of Fund Operations) decides whether those
+pages are shown, the way Investments and LP capital tracking do; it never decides whether books are
+kept. This covers both halves: bringing an entity's history onto the books, and how every entry is
+booked once they're running.
 
 In this system a **vehicle is a `portfolio_group`**: `fund_id` is the company/installation, and each
 SPV / Fund I / Fund II is a `portfolio_group` under it, with its **own separate books** (chart,
@@ -14,37 +18,36 @@ ledger, capital accounts, bank feed, periods).
 
 **Contents**
 
-- [Setting up a vehicle](#setting-up-a-vehicle) — prerequisites and the three onboarding scenarios
+- [Setting up a vehicle](#setting-up-a-vehicle) — bringing history onto the books, by scenario
 - [Going live & keeping the books](#going-live--keeping-the-books)
 - [Management companies](#management-companies) — the firm's own books, and intercompany
 - [Double-entry reference](#double-entry-reference) — how each entry type is booked
 - [The capital-account roll-forward](#the-capital-account-roll-forward)
 - [Verifying the books](#verifying-the-books) — the checks that should always hold
 - [Authoring in text](#authoring-in-text)
+- [Forecasts and budgets](#forecasts-and-budgets) — how a plan is stored, and why it never touches the ledger
 - [Agents](#agents)
 
 ---
 
 # Setting up a vehicle
 
-How to stand up the books for a vehicle — a brand-new fund, or an entity that already exists on the
-platform.
+There is no activation and no setup step: the books exist already. What varies is how much history
+an entity has to bring onto them.
 
-## Prerequisites (all scenarios)
+## Before you start
 
-1. **Enable Accounting.** Settings → *Feature visibility* → set **Accounting** to `admin` (it ships
-   `off`). It's admin-only.
-2. **Apply the migrations** (`supabase db push`) so the ledger tables exist. If you'd already applied
-   an earlier version of these migrations, convert the `portfolio_group` / period columns to an
-   additive `ALTER` first.
-3. **LP + commitment data must exist for the vehicle.** The allocation basis and the reconcile
-   answer-key come from `lp_investments` (investors → entities → commitment/paid-in/distributions per
-   `portfolio_group`). A vehicle only appears in the Accounting **vehicle selector** once it has LP
-   data, a fund-group config, or cash flows for that `portfolio_group`. If the entity is already on
-   the platform (e.g. built from an LP report snapshot), this is already done.
+1. **Show the pages.** Settings → *Feature visibility* → **Accounting** (or *Turn on Fund
+   Operations*, which turns on its features for admins). Hiding them later keeps the books running.
+2. **Partners and commitments.** The allocation basis comes from each partner's commitment (Admin →
+   Allocation terms, or the LP data the entity was built from). A fund with no partner commitments
+   cannot allocate, so posting an income or expense entry is refused until it has them.
+3. **Investment history already in the tracker.** Open the entity's status page (**Entities → the
+   entity → Admin**): it says how many investment items have not reached the ledger. *Put them on the
+   ledger* adopts any matching entries already there and posts the missing ones on their own dates; it
+   is safe to run again. The entity index can do it for every entity at once.
 
-Then, in every scenario: **pick the vehicle** in the selector at the top of the Accounting section —
-everything you do scopes to it.
+Every page scopes to one entity — chosen with the switcher in the header.
 
 ---
 
@@ -52,15 +55,16 @@ everything you do scopes to it.
 
 The entity's LPs, commitments, and prior figures are already in the platform. So is its chart of
 accounts: an entity gets the chart for its kind when it is created, and one created before that gets
-it the first time its books are opened. There is no setup step. You choose how much history to
-bring in.
+it the first time its books are opened. You choose how much history to bring in. (A QuickBooks
+general ledger can be imported instead: **Migrate from QuickBooks** on the status page.)
 
 ### A1. Full history (reconstruct from inception) — recommended for the SPV
 
 Best when volume is low and you want a complete, auditable trail.
 
 1. **Bank transactions** → paste or **Upload CSV/XLS** of the bank history from inception. Rows are
-   deduped and each drafts a balanced entry.
+   deduped; a row matching an entry already posted (an investment, a capital call) is linked to it,
+   and each other row drafts a balanced entry.
 2. **Categorize with AI** to classify the fuzzy rows against the chart.
 3. For each inflow that's a capital call, **Book as call** (allocates per LP by commitment) or
    **Match call** if you already recorded it. Post the drafts.
@@ -94,8 +98,8 @@ Best for other vehicles where reconstructing history isn't worth it.
 
 Greenfield: no history to reconstruct — you're the book of record from first close.
 
-1. **Create the vehicle's LP data first** so it appears in the selector: in the **LPs** section add
-   the investors/entities and their commitments under the new `portfolio_group` (or import them).
+1. **Add the entity** (Entities → *Add vehicle*), then its investors and their commitments in the
+   **LPs** section (or import them).
    Set the vehicle's economics on its admin status page (**Entities → the vehicle → Admin**, `/funds/[id]/status`): vintage on the vehicle record, plus carry terms (rate, preferred return, catch-up, and the receiving GP entity) and allocation terms (each partner's commitment, including the GP's, and who bears fees, expenses, and carry).
 2. The vehicle's chart of accounts is seeded when the vehicle is created; there is no setup step.
 3. Book from **first close forward**:
@@ -107,7 +111,7 @@ Greenfield: no history to reconstruct — you're the book of record from first c
    - **Valuation update** on each holding at each reporting date.
 4. Reconcile cash against the bank feed; close & lock each period.
 
-No bootstrap and no historical import — you simply start posting.
+No historical import — you simply start recording.
 
 ---
 
@@ -115,7 +119,7 @@ No bootstrap and no historical import — you simply start posting.
 
 1. Deploy against a fresh Supabase project and run all migrations.
 2. Complete onboarding to create the fund and the first admin user (`fund_members`).
-3. Create the first vehicle's LP data (Scenario B, step 1), then follow Scenario A or B per vehicle.
+3. Add the first entity and its investors (Scenario B, step 1), then follow Scenario A or B per entity.
 
 Everything is per-vehicle from there, so the same company can run an SPV and a fund side by side.
 
@@ -123,16 +127,26 @@ Everything is per-vehicle from there, so the same company can run an SPV and a f
 
 # Going live & keeping the books
 
-- **Period close (P&L):** **Period close** allocates each month's income and expenses to the
-  partners' capital accounts through the undistributed-earnings bridge, with a preview first.
+- **Allocation happens when an entry posts.** Posting an income or expense entry writes its partner
+  allocation at once — a separate entry dated the same day, memo ending "— partner allocation", from
+  3200 Undistributed earnings to each partner's capital by the basis in force on that date. Unposting
+  or voiding the source takes its allocation with it. If an allocation cannot be made (no partner
+  with a commitment, say), the entry is not posted.
+- **Close:** the **Close** page reviews and locks a month. It catches up any P&L that was never
+  allocated (older books), trues up accrued carried interest to that month's NAV, accrues note
+  interest, and records its review: trial balance, no drafts, bank activity recorded, **bank
+  reconciliation** (ledger cash on 1000 against the imported bank feed, both as of the month end),
+  partner allocations complete, valuation and cutoff. Drafts and suggested recurring entries inside
+  the month can be posted from the Close page itself. Opening a closed month lists every allocation
+  in it — made on posting, or by the close.
 - **Correct a posted entry:** open it in the Journal and **Reverse** it — a dated contra-entry
   lands as a draft, the original stays posted, and the pair nets to zero from that date. Void is
   for drafts and same-day slips; a reversal is what a preparer expects to see. An accrual can be
   given a *Reverses on* date when it is entered, and the reversal draft is created for you.
-- **Lock the period:** **Periods** → *Close & lock* the date range. This snapshots the whole ledger
+- **Lock the period:** **Close** → *Close & lock* the date range. This snapshots the whole ledger
   as plain-text double-entry (the audit record) and **blocks any new posting dated inside the range**
   until you reopen it.
-- **Amend a closed period:** Periods → *Reopen*, post the fix, close & lock again.
+- **Amend a closed period:** Close → *Reopen*, post the fix, close & lock again.
 - **Statements at any date:** the **Financial statements** page has an *As of* control so every
   statement can be viewed at a chosen date.
 
@@ -218,13 +232,20 @@ the management fee it pays. The boundary is real, so it is enforced rather than 
 
 `tests/manco-vehicle-domain.test.ts` pins all of it.
 
+**Entities, not only domains.** The same guard also checks the member can see *that entity* (Settings →
+Team → Access, "Whose data they see"). A member granted Fund I but not the management company gets
+"not found" for the manco's pages and 403 "You don't have access to that entity." from its APIs —
+whatever their accounting or management-company grant says. Grants answer *what*; entities answer
+*whose*; both must allow it.
+
 ## Setting one up
 
-1. **Settings → Feature visibility → Management company** (ships `off`).
+1. **Settings → Feature visibility → Management company** (ships `off`; *Turn on Fund Operations*
+   sets it to admins). Members need the separate **Management company** grant (Settings → Team → Access).
 2. **Entities → Admin → Add vehicle**, type *Management company*. It is the same button that adds
    a fund; the type decides the chart, the pages and the grant.
-3. **Set up books** seeds the chart below. There is no cutover / full-history choice and no capital
-   accounts to create: those are about LPs.
+3. The chart below is seeded when it is created; there is no setup step, no cutover / full-history
+   choice and no capital accounts to create — those are about LPs.
 4. Import the QuickBooks general ledger from the entity's page if there is history to bring in. The
    mapping proposer knows the manco vocabulary — payroll, benefits, occupancy, technology — so most
    accounts arrive already matched.
@@ -571,11 +592,12 @@ Zero every income/expense account into the bridge. No LP postings — capital is
   Equity:Undistributed-Earnings:3200     -300000.00 USD
 ```
 
-### 11. Conversion (SAFE / note → equity) — `source: investment` (drafted from the tracker)
+### 11. Conversion (SAFE / note → equity) — `source: investment` (posted from the tracker)
 A SAFE or convertible note converting into a priced round (e.g. Series A). In the tracker it is
 recorded as the **priced-round investment it becomes**, linked to the instrument it converted from
-(`converts_from_txn_id`); there is no separate transaction type. Saving it **drafts** the entry
-below — like every tracker→ledger mirror, it lands as a draft for review, not a post.
+(`converts_from_txn_id`); there is no separate transaction type. Saving it **posts** the entry
+below — like every entry derived from an investment transaction. (A draft is left only if the
+partner allocation cannot be made; it says why.)
 
 A conversion is a **pure roll-over — it carries no cash of its own**. New money written at the same
 round is recorded as a *separate* `investment` row (same round name), so it stays a distinct line.
@@ -673,8 +695,37 @@ Checks that should always hold — use these to confirm a new setup and to sanit
 
 ---
 
+# Forecasts and budgets
+
+Budgets and rolling forecasts (FEATURES → Forecast) are **stored the way the books are** — dated,
+balanced entries — but in their own tables (`forecast_entries` / `forecast_postings`), never in
+`journal_*`, and never with a `book`. Nothing a plan does can change the ledger, a closed period, a
+capital account or a statement.
+
+- **Inputs** are one rule per income/expense account (`forecast_rules`) and month overrides
+  (`forecast_overrides`). **Output** is compiled entries: a plan is rebuilt whole on every save, in one
+  transaction guarded by the plan's revision (a stale save is refused, not merged).
+- **Cash timing by double entry.** Paid in the month: Dr expense / Cr cash. Paid later: Dr expense /
+  Cr accrued (2000/2100), then Dr accrued / Cr cash. Paid earlier: Dr prepaid / Cr cash, then
+  Dr expense / Cr prepaid. Revenue mirrors it through receivable and deferred revenue (a management
+  company's 1100 and 2400). A chart without the counter-account falls back to same-month cash, and
+  says so.
+- **Opening balances.** Payables and receivables open in the actuals when a plan starts settle in its
+  first month (configurable); prepaid and deferred balances are left to the rules that release them.
+- **Actuals** are only ever posted, actual-book entries. A rolling forecast joins them at an explicit
+  cutoff — the last closed month by default — and every month after an unclosed one is labelled so.
+- **Versions** freeze the compiled entries with the rules that made them; an approved budget is never
+  overwritten, and a later revision is a new version.
+- **Fund flows.** With construction included, a fund plan carries investments (Dr investments at
+  cost / Cr cash), exits (Dr cash / Cr cost / Cr realized gain), capital calls (Dr cash / Cr LP
+  capital) and distributions (Dr LP capital / Cr cash). Fees and expenses come only from the rules on
+  5000 and 5100, so construction's fees are never counted twice.
+
 # Agents
 
-Everything above is also available to agents over MCP/REST (Settings → *Agent access*): import a
+Everything above is also available to agents over MCP/REST (switched on in Settings → *Agent access*;
+each member's keys, MCP URL and the Claude and ChatGPT plugins are under Settings → *API and MCP* —
+see DOCS → Connecting Claude, ChatGPT and other agents): import a
 bank feed, categorize, book calls, record investment transactions (approved by a person before they
-post), author entries as text, reconcile, and close periods — each scoped to a vehicle via the `vehicle` argument.
+post), author entries as text, reconcile, close periods, and read, draft and publish budgets and forecasts
+— each scoped to a vehicle via the `vehicle` argument, and only to entities the member can see.
