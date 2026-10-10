@@ -1,3 +1,5 @@
+import { recordAudit } from '@/lib/audit/events'
+import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -48,16 +50,23 @@ export async function POST(req: NextRequest) {
   // the whole point of them), so an LP files a document that can never be corrected in place.
   //
   // `force: true` is the escape hatch for a deliberate interim statement, but it has to be
-  // asked for.
+  // asked for — and it is recorded in the audit trail, with who asked.
+  //
+  // THIS entity's period, and an APPROVED one. The lookup used to match any vehicle's closed
+  // period in the fund (no vehicle filter), and a close nobody had signed off is not one to send
+  // to partners: the close is prepared by one member and approved by another (close-approval.ts).
+  const vehicleId = await vehicleIdByName(admin, gate.fundId, group)
   if (period.end && !body?.force) {
-    const { data: covering } = await admin
+    const { data: coveringRows } = await admin
       .from('fiscal_periods' as any)
-      .select('id, status')
+      .select('id, status, close_reviews(status)')
       .eq('fund_id', gate.fundId)
+      .eq('vehicle_id', vehicleId)
       .eq('status', 'closed')
       .lte('period_start', period.end)
       .gte('period_end', period.end)
-      .maybeSingle()
+      .limit(1)
+    const covering = ((coveringRows as any[]) ?? [])[0]
 
     if (!covering) {
       return NextResponse.json({
@@ -66,6 +75,19 @@ export async function POST(req: NextRequest) {
           `every statement would show them as zero. Close the period first, or re-send with { "force": true } if you really want an interim statement.`,
       }, { status: 400 })
     }
+    const reviews = [covering.close_reviews ?? []].flat() as { status: string }[]
+    if (reviews.some(r => r.status === 'prepared')) {
+      return NextResponse.json({
+        error: `The close through ${period.end} has not been approved yet. A second member approves it on the Periods page; then publish.`,
+      }, { status: 400 })
+    }
+  }
+  if (body?.force) {
+    await recordAudit(admin, {
+      fundId: gate.fundId, vehicleId, actorId: user.id, action: 'lp_statement.force_publish', subjectType: 'lp_statement',
+      reason: 'Interim statement published before the period was closed and approved (force).',
+      details: { start: period.start ?? null, end: period.end ?? null, lpEntityIds: body?.lpEntityIds ?? 'all' },
+    })
   }
 
   // Default to every partner in the vehicle.

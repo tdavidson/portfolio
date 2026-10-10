@@ -35,7 +35,17 @@ beforeEach(() => {
     bank_transactions: [], fund_capital_events: [], fund_nav_statements: [],
   })
 })
-const patch = (body: object) => PATCH(new NextRequest('http://localhost/api/accounting/journal', { method: 'PATCH', body: JSON.stringify({ group: 'Fund I', id: 'e1', ...body }) }))
+const patch = (body: object) => PATCH(new NextRequest('http://localhost/api/accounting/journal', { method: 'PATCH', body: JSON.stringify({ group: 'Fund I', id: 'e1', reason: 'Test correction', ...body }) }))
+
+describe('reasons for undoing a posted entry', () => {
+  it('refuses to unpost, reverse or void a posted entry without one', async () => {
+    for (const action of ['unpost', 'reverse']) {
+      const res = await PATCH(new NextRequest('http://localhost/api/accounting/journal', { method: 'PATCH', body: JSON.stringify({ group: 'Fund I', id: 'e1', action, reverseDate: '2026-04-01' }) }))
+      expect(res.status).toBe(400)
+      expect((await res.json()).error).toMatch(/reason is required/)
+    }
+  })
+})
 
 describe('journal actions on an owned entry', () => {
   it('void deletes the transaction', async () => {
@@ -121,7 +131,7 @@ describe('either half of a live reversal pair on investment accounts', () => {
     ]
     s.m.tables.journal_entries.push({ id: 'r1', fund_id: 'f', vehicle_id: 'v', book: 'actual', status: reversalStatus, entry_date: '2026-04-01', source_ref: `reversal:${O}`, reversed_by: null })
   }
-  const act = (id: string, action: string) => PATCH(new NextRequest('http://localhost/api/accounting/journal', { method: 'PATCH', body: JSON.stringify({ group: 'Fund I', id, action }) }))
+  const act = (id: string, action: string) => PATCH(new NextRequest('http://localhost/api/accounting/journal', { method: 'PATCH', body: JSON.stringify({ group: 'Fund I', id, action, reason: 'Test correction' }) }))
 
   for (const action of ['void', 'unpost']) {
     it(`${action} of the original is refused`, async () => {

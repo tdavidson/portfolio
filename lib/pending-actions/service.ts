@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { recordAudit } from '@/lib/audit/events'
 import { hasAccess } from '@/lib/access/effective'
 import { isRestrictedCredential, type AnalystPrincipal } from '@/lib/ai/analyst/types'
 import { getWriteAction } from './registry'
@@ -211,6 +212,11 @@ export async function approvePendingAction(
       .maybeSingle()
     if (error) throw new Error(error.message)
     if (!applied) throw new Error('The approved action could not be finalized.')
+    await recordAudit(admin, {
+      fundId: principal.fundId, vehicleId: existing.vehicle_id ?? null, actorId: principal.userId, action: 'pending_action.approve',
+      subjectType: 'pending_action', subjectId: id,
+      details: { actionType: existing.action_type, stagedBy: existing.created_by, stagedVia: existing.created_via ?? null, args: existing.args },
+    })
     return { ok: true, replayed: false, result, action: actionDto(applied as PendingActionRow) }
   } catch (error) {
     const message = error instanceof Error ? error.message : 'Action execution failed.'
@@ -250,5 +256,9 @@ export async function rejectPendingAction(
     .maybeSingle()
   if (error) throw new Error(error.message)
   if (!data) throw new PendingActionServiceError('Pending action was already decided.', 409, 'ACTION_NOT_PENDING')
+  await recordAudit(admin, {
+    fundId: principal.fundId, vehicleId: existing.vehicle_id ?? null, actorId: principal.userId, action: 'pending_action.reject',
+    subjectType: 'pending_action', subjectId: id, details: { actionType: existing.action_type, stagedBy: existing.created_by },
+  })
   return { ok: true, replayed: false, action: actionDto(data as PendingActionRow) }
 }

@@ -1,3 +1,4 @@
+import { auditReason, recordAudit } from '@/lib/audit/events'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -271,6 +272,16 @@ export async function PATCH(req: NextRequest) {
   if (!existing) return NextResponse.json({ error: 'Entry not found' }, { status: 404 })
 
   const status = (existing as any).status
+  // Undoing what was posted needs a reason, recorded with who did it (accounting_audit_events).
+  // Discarding a draft does not: nothing it held was ever on the books.
+  const reason = auditReason(body.reason)
+  if (!reason && (action === 'unpost' || action === 'reverse' || (action === 'void' && status === 'posted'))) {
+    return NextResponse.json({ error: `A reason is required to ${action} a posted entry.` }, { status: 400 })
+  }
+  const audit = (a: 'entry.post' | 'entry.unpost' | 'entry.void' | 'entry.reverse', details: Record<string, unknown> = {}) => recordAudit(admin, {
+    fundId: gate.fundId, vehicleId, actorId: user.id, action: a, subjectType: 'journal_entry', subjectId: id, reason,
+    details: { entryDate: (existing as any).entry_date, memo: (existing as any).memo ?? null, reference: (existing as any).reference ?? null, priorStatus: status, ...details },
+  })
   // Void, unpost and reverse on an OWNED entry delete the transactions that own it (spec §1) —
   // which needs investments write as well as accounting write.
   let mayInvest: boolean | null = null
@@ -338,6 +349,7 @@ export async function PATCH(req: NextRequest) {
     }
     // A reversal saved as a draft changes nothing on the books, so the tracker keeps the
     // transaction; posting the draft releases it (postExistingEntryWithAllocation).
+    await audit('entry.reverse', { reversalId: result.entryId, reverseDate, reversalStatus })
     if (reversalStatus === 'draft') {
       return NextResponse.json({ ok: true, reversalId: result.entryId, status: reversalStatus, reverseDate, removedTransactions: [], unlinkedRegisterRows: [] })
     }
@@ -376,6 +388,7 @@ export async function PATCH(req: NextRequest) {
     }
     // Keep any bank transaction that points at this entry in step.
     await admin.from('bank_transactions' as any).update({ status: 'reconciled' }).eq('journal_entry_id', id).eq('fund_id', gate.fundId)
+    await audit('entry.post')
     // Posting a reversal draft deletes the transactions that owned the entry it reverses.
     return NextResponse.json({
       ok: true, status: 'posted',
@@ -408,6 +421,7 @@ export async function PATCH(req: NextRequest) {
     if (error) return failedAfterRelease(error, 'journal-unpost', released)
     // Keep any bank transaction that points at this entry in step.
     await admin.from('bank_transactions' as any).update({ status: 'drafted' }).eq('journal_entry_id', id).eq('fund_id', gate.fundId)
+    await audit('entry.unpost', { removedTransactions: released.removed })
     return NextResponse.json({ ok: true, status: 'draft', removedTransactions: released.removed, unlinkedRegisterRows: released.unlinked })
   }
 
@@ -421,5 +435,6 @@ export async function PATCH(req: NextRequest) {
   const { error } = await admin.from('journal_entries' as any).update({ status: 'void', posted_at: null }).eq('id', id).eq('fund_id', gate.fundId)
   if (error) return failedAfterRelease(error, 'journal-void', released)
   await admin.from('bank_transactions' as any).update({ status: 'ignored' }).eq('journal_entry_id', id).eq('fund_id', gate.fundId)
+  await audit('entry.void', { removedTransactions: released.removed })
   return NextResponse.json({ ok: true, status: 'void', removedTransactions: released.removed, unlinkedRegisterRows: released.unlinked })
 }

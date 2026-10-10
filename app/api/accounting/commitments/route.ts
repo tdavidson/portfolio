@@ -1,3 +1,4 @@
+import { auditReason, recordAudit } from '@/lib/audit/events'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -86,6 +87,11 @@ export async function POST(req: NextRequest) {
     memo: body?.memo ?? null,
   })
   if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
+  await recordAudit(admin, {
+    fundId: gate.fundId, vehicleId: await vehicleIdByName(admin, gate.fundId, group), actorId: user.id,
+    action: 'commitment.create', subjectType: 'lp_entity', subjectId: body?.lpEntityId ?? null, reason: auditReason(body?.memo),
+    details: { effectiveDate: body?.effectiveDate, amount: Number(body?.amount), counterpartyEntityId: body?.counterpartyEntityId ?? null },
+  })
   return NextResponse.json({ ok: true })
 }
 
@@ -110,7 +116,7 @@ export async function PATCH(req: NextRequest) {
   const vehicleId = await vehicleIdByName(admin, gate.fundId, group)
   const { data: existing, error: fetchError } = await admin
     .from('commitment_events' as any)
-    .select('id, transfer_id')
+    .select('*')
     .eq('fund_id', gate.fundId)
     .eq('vehicle_id', vehicleId)
     .eq('id', id)
@@ -118,6 +124,18 @@ export async function PATCH(req: NextRequest) {
   if (fetchError) return NextResponse.json({ error: fetchError.message }, { status: 500 })
   const row = existing as any
   if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // A commitment is what every call and fee is computed from. Changing its amount needs a reason,
+  // and every edit is recorded with the event as it was (accounting_audit_events).
+  const reason = auditReason(body?.reason)
+  if (body?.amount !== undefined && Number(body.amount) !== Number(row.amount) && !reason) {
+    return NextResponse.json({ error: 'A reason is required to change a recorded commitment amount.' }, { status: 400 })
+  }
+  const audit = () => recordAudit(admin, {
+    fundId: gate.fundId, vehicleId, actorId: user.id, action: 'commitment.edit', subjectType: 'commitment_event', subjectId: id, reason,
+    details: { before: { effectiveDate: row.effective_date, amount: Number(row.amount), memo: row.memo ?? null, kind: row.kind, lpEntityId: row.lp_entity_id, transferId: row.transfer_id ?? null },
+      after: { effectiveDate: body?.effectiveDate, amount: body?.amount === undefined ? undefined : Number(body.amount), memo: body?.memo } },
+  })
 
   if (row.transfer_id) {
     if (body?.amount !== undefined) {
@@ -133,6 +151,7 @@ export async function PATCH(req: NextRequest) {
         .eq('fund_id', gate.fundId)
         .eq('transfer_id', row.transfer_id)
       if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+      await audit()
     }
     return NextResponse.json({ ok: true })
   }
@@ -155,6 +174,7 @@ export async function PATCH(req: NextRequest) {
       .eq('vehicle_id', vehicleId)
       .eq('id', id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    await audit()
   }
   return NextResponse.json({ ok: true })
 }
@@ -179,7 +199,7 @@ export async function DELETE(req: NextRequest) {
   const vehicleId = await vehicleIdByName(admin, gate.fundId, group)
   const { data: existing, error: fetchError } = await admin
     .from('commitment_events' as any)
-    .select('id, transfer_id')
+    .select('*')
     .eq('fund_id', gate.fundId)
     .eq('vehicle_id', vehicleId)
     .eq('id', id)
@@ -187,6 +207,8 @@ export async function DELETE(req: NextRequest) {
   if (fetchError) return NextResponse.json({ error: fetchError.message }, { status: 500 })
   const row = existing as any
   if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  const reason = auditReason(body?.reason)
+  if (!reason) return NextResponse.json({ error: 'A reason is required to delete a recorded commitment.' }, { status: 400 })
 
   if (row.transfer_id) {
     const { error } = await admin
@@ -204,5 +226,10 @@ export async function DELETE(req: NextRequest) {
       .eq('vehicle_id', vehicleId)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
+  // The deleted event, whole, is the record that it ever existed.
+  await recordAudit(admin, {
+    fundId: gate.fundId, vehicleId, actorId: user.id, action: 'commitment.delete', subjectType: 'commitment_event', subjectId: id, reason,
+    details: { deleted: { effectiveDate: row.effective_date, amount: Number(row.amount), memo: row.memo ?? null, kind: row.kind, lpEntityId: row.lp_entity_id, transferId: row.transfer_id ?? null } },
+  })
   return NextResponse.json({ ok: true })
 }

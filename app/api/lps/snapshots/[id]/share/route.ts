@@ -1,3 +1,4 @@
+import { recordAudit } from '@/lib/audit/events'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -97,6 +98,10 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     const { error: insErr } = await (admin as any).from('lp_snapshot_shares').insert(rows)
     if (insErr) return dbError(insErr, 'lps-snapshots-share')
   }
+  // Who an investor report went to, and who it was taken back from — sharing locks the report's
+  // figures (lib/lps/shared-lock.ts), and unsharing is how it is unlocked.
+  if (toAdd.length) await recordAudit(admin, { fundId, actorId: user.id, action: 'snapshot.share', subjectType: 'lp_snapshot', subjectId: snapshotId, details: { investorIds: toAdd } })
+  if (toRemove.length) await recordAudit(admin, { fundId, actorId: user.id, action: 'snapshot.unshare', subjectType: 'lp_snapshot', subjectId: snapshotId, details: { investorIds: toRemove } })
 
   return NextResponse.json({ ok: true, lp_investor_ids: target })
 }
@@ -105,7 +110,7 @@ export async function DELETE(req: NextRequest, props: { params: Promise<{ id: st
   const params = await props.params;
   const ctx = await adminCtx(params.id)
   if ('error' in ctx) return ctx.error
-  const { admin, fundId, snapshotId } = ctx
+  const { admin, user, fundId, snapshotId } = ctx
 
   const lpInvestorId = new URL(req.url).searchParams.get('lp_investor_id') ?? ''
   if (!lpInvestorId) return NextResponse.json({ error: 'lp_investor_id is required' }, { status: 400 })
@@ -117,5 +122,6 @@ export async function DELETE(req: NextRequest, props: { params: Promise<{ id: st
     .eq('fund_id', fundId)
     .eq('lp_investor_id', lpInvestorId)
   if (error) return dbError(error, 'lps-snapshots-share')
+  await recordAudit(admin, { fundId, actorId: user.id, action: 'snapshot.unshare', subjectType: 'lp_snapshot', subjectId: snapshotId, details: { investorIds: [lpInvestorId] } })
   return NextResponse.json({ ok: true })
 }

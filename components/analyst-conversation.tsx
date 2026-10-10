@@ -929,13 +929,20 @@ interface AnalystStep {
 type ProgressEvent =
   | { kind: 'tool.started'; tool: string; label: string }
   | { kind: 'tool.completed'; tool: string; label: string; isError: boolean }
+  | { kind: 'model.started'; round: number; label: string }
+
+/** The step a model round shows as — between tools, the Analyst is reading and deciding. */
+const MODEL_STEP = '__model'
 
 function applyProgress(steps: AnalystStep[], event: ProgressEvent): AnalystStep[] {
-  if (event.kind === 'tool.started') return [...steps, { tool: event.tool, label: event.label, status: 'running' }]
+  // Whatever the Analyst does next, the thinking that led to it is done.
+  const settled = steps.map(s => (s.tool === MODEL_STEP && s.status === 'running' ? { ...s, status: 'done' as const } : s))
+  if (event.kind === 'model.started') return [...settled, { tool: MODEL_STEP, label: event.label, status: 'running' }]
+  if (event.kind === 'tool.started') return [...settled, { tool: event.tool, label: event.label, status: 'running' }]
   // Complete the most recent running step for this tool (the same tool can run more than once).
-  const i = steps.map(s => s.tool === event.tool && s.status === 'running').lastIndexOf(true)
-  if (i < 0) return steps
-  const next = [...steps]
+  const i = settled.map(s => s.tool === event.tool && s.status === 'running').lastIndexOf(true)
+  if (i < 0) return settled
+  const next = [...settled]
   next[i] = { ...next[i], status: event.isError ? 'error' : 'done' }
   return next
 }
@@ -977,13 +984,12 @@ function AnalystWorking({ steps }: { steps: AnalystStep[] }) {
     const id = window.setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000)
     return () => window.clearInterval(id)
   }, [])
-  const running = steps.some(s => s.status === 'running')
   const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`
   return (
     <div className="space-y-1.5 text-sm text-muted-foreground" role="status" aria-live="polite">
       <p className="flex items-center gap-2">
         <Loader2 className="h-3.5 w-3.5 animate-spin" />
-        <span>{running ? 'Working' : steps.length ? 'Thinking about what it found' : 'Thinking'}</span>
+        <span>{steps.some(s => s.status === 'running' && s.tool !== MODEL_STEP) ? 'Working' : 'Thinking'}</span>
         <span className="tabular-nums text-xs">· {elapsed}</span>
       </p>
       {steps.length > 0 && (

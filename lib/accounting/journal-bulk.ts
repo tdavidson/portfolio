@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { recordAudit } from '@/lib/audit/events'
 import { closedPeriodRanges, dateInAnyClosedPeriod } from './periods'
 import { ACTUAL_BOOK } from './books'
 import { postExistingEntryWithAllocation } from './continuous-allocation'
@@ -28,6 +29,8 @@ export interface BulkScope {
 export interface BulkOutcome {
   /** Entries that actually changed status. */
   changed: number
+  /** Their ids, for the audit trail. */
+  changedIds: string[]
   skipped: { id: string; reason: string }[]
   /** Posted, but something after the post failed (a reversal's transactions not deleted). */
   warnings: { id: string; warning: string }[]
@@ -143,6 +146,7 @@ export async function runBulkDraftAction(
     target.push(e.id)
   }
 
+  let changedIds: string[] = []
   if (target.length > 0) {
     if (action === 'post') {
       // Every post goes through the choke point: it adopts investment lines and allocates to
@@ -162,7 +166,7 @@ export async function runBulkDraftAction(
     // Keep any bank transactions that point at these entries in step — the same two states
     // the single-entry bank actions use.
     const failed = new Set(skipped.map(item => item.id))
-    const changedIds = target.filter(id => !failed.has(id))
+    changedIds = target.filter(id => !failed.has(id))
     if (changedIds.length > 0) {
       await (admin as any).from('bank_transactions')
         .update({ status: action === 'post' ? 'reconciled' : 'ignored' })
@@ -171,10 +175,19 @@ export async function runBulkDraftAction(
     }
   }
 
+  if (changedIds.length > 0) {
+    // One record per batch, naming every entry: who posted or discarded them, in what scope.
+    await recordAudit(admin as any, {
+      fundId, vehicleId, actorId: userId, action: action === 'post' ? 'entries.bulk_post' : 'entries.bulk_void',
+      subjectType: 'journal_entries', details: { entryIds: changedIds, count: changedIds.length },
+    })
+  }
+
   return {
     ok: true,
     outcome: {
       changed: target.length - skipped.filter(item => target.includes(item.id)).length,
+      changedIds,
       skipped,
       warnings,
       removedTransactions,

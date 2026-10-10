@@ -133,6 +133,8 @@ export interface CreateToolLoopParams extends Omit<CreateMessageParams, 'content
   mcpServers?: McpServerConfig[]
   /** Safety valve: stop after this many model round-trips. Defaults to 6. */
   maxIterations?: number
+  /** Called before each model round-trip (0 = the first), so a caller can say it is thinking. */
+  onRound?: (round: number) => void
 }
 
 export interface ToolCallRecord {
@@ -145,6 +147,8 @@ export interface ToolCallRecord {
 
 export interface ToolLoopResult extends AIResult {
   toolCalls: ToolCallRecord[]
+  /** The loop hit maxIterations with tool calls still asked for — it stopped, it did not finish. */
+  stoppedAtLimit?: boolean
 }
 
 export interface AIProvider {

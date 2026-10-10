@@ -73,7 +73,8 @@ export async function POST(req: Request) {
             ...request,
             onProgress: (event: AnalystProgressEvent) => {
               // Name and label only. See AnalystProgressEvent for why arguments and results stay
-              // on the server.
+              // on the server. Model rounds are the web panel's; this API's event set is a contract.
+              if (event.kind === 'model.started') return
               send(event.kind, event.kind === 'tool.completed'
                 ? { tool: event.tool, label: event.label, isError: event.isError }
                 : { tool: event.tool, label: event.label })

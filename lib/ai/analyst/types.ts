@@ -70,6 +70,8 @@ export interface AnalystDocument {
  */
 export type AnalystProgressEvent =
   | { kind: 'tool.started'; tool: string; label: string }
+  /** A model round-trip began: the Analyst is reading, deciding, or writing — between tools. */
+  | { kind: 'model.started'; round: number; label: string }
   | { kind: 'tool.completed'; tool: string; label: string; isError: boolean }
 
 export interface AnalystRequest {

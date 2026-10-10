@@ -376,7 +376,10 @@ ${rawData}`,
         .eq('id', existing.id)
 
       if (upErr) {
-        errors.push(`${rowLabel}: failed to update investment`)
+        // A report already shared with investors is locked (lp_investments_locked_when_shared).
+        errors.push(/shared with investors/.test(upErr.message ?? '')
+          ? `${rowLabel}: this report is shared with investors and locked — unshare it, or import into a new report`
+          : `${rowLabel}: failed to update investment`)
       } else {
         updated++
       }

@@ -1,3 +1,4 @@
+import { lockedMessage, reportShareCount } from '@/lib/lps/shared-lock'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -85,6 +86,11 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'asOfDate must be YYYY-MM-DD format' }, { status: 400 })
   }
 
+  if (asOfDate !== undefined || associatesCalcEnabled !== undefined) {
+    const shares = await reportShareCount(admin, writeCheck.fundId, id)
+    if (shares > 0) return NextResponse.json({ error: lockedMessage(shares, "this report's date and calculation") }, { status: 409 })
+  }
+
   const updates: Record<string, any> = { updated_at: new Date().toISOString() }
   if (name !== undefined) {
     if (typeof name !== 'string' || !name.trim()) return NextResponse.json({ error: 'name cannot be empty' }, { status: 400 })
@@ -133,6 +139,8 @@ export async function DELETE(req: NextRequest) {
 
   const id = req.nextUrl.searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
+  const shares = await reportShareCount(admin, writeCheck.fundId, id)
+  if (shares > 0) return NextResponse.json({ error: lockedMessage(shares, 'deleting it') }, { status: 409 })
 
   const { error } = await admin
     .from('lp_snapshots' as any)

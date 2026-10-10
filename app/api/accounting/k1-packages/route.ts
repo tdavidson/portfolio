@@ -1,3 +1,4 @@
+import { recordAudit } from '@/lib/audit/events'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -85,6 +86,7 @@ export async function POST(req: NextRequest) {
       // blockers come back so the caller can list what to fix rather than guess.
       return NextResponse.json(result, { status: 409 })
     }
+    await recordAudit(admin, { fundId: gate.fundId, actorId: user.id, action: 'k1.finalize', subjectType: 'k1_package', subjectId: packageId })
     return NextResponse.json(result)
   }
 
@@ -99,6 +101,10 @@ export async function POST(req: NextRequest) {
         ? await amendK1Package(admin, gate.fundId, group, user.id, taxYear)
         : await generateK1Package(admin, gate.fundId, group, user.id, taxYear)
     if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
+    await recordAudit(admin, {
+      fundId: gate.fundId, actorId: user.id, action: action === 'amend' ? 'k1.amend' : 'k1.generate', subjectType: 'k1_package', subjectId: result.packageId,
+      details: { group, taxYear, version: result.version, partners: result.partnerCount, blockers: result.blockers.length },
+    })
     return NextResponse.json(result)
   }
 

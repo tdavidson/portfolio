@@ -101,6 +101,8 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/ledger-text': { domain: 'accounting' },
   'api/accounting/opening-balances': { domain: 'accounting' },
   'api/accounting/periods': { domain: 'accounting' },
+  // The books' audit trail. Partner and carry events are filtered in the handler (lib/audit/read.ts).
+  'api/accounting/audit-log': { domain: 'accounting', level: 'read' },
 
   'api/accounting/statements': { domain: 'accounting' },
   // The Excel workpaper export ships the exact same computed package as the statements

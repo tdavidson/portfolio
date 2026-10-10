@@ -1,3 +1,5 @@
+import { approveCloses } from '@/lib/accounting/close-approval'
+import { auditReason, recordAudit } from '@/lib/audit/events'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -48,6 +50,9 @@ export async function GET(req: NextRequest) {
 //   { action: 'reopen',  id }      → reopen that period and every closed period after it,
 //                                     newest-first, voiding each one's allocation
 //   { action: 'reopen',  fromDate } → same, for every closed period covering or after the date
+//   reopen requires { reason }, recorded with who reopened (accounting_audit_events)
+//   { action: 'approve', id | through, attestation? } → sign off prepared close reviews
+//                                     (a different member from the preparer — close-approval.ts)
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const admin = createAdminClient()
@@ -79,7 +84,22 @@ export async function POST(req: NextRequest) {
 
   if (body?.action === 'reopen') {
     if (!body?.id && !body?.fromDate) return NextResponse.json({ error: 'id or fromDate is required' }, { status: 400 })
+    const reason = auditReason(body?.reason)
+    if (!reason) return NextResponse.json({ error: 'A reason is required to reopen a closed period.' }, { status: 400 })
     const result = await reopenThrough(admin, gate.fundId, group, body.id ? { periodId: String(body.id) } : { fromDate: String(body.fromDate) })
+    if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
+    await recordAudit(admin, {
+      fundId: gate.fundId, vehicleId: await vehicleIdByName(admin, gate.fundId, group), actorId: user.id,
+      action: 'period.reopen', subjectType: 'fiscal_period', subjectId: body.id ? String(body.id) : null, reason,
+      details: { fromDate: body.fromDate ?? null, reopened: result.reopened, voided: result.voided, reopenedPeriods: result.reopenedPeriods, issuedK1Years: result.issuedK1Years },
+    })
+    return NextResponse.json(result)
+  }
+
+  if (body?.action === 'approve') {
+    const target = body?.id ? { periodId: String(body.id) } : typeof body?.through === 'string' ? { through: body.through } : null
+    if (!target) return NextResponse.json({ error: 'id or through is required' }, { status: 400 })
+    const result = await approveCloses(admin, gate.fundId, group, user.id, target, typeof body?.attestation === 'string' ? body.attestation : null)
     if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
     return NextResponse.json(result)
   }

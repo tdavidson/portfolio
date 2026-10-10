@@ -202,9 +202,11 @@ export class AnthropicProvider implements AIProvider {
     const usage = { inputTokens: 0, outputTokens: 0, cacheReadTokens: 0, cacheCreationTokens: 0 }
     let finalText = ''
     let truncated = false
+    let stoppedAtLimit = false
 
     for (let i = 0; i < maxIterations; i++) {
       params.signal?.throwIfAborted()
+      try { params.onRound?.(i) } catch { /* a broken progress transport must not fail the run */ }
       const request: any = {
         model: params.model,
         max_tokens: params.maxTokens,
@@ -257,6 +259,7 @@ export class AnthropicProvider implements AIProvider {
       // No client-side tool calls left to service — MCP and web-search calls have
       // already resolved server-side by the time we get here.
       if (pending.length === 0) break
+      if (i === maxIterations - 1) stoppedAtLimit = true
 
       messages.push({ role: 'assistant', content: response.content })
 
@@ -302,7 +305,7 @@ export class AnthropicProvider implements AIProvider {
       messages.push({ role: 'user', content: results })
     }
 
-    return { text: finalText, usage, truncated, toolCalls }
+    return { text: finalText, usage, truncated, toolCalls, stoppedAtLimit }
   }
 
   async testConnection(): Promise<void> {

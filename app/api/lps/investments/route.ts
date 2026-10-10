@@ -1,3 +1,5 @@
+import { lockedMessage, reportShareCount } from '@/lib/lps/shared-lock'
+import { recordAudit } from '@/lib/audit/events'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -120,6 +122,12 @@ export async function PUT(req: NextRequest) {
 
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
 
+  const { data: before } = await admin.from('lp_investments' as any).select('*').eq('id', id).eq('fund_id', writeCheck.fundId).maybeSingle()
+  if (!before) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  const figuresChanging = [commitment, paidInCapital, distributions, nav, calledCapital, totalValue, outstandingBalance, dpi, rvpi, tvpi, irr].some(v => v !== undefined)
+  const shares = figuresChanging ? await reportShareCount(admin, writeCheck.fundId, (before as any).snapshot_id) : 0
+  if (shares > 0) return NextResponse.json({ error: lockedMessage(shares, 'this position') }, { status: 409 })
+
   const updates: Record<string, any> = { updated_at: new Date().toISOString() }
   if (entityId !== undefined) {
     // Validate entity belongs to this fund
@@ -154,6 +162,10 @@ export async function PUT(req: NextRequest) {
     .single() as { data: any; error: { message: string } | null }
 
   if (error) return dbError(error, 'lp-investments-update')
+  await recordAudit(admin, {
+    fundId: writeCheck.fundId, actorId: user.id, action: 'lp_position.edit', subjectType: 'lp_investment', subjectId: id,
+    details: { before, changes: updates },
+  })
 
   return NextResponse.json(data)
 }
@@ -175,6 +187,10 @@ export async function DELETE(req: NextRequest) {
   const id = req.nextUrl.searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
 
+  const { data: before } = await admin.from('lp_investments' as any).select('*').eq('id', id).eq('fund_id', writeCheck.fundId).maybeSingle()
+  const shares = await reportShareCount(admin, writeCheck.fundId, (before as any)?.snapshot_id)
+  if (shares > 0) return NextResponse.json({ error: lockedMessage(shares, 'this position') }, { status: 409 })
+
   const { error } = await admin
     .from('lp_investments' as any)
     .delete()
@@ -182,6 +198,7 @@ export async function DELETE(req: NextRequest) {
     .eq('fund_id', writeCheck.fundId)
 
   if (error) return dbError(error, 'lp-investments-delete')
+  if (before) await recordAudit(admin, { fundId: writeCheck.fundId, actorId: user.id, action: 'lp_position.delete', subjectType: 'lp_investment', subjectId: id, details: { deleted: before } })
 
   return NextResponse.json({ ok: true })
 }

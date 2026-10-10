@@ -1,3 +1,4 @@
+import { recordAudit } from '@/lib/audit/events'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -60,6 +61,12 @@ export async function POST(req: NextRequest) {
     inceptionDate: typeof body?.inceptionDate === 'string' ? body.inceptionDate : undefined,
   })
   if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
+  if (result.entryIds.length > 0 || result.voided > 0) {
+    await recordAudit(admin, {
+      fundId: gate.fundId, actorId: user.id, action: 'tax.adjustments', subjectType: 'tax_year', subjectId: `${group}:${taxYear}`,
+      details: { group, taxYear, proposals: result.proposals.map(p => ({ kind: p.kind, amount: p.amount })), entries: result.entryIds.length, voidedPrior: result.voided },
+    })
+  }
 
   // A run blocked on a missing account is not a success. Say which accounts, and say where to
   // get them, rather than returning an empty entry list that reads as "nothing to do".

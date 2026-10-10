@@ -118,6 +118,21 @@ const TOOL_LABELS: Record<string, string> = {
   update_portfolio_construction: 'Drafting construction changes for your approval',
 }
 
+/**
+ * Never hand back an empty answer. A run that ends without text — out of room mid-way, or out of
+ * rounds with tools still to call — used to arrive as a blank message, which reads as "nothing
+ * happened" and invites "is it working?". Say what happened and what to do.
+ */
+export function emptyReplyFallback(text: string, how: { truncated: boolean; stoppedAtLimit: boolean; staged: number }): string {
+  if (text.trim()) return text
+  const staged = how.staged > 0
+    ? ` What it staged before stopping (${how.staged} item${how.staged === 1 ? '' : 's'}) is below for you to review.`
+    : ' Nothing was staged or changed.'
+  if (how.truncated) return `I ran out of room before finishing.${staged} Try a narrower request — fewer months, or one part of the plan at a time.`
+  if (how.stoppedAtLimit) return `I reached the limit on steps for one request before finishing.${staged} Ask me to continue and I'll pick up from here.`
+  return `I stopped without writing an answer.${staged} Please try again.`
+}
+
 export function toolLabel(name: string): string {
   if (TOOL_LABELS[name]) return TOOL_LABELS[name]
   const words = name.replace(/[_-]+/g, ' ').trim()
@@ -433,7 +448,9 @@ export async function runAnalyst(
       })
       const result = await provider.createToolLoop({
         model,
-        maxTokens: 2000,
+        // Room for the thinking AND the answer AND a staged plan's arguments. At 2,000 a 60-month
+        // forecast draft ran out mid tool call and the run ended with no text at all.
+        maxTokens: 16000,
         effort: request.effort,
         signal: request.signal,
         system: withTopicalGuardrail(systemPrompt),
@@ -443,9 +460,16 @@ export async function runAnalyst(
         // no change to the provider layer — which is why coarse progress is cheap and token-level
         // progress is not.
         executeTool: withProgress(analystTools.executeTool, request.onProgress),
-        maxIterations: 6,
+        // Between tools the Analyst is reading what came back and deciding — say so, so the panel
+        // never sits silent while a long round runs.
+        onRound: round => {
+          try {
+            request.onProgress?.({ kind: 'model.started', round, label: round === 0 ? 'Reading your request' : 'Working out the next step from what it found' })
+          } catch { /* best effort, as withProgress */ }
+        },
+        maxIterations: 10,
       })
-      text = result.text
+      text = emptyReplyFallback(result.text, { truncated: !!result.truncated, stoppedAtLimit: !!result.stoppedAtLimit, staged: stagedActions.length })
       usage = result.usage
       toolCalls = result.toolCalls.map(call => ({ name: call.name }))
     } else {

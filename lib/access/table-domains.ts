@@ -307,6 +307,7 @@ export const TABLE_RULES: Record<string, TableRule> = {
   k1_partners: { scope: 'service', note: 'Per-partner K-1 header within a package.' },
   k1_lines: { scope: 'service', note: 'Per-partner allocated income by K-1 box.' },
   tax_year_closes: { scope: 'service', note: 'Closed tax years; reopening must go through the route, never a console.' },
+  accounting_audit_events: { scope: 'service', appendOnly: true, note: 'The books\' audit trail — voids, reopens, approvals, commitment edits; append-only, enforced by trigger.' },
   tax_year_close_events: { scope: 'service', appendOnly: true, note: 'Append-only history of tax-year closes and reopens; written by the route, never edited.' },
   received_k1s: { scope: 'service', note: 'K-1s received from underlying funds, gating the close.' },
   k1_deliveries: { scope: 'service', note: 'Electronic K-1 delivery records.' },

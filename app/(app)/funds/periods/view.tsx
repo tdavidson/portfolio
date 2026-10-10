@@ -82,8 +82,8 @@ export function PeriodsView() {
   const [nextStart, setNextStart] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  // After a reopen inside a tax year whose K-1s were issued: they were built on the books just unlocked.
-  const [k1Note, setK1Note] = useState<string | null>(null)
+  // A note beside the error: issued K-1s on reopened books, or a self-approved close.
+  const [notice, setNotice] = useState<string | null>(null)
   const [preview, setPreview] = useState<Preview | null>(null)
   const [allocationDetail, setAllocationDetail] = useState<{ month: MonthPreview; category: CloseCategory } | null>(null)
   const [selectedSuggestions, setSelectedSuggestions] = useState<Set<string>>(new Set())
@@ -188,14 +188,30 @@ export function PeriodsView() {
   }
 
   async function reopen(id: string) {
-    setBusy(true); setError(null); setK1Note(null); setConfirmReopen(null)
-    const { ok, data } = await post({ action: 'reopen', id })
+    // Recorded with who reopened it, in the books' audit trail.
+    const reason = window.prompt('Why is this period being reopened?')?.trim()
+    if (!reason) return
+    setBusy(true); setError(null); setNotice(null); setConfirmReopen(null)
+    const { ok, data } = await post({ action: 'reopen', id, reason })
     setBusy(false)
     if (!ok) { setError(data.error ?? 'Could not reopen'); return }
     const years: number[] = data.issuedK1Years ?? []
-    if (years.length) setK1Note(`K-1s for ${years.join(', ')} were issued on these books. If anything changes before you re-close, amend them on the Tax page.`)
+    if (years.length) setNotice(`K-1s for ${years.join(', ')} were issued on these books. If anything changes before you re-close, amend them on the Tax page.`)
     load()
   }
+
+  // Sign off a prepared close. The server refuses when the approver also prepared it and someone
+  // else in the fund could approve (lib/accounting/close-approval.ts).
+  async function approve(target: { id: string } | { through: string }) {
+    setBusy(true); setError(null)
+    const { ok, data } = await post({ action: 'approve', ...target })
+    setBusy(false)
+    if (!ok) { setError(data.error ?? 'Could not approve'); return }
+    const self = (data.approved ?? []).some((a: { selfApproved: boolean }) => a.selfApproved)
+    if (self) setNotice('Approved by the person who prepared it — you are the only member who can do the books, and the record says so.')
+    load()
+  }
+  const awaitingApproval = periods.filter(p => p.status === 'closed' && p.close_review?.status === 'prepared')
 
   // One list: stored rows (closed, plus any left open by a reopen) and the derived open
   // months, newest first. A stored row wins over a derived one for the same month.
@@ -215,7 +231,16 @@ export function PeriodsView() {
           and locks the period; reopening also reopens every later period.
         </p>
         {error && <p className="text-sm text-destructive">{error}</p>}
-        {k1Note && <p className="text-sm text-warning">{k1Note}</p>}
+        {notice && <p className="text-sm text-warning">{notice}</p>}
+        {awaitingApproval.length > 0 && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-warning bg-warning-subtle px-3 py-2 text-sm">
+            <span>{awaitingApproval.length} closed {awaitingApproval.length === 1 ? 'period is' : 'periods are'} awaiting approval by a second member.</span>
+            <Button size="sm" variant="outline" disabled={busy}
+              onClick={() => approve({ through: awaitingApproval.reduce((m, p) => (p.period_end > m ? p.period_end : m), '') })}>
+              Approve {awaitingApproval.length === 1 ? 'it' : `all ${awaitingApproval.length}`}
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* Nothing is posted until this is approved. */}
@@ -519,7 +544,14 @@ export function PeriodsView() {
                           {p.close_review && (
                             <div className="mb-3 rounded border bg-background overflow-hidden">
                               <div className="px-3 py-2 border-b bg-muted/30">
-                                <p className="text-xs font-medium">Close review approved {p.close_review.approved_at ? new Date(p.close_review.approved_at).toLocaleString() : ''}</p>
+                                {p.close_review.status === 'prepared' ? (
+                                  <div className="flex items-center justify-between gap-2">
+                                    <p className="text-xs font-medium">Close review prepared — awaiting approval</p>
+                                    <Button size="sm" variant="outline" disabled={busy} onClick={e => { e.stopPropagation(); approve({ id: p.id }) }}>Approve</Button>
+                                  </div>
+                                ) : (
+                                  <p className="text-xs font-medium">Close review approved {p.close_review.approved_at ? new Date(p.close_review.approved_at).toLocaleString() : ''}</p>
+                                )}
                                 {p.close_review.attestation && <p className="text-[11px] text-muted-foreground mt-0.5">{p.close_review.attestation}</p>}
                               </div>
                               <div className="divide-y">

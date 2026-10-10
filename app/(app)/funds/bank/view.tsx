@@ -148,7 +148,14 @@ export function BankView() {
 
   async function act(id: string, action: 'post' | 'ignore' | 'unpost' | 'restore') {
     setMatchError(null); setNotice(null)
-    const res = await lf('/api/accounting/bank', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id }) })
+    // Undoing a posted transaction is recorded in the books' audit trail with its reason.
+    const posted = txns.find(t => t.id === id)?.status === 'reconciled'
+    let reason: string | undefined
+    if (action === 'unpost' || (action === 'ignore' && posted)) {
+      reason = window.prompt(action === 'unpost' ? 'Why is this transaction being unposted?' : 'Why is this posted transaction being ignored? Its entry will be voided.')?.trim()
+      if (!reason) return
+    }
+    const res = await lf('/api/accounting/bank', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ action, id, reason }) })
     await reportBankAction(res)
     load()
   }

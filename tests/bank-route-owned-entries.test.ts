@@ -56,7 +56,7 @@ beforeEach(() => {
     journal_entry_allocations: [],
   })
 })
-const act = (action: string, id: string) => POST(new NextRequest('http://localhost/api/accounting/bank', { method: 'POST', body: JSON.stringify({ action, id }) }))
+const act = (action: string, id: string) => POST(new NextRequest('http://localhost/api/accounting/bank', { method: 'POST', body: JSON.stringify({ action, id, reason: 'Test correction' }) }))
 const entryOf = (id: string) => s.m.tables.journal_entries.find((e: any) => e.id === id)
 const rowOf = (id: string) => s.m.tables.bank_transactions.find((r: any) => r.id === id)
 

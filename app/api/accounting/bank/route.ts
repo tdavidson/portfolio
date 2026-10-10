@@ -1,3 +1,4 @@
+import { auditReason, recordAudit } from '@/lib/audit/events'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -151,7 +152,8 @@ export async function POST(req: NextRequest) {
   const gate = await assertWriteAccess(admin, user.id)
   if (gate instanceof NextResponse) return gate
 
-  const { action, id, ids, accountCode, group: bodyGroup } = await req.json().catch(() => ({}))
+  const { action, id, ids, accountCode, group: bodyGroup, reason: rawReason } = await req.json().catch(() => ({}))
+  const reason = auditReason(rawReason)
   const group = await resolveGroupOr400(admin, gate, bodyGroup ?? req.nextUrl.searchParams.get('group'))
   if (group instanceof NextResponse) return group
   const vehicleId = await vehicleIdByName(admin, gate.fundId, group)
@@ -335,6 +337,7 @@ export async function POST(req: NextRequest) {
       const result = await postExistingEntryWithAllocation(admin, gate.fundId, group, user.id, entryId, { investments })
       if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.error === NEEDS_INVESTMENTS_WRITE ? 403 : 400 })
       await admin.from('bank_transactions' as any).update({ status: 'reconciled' }).eq('id', id).eq('fund_id', gate.fundId)
+      await recordAudit(admin, { fundId: gate.fundId, vehicleId: await vehicleIdByName(admin, gate.fundId, group), actorId: user.id, action: 'entry.post', subjectType: 'journal_entry', subjectId: entryId, details: { bankTransactionId: id } })
       return NextResponse.json({
         ok: true, status: 'reconciled',
         removedTransactions: result.removedTransactions ?? [], unlinkedRegisterRows: result.unlinkedRegisterRows ?? [],
@@ -349,6 +352,7 @@ export async function POST(req: NextRequest) {
   // re-posted. Refused if the entry falls in a closed period (reopen it first).
   if (action === 'unpost') {
     if ((txn as any).status !== 'reconciled') return NextResponse.json({ error: 'Only a posted transaction can be unposted' }, { status: 400 })
+    if (entryId && !reason) return NextResponse.json({ error: 'A reason is required to unpost a posted entry.' }, { status: 400 })
     if (entryId) {
       const { data: entry } = await admin.from('journal_entries' as any).select('entry_date').eq('book', ACTUAL_BOOK).eq('id', entryId).eq('fund_id', gate.fundId).maybeSingle()
       const date = (entry as any)?.entry_date
@@ -360,6 +364,7 @@ export async function POST(req: NextRequest) {
       if (linked.error) return NextResponse.json({ error: linked.error }, { status: 400 })
       const { error } = await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null }).eq('id', entryId).eq('fund_id', gate.fundId)
       if (error) return dbError(error, 'bank-unpost-entry')
+      await recordAudit(admin, { fundId: gate.fundId, vehicleId: await vehicleIdByName(admin, gate.fundId, group), actorId: user.id, action: 'entry.unpost', subjectType: 'journal_entry', subjectId: entryId, reason, details: { bankTransactionId: id, entryDate: date ?? null } })
     }
     await admin.from('bank_transactions' as any).update({ status: 'drafted' }).eq('id', id).eq('fund_id', gate.fundId)
     return NextResponse.json({ ok: true, status: 'drafted' })
@@ -405,11 +410,16 @@ export async function POST(req: NextRequest) {
   if (entryId) {
     const problem = await guardEntry([entryId], ['draft', 'posted'])
     if (problem) return NextResponse.json({ error: problem }, { status: 400 })
+    // Ignoring a POSTED transaction voids what was on the books, so it needs a reason; setting
+    // aside a draft does not.
+    const wasPosted = (txn as any).status === 'reconciled'
+    if (wasPosted && !reason) return NextResponse.json({ error: 'A reason is required to ignore a posted transaction — it voids the entry.' }, { status: 400 })
 
     const linked = await setGeneratedAllocationStatus(admin, gate.fundId, entryId, 'void')
     if (linked.error) return NextResponse.json({ error: linked.error }, { status: 400 })
     const { error } = await admin.from('journal_entries' as any).update({ status: 'void', posted_at: null }).eq('id', entryId).eq('fund_id', gate.fundId)
     if (error) return dbError(error, 'bank-ignore-entry')
+    await recordAudit(admin, { fundId: gate.fundId, vehicleId: await vehicleIdByName(admin, gate.fundId, group), actorId: user.id, action: 'entry.void', subjectType: 'journal_entry', subjectId: entryId, reason, details: { bankTransactionId: id, priorStatus: wasPosted ? 'posted' : 'draft' } })
   }
   await admin.from('bank_transactions' as any).update({ status: 'ignored' }).eq('id', id).eq('fund_id', gate.fundId)
   return NextResponse.json({ ok: true, status: 'ignored' })

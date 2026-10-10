@@ -1,3 +1,5 @@
+import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
+import { recordAudit } from '@/lib/audit/events'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -100,6 +102,11 @@ export async function POST(req: NextRequest) {
       })
       Object.assign(extras, 'error' in paid ? { paymentsError: paid.error } : { paymentsPosted: paid.posted })
     }
+    await recordAudit(admin, {
+      fundId: gate.fundId, vehicleId: await vehicleIdByName(admin, gate.fundId, group), actorId: user.id,
+      action: 'distribution.declare', subjectType: 'distribution', subjectId: result.distributionId,
+      details: { date, total: Array.from(lines.values()).reduce((s, v) => s + v, 0), partners: lines.size, ...extras },
+    })
     return NextResponse.json({ ...result, ...extras })
   }
 

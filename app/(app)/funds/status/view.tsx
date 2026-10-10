@@ -20,6 +20,7 @@ import { AllocationTermsView } from '../allocation-terms/view'
 import { CollapsibleSection } from '@/components/collapsible-section'
 import { ChartOfAccountsCard } from '@/components/accounting/chart-of-accounts-card'
 import { WireInstructionsCard } from '@/components/accounting/wire-instructions-card'
+import { AuditTrailCard } from '@/components/accounting/audit-trail-card'
 import { Button } from '@/components/ui/button'
 import { EmptyState } from '@/components/ui/empty-state'
 
@@ -224,6 +225,10 @@ function EntityStatusView() {
             </div>
           </CollapsibleSection>
         )}
+
+        <CollapsibleSection title="Audit trail" subtitle="Who changed these books, when, and why — voids, reopens, approvals, commitments, shared reports">
+          <AuditTrailCard />
+        </CollapsibleSection>
 
         {!manco && <CollapsibleSection title="Payment instructions" subtitle="Bank details printed on this vehicle's capital call notices">
           <WireInstructionsCard />

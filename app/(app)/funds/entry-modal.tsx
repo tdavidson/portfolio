@@ -145,10 +145,10 @@ export function EntryModal({
    * transaction's status stays in step with the entry; a standalone journal entry
    * goes straight to the journal API. Both end in the same ledger state.
    */
-  async function setPosted(action: 'post' | 'unpost', targetId: string): Promise<string | null> {
+  async function setPosted(action: 'post' | 'unpost', targetId: string, reason?: string): Promise<string | null> {
     const res = txnId
-      ? await lf('/api/accounting/bank', json({ action, id: txnId }))
-      : await lf('/api/accounting/journal', patch({ action, id: targetId }))
+      ? await lf('/api/accounting/bank', json({ action, id: txnId, reason }))
+      : await lf('/api/accounting/journal', patch({ action, id: targetId, reason }))
     return res.ok ? null : await errOf(res, `${action} failed`)
   }
 
@@ -188,7 +188,7 @@ export function EntryModal({
       // The auto-reversal for an accrual: a draft dated `reversesOn`, through the same action
       // a person would use. Its failure is reported, not fatal — the entry itself is posted.
       if (reversesOn) {
-        const r = await lf('/api/accounting/journal', patch({ action: 'reverse', id: targetId, reverseDate: reversesOn }))
+        const r = await lf('/api/accounting/journal', patch({ action: 'reverse', id: targetId, reverseDate: reversesOn, reason: `Scheduled accrual reversal on ${reversesOn}` }))
         if (!r.ok) { setError(`Posted, but the reversal draft for ${reversesOn} could not be created: ${await errOf(r, 'unknown error')}`); setSaving(false); onSaved(); return }
       }
       setSaving(false); onSaved(); onClose()
@@ -205,8 +205,11 @@ export function EntryModal({
   // way in. Refuses on a closed period, which surfaces as the API error.
   async function unpostAndEdit() {
     if (!id) return
+    // Recorded with who did it, in the books' audit trail.
+    const reason = window.prompt('Why is this entry being unposted?')?.trim()
+    if (!reason) return
     setSaving(true); setError(null)
-    const err = await setPosted('unpost', id)
+    const err = await setPosted('unpost', id, reason)
     if (err) { setError(err); setSaving(false); return }
     setSaving(false); setEditable(true); setMeta(m => (m ? { ...m, status: 'draft', postedAt: null } : m)); onSaved()
   }
@@ -214,8 +217,10 @@ export function EntryModal({
   /** A dated contra-entry; the original stays posted. Draft unless asked to post. */
   async function reverse(post: boolean) {
     if (!id || !reverseDate) return
+    const reason = window.prompt('Why is this entry being reversed?')?.trim()
+    if (!reason) return
     setSaving(true); setError(null)
-    const res = await lf('/api/accounting/journal', patch({ action: 'reverse', id, reverseDate, post }))
+    const res = await lf('/api/accounting/journal', patch({ action: 'reverse', id, reverseDate, post, reason }))
     if (!res.ok) { setError(await errOf(res, 'Could not reverse the entry')); setSaving(false); return }
     setSaving(false); onSaved()
     setNotice(post ? `Reversed — the contra-entry is posted on ${reverseDate}.` : `Reversal saved as a draft dated ${reverseDate}. Post it from the journal when you are ready.`)
@@ -253,10 +258,16 @@ export function EntryModal({
       : 'Discard this draft? It’s marked void and drops off the journal — pick “Voided” in the status filter to see it again.'
     if (meta?.ownedBy?.length) question += ` It also deletes the investment transaction${meta.ownedBy.length === 1 ? '' : 's'} it records.`
     if (!window.confirm(question)) return
+    // A posted entry's void is recorded with its reason; a discarded draft needs none.
+    let reason: string | undefined
+    if (meta?.status === 'posted') {
+      reason = window.prompt('Why is this posted entry being voided?')?.trim()
+      if (!reason) return
+    }
     setSaving(true); setError(null)
     const res = txnId
-      ? await lf('/api/accounting/bank', json({ action: 'ignore', id: txnId }))
-      : await lf('/api/accounting/journal', patch({ action: 'void', id }))
+      ? await lf('/api/accounting/bank', json({ action: 'ignore', id: txnId, reason }))
+      : await lf('/api/accounting/journal', patch({ action: 'void', id, reason }))
     if (!res.ok) { setError(await errOf(res, 'Could not void the entry')); setSaving(false); return }
     setSaving(false); onSaved(); onClose()
   }

@@ -23,6 +23,7 @@ import { loadResolvedCommitments } from './terms'
 // Reopening voids exactly those entries — nothing else — so a mistake is reversible
 // without hand-unwinding fifteen capital postings.
 
+import { recordAudit } from '@/lib/audit/events'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadPostedLedger, loadOwnership, loadEntityNames, fetchAllRows } from './load'
 import { summarizeBankRec } from './bank'
@@ -52,7 +53,7 @@ import {
 import { loadNotes, noteAccruals } from './note-interest'
 import { ensureInvestmentAccounts } from './investments'
 import { accountBalances } from './ledger'
-import { trialBalance } from './statements'
+import { balanceSheet, trialBalance } from './statements'
 import { setGeneratedAllocationStatus } from './continuous-allocation'
 import { loadCloseEntrySuggestions, type CloseEntrySuggestion } from './close-suggestions'
 
@@ -448,6 +449,16 @@ async function persistCloseReview(
 ): Promise<{ error?: string }> {
   const { accounts, postings } = await loadPostedLedger(admin, fundId, group, periodEnd)
   const tb = trialBalance(accounts, postings)
+  // Is every dollar of P&L through the period end in a partner's capital account? Net income less
+  // what the undistributed-earnings bridge says was allocated (the balance sheet's own figure).
+  // An entity with no bridge (owner-mode books) closes its P&L another way: not applicable.
+  const hasBridge = accounts.some(a => a.subtype === 'undistributed_earnings')
+  const unallocated = hasBridge ? balanceSheet(accounts, postings).partnersCapital.unallocatedEarnings : 0
+  const allocationCheck = !hasBridge
+    ? { status: 'not_applicable', detail: 'This entity closes its results to owner equity rather than allocating them to partners.' }
+    : Math.abs(unallocated) < 0.05
+      ? { status: 'passed', detail: `All net income through ${periodEnd} is allocated to partners' capital.` }
+      : { status: 'needs_review', detail: `${unallocated.toFixed(2)} of net income through ${periodEnd} is not in any partner's capital account.` }
   const checks = [
     { key: 'trial_balance', section: 'Ledger integrity', label: 'Trial balance', status: tb.balanced ? 'passed' : 'blocked', detail: tb.balanced ? 'Debits equal credits.' : 'The trial balance is out of balance.', evidence: tb },
     { key: 'draft_entries', section: 'Ledger integrity', label: 'No draft journal entries', status: readiness.draftEntries.count === 0 ? 'passed' : 'blocked', detail: readiness.draftEntries.count === 0 ? 'No drafts fall inside the period.' : `${readiness.draftEntries.count} draft entries remain.`, evidence: readiness.draftEntries },
@@ -459,13 +470,13 @@ async function persistCloseReview(
           ? `Ledger cash equals the bank feed at the period end (${readiness.bank.ledgerCashBalance.toFixed(2)}).`
           : `Ledger cash ${readiness.bank.ledgerCashBalance.toFixed(2)} vs bank feed ${readiness.bank.bankEndingBalance.toFixed(2)} at the period end — difference ${readiness.bank.difference.toFixed(2)}${readiness.bank.unmatchedCount ? `, ${readiness.bank.unmatchedCount} unmatched transaction${readiness.bank.unmatchedCount === 1 ? '' : 's'}` : ''}.`,
       evidence: readiness.bank ?? {} },
-    { key: 'allocation_completeness', section: 'Partner capital', label: 'Partner allocations complete', status: 'passed', detail: 'Posted P&L entries have transaction-date allocation evidence; legacy activity was caught up by this close.', evidence: {} },
+    { key: 'allocation_completeness', section: 'Partner capital', label: 'Partner allocations complete', status: allocationCheck.status, detail: allocationCheck.detail, evidence: { unallocatedEarnings: unallocated } },
     { key: 'valuation_and_cutoff', section: 'Investments and cutoff', label: 'Valuation and cutoff review', status: readiness.warnings.length === 0 ? 'passed' : 'needs_review', detail: readiness.warnings.length === 0 ? 'No valuation or cutoff exceptions were reported.' : readiness.warnings.join(' '), evidence: { warnings: readiness.warnings } },
   ] as const
+  // PREPARED, not approved: approval is a second person's act (lib/accounting/close-approval.ts).
   const { data: review, error } = await admin.from('close_reviews' as any).upsert({
-    fund_id: fundId, vehicle_id: vehicleId, fiscal_period_id: periodId, status: 'approved',
-    prepared_by: userId, approved_by: userId, approved_at: new Date().toISOString(),
-    attestation: `Reviewed the reconciliations, exceptions, supporting schedules, and material entries through ${periodEnd}.`,
+    fund_id: fundId, vehicle_id: vehicleId, fiscal_period_id: periodId, status: 'prepared',
+    prepared_by: userId, approved_by: null, approved_at: null, attestation: null,
     trial_balance: tb, snapshot_text: snapshot, updated_at: new Date().toISOString(),
   }, { onConflict: 'fiscal_period_id' }).select('id').single()
   if (error) return { error: error.message }
@@ -475,6 +486,16 @@ async function persistCloseReview(
     close_review_id: reviewId, check_key: check.key, section: check.section, label: check.label,
     status: check.status, detail: check.detail, evidence: check.evidence, sort_order: index,
   })))
+  // The review row is replaced by a re-close; this record is not. Each close's outcome — every
+  // check's result and the trial balance totals — stays in the audit trail as its own version.
+  await recordAudit(admin, {
+    fundId, vehicleId, actorId: userId, action: 'period.close', subjectType: 'fiscal_period', subjectId: periodId,
+    details: {
+      periodEnd, reviewId,
+      checks: checks.map(c => ({ key: c.key, status: c.status, detail: c.detail })),
+      trialBalance: { balanced: tb.balanced, totalDebits: tb.totalDebits, totalCredits: tb.totalCredits },
+    },
+  })
   return checksError ? { error: checksError.message } : {}
 }
 
@@ -1783,7 +1804,7 @@ export async function reopenThrough(
   fundId: string,
   group: string,
   target: { periodId: string } | { fromDate: string }
-): Promise<{ ok: true; reopened: number; voided: number; issuedK1Years: number[] } | { error: string }> {
+): Promise<{ ok: true; reopened: number; voided: number; issuedK1Years: number[]; reopenedPeriods: string[] } | { error: string }> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
 
   // Either a row ("this period and everything after it") or a date ("every close that
@@ -1831,6 +1852,7 @@ export async function reopenThrough(
 
   let reopened = 0
   let voided = 0
+  const reopenedPeriods: string[] = []
   for (const p of ((closed as any[]) ?? [])) {
     const r = await reopenPeriodWithReversal(admin, fundId, group, p.id)
     if ('error' in r) {
@@ -1839,8 +1861,9 @@ export async function reopenThrough(
     }
     reopened += 1
     voided += r.voided
+    reopenedPeriods.push(`${p.period_start}→${p.period_end}`)
   }
-  return { ok: true, reopened, voided, issuedK1Years }
+  return { ok: true, reopened, voided, issuedK1Years, reopenedPeriods }
 }
 
 /**

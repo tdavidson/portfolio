@@ -44,7 +44,7 @@ vi.mock('./conversation-store', () => ({
   persistConversation: mocks.persistConversation,
 }))
 
-import { runAnalyst, toolLabel } from './orchestrator'
+import { emptyReplyFallback, runAnalyst, toolLabel } from './orchestrator'
 
 function query(data: unknown): any {
   const result = { data, error: null }
@@ -281,5 +281,16 @@ describe('coarse progress for streaming transports', () => {
     expect(toolLabel('list_capital_calls')).toBe('List capital calls')
     expect(toolLabel('company-metrics')).toBe('Company metrics')
     expect(toolLabel('')).toBe('Working')
+  })
+})
+
+describe('emptyReplyFallback', () => {
+  it('passes a real answer through', () => {
+    expect(emptyReplyFallback('Done.', { truncated: false, stoppedAtLimit: false, staged: 0 })).toBe('Done.')
+  })
+  it('never returns an empty reply — out of room says so, and whether anything was staged', () => {
+    expect(emptyReplyFallback('', { truncated: true, stoppedAtLimit: false, staged: 0 })).toMatch(/ran out of room.*Nothing was staged/)
+    expect(emptyReplyFallback('  ', { truncated: false, stoppedAtLimit: true, staged: 1 })).toMatch(/limit on steps.*1 item.*continue/)
+    expect(emptyReplyFallback('', { truncated: false, stoppedAtLimit: false, staged: 0 })).toMatch(/stopped without writing an answer/)
   })
 })

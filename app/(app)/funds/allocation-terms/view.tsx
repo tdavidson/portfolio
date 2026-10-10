@@ -141,12 +141,20 @@ export function AllocationTermsView({ showHeader = true }: { showHeader?: boolea
   async function submitChange() {
     const amt = Number(amount)
     if (!lp || !effectiveDate || !amt) { setError('Partner, date, and a non-zero amount are required'); return }
+    // Changing a recorded amount is kept in the audit trail with its reason.
+    let reason: string | undefined
+    const original = editingId ? events.find(e => e.id === editingId) : undefined
+    if (original && Number(original.amount) !== amt) {
+      reason = window.prompt('Why is this commitment amount changing?')?.trim()
+      if (!reason) return
+    }
     const ok = editingId
       ? await post('/api/accounting/commitments', {
           id: editingId,
           effectiveDate,
           amount: amt,
           memo: memo || null,
+          reason,
         }, 'PATCH')
       : await post('/api/accounting/commitments', {
           lpEntityId: lp,
@@ -175,8 +183,9 @@ export function AllocationTermsView({ showHeader = true }: { showHeader?: boolea
   }
 
   async function deleteEvent(id: string) {
-    if (!window.confirm('Delete this commitment event?')) return
-    await post('/api/accounting/commitments', { id }, 'DELETE')
+    const reason = window.prompt('Why is this commitment event being deleted? (Kept in the audit trail.)')?.trim()
+    if (!reason) return
+    await post('/api/accounting/commitments', { id, reason }, 'DELETE')
   }
 
   if (loading) return <div className="flex items-center gap-2 text-muted-foreground text-sm"><Loader2 className="h-4 w-4 animate-spin" />Loading…</div>
