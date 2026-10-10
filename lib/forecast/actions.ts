@@ -2,6 +2,8 @@
 // service. Shared by the MCP write tools (which run directly) and the Analyst's staged actions
 // (preview now, execute on approval), so the two cannot interpret the same request differently.
 
+import { randomUUID } from 'node:crypto'
+import { AdjustmentError, cashCellAdjustments, NO_ADJUSTMENTS, validateAdjustments, type Adjustments, type CashCategory } from './adjustments'
 import { getPlan, savePlan, publishPlan, createPlan, suggestRules, ForecastError, type CreatePlanInput, type ForecastServiceContext, type PlanDetail, type SavePlanInput } from './service'
 import { isMonthKey } from './months'
 
@@ -13,6 +15,17 @@ export interface UpdatePlanAction {
   rules?: { account: string; method: string; params: unknown; cashTiming?: unknown; note?: string | null }[]
   removeRules?: string[]
   overrides?: { account: string; month: string; amount: number | null; note?: string | null }[]
+  /**
+   * Hand edits (lib/forecast/adjustments.ts). `entries` adds an entry — or, with `replaces` (a
+   * generated entry's key from forecast_explain) stands in for that one, or with `id` (a hand entry's
+   * id, 'manual|<id>' key) changes it. `removeEntries` takes keys: a generated entry's, or a hand
+   * entry's. `restoreEntries` puts back generated entries removed earlier.
+   */
+  entries?: { id?: string; date: string; memo: string; lines: { account: string; amount: number }[]; replaces?: string | null }[]
+  removeEntries?: string[]
+  restoreEntries?: string[]
+  /** A month's cash on an investing/financing line, as a figure — the entry is written (cashCellAdjustments). */
+  cashFigures?: { line: CashCategory; month: string; amount: number }[]
   patch?: SavePlanInput['patch']
   explanation?: string
 }
@@ -52,6 +65,49 @@ export const UPDATE_PLAN_SCHEMA = {
       },
     },
     removeRules: { type: 'array', items: { type: 'string' }, description: 'Account codes whose rule to remove.' },
+    entries: {
+      type: 'array',
+      description:
+        'Hand entries — for what rules and construction cannot say: an exit later or larger than construction has it, a ' +
+        'distribution or call it does not know about, a one-off. Each is balanced (lines sum to zero; debit positive). ' +
+        'To change a generated construction/opening entry, pass its key from forecast_explain as `replaces`; to change a ' +
+        'hand entry, pass its id. A P&L month is better changed with `overrides`.',
+      items: {
+        type: 'object',
+        required: ['date', 'memo', 'lines'],
+        additionalProperties: false,
+        properties: {
+          id: { type: 'string', description: "A hand entry's id, to change it (its key is 'manual|<id>')." },
+          date: { type: 'string', description: 'YYYY-MM-DD, inside the plan window.' },
+          memo: { type: 'string' },
+          lines: {
+            type: 'array',
+            items: {
+              type: 'object', required: ['account', 'amount'], additionalProperties: false,
+              properties: { account: { type: 'string', description: 'Account code — any account in the chart, not only P&L.' }, amount: { type: 'number', description: 'Debit positive, credit negative.' } },
+            },
+          },
+          replaces: { type: 'string', description: "The generated entry's key, from forecast_explain." },
+        },
+      },
+    },
+    removeEntries: { type: 'array', items: { type: 'string' }, description: "Keys from forecast_explain: a generated entry's (construction|… / opening|…) or a hand entry's (manual|<id>)." },
+    restoreEntries: { type: 'array', items: { type: 'string' }, description: 'Keys of generated entries removed earlier, to put back.' },
+    cashFigures: {
+      type: 'array',
+      description:
+        'The simplest edit: what a cash line should be in a month — Investments, Exit proceeds, Capital contributions or ' +
+        'Distributions. The month\'s generated entries for that line are replaced by one entry shaped like them (an exit keeps ' +
+        'its cost; the gain takes the rest). Amount is positive; 0 clears the month. Prefer this to writing entries.',
+      items: {
+        type: 'object', required: ['line', 'month', 'amount'], additionalProperties: false,
+        properties: {
+          line: { type: 'string', enum: ['invested', 'proceeds', 'called', 'distributed'] },
+          month: { type: 'string', description: 'YYYY-MM' },
+          amount: { type: 'number' },
+        },
+      },
+    },
     overrides: {
       type: 'array',
       description: 'Set one month of one account (amount null clears the override).',
@@ -151,6 +207,53 @@ export function toSaveInput(detail: PlanDetail, a: UpdatePlanAction): SavePlanIn
     rules: (a.rules ?? []).map(r => ({ accountId: accountId(detail, r.account), method: r.method as any, params: r.params, cashTiming: r.cashTiming, note: r.note ?? null })),
     removeRules: (a.removeRules ?? []).map(r => accountId(detail, r)),
     overrides: (a.overrides ?? []).map(o => ({ accountId: accountId(detail, o.account), month: o.month, amount: o.amount, note: o.note ?? null })),
+    ...(a.entries?.length || a.removeEntries?.length || a.restoreEntries?.length || a.cashFigures?.length ? { adjustments: nextAdjustments(detail, a) } : {}),
+  }
+}
+
+/** The plan's hand edits after this update: entries added or changed, keys removed or restored. */
+export function nextAdjustments(detail: PlanDetail, a: UpdatePlanAction): Adjustments {
+  const cur = detail.plan.adjustments ?? NO_ADJUSTMENTS
+  const anyAccount = (ref: string) => {
+    const hit = detail.allAccounts.find(x => x.id === ref || x.code === String(ref).trim())
+    if (!hit) throw new ForecastError(`No account "${ref}" in ${detail.plan.vehicle}'s chart`)
+    return hit.id
+  }
+  const removeKeys = new Set(a.removeEntries ?? [])
+  let entries = cur.entries.filter(e => !removeKeys.has(`manual|${e.id}`))
+  for (const e of a.entries ?? []) {
+    const id = e.id?.replace(/^manual\|/, '') || randomUUID()
+    if (e.replaces && !detail.entries.some(x => x.key === e.replaces) && !cur.entries.some(x => x.replaces === e.replaces)) {
+      throw new ForecastError(`No generated entry with key "${e.replaces}" — read the keys from forecast_explain`)
+    }
+    const next = { id, date: e.date, memo: e.memo, replaces: e.replaces ?? cur.entries.find(x => x.id === id)?.replaces ?? null,
+      postings: (e.lines ?? []).map(l => ({ accountId: anyAccount(l.account), amount: Number(l.amount) })) }
+    entries = [...entries.filter(x => x.id !== id), next]
+  }
+  const restore = new Set(a.restoreEntries ?? [])
+  let removed = [...new Set([...cur.removed.filter(k => !restore.has(k)), ...[...removeKeys].filter(k => !k.startsWith('manual|'))])]
+  // Cash figures last, on top of the entries above: each writes (or rewrites) its month's entry.
+  for (const f of a.cashFigures ?? []) {
+    if (!isMonthKey(f.month)) throw new ForecastError(`cash figure month "${f.month}" must be YYYY-MM`)
+    let r: Adjustments
+    try {
+      r = cashCellAdjustments({ entries, removed }, {
+        category: f.line, month: f.month, cash: Number(f.amount), entries: detail.entries,
+        accounts: detail.allAccounts, cashAccountIds: detail.cashAccountIds,
+      })
+    } catch (err) {
+      if (err instanceof AdjustmentError) throw new ForecastError(err.message)
+      throw err
+    }
+    entries = r.entries
+    removed = r.removed
+  }
+  // Checked the way the service checks it, so a bad entry is refused when staged, not at approval.
+  try {
+    return validateAdjustments({ entries, removed }, detail.allAccounts)
+  } catch (err) {
+    if (err instanceof AdjustmentError) throw new ForecastError(err.message)
+    throw err
   }
 }
 
@@ -179,7 +282,23 @@ export async function describeUpdate(ctx: ForecastServiceContext, a: UpdatePlanA
     before: detail.overrides.find(x => x.accountId === o.accountId && x.month === o.month)?.amount ?? null,
     after: o.amount,
   }))
+  // Hand edits, in the words an approver reads them.
+  const before = detail.plan.adjustments ?? NO_ADJUSTMENTS
+  const after = (save.adjustments as Adjustments | undefined) ?? before
+  const acct = (id: string) => { const x = detail.allAccounts.find(y => y.id === id); return x ? `${x.code} ${x.name}` : id }
+  const handEntries = after.entries.filter(e => !before.entries.some(b => JSON.stringify(b) === JSON.stringify(e))).map(e => ({
+    date: e.date, memo: e.memo, replaces: e.replaces ? (detail.entries.find(x => x.key === e.replaces)?.memo ?? e.replaces) : null,
+    lines: e.postings.map(p => `${acct(p.accountId)} ${p.amount > 0 ? 'Dr' : 'Cr'} ${Math.abs(p.amount).toLocaleString('en-US')}`),
+  }))
+  const handRemoved = [
+    ...after.removed.filter(k => !before.removed.includes(k)).map(k => detail.entries.find(x => x.key === k)?.memo ?? k),
+    ...before.entries.filter(b => !after.entries.some(e => e.id === b.id)).map(b => b.memo),
+  ]
+  const handRestored = before.removed.filter(k => !after.removed.includes(k))
   const parts = [
+    handEntries.length && `${handEntries.length} hand entr${handEntries.length === 1 ? 'y' : 'ies'}`,
+    handRemoved.length && `remove ${handRemoved.length} entr${handRemoved.length === 1 ? 'y' : 'ies'}`,
+    handRestored.length && `restore ${handRestored.length} entr${handRestored.length === 1 ? 'y' : 'ies'}`,
     rules.length && `${rules.length} rule${rules.length === 1 ? '' : 's'}`,
     removed.length && `remove ${removed.length} rule${removed.length === 1 ? '' : 's'}`,
     overrides.length && `${overrides.length} month override${overrides.length === 1 ? '' : 's'}`,
@@ -194,6 +313,9 @@ export async function describeUpdate(ctx: ForecastServiceContext, a: UpdatePlanA
       rules,
       removed,
       overrides,
+      ...(handEntries.length ? { entries: handEntries } : {}),
+      ...(handRemoved.length ? { removedEntries: handRemoved } : {}),
+      ...(handRestored.length ? { restoredEntries: handRestored.length } : {}),
       ...(a.patch ? { patch: a.patch } : {}),
       ...(a.explanation ? { explanation: a.explanation } : {}),
     },

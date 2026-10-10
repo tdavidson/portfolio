@@ -23,5 +23,6 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
       rules: body.rules,
       removeRules: body.removeRules,
       overrides: body.overrides,
+      adjustments: body.adjustments,
     }), body.group ?? null)
 }

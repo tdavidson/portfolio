@@ -7,6 +7,7 @@
 import { useState } from 'react'
 import { Check, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { announceApplied } from '@/lib/pending-actions/applied-event'
 
 export interface PreviewResult {
   summary: string
@@ -36,6 +37,7 @@ export function AnalystPendingActions({ actions }: { actions: StagedAction[] }) 
         return
       }
       setState(s => ({ ...s, [a.id]: kind === 'approve' ? 'applied' : 'rejected' }))
+      if (kind === 'approve') announceApplied({ actionType: a.actionType, result: data.result })
     } catch {
       setState(s => ({ ...s, [a.id]: 'error' }))
       setErrors(e => ({ ...e, [a.id]: 'Network error.' }))

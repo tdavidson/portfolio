@@ -61,7 +61,9 @@ export const FORECAST_TOOL_MANIFEST: AgentToolMeta[] = [
       'Explain one plan: each account\'s rule (method, parameters, cash timing) with the basis it ' +
       'computes from and its warnings, every month override, the actuals cutoff and whether the draft ' +
       'is stale against the books, and its versions. Use it to answer where a forecast number comes ' +
-      'from, what is manually overridden, and what rests on unclosed or missing actuals.',
+      'from, what is manually overridden, and what rests on unclosed or missing actuals. `editableEntries` lists the ' +
+      'construction, opening-balance and hand entries with their keys — pass a key to update_forecast_plan as ' +
+      '`replaces` (to change it) or in `removeEntries`.',
     scope: 'read',
     domain: 'portfolio',
     accessDomain: 'accounting',

@@ -15,6 +15,8 @@ export const FORECASTING_PRINCIPLES = [
   "A management company's fee revenue is a linked_fee rule: each linked fund's construction fee schedule, on that fee link's billing cycle. It changes when the fund's construction changes.",
   // Prepaid (lib/forecast/compile.ts).
   'A cost paid before the plan and expensed monthly (a prepaid fee) uses cashTiming {mode:"prepaid"} — it draws down the prepaid balance with no cash in the plan. Never push cash outside the window with a large offset; offsets are limited to ±36 months.',
+  // Hand edits (lib/forecast/adjustments.ts).
+  'To change what construction or an opening balance generated, or to add a one-off: use update_forecast_plan. Prefer cashFigures (what Investments, Exit proceeds, Capital contributions or Distributions should be in a month — the entry is written for you); a P&L month is an override; write entries (balanced, with replaces for a generated one) only for what neither covers. Hand edits are kept through refreshes.',
   // Staleness and versions.
   'A draft recompiles from its sources when refreshed; a change to construction, a linked fund or the actuals marks it out of date. Published versions never change.',
 ].join(' ')

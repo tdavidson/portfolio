@@ -17,6 +17,9 @@ import { FeeLinksDialog } from './fee-links'
 import { RuleDialog, type RuleSubmit } from './rule-dialog'
 import { MonthRangePicker, MoreMenu, NewPlanMenu, type RangeChoice } from './toolbar'
 import { VarianceSection } from './variance'
+import { ForecastEntries } from './entries'
+import { onApplied } from '@/lib/pending-actions/applied-event'
+import { cashCellAdjustments, NO_ADJUSTMENTS, type CashCategory } from '@/lib/forecast/adjustments'
 
 type PlanListItem = PlanDetail['plan'] & { versions: { id: string; versionNo: number; label: string | null; status: string; publishedAt: string }[] }
 type View = 'combined' | 'plan' | 'actual' | 'variance'
@@ -77,7 +80,28 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
   const [start, setStart] = useState<MonthKey>(`${thisMonth().slice(0, 4)}-01`)
   const [end, setEnd] = useState<MonthKey>(`${thisMonth().slice(0, 4)}-12`)
   const [interval, setIntervalChoice] = useState<Interval>('month')
-  const [statement, setStatement] = useState<'pnl' | 'cash'>('pnl')
+  const [statement, setStatement] = useState<'pnl' | 'cash' | 'entries'>('pnl')
+  // A period clicked on a statement: the Entries tab opens on its months.
+  const [entryMonths, setEntryMonths] = useState<string[] | null>(null)
+  const openEntries = (months: string[]) => { if (detail) { setEntryMonths(months); setStatement('entries') } }
+  // A cash figure being typed over (investing and financing lines, forecast months).
+  const [cashEdit, setCashEdit] = useState<{ key: string; index: number; value: string } | null>(null)
+  const commitCashEdit = async () => {
+    if (!cashEdit || !detail || !series) return
+    const raw = cashEdit.value.replace(/[$,\s()]/g, '')
+    const e = cashEdit
+    setCashEdit(null)
+    if (raw === '' || !Number.isFinite(Number(raw))) return
+    try {
+      const next = cashCellAdjustments(detail.plan.adjustments ?? NO_ADJUSTMENTS, {
+        category: e.key as CashCategory, month: series.periods[e.index].months[0], cash: Number(raw),
+        entries: detail.entries, accounts: detail.allAccounts, cashAccountIds: detail.cashAccountIds,
+      })
+      await save({ adjustments: next })
+    } catch (err) {
+      setActionError((err as Error).message)
+    }
+  }
   const [series, setSeries] = useState<SeriesResult | null>(null)
   const [seriesError, setSeriesError] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -130,6 +154,18 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
     setDetail(d)
     return d
   }, [lf])
+
+  // An Analyst draft approved in the panel lands here without a page refresh: a new plan is opened,
+  // a changed one reloaded.
+  useEffect(() => onApplied(({ actionType, result }) => {
+    if (!/forecast_plan$/.test(actionType)) return
+    const created = (result as { planId?: string } | null)?.planId
+    loadPlans().then(() => {
+      if (created) setPlanId(created)
+      else if (planId) loadDetail(planId).catch(() => {})
+    })
+  }), [loadPlans, loadDetail, planId])
+
 
   useEffect(() => {
     setVersionId('')
@@ -435,27 +471,40 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
         <>
           <div className="mb-2 flex items-center gap-2">
             <div className="inline-flex rounded-md border border-input p-0.5" role="group" aria-label="Statement">
-              {(['pnl', 'cash'] as const).map(s => (
-                <button key={s} type="button" onClick={() => setStatement(s)}
+              {(detail ? (['pnl', 'cash', 'entries'] as const) : (['pnl', 'cash'] as const)).map(s => (
+                <button key={s} type="button" onClick={() => { setStatement(s); if (s !== 'entries') setEntryMonths(null) }}
                   className={cn('h-8 rounded-sm px-3 text-sm', statement === s ? 'bg-accent text-foreground' : 'text-muted-foreground hover:text-foreground')}>
-                  {s === 'pnl' ? 'P&L' : 'Cash'}
+                  {s === 'pnl' ? 'P&L' : s === 'cash' ? 'Cash' : 'Entries'}
                 </button>
               ))}
             </div>
-            {editable && statement === 'pnl' && <span className="text-xs text-muted-foreground">Click a forecast month to override it; click an account to set its rule.</span>}
+            {editable && statement === 'pnl' && <span className="text-xs text-muted-foreground">Click a forecast month to change it, an account to set its rule, or a period heading to see its entries.</span>}
+            {detail && statement === 'cash' && <span className="text-xs text-muted-foreground">{interval === 'month' && !versionId ? 'Click a forecast investment, exit, contribution or distribution to change it; any other figure shows its entries.' : 'Click a figure to see the entries behind it.'}</span>}
             {!editable && detail && !versionId && interval !== 'month' && statement === 'pnl' && (
               <span className="text-xs text-muted-foreground">Showing {interval === 'quarter' ? 'quarters' : 'years'} — switch to Monthly to override a month.</span>
             )}
             {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
           </div>
 
+          {statement === 'entries' && detail ? (
+            <ForecastEntries
+              detail={detail}
+              fmt={v => full(v)}
+              editable={!versionId}
+              months={entryMonths}
+              onClearMonths={() => setEntryMonths(null)}
+              save={save}
+              onEditRule={id => setRuleFor(id)}
+            />
+          ) : (
           <div className="overflow-x-auto rounded-card border">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/40">
                   <th className="sticky left-0 z-10 min-w-[14rem] bg-muted px-3 py-2 text-left font-medium">Account</th>
                   {series.periods.map(p => (
-                    <th key={p.key} className={cn('min-w-[7rem] px-3 py-2 text-right font-medium', series.boundary && p.months.includes(series.boundary) && p.months[p.months.length - 1] === series.boundary && 'border-r-2 border-r-foreground/30')}>
+                    <th key={p.key} onClick={() => openEntries(p.months)} title={detail ? 'See the entries in this period' : undefined}
+                      className={cn('min-w-[7rem] px-3 py-2 text-right font-medium', detail && 'cursor-pointer hover:bg-accent/40', series.boundary && p.months.includes(series.boundary) && p.months[p.months.length - 1] === series.boundary && 'border-r-2 border-r-foreground/30')}>
                       <div>{p.label}</div>
                       <div className={cn('text-xs', p.status === 'actual_unclosed' ? 'font-medium text-foreground' : p.status === 'actual' || p.status === 'none' ? 'font-normal text-muted-foreground' : 'font-normal text-info')}>
                         {STATUS_LABEL[p.status]}{p.partial ? ' (part)' : ''}
@@ -486,10 +535,25 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
                     <TotalRow label="Opening cash" values={series.cash.map(c => c?.opening ?? null)} fmt={full} />
                     {(['operating', 'investing', 'financing'] as const).map(section => {
                       const lines = (series.cashDetail ?? []).filter(l => l.section === section)
+                      // On a draft by month, the lines a figure can be typed into show even when empty —
+                      // so a distribution can be added to a plan that has none yet.
+                      if (detail && !versionId && interval === 'month') {
+                        const wanted: Record<string, { key: string; label: string }[]> = {
+                          investing: [{ key: 'invested', label: 'Investments' }, { key: 'proceeds', label: 'Exit proceeds' }],
+                          financing: [{ key: 'called', label: 'Capital contributions' }, { key: 'distributed', label: 'Distributions' }],
+                        }
+                        for (const w of wanted[section] ?? []) {
+                          if (!lines.some(l => l.key === w.key)) lines.push({ section, key: w.key, label: w.label, code: null, values: series.periods.map(() => 0) } as (typeof lines)[number])
+                        }
+                      }
                       if (!lines.length) return null
                       const total = series.periods.map((p, i) => (p.status === 'none' ? null : lines.reduce((s, l) => s + (l.values[i] ?? 0), 0)))
                       return (
-                        <CashSectionRows key={section} section={section} lines={lines} total={total} span={series.periods.length} fmt={full} />
+                        <CashSectionRows key={section} section={section} lines={lines} total={total} span={series.periods.length} fmt={full}
+                          onCell={detail ? i => openEntries(series.periods[i].months) : undefined}
+                          canEdit={(key, i) => !!detail && !versionId && interval === 'month' && ['invested', 'proceeds', 'called', 'distributed'].includes(key)
+                            && series.periods[i].status === 'forecast'}
+                          cashEdit={cashEdit} setCashEdit={setCashEdit} commitCashEdit={commitCashEdit} />
                       )
                     })}
                     <TotalRow label="Net cash movement" values={series.cash.map(c => c?.movement ?? null)} fmt={full} />
@@ -507,6 +571,7 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
               </tbody>
             </table>
           </div>
+          )}
 
           {detail && !versionId && statement === 'pnl' && accountsWithoutRows.length > 0 && (
             <div className="mt-3 flex flex-wrap items-center gap-2 text-sm">
@@ -570,12 +635,19 @@ const SECTION_LABEL = { operating: 'Operating activities', investing: 'Investing
  * are the accounts the cash was for (a bill's payment shows against its expense, not the payable it
  * cleared); investing and financing lines are the capital flows.
  */
-function CashSectionRows({ section, lines, total, span, fmt }: {
+function CashSectionRows({ section, lines, total, span, fmt, onCell, canEdit, cashEdit, setCashEdit, commitCashEdit }: {
   section: keyof typeof SECTION_LABEL
   lines: NonNullable<SeriesResult['cashDetail']>
   total: (number | null)[]
   span: number
   fmt: (v: number | null) => string
+  /** Open the entries behind a period's figure. */
+  onCell?: (periodIndex: number) => void
+  /** Whether this line's figure in this period can be typed over (it then writes the entry). */
+  canEdit?: (key: string, periodIndex: number) => boolean
+  cashEdit?: { key: string; index: number; value: string } | null
+  setCashEdit?: (e: { key: string; index: number; value: string } | null) => void
+  commitCashEdit?: () => void
 }) {
   return (
     <>
@@ -585,7 +657,26 @@ function CashSectionRows({ section, lines, total, span, fmt }: {
           <td className="sticky left-0 z-10 bg-card px-3 py-2">
             {l.code && <span className="font-mono text-xs text-muted-foreground">{l.code}</span>} {l.label}
           </td>
-          {l.values.map((v, i) => <td key={i} className="px-3 py-2 text-right tabular-nums">{fmt(v)}</td>)}
+          {l.values.map((v, i) => {
+            const editableCell = canEdit?.(l.key, i) ?? false
+            if (cashEdit && cashEdit.key === l.key && cashEdit.index === i) {
+              return (
+                <td key={i} className="px-1 py-1 text-right">
+                  <input autoFocus inputMode="decimal" value={cashEdit.value} aria-label={`${l.label} amount`}
+                    onChange={e => setCashEdit?.({ ...cashEdit, value: e.target.value })}
+                    onBlur={() => commitCashEdit?.()}
+                    onKeyDown={e => { if (e.key === 'Enter') commitCashEdit?.(); if (e.key === 'Escape') setCashEdit?.(null) }}
+                    className="h-8 w-full rounded border border-input bg-background px-2 text-right text-sm tabular-nums" />
+                </td>
+              )
+            }
+            return (
+              <td key={i}
+                onClick={editableCell ? () => setCashEdit?.({ key: l.key, index: i, value: v ? String(Math.abs(v)) : '' }) : onCell && v ? () => onCell(i) : undefined}
+                title={editableCell ? 'Type a new amount — the entry behind it is written for you' : undefined}
+                className={cn('px-3 py-2 text-right tabular-nums', editableCell ? 'cursor-text hover:bg-accent/40' : onCell && v && 'cursor-pointer hover:underline')}>{fmt(v)}</td>
+            )
+          })}
         </tr>
       ))}
       <TotalRow label={`Net cash from ${section}`} values={total} fmt={fmt} />

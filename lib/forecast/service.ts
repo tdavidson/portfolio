@@ -10,6 +10,7 @@
 // to forecast_* through forecast_save / forecast_publish, which make each save one transaction
 // guarded by the plan's revision.
 
+import { applyAdjustments, entryKey, NO_ADJUSTMENTS, validateAdjustments, AdjustmentError, type Adjustments } from './adjustments'
 import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
@@ -142,6 +143,8 @@ export interface PlanSummary {
   actualsCutoff: string | null
   openingSettlementMonths: number
   includeConstruction: boolean
+  /** Hand edits on top of the sources (lib/forecast/adjustments.ts). */
+  adjustments: Adjustments
   status: 'active' | 'archived'
   revision: number
   compiledAt: string | null
@@ -182,13 +185,13 @@ export interface VersionView {
   publishedAt: string
 }
 
-const PLAN_COLS = 'id, vehicle_id, kind, name, scenario, fiscal_year, start_month, end_month, horizon_months, actuals_cutoff, opening_settlement_months, include_construction, status, revision, compiled_at, compiled_cutoff, compiled_closed_through, created_at, updated_at'
+const PLAN_COLS = 'id, vehicle_id, kind, name, scenario, fiscal_year, start_month, end_month, horizon_months, actuals_cutoff, opening_settlement_months, include_construction, adjustments, status, revision, compiled_at, compiled_cutoff, compiled_closed_through, created_at, updated_at'
 
 function mapPlan(r: any, vehicle: string): PlanSummary {
   return {
     id: r.id, vehicle, kind: r.kind, name: r.name, scenario: r.scenario ?? null, fiscalYear: r.fiscal_year ?? null,
     startMonth: monthOf(r.start_month), endMonth: monthOf(r.end_month), horizonMonths: r.horizon_months ?? null,
-    actualsCutoff: r.actuals_cutoff ?? null, openingSettlementMonths: r.opening_settlement_months ?? 1, includeConstruction: r.include_construction === true, status: r.status, revision: r.revision, compiledAt: r.compiled_at ?? null,
+    actualsCutoff: r.actuals_cutoff ?? null, openingSettlementMonths: r.opening_settlement_months ?? 1, includeConstruction: r.include_construction === true, adjustments: (r.adjustments as Adjustments) ?? NO_ADJUSTMENTS, status: r.status, revision: r.revision, compiledAt: r.compiled_at ?? null,
     compiledCutoff: r.compiled_cutoff ?? null, createdAt: r.created_at, updatedAt: r.updated_at,
   }
 }
@@ -262,6 +265,19 @@ function toRuleRows(rules: RuleView[]): PlanRuleRow[] {
 }
 
 async function compile(ctx: ForecastServiceContext, v: VehicleCtx, plan: any, rules: RuleView[], overrides: OverrideView[]) {
+  const result = await compileFromSources(ctx, v, plan, rules, overrides)
+  // Hand edits on top of what the sources say (lib/forecast/adjustments.ts).
+  const adj = validateAdjustments(plan.adjustments ?? NO_ADJUSTMENTS, v.accounts)
+  const applied = applyAdjustments(result.built.entries, adj, { first: result.built.first, last: result.built.last }, v.currency)
+  return {
+    ...result,
+    built: { ...result.built, entries: applied.entries },
+    generated: result.built.entries,
+    warnings: [...new Set([...result.warnings, ...applied.warnings])],
+  }
+}
+
+async function compileFromSources(ctx: ForecastServiceContext, v: VehicleCtx, plan: any, rules: RuleView[], overrides: OverrideView[]) {
   const { cutoff, warnings } = resolveCutoff(plan.actuals_cutoff, v)
   const ruleRows = toRuleRows(rules)
   const [ledger, drivers] = await Promise.all([
@@ -342,6 +358,16 @@ export interface PlanDetail {
   /** True when the stored draft was compiled against a different cutoff or close than today's. */
   stale: boolean
   accounts: { id: string; code: string; name: string; type: 'income' | 'expense' }[]
+  /** Every account an entry may post to — for entering one by hand. */
+  allAccounts: { id: string; code: string; name: string; type: string; subtype: string | null }[]
+  /** The cash accounts, for editing a cash figure (lib/forecast/adjustments.ts cashCellAdjustments). */
+  cashAccountIds: string[]
+  /**
+   * The draft's entries as they compile now, each with where it came from and how to edit it:
+   * `key` for a generated construction/opening entry (replace or remove it) or a hand-entered one
+   * ('manual|<id>'); rule and override entries are edited through their rule or a month override.
+   */
+  entries: { date: string; kind: string; memo: string; source: string; key: string | null; accountId: string; ruleId: string | null; postings: { accountId: string; amount: number }[] }[]
   rules: (RuleView & { basis: string; warnings: string[] })[]
   overrides: OverrideView[]
   versions: VersionView[]
@@ -384,6 +410,15 @@ export async function getPlan(ctx: ForecastServiceContext, input: { vehicle: str
       .filter(a => (a.type === 'income' || a.type === 'expense') && !a.lpEntityId && !a.companyId)
       .sort((a, b) => a.code.localeCompare(b.code))
       .map(a => ({ id: a.id, code: a.code, name: a.name, type: a.type as 'income' | 'expense' })),
+    allAccounts: v.accounts
+      .filter(a => !a.lpEntityId && !a.companyId)
+      .sort((a, b) => a.code.localeCompare(b.code))
+      .map(a => ({ id: a.id, code: a.code, name: a.name, type: a.type, subtype: a.subtype ?? null })),
+    cashAccountIds: v.accounts.filter(a => a.subtype === 'cash' && !a.lpEntityId && !a.companyId).map(a => a.id),
+    entries: built.entries.map(e => ({
+      date: e.entryDate, kind: e.kind, memo: e.memo, source: e.source, key: e.key ?? entryKey(e), accountId: e.accountId, ruleId: e.ruleId,
+      postings: e.postings.map(p => ({ accountId: p.accountId, amount: p.amount })),
+    })),
     rules: rules.map(r => ({ ...r, basis: outcome.get(r.id)?.basis ?? '', warnings: outcome.get(r.id)?.warnings ?? [] })),
     overrides,
     versions: ((versionRows.data as any[]) ?? []).map(mapVersion),
@@ -635,6 +670,8 @@ export interface SavePlanInput {
   removeRules?: string[]
   /** Set (amount) or clear (amount: null) one month of one account. */
   overrides?: { accountId: string; month: MonthKey; amount: number | null; note?: string | null }[]
+  /** Replace the plan's hand edits whole (lib/forecast/adjustments.ts). */
+  adjustments?: unknown
 }
 
 /**
@@ -699,6 +736,17 @@ export async function savePlan(ctx: ForecastServiceContext, input: SavePlanInput
       if (!Number.isInteger(h) || h < 1 || h > 120) throw new ForecastError('horizonMonths must be 1–120')
       patch.horizon_months = h
       working.horizon_months = h
+    }
+  }
+
+  if (input.adjustments !== undefined) {
+    try {
+      const adj = validateAdjustments(input.adjustments, v.accounts)
+      patch.adjustments = adj
+      working.adjustments = adj
+    } catch (e) {
+      if (e instanceof AdjustmentError) throw new ForecastError(e.message)
+      throw e
     }
   }
 

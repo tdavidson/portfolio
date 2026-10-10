@@ -160,7 +160,10 @@ export interface CompiledEntry {
   ruleId: string | null
   overrideId: string | null
   /** 'opening' = settling a balance that already existed in the actuals when the plan starts. */
-  source: 'rule' | 'override' | 'opening' | 'construction'
+  /** 'manual' = entered by hand on the plan (lib/forecast/adjustments.ts). */
+  source: 'rule' | 'override' | 'opening' | 'construction' | 'manual'
+  /** A hand-entered entry's id ('manual|<id>'), for editing it; not stored. */
+  key?: string
   postings: Posting[]
 }
 
