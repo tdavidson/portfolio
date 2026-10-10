@@ -27,6 +27,8 @@ export interface BarDatum {
   /** The text at the bar's end. */
   valueLabel: string
   onActivate?: () => void
+  /** Below the reference (a multiple under 1.0x): drawn in the loss colour, said in the tooltip. */
+  tone?: 'loss'
 }
 
 export interface BarOptions {
@@ -50,7 +52,7 @@ export function barChart(data: BarDatum[], options: BarOptions): HTMLElement {
     },
       h('div', { class: 'bar-label', title: d.label }, d.label),
       h('div', { class: 'bar-track' },
-        h('div', { class: 'bar-fill', style: { width: width(d.value) } }),
+        h('div', { class: d.tone === 'loss' ? 'bar-fill bar-fill-loss' : 'bar-fill', style: { width: width(d.value) } }),
         typeof d.reference === 'number' && d.reference > 0
           ? h('div', { class: 'bar-tick', style: { left: width(d.reference) } })
           : null,

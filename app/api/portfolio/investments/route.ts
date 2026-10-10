@@ -6,6 +6,9 @@ import type { InvestmentTransaction, CompanyStatus } from '@/lib/types/database'
 import { xirr, type CashFlow } from '@/lib/xirr'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 import { scopeCompanyRows, scopeGroups, scopeTransactions } from '@/lib/access/scope'
+import { generateLiveReport } from '@/lib/accounting/live-report'
+import { DEAL_VEHICLE_PREFIX } from '@/lib/portfolio/holding-href'
+import { vehiclesCarriedAtLpPositions } from '@/lib/portfolio/deal-vehicles'
 
 // ---------------------------------------------------------------------------
 // GET — portfolio-wide investment summary
@@ -91,7 +94,7 @@ export async function GET(req: NextRequest) {
     companyId: string
     companyName: string
     status: CompanyStatus
-    holdingType: 'company' | 'fund' | 'crypto'
+    holdingType: 'company' | 'fund' | 'crypto' | 'vehicle'
     portfolioGroup: string[]
     totalInvested: number
     totalRealized: number
@@ -115,14 +118,18 @@ export async function GET(req: NextRequest) {
     // First pass: determine company-wide latestSharePrice from unrealized_gain_change and round_info
     let latestSharePrice: number | null = null
     let latestSharePriceDate: string | null = null
+    let latestFromConversion = false
 
     for (const txn of txns) {
       if (txn.transaction_type === 'investment') {
         // Only use positive share prices (skip $0 from SAFEs, warrants, etc.)
         if (txn.share_price != null && txn.share_price > 0 && txn.transaction_date) {
-          if (!latestSharePriceDate || txn.transaction_date > latestSharePriceDate) {
+          // Same day as a conversion: the priced round's price wins (computeSummary, the same rule).
+          const sameDayRound = txn.transaction_date === latestSharePriceDate && latestFromConversion && !txn.converts_from_txn_id
+          if (!latestSharePriceDate || txn.transaction_date > latestSharePriceDate || sameDayRound) {
             latestSharePrice = txn.share_price
             latestSharePriceDate = txn.transaction_date
+            latestFromConversion = !!txn.converts_from_txn_id
           }
         }
       }
@@ -161,8 +168,9 @@ export async function GET(req: NextRequest) {
         list.push(txn)
         groupTxns.set(group, list)
       }
-      // …so a fund's marks are bucketed by entity alongside its calls and distributions.
-      else if (txn.transaction_type === 'unrealized_gain_change' && isFund) {
+      // …so a fund's marks are bucketed by entity alongside its calls and distributions — and a
+      // company's value-change marks with no round, which move a priced position after its price.
+      else if (txn.transaction_type === 'unrealized_gain_change') {
         const group = txn.portfolio_group ?? companyDefaultGroup
         const list = groupTxns.get(group) ?? []
         list.push(txn)
@@ -186,6 +194,7 @@ export async function GET(req: NextRequest) {
       let navMarks = 0
 
       const groupCashFlows: CashFlow[] = []
+      const valueMarks: { date: string; amount: number; round: string | null }[] = []
       const roundMap = new Map<string, { investmentCost: number; sharesAcquired: number; unrealizedValueChange: number; costBasisExited: number }>()
 
       for (const txn of gTxns) {
@@ -241,23 +250,37 @@ export async function GET(req: NextRequest) {
           } else if (isFund) {
             navMarks += txn.unrealized_value_change ?? 0
           }
+          if (!isFund && txn.unrealized_value_change != null && txn.current_share_price == null) {
+            valueMarks.push({ date: txn.transaction_date ?? '', amount: Number(txn.unrealized_value_change), round: txn.round_name ?? null })
+          }
         }
       }
 
-      // Sum per-round FMV using the company-wide share price
+      // Sum per-round FMV using the company-wide share price. Same rules as computeSummary
+      // (lib/investments.ts): with no price known, the marks are the valuation — shares x a missing
+      // price is not zero, it is unknown — and a round that cost nothing (warrants) is only gone
+      // once basis has actually been exited.
       let unrealizedValue = 0
-      for (const round of Array.from(roundMap.values())) {
+      const pricedRounds = new Set<string>()
+      for (const [roundName, round] of Array.from(roundMap.entries())) {
         const isPricedEquity = round.sharesAcquired > 0 && (round.investmentCost > 0)
         const remainingBasis = round.investmentCost - round.costBasisExited
-        if (remainingBasis <= 0) {
+        if (remainingBasis <= 0 && (round.costBasisExited > 0 || round.investmentCost > 0)) {
           // All cost basis exited — no unrealized value
-        } else if (isPricedEquity) {
-          const fraction = round.investmentCost > 0 ? remainingBasis / round.investmentCost : 0
-          unrealizedValue += latestSharePrice != null ? round.sharesAcquired * fraction * latestSharePrice : 0
+        } else if (isPricedEquity && latestSharePrice != null) {
+          const fraction = remainingBasis / round.investmentCost
+          unrealizedValue += round.sharesAcquired * fraction * latestSharePrice
+          pricedRounds.add(roundName)
         } else {
-          unrealizedValue += remainingBasis + round.unrealizedValueChange
+          unrealizedValue += Math.max(0, remainingBasis + round.unrealizedValueChange)
         }
       }
+      // Value-change marks after the latest price move a priced position on from it; marks on or
+      // before it are already in the price (computeSummary, lib/investments.ts, the same rule).
+      unrealizedValue = Math.max(0, unrealizedValue + valueMarks
+        .filter(m => m.round == null || pricedRounds.has(m.round))
+        .filter(m => latestSharePriceDate == null || m.date > latestSharePriceDate)
+        .reduce((sum, m) => sum + m.amount, 0))
       // A fund holding is carried at remaining cost plus its NAV marks — the 1100-<id> + 1200-<id>
       // the ledger carries — never at cost alone.
       if (isFund) unrealizedValue = Math.max(0, totalInvested - totalCostBasisExited + navMarks)
@@ -310,6 +333,52 @@ export async function GET(req: NextRequest) {
         proceedsReceived,
         proceedsEscrow,
         totalCostBasisExited,
+      })
+    }
+  }
+
+  // Deal vehicles carried at their LP positions. A direct deal or an SPV whose holding was never
+  // recorded as investment transactions (Triple Lift, PromoteIQ (Direct)) has nothing above — but
+  // its LPs' positions say what went in and what it is worth. One row per such vehicle, from the
+  // live LP report: paid-in as invested, distributions as proceeds, NAV as fair value.
+  //
+  // Which ones: lib/portfolio/deal-vehicles.ts (holdings carrying no figures; flips once one does).
+  const { data: vehicleRows } = await admin
+    .from('fund_vehicles' as any)
+    .select('id, name, kind, active')
+    .eq('fund_id', fundId) as { data: { id: string; name: string; kind: string; active: boolean | null }[] | null }
+  const dealVehicles = vehiclesCarriedAtLpPositions(vehicleRows ?? [], companySummaries)
+    .filter(v => scopeGroups([v.name], names).length > 0)
+  if (dealVehicles.length > 0) {
+    const live = await generateLiveReport(admin, fundId, asOf ?? undefined)
+    for (const v of dealVehicles) {
+      const rows = live.rows.filter(r => r.portfolio_group === v.name)
+      if (rows.length === 0) continue
+      const sum = (pick: (r: (typeof rows)[number]) => number | null | undefined) => rows.reduce((s, r) => s + (Number(pick(r)) || 0), 0)
+      const invested = sum(r => r.paid_in_capital)
+      const distributed = sum(r => r.distributions)
+      const nav = sum(r => r.nav)
+      if (invested === 0 && distributed === 0 && nav === 0) continue
+      portfolioInvested += invested
+      portfolioRealized += distributed
+      portfolioUnrealized += nav
+      portfolioFMV += nav
+      companySummaries.push({
+        companyId: `${DEAL_VEHICLE_PREFIX}${v.id}`,
+        companyName: v.name,
+        status: nav <= 0.5 && distributed > 0 ? 'exited' : 'active',
+        holdingType: 'vehicle',
+        portfolioGroup: [v.name],
+        totalInvested: invested,
+        totalRealized: distributed,
+        unrealizedValue: nav,
+        fmv: nav,
+        moic: invested > 0 ? (distributed + nav) / invested : null,
+        // No dated cash flows here — only the positions' balances — so no IRR.
+        irr: null,
+        proceedsReceived: distributed,
+        proceedsEscrow: 0,
+        totalCostBasisExited: 0,
       })
     }
   }

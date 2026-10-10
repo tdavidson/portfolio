@@ -123,7 +123,10 @@ function chatgptFiles(ctx: PluginContext): Record<string, string> {
             category: 'Productivity',
             capabilities: ['Read', 'Write'],
             websiteURL: origin,
+            // Conversation starters. The first is the way in: it opens the home dashboard, which lists
+            // what this member can open and what to ask (lib/agent/getting-started.ts).
             defaultPrompt: [
+              'What can you do with my fund?',
               'Show me the portfolio.',
               'Pull up the financial statements for last quarter.',
               'Who has funded their capital calls?',

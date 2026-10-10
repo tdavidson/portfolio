@@ -50,6 +50,26 @@ vi.mock('./portfolio-tools', async importOriginal => {
     ] }),
   } }
 })
+// Two calls on Fund I; the newer one part-paid, with one LP's "we wired" from the portal.
+const callLine = (id: string, name: string, amount: number, settled: number, ack: any = null) => ({
+  id, lpEntityId: id, name, amount, settled, outstanding: amount - settled,
+  status: settled >= amount ? 'settled' : settled > 0 ? 'partial' : 'open', settledOn: settled >= amount ? '2026-09-20' : null,
+  lastSettlementOn: null, noticeDocumentId: null, ack,
+})
+const capitalCalls = vi.fn(async () => [
+  { id: 'k2', callDate: '2026-09-01', dueDate: '2026-09-15', callNumber: 2, description: 'Q4', scope: 'all', total: 600, status: 'partial', settled: 300, outstanding: 300, overdue: true,
+    lines: [
+      callLine('a', 'Alder LP', 300, 300),
+      callLine('b', 'Birch LP', 200, 0, { at: '2026-09-14T10:00:00Z', wiredOn: '2026-09-14', reference: 'REF1', note: null }),
+      callLine('c', 'Cedar LP', 100, 0),
+    ] },
+  { id: 'k1', callDate: '2026-03-01', dueDate: null, callNumber: 1, description: null, scope: 'all', total: 400, status: 'settled', settled: 400, outstanding: 0, overdue: false,
+    lines: [callLine('a', 'Alder LP', 400, 400)] },
+])
+vi.mock('@/lib/accounting/capital-calls', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/accounting/capital-calls')>()),
+  listCapitalCalls: () => capitalCalls(),
+}))
 vi.mock('./lp-tools', async importOriginal => {
   const real = await importOriginal<typeof import('./lp-tools')>()
   return { ...real, LP_HANDLERS: { ...real.LP_HANDLERS, lp_live_report: () => liveReport() } }
@@ -88,10 +108,17 @@ const statementPackage = vi.fn(async (_a: unknown, _f: unknown, _g: string, sp: 
       partners: [
         { id: 'lp1', name: 'Alder LP', ...account({ contributions: 800, carriedInterest: -80, ending: 720 }) },
         { id: 'gp', name: 'General Partner', ...account({ carriedInterest: 80, ending: 80 }) },
+        // Carry partners named in the vehicle's carry terms: what each earns is GP economics.
+        { id: 'p1', name: 'Pat Reyes', ...account({ carriedInterest: 50, ending: 50 }) },
+        { id: 'p2', name: 'Sam Okafor', ...account({ carriedInterest: 30, ending: 30 }) },
       ],
       totals: account({ contributions: 800, ending: 800 }),
     },
   },
+}))
+vi.mock('@/lib/access/carry-visibility', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/access/carry-visibility')>()),
+  carryRecipientIds: async () => new Set(['p1', 'p2']),
 }))
 vi.mock('@/lib/accounting/statement-package', () => ({
   buildStatementPackage: (a: unknown, f: unknown, g: string, sp: URLSearchParams) => statementPackage(a, f, g, sp),
@@ -114,7 +141,7 @@ const ctx = (a: AccessContext, rows: Record<string, any>[] = []) => {
   const { admin, tables } = memoryAdmin({
     saved_dashboards: rows,
     fund_members: [{ fund_id: 'fund-1', user_id: 'user-me' }, { fund_id: 'fund-1', user_id: 'user-colleague' }],
-    fund_vehicles: [{ id: 'v1', fund_id: 'fund-1', name: 'Fund I', aliases: null }, { id: 'v2', fund_id: 'fund-1', name: 'Fund II', aliases: null }],
+    fund_vehicles: [{ id: 'v1', fund_id: 'fund-1', name: 'Fund I', aliases: null, active: true, kind: 'fund' }, { id: 'v2', fund_id: 'fund-1', name: 'Fund II', aliases: null, active: true, kind: 'fund' }],
     company_vehicles: [{ fund_id: 'fund-1', vehicle_id: 'v1', company_id: 'c1' }, { fund_id: 'fund-1', vehicle_id: 'v2', company_id: 'c2' }],
     funds: [{ id: 'fund-1', name: 'Northgate' }],
     fund_settings: [{ fund_id: 'fund-1', currency: 'eur', theme: { accent: '243 75% 59%' } }],
@@ -163,9 +190,67 @@ describe('the dashboard tool registry', () => {
 
   it('marks only the saved-dashboard tools as personal, and only save and delete as writes', () => {
     expect(DASHBOARD_TOOLS.filter(t => t.personal).map(t => t.name).sort())
-      .toEqual(['delete_dashboard', 'list_dashboards', 'open_dashboard', 'save_dashboard'])
+      .toEqual(['delete_dashboard', 'list_dashboards', 'open_dashboard', 'save_dashboard', 'show_home'])
     expect(DASHBOARD_TOOLS.filter(t => t.scope === 'write').map(t => t.name).sort())
       .toEqual(['delete_dashboard', 'save_dashboard'])
+  })
+})
+
+describe('the capital calls dashboard', () => {
+  it('shows the latest call by default, each LP standing in words, the LP\'s own "wired" kept apart from money received', async () => {
+    const payload = await DASHBOARD_HANDLERS.show_capital_calls(ctx(access('member', { lp_capital: 'read' })).ctx, { vehicle: 'Fund I' })
+    expect(payload.view).toBe('calls')
+    expect(payload.data.calls.map((c: any) => c.number)).toEqual([2, 1])
+    const lines = payload.data.selected.lines
+    expect(lines.map((l: any) => [l.lp, l.status, l.overdue])).toEqual([
+      ['Alder LP', 'paid', false],
+      ['Birch LP', 'says_wired', true],
+      ['Cedar LP', 'unpaid', true],
+    ])
+    expect(lines[1].saysWired).toEqual({ on: '2026-09-14', reference: 'REF1' })
+    expect(lines[1].outstanding).toBe(200)
+  })
+
+  it('opens a call by number or date, and says which calls exist when it cannot find one', async () => {
+    const c = ctx(access('member', { lp_capital: 'read' })).ctx
+    expect((await DASHBOARD_HANDLERS.show_capital_calls(c, { vehicle: 'Fund I', call: '#1' })).data.selected.id).toBe('k1')
+    expect((await DASHBOARD_HANDLERS.show_capital_calls(c, { vehicle: 'Fund I', call: '2026-03-01' })).data.selected.id).toBe('k1')
+    await expect(DASHBOARD_HANDLERS.show_capital_calls(c, { vehicle: 'Fund I', call: '9' })).rejects.toThrow(/#2 2026-09-01, #1 2026-03-01/)
+  })
+
+  it('stays within the member\'s entities', async () => {
+    await expect(DASHBOARD_HANDLERS.show_capital_calls(ctx(scoped({ lp_capital: 'read' })).ctx, { vehicle: 'Fund II' })).rejects.toThrow(/Unknown vehicle/)
+  })
+})
+
+describe('the home dashboard', () => {
+  it('offers only what the member can open, and questions only for areas they can read', async () => {
+    const payload = await DASHBOARD_HANDLERS.show_home(ctx(access('member', { portfolio: 'read' })).ctx, {})
+    expect(payload.view).toBe('home')
+    expect(payload.data.dashboards.map((d: any) => d.view)).toEqual(['portfolio'])
+    const areas = payload.data.areas.map((a: any) => a.key)
+    expect(areas).toContain('portfolio')
+    expect(areas).not.toContain('books')
+    expect(areas).not.toContain('lps')
+    expect(payload.data.help).toContain('Portfolio overview')
+    expect(payload.data.help).not.toContain('Statements')
+  })
+
+  it('gives a statements tile per entity the member can see, and an LP tile with LP access', async () => {
+    const full = await DASHBOARD_HANDLERS.show_home(ctx(access('member', { portfolio: 'read', accounting: 'read', lp_capital: 'read' })).ctx, {})
+    expect(full.data.dashboards.map((d: any) => d.label)).toEqual(['Portfolio overview', 'Statements — Fund I', 'Statements — Fund II', 'LP capital', 'Capital calls'])
+    const fundOnly = await DASHBOARD_HANDLERS.show_home(ctx(scoped({ portfolio: 'read', accounting: 'read' })).ctx, {})
+    expect(fundOnly.data.dashboards.filter((d: any) => d.view === 'statements').map((d: any) => d.args.vehicle)).toEqual(['Fund I'])
+  })
+
+  it("lists the member's saved and shared dashboards, never a colleague's private one", async () => {
+    const rows = [
+      { id: 'd1', fund_id: 'fund-1', user_id: 'user-me', name: 'My LP review', view: 'lps', arguments: {}, shared: false, updated_at: '2026-10-01' },
+      { id: 'd2', fund_id: 'fund-1', user_id: 'user-colleague', name: 'Team portfolio', view: 'portfolio', arguments: {}, shared: true, updated_at: '2026-10-02' },
+      { id: 'd3', fund_id: 'fund-1', user_id: 'user-colleague', name: 'Private', view: 'portfolio', arguments: {}, shared: false, updated_at: '2026-10-03' },
+    ]
+    const payload = await DASHBOARD_HANDLERS.show_home(ctx(access('member', { portfolio: 'read', lp_capital: 'read' }), rows).ctx, {})
+    expect(payload.data.saved.map((d: any) => d.name).sort()).toEqual(['My LP review', 'Team portfolio'])
   })
 })
 
@@ -233,22 +318,25 @@ describe('the company view', () => {
 })
 
 describe('partners\' capital and GP economics', () => {
-  it('shows the carry line and the General Partner to a caller who holds gp_economics', async () => {
+  it('shows each carry recipient to a caller who holds gp_economics', async () => {
     const payload = await DASHBOARD_HANDLERS.show_financial_statements(ctx(access('admin')).ctx, {})
     const pc = payload.data.partnersCapital
     expect(pc.carryWithheld).toBe(false)
-    expect(pc.partners.map((p: any) => p.name)).toEqual(['Alder LP', 'General Partner'])
+    expect(pc.partners.map((p: any) => p.name)).toEqual(['Alder LP', 'General Partner', 'Pat Reyes', 'Sam Okafor'])
     expect(pc.totals.activity.map((a: any) => a.label)).toContain('Carried interest accrued')
   })
 
-  it('drops both for a caller who does not, and says it did', async () => {
+  it("shows the fund's carry but folds what each recipient earns into one row for a caller who does not", async () => {
     const payload = await DASHBOARD_HANDLERS.show_financial_statements(ctx(access('member', { accounting: 'read' })).ctx, {})
     const pc = payload.data.partnersCapital
     expect(pc.carryWithheld).toBe(true)
-    expect(pc.partners.map((p: any) => p.name)).toEqual(['Alder LP'])
-    expect(JSON.stringify(pc)).not.toMatch(/Carried interest/)
-    // The total is of the rows shown, so the table adds up on its own terms.
-    expect(pc.totals.ending).toBe(720)
+    expect(pc.partners.map((p: any) => p.name)).toEqual(['Alder LP', 'General Partner', 'Carry recipients (combined)'])
+    expect(pc.partners.at(-1).ending).toBe(80)
+    expect(JSON.stringify(pc)).not.toMatch(/Pat Reyes|Sam Okafor/)
+    // The LP's carry charge and the GP's total are the fund's carry, and stay.
+    expect(pc.totals.activity.map((a: any) => a.label)).toContain('Carried interest accrued')
+    // Nothing is dropped, so the table still adds up to the fund's capital.
+    expect(pc.totals.ending).toBe(880)
   })
 
   it('defaults to year to date, and a custom window replaces the preset', async () => {

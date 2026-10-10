@@ -7,12 +7,9 @@ import { Card, CardContent } from '@/components/ui/card'
 import { useCurrency, formatCurrency, formatCurrencyFull } from '@/components/currency-context'
 import type { CompanyStatus } from '@/lib/types/database'
 import { AnalystToggleButton } from '@/components/analyst-button'
-import { AddCompanyButton } from '@/components/add-company-button'
-import { AddVehicleButton } from '@/components/add-vehicle-button'
-import { AddFundHoldingButton } from '@/components/add-fund-holding-button'
-import { AddDigitalAssetButton } from '@/components/add-digital-asset-button'
-import { holdingHref } from '@/lib/portfolio/holding-href'
+import { investmentHref } from '@/lib/portfolio/holding-href'
 import { VehicleEditModal, VehicleLinkModal, type EditableVehicle } from '@/components/vehicle-edit-modal'
+import { AddInvestmentMenu } from '@/components/add-investment-menu'
 import { InvestmentVehicleFilters } from '@/components/investments-vehicle-filters'
 import { AnalystPanel } from '@/components/analyst-panel'
 import { PortfolioNotesProvider, PortfolioNotesButton, PortfolioNotesPanel } from '@/components/portfolio-notes'
@@ -23,7 +20,7 @@ interface CompanySummary {
   companyId: string
   companyName: string
   status: CompanyStatus
-  holdingType: 'company' | 'fund' | 'crypto'
+  holdingType: 'company' | 'fund' | 'crypto' | 'vehicle'
   portfolioGroup: string[]
   totalInvested: number
   totalRealized: number
@@ -40,6 +37,8 @@ const KIND_LABELS: Record<CompanySummary['holdingType'], string> = {
   company: 'Company',
   fund: 'Fund',
   crypto: 'Digital asset',
+  // A direct deal or SPV with no recorded holdings, carried at the sum of its LP positions.
+  vehicle: 'Deal vehicle',
 }
 
 interface GroupSummary {
@@ -192,6 +191,8 @@ export default function InvestmentsPage() {
   // common view — but every combination is pickable.
   const [selectedKinds, setSelectedKinds] = useState<Set<string>>(() => new Set(['fund', 'spv', 'direct', 'other']))
   const [showEmpty, setShowEmpty] = useState(false)
+  // Specific entities left out (by name). Kept as the HIDDEN set so an entity added later shows.
+  const [hiddenEntities, setHiddenEntities] = useState<Set<string>>(new Set())
 
   useEffect(() => {
     async function load() {
@@ -235,8 +236,12 @@ export default function InvestmentsPage() {
   const groupIsVisible = (group: string) => {
     const veh = vehicleForGroup(group)
     if (veh && !selectedKinds.has(veh.kind)) return false
+    if (hiddenEntities.has(group)) return false
     return true
   }
+
+  // The entities with holdings, for the filter's per-entity list.
+  const entityNames = useMemo(() => (data?.groups ?? []).map(g => g.group).filter(Boolean).sort((a, b) => a.localeCompare(b)), [data])
 
   // Group-level totals for percentage columns
   const groupTotalsMap = useMemo(() => {
@@ -287,7 +292,7 @@ export default function InvestmentsPage() {
 
     return list
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [data, statusFilter, sortKey, sortDir, groupTotalsMap, selectedKinds, vehicleList])
+  }, [data, statusFilter, sortKey, sortDir, groupTotalsMap, selectedKinds, hiddenEntities, vehicleList])
 
   // Sort groups
   const sortedGroups = useMemo(() => {
@@ -322,7 +327,7 @@ export default function InvestmentsPage() {
       const bv = getGroupDerivedValue(b, groupSortKey)
       return dir * (av - bv)
     })
-  }, [data, groupSortKey, groupSortDir, vintages, showEmpty, selectedKinds, vehicleList])
+  }, [data, groupSortKey, groupSortDir, vintages, showEmpty, selectedKinds, hiddenEntities, vehicleList])
 
   // Group totals for footer
   const groupTotals = useMemo(() => {
@@ -429,12 +434,9 @@ export default function InvestmentsPage() {
         <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">{fv.investments === 'admin' && <Lock className="h-4 w-4 text-warning" />}Investments</h1>
         <div className="flex items-center gap-2"><PortfolioNotesButton /><AnalystToggleButton /></div>
       </div>
-      <p className="text-sm text-muted-foreground">Every holding — companies, fund holdings and digital assets — at cost and value</p>
+      <p className="text-sm text-muted-foreground">Every investment at cost and value</p>
       <div className="flex items-center gap-2 pt-3">
-        <AddCompanyButton />
-        <AddFundHoldingButton onCreated={() => setRefreshKey(k => k + 1)} />
-        <AddDigitalAssetButton />
-        <AddVehicleButton onCreated={() => setRefreshKey(k => k + 1)} />
+        <AddInvestmentMenu onCreated={() => setRefreshKey(k => k + 1)} />
         <div className="ml-auto flex items-center gap-2">
           <InvestmentVehicleFilters
             selectedKinds={selectedKinds}
@@ -443,6 +445,10 @@ export default function InvestmentsPage() {
             onToggleShowEmpty={() => setShowEmpty(v => !v)}
             status={statusFilter}
             onStatusChange={setStatusFilter}
+            entities={entityNames}
+            hiddenEntities={hiddenEntities}
+            onToggleEntity={name => setHiddenEntities(prev => { const n = new Set(prev); n.has(name) ? n.delete(name) : n.add(name); return n })}
+            onShowAllEntities={() => setHiddenEntities(new Set())}
           />
           <span className="text-sm text-muted-foreground">As of</span>
           <input
@@ -573,7 +579,8 @@ export default function InvestmentsPage() {
                     <tr key={g.group} className="group border-b last:border-b-0 hover:bg-muted/30">
                       <td className="px-3 py-2 font-medium sticky left-0 bg-background z-10">
                         <span className="inline-flex items-center gap-1.5">
-                          {g.group || '(none)'}
+                          {/* The entity's own page: its books, capital accounts and LPs. */}
+                          {veh ? <Link href={`/funds/${veh.id}`} className="hover:underline underline-offset-4">{g.group}</Link> : (g.group || '(none)')}
                           {veh ? (
                             <button onClick={() => setEditingVehicle(veh)} title="Edit vehicle" className="text-muted-foreground opacity-0 group-hover:opacity-100 hover:text-foreground">
                               <Pencil className="h-3 w-3" />
@@ -655,7 +662,7 @@ export default function InvestmentsPage() {
               <tr key={`${c.companyId}-${c.portfolioGroup.join('')}`} className="border-b last:border-b-0 hover:bg-muted/30">
                 <td className="px-3 py-2 sticky left-0 bg-background z-10">
                   <Link
-                    href={holdingHref(c.companyId)}
+                    href={investmentHref(c.companyId)}
                     className="font-medium hover:underline"
                   >
                     {c.companyName}

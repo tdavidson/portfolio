@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { issueCapitalCall, proRataCall, lpCapitalSummary, listCapitalCalls } from '@/lib/accounting/capital-calls'
+import { recordRegisterPayments } from '@/lib/accounting/register-import'
 
 // GET — the per-LP capital summary (commitment/called/funded/outstanding) plus
 // the issued-call history for the vehicle.
@@ -58,8 +59,24 @@ export async function POST(req: NextRequest) {
       lines: Array.isArray(body?.lines) ? body.lines : [],
     })
     if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
+    // A call imported from a spreadsheet arrives with what each partner has already paid
+    // (lib/accounting/register-import.ts). The call stands either way; a payment that cannot be
+    // posted is reported, not a reason to unissue it.
+    if (Array.isArray(body?.payments) && body.payments.length > 0) {
+      const paid = await recordRegisterPayments(admin, gate.fundId, group, user.id, {
+        kind: 'call', registerId: result.callId, registerDate: String(body.callDate), lines: linesOf(body.lines), payments: body.payments,
+      })
+      return NextResponse.json({ ...result, ...('error' in paid ? { paymentsError: paid.error } : { paymentsPosted: paid.posted }) })
+    }
     return NextResponse.json(result)
   }
 
   return NextResponse.json({ error: "action must be 'preview' or 'issue'" }, { status: 400 })
+}
+
+/** The register's own lines, per partner, for capping imported payments. */
+function linesOf(raw: unknown): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const l of Array.isArray(raw) ? raw : []) if (l && typeof l.lpEntityId === 'string') out.set(l.lpEntityId, (out.get(l.lpEntityId) ?? 0) + (Number(l.amount) || 0))
+  return out
 }

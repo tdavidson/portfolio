@@ -32,6 +32,8 @@ import { vehicleKindByName } from './vehicle-domain'
 import { roundCents } from './ledger'
 import type { JournalEntry, Posting } from './types'
 import { ACTUAL_BOOK } from './books'
+import { computeSummary, sortForRollup } from '@/lib/investments'
+import { txnsForVehicle } from './soi'
 
 const CASH = '1000'
 const ESCROW_RECEIVABLE = '1350'
@@ -346,6 +348,83 @@ async function companyCarrying(
   }
 }
 
+/**
+ * KEEP THE BOOKS AT THE RECORDS. What a holding is worth after a transaction, by the investment
+ * records (the same rows and rules as the schedule of investments: txnsForVehicle + computeSummary,
+ * in their roll-up order up to and including this one), less what the books carry for it once this
+ * transaction's own entry is in — or null when the records give no position to compare (no purchase
+ * in this vehicle yet, which is where a unit test's empty stand-in lands).
+ *
+ * Every derived entry for a holding books this gap as a revaluation (Dr/Cr 1200, Cr/Dr 4200), so
+ * the books and the schedule cannot drift: a mark recorded as a share price books the change it
+ * implies; a purchase at a new round price revalues the shares already held; a conversion values
+ * the converted shares at the day's equity price; a company-wide price revalues every vehicle
+ * holding the company; an exit reverses exactly the marks that left with it.
+ *
+ * "What the books carry" counts entries dated before this transaction, and entries of the same
+ * date belonging to transactions earlier in roll-up order (or to none), never its own — so a day
+ * with several transactions trues up once, in order, not once per row.
+ */
+const amountOf = (v: any) => { const n = Number(v); return Number.isFinite(n) ? n : 0 }
+
+export async function recordsGap(
+  admin: SupabaseClient, fundId: string, group: string, vehicleId: string, txn: any,
+  accts: { costId: string; unrealizedId: string; fxId: string },
+  ownPostings: Posting[], excludeEntryIds: string[] = [],
+): Promise<number | null> {
+  // Best effort: a failed read leaves the entry as recorded rather than losing it, and the next
+  // entry for the holding books the gap.
+  try {
+    return await gapOrThrow(admin, fundId, group, vehicleId, txn, accts, ownPostings, excludeEntryIds)
+  } catch {
+    return null
+  }
+}
+
+async function gapOrThrow(
+  admin: SupabaseClient, fundId: string, group: string, vehicleId: string, txn: any,
+  accts: { costId: string; unrealizedId: string; fxId: string },
+  ownPostings: Posting[], excludeEntryIds: string[],
+): Promise<number | null> {
+  const date: string = txn.transaction_date
+  const { data } = await admin.from('investment_transactions' as any).select('*')
+    .eq('fund_id', fundId).eq('company_id', txn.company_id)
+  // A stable order for same-day rows (sortForRollup keeps input order among them).
+  const rows = ((data as any[]) ?? []).filter(t => t.id !== txn.id)
+    .sort((x, y) => String(x.transaction_date).localeCompare(String(y.transaction_date)) || String(x.id).localeCompare(String(y.id)))
+  const ordered = sortForRollup(txnsForVehicle([...rows, txn], group))
+  const at = ordered.indexOf(txn)
+  const prefix = ordered.slice(0, at + 1)
+  if (!prefix.some(t => t.transaction_type === 'investment' && t.portfolio_group === group)) return null
+  const records = computeSummary(prefix, 'active', new Date(`${date}T23:59:59Z`)).unrealizedValue
+
+  // A purchase's own new shares are worth what was paid for them; share × price differs from the
+  // cost by rounding, which is not a revaluation.
+  const ownCost = txn.transaction_type === 'investment' && !txn.converts_from_txn_id ? amountOf(txn.investment_cost) + amountOf(txn.fee_amount) : 0
+  const ownAtPrice = txn.transaction_type === 'investment' && !txn.converts_from_txn_id && amountOf(txn.shares_acquired) > 0 && amountOf(txn.share_price) > 0
+    ? amountOf(txn.shares_acquired) * amountOf(txn.share_price) : ownCost
+  const rounding = ownAtPrice - ownCost
+
+  const position = new Map(ordered.map((t, n) => [t.id, n]))
+  const { data: sameDay } = await admin.from('journal_entries' as any).select('id, source_ref')
+    .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('entry_date', date)
+  const adoptedBy = new Map(rows.filter(t => t.adopted_entry_id).map(t => [t.adopted_entry_id as string, t.id as string]))
+  const laterToday = new Set<string>(excludeEntryIds)
+  for (const e of (sameDay as any[]) ?? []) {
+    const owner = String(e.source_ref ?? '').startsWith(txnRef('')) ? String(e.source_ref).slice(txnRef('').length) : adoptedBy.get(e.id)
+    if (owner === txn.id || (owner != null && (position.get(owner) ?? -1) > at)) laterToday.add(e.id)
+  }
+  const ledger = await loadPostedLedger(admin, fundId, group)
+  const ids = new Set([accts.costId, accts.unrealizedId, accts.fxId])
+  const carried = ((ledger.sourcedPostings ?? ledger.postings ?? []) as { accountId: string; amount: number; entryDate?: string | null; entryId?: string }[])
+    .filter(p => ids.has(p.accountId) && (p.entryDate ?? '') <= date && !(p.entryId && laterToday.has(p.entryId)))
+    .reduce((sum, p) => sum + p.amount, 0)
+  const own = ownPostings.filter(p => ids.has(p.accountId)).reduce((sum, p) => sum + p.amount, 0)
+  const gap = roundCents(records - carried - own - rounding)
+  // Cents of floating-point dust in shares × price are not a revaluation.
+  return Math.abs(gap) < 0.5 ? 0 : gap
+}
+
 export interface BuiltEntry {
   entry: JournalEntry
   group: string
@@ -551,7 +630,14 @@ export async function buildEntryForTransaction(
     // Only 'fx' is a rate move. 'mark', 'quote' (a price feed) and 'nav' (a manager's statement)
     // are all a change in the investment's own value, and book to 1200/4200.
     const isFx = txn.valuation_change_source === 'fx'
-    const delta = num(isFx ? (txn.fx_value_change ?? txn.unrealized_value_change) : txn.unrealized_value_change)
+    let delta = num(isFx ? (txn.fx_value_change ?? txn.unrealized_value_change) : txn.unrealized_value_change)
+    // A mark recorded as a new SHARE PRICE carries no dollar change: what it books is the change in
+    // value the price implies — the position at this price, less what the books carried for it the
+    // day before. Without this a price mark never reached the books, and every fund marked by price
+    // showed its holdings at cost in the ledger while the schedule of investments showed them marked.
+    if (!isFx && delta === 0 && txn.current_share_price != null && num(txn.current_share_price) > 0) {
+      delta = (await recordsGap(admin, fundId, group, vehicleId, txn, a, [], opts.excludeEntryIds ?? [])) ?? 0
+    }
     if (delta === 0) return { skip: skip('The valuation did not change — nothing to book.') }
 
     // The whole reason FX has its own accounts: a rate move is not investment
@@ -657,6 +743,27 @@ export async function buildEntryForTransaction(
 
   if (!entry) return { skip: skip(`No ledger entry is implied by a "${txn.transaction_type}" row.`) }
 
+  // Book whatever still separates the books from the records for this holding (recordsGap).
+  // Not on an FX mark: a currency move books to 1250/4300 and is not the holding's own value.
+  const fxMark = txn.transaction_type === 'unrealized_gain_change' && txn.valuation_change_source === 'fx'
+  if (!fxMark && ['investment', 'unrealized_gain_change', 'proceeds'].includes(txn.transaction_type)) {
+    const unrealizedIncomeId = codes.get(UNREALIZED_INCOME)
+    const gap = unrealizedIncomeId ? await recordsGap(admin, fundId, group, vehicleId, txn, a, entry.postings, opts.excludeEntryIds ?? []) : null
+    if (gap) {
+      // Folded into the entry's own 1200/4200 lines where it has them (an exit's mark reversal), so
+      // the journal shows the net — an exit that keeps another round's marks shows no reversal at
+      // all, rather than a reversal and its undoing.
+      const add = (accountId: string, amount: number) => {
+        const line = entry!.postings.find(p => p.accountId === accountId && (p.lpEntityId ?? null) === null)
+        if (line) line.amount = roundCents(line.amount + amount)
+        else entry!.postings.push({ accountId, amount, currency: 'USD', lpEntityId: null })
+      }
+      add(a.unrealizedId, gap)
+      add(unrealizedIncomeId!, roundCents(-gap))
+      entry.postings = entry.postings.filter(p => p.amount !== 0)
+    }
+  }
+
   // Tag the entry with the transaction that produced it. Without this there is no link at
   // all between a tracker row and the entry it drafted — which is why editing or deleting a
   // transaction used to leave the ledger untouched and silently wrong. `source_ref` is the
@@ -676,6 +783,21 @@ export async function draftEntryForTransaction(
   txn: any,
   companyName: string
 ): Promise<LedgerDraftResult> {
+  // A share price recorded for the whole company, not one vehicle, revalues every vehicle that
+  // holds it: one entry in each, all owned by this transaction (so editing or deleting it retracts
+  // them together). Before, it was skipped as "company-wide pricing", and each vehicle's books kept
+  // the old value while its schedule moved to the new one.
+  if (!txn?.portfolio_group && txn?.transaction_type === 'unrealized_gain_change' && Number(txn.current_share_price) > 0) {
+    const { data: held } = await admin.from('investment_transactions' as any).select('portfolio_group')
+      .eq('fund_id', fundId).eq('company_id', txn.company_id).eq('transaction_type', 'investment')
+    const vehicles = Array.from(new Set(((held as any[]) ?? []).map(r => r.portfolio_group as string).filter(Boolean)))
+    let first: LedgerDraftResult | null = null
+    for (const group of vehicles) {
+      const r = await draftEntryForTransaction(admin, fundId, userId, { ...txn, portfolio_group: group }, companyName)
+      if (!first || (!first.drafted && r.drafted)) first = r
+    }
+    return first ?? skip('No vehicle holds this company yet — nothing to revalue.')
+  }
   try {
     const built = await buildEntryForTransaction(admin, fundId, txn, companyName)
     if ('skip' in built) return built.skip

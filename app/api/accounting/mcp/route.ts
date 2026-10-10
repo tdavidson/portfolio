@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { describePrompt, promptsFor, PromptArgumentError, renderPrompt } from '@/lib/agent/getting-started'
+import { canReadFor } from '@/lib/mcp-apps/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveAgentAuth, loadCredentialAccess, type ResolvedKey } from '@/lib/accounting/api-keys'
 import { resolveVehicleForTool, type AgentToolContext } from '@/lib/accounting/agent-tools'
@@ -9,7 +11,8 @@ import {
 } from '@/lib/mcp-apps/server'
 import { rateLimit } from '@/lib/rate-limit'
 import { agentApiEnabled } from '@/lib/oauth/enabled'
-import { wwwAuthenticate } from '@/lib/oauth/metadata'
+import { issuerFor, wwwAuthenticate } from '@/lib/oauth/metadata'
+import { iconUrl, type IconSize } from '@/lib/pwa'
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -32,6 +35,19 @@ export const dynamic = 'force-dynamic'
 
 const SERVER_INFO = { name: 'reporting-ledger', version: '0.2.0' }
 
+/**
+ * Who this server is, with the icon a host may show for it (MCP 2025-11-25 `Implementation.icons`).
+ * The icon is the fund's square app mark, the same one its home-screen app uses (lib/pwa.ts) —
+ * not the logo, which is a wordmark and unreadable in a square. Absolute URLs on the address the
+ * host reached: an icon is fetched by the host, which has no idea what a relative path is from.
+ * Clients that predate the field ignore it.
+ */
+function serverInfo(origin: string | undefined) {
+  if (!origin) return SERVER_INFO
+  const icon = (size: IconSize) => ({ src: `${origin}${iconUrl(size)}`, mimeType: 'image/png', sizes: [`${size}x${size}`] })
+  return { ...SERVER_INFO, title: 'Portfolio', websiteUrl: origin, icons: [icon(192), icon(512)] }
+}
+
 interface RpcRequest { jsonrpc: string; id?: string | number | null; method: string; params?: any }
 
 function ok(id: any, result: any) {
@@ -48,8 +64,9 @@ async function handle(rpc: RpcRequest, ctx: BaseCtx, auth: ResolvedKey, access: 
     case 'initialize':
       return ok(rpc.id, {
         protocolVersion: negotiateProtocolVersion(rpc.params?.protocolVersion),
-        capabilities: { tools: {}, resources: {} },
-        serverInfo: SERVER_INFO,
+        // Prompts are the templates a host lists in its prompt menu (lib/agent/getting-started.ts).
+        capabilities: { tools: {}, resources: {}, prompts: {} },
+        serverInfo: serverInfo(ctx.origin),
       })
     case 'ping':
       return ok(rpc.id, {})
@@ -79,6 +96,21 @@ async function handle(rpc: RpcRequest, ctx: BaseCtx, auth: ResolvedKey, access: 
     // The dashboard view. It is the same static document for every caller and carries no fund
     // data (the figures arrive with each tool result), so it needs no grant beyond the credential
     // this request already presented.
+    // Prompt templates: ready-made requests ("Quarter-end review", "Draft a forecast") a host lists
+    // for the member to pick. Filtered like tools, so nobody is offered a template for an area
+    // they cannot read; a template carries no data, only words.
+    case 'prompts/list':
+      return ok(rpc.id, { prompts: promptsFor(canReadFor(access)).map(describePrompt) })
+    case 'prompts/get': {
+      const template = promptsFor(canReadFor(access)).find(p => p.name === rpc.params?.name)
+      if (!template) return err(rpc.id, -32602, `Unknown prompt: ${rpc.params?.name}`)
+      try {
+        return ok(rpc.id, renderPrompt(template, rpc.params?.arguments))
+      } catch (e) {
+        if (e instanceof PromptArgumentError) return err(rpc.id, -32602, e.message)
+        throw e
+      }
+    }
     case 'resources/list':
       return ok(rpc.id, listResources())
     case 'resources/templates/list':
@@ -118,7 +150,7 @@ export async function POST(req: NextRequest) {
   // The owner's grants, re-read live — a credential can never exceed the person who authorized it,
   // and revoking their grant narrows every key and token they hold on the next call.
   const access = await loadCredentialAccess(admin, auth)
-  const ctx: BaseCtx = { admin, fundId: auth.fundId, userId: auth.userId, access }
+  const ctx: BaseCtx = { admin, fundId: auth.fundId, userId: auth.userId, access, origin: issuerFor(req) }
   const body = await req.json().catch(() => null)
   if (!body) return NextResponse.json(err(null, -32700, 'Parse error'), { status: 400 })
 

@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { previewDistribution, declareDistribution, listDistributions } from '@/lib/accounting/distributions'
+import { recordRegisterPayments } from '@/lib/accounting/register-import'
 
 // GET — declared distributions for the vehicle, newest first.
 export async function GET(req: NextRequest) {
@@ -83,8 +84,22 @@ export async function POST(req: NextRequest) {
         : undefined,
     })
     if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
+    // Imported from a spreadsheet: what has already been paid out to each partner.
+    if (Array.isArray(body?.payments) && body.payments.length > 0) {
+      const paid = await recordRegisterPayments(admin, gate.fundId, group, user.id, {
+        kind: 'distribution', registerId: result.distributionId, registerDate: String(body.distributionDate), lines: linesOf(body.lines), payments: body.payments,
+      })
+      return NextResponse.json({ ...result, ...('error' in paid ? { paymentsError: paid.error } : { paymentsPosted: paid.posted }) })
+    }
     return NextResponse.json(result)
   }
 
   return NextResponse.json({ error: "action must be 'preview' or 'declare'" }, { status: 400 })
+}
+
+/** The register's own lines, per partner, for capping imported payments. */
+function linesOf(raw: unknown): Map<string, number> {
+  const out = new Map<string, number>()
+  for (const l of Array.isArray(raw) ? raw : []) if (l && typeof l.lpEntityId === 'string') out.set(l.lpEntityId, (out.get(l.lpEntityId) ?? 0) + (Number(l.amount) || 0))
+  return out
 }

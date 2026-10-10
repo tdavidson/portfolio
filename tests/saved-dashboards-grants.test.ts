@@ -38,8 +38,9 @@ describe('saved_dashboards is service-role only', () => {
   })
 
   it('only accepts the views the application can draw', () => {
-    // The check constraint and DASHBOARD_VIEWS must name the same four.
-    const views = /view in \(([^)]+)\)/i.exec(sql.slice(sql.indexOf('create table public.saved_dashboards')))
-    expect(views![1].replace(/['\s]/g, '').split(',').sort()).toEqual([...DASHBOARD_VIEWS].sort())
+    // The check constraint and DASHBOARD_VIEWS must name the same views. The LAST migration to
+    // define the check is the one in force (migrations are concatenated in timestamp order).
+    const all = [...sql.slice(sql.indexOf('create table public.saved_dashboards')).matchAll(/view in \(([^)]+)\)/gi)]
+    expect(all.at(-1)![1].replace(/['\s]/g, '').split(',').sort()).toEqual([...DASHBOARD_VIEWS].sort())
   })
 })

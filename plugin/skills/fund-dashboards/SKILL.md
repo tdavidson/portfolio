@@ -5,9 +5,10 @@ description: >
   view of their fund through the Portfolio connector: "show me the portfolio", "open the
   dashboard for Acme", "chart Acme's ARR", "pull up the balance sheet", "show the P&L for last
   quarter", "who has funded", "show LP capital", "what dashboards do I have", "open my Q3 LP
-  dashboard", "save this dashboard as ...", "pin this", "delete that dashboard".
+  dashboard", "save this dashboard as ...", "pin this", "delete that dashboard" — and when the
+  user asks for help, "what can you do?", "get started", "home", or seems unsure what to ask.
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Fund dashboards
@@ -17,14 +18,24 @@ returns the figures as text (for answering questions) and renders them as an int
 (for the user to look at). Use them whenever the user wants to *see* something. For a question
 that only needs a number, the `fund-analysis` skill applies instead.
 
+## Start at home
+
+When the user asks what you can do, asks for help or to get started, or is new and unsure what
+to ask, call `show_home`. It shows the dashboards they can open, their saved dashboards, and
+example questions for the areas their access covers — and returns the same as text. Then give a
+short, friendly overview in your own words with three suggestions to try first. Do not list tool
+names. If the host cannot draw the view, the text is the whole answer.
+
 ## Pick the dashboard
 
 | The user wants | Tool | Arguments |
 | --- | --- | --- |
+| Help, what you can do, a place to start | `show_home` | none |
 | The portfolio, holdings, the fund at a glance | `show_portfolio_dashboard` | `vehicle?`, `as_of?` |
 | One company: its position, KPIs, rounds | `show_company_dashboard` | `company`, `vehicle?` |
 | Balance sheet, income statement, cash flows, partners' capital | `show_financial_statements` | `vehicle?`, `period?`, `start?`, `end?` |
-| LPs, commitments, who has funded, capital accounts | `show_lp_dashboard` | `vehicle?`, `as_of?` |
+| LPs, commitments, capital accounts | `show_lp_dashboard` | `vehicle?`, `as_of?` |
+| A capital call: who has paid, who says they wired, who still owes | `show_capital_calls` | `vehicle`, `call?` |
 | A dashboard the user names ("my Q3 LP review") | `open_dashboard` | `dashboard` |
 
 Rules for the arguments:

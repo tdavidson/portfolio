@@ -22,7 +22,7 @@ export interface DemoRoute {
 const recordedHrefs = (prefix: RegExp) => (_s: DemoSnapshot, pages: DemoPages) => Object.keys(pages.pages).filter(h => prefix.test(h))
 
 /** The `/funds/<slug>` sections and `/funds/<id>/<slug>` pages the widget walks. */
-const SECTION_SLUGS = ['status', 'bank', 'capital-accounts', 'journal', 'ledger', 'periods', 'schedule-of-investments', 'construction', 'statements']
+const SECTION_SLUGS = ['status', 'bank', 'capital-accounts', 'journal', 'ledger', 'periods', 'schedule-of-investments', 'construction', 'forecast', 'statements']
 
 export const ROUTES: DemoRoute[] = [
   { pattern: '/' },

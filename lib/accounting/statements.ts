@@ -320,6 +320,9 @@ function groupBy(rows: SoiRow[], key: (row: SoiRow) => string, netAssets: number
  * With no positions supplied, it degrades to the old single aggregate line, which
  * is still correct for a vehicle whose holdings aren't tracked per-company.
  */
+/** Fair value ties to the dollar, not the cent: see the per-company tie-out below. */
+export const FAIR_VALUE_TOLERANCE = 1
+
 export function scheduleOfInvestments(
   accounts: Account[],
   postings: Posting[],
@@ -378,7 +381,9 @@ export function scheduleOfInvestments(
         ledgerFairValue: lfv,
         // Only claim a tie-out where the ledger actually holds this company separately.
         tiesOut: hasPerCompany && lc !== undefined && lfv !== undefined
-          ? Math.abs(p.cost - lc) < 0.005 && Math.abs(p.fairValue - lfv) < 0.005
+          // Cost to the cent; fair value to the dollar — it is shares × price, and a price quoted to
+          // four places over a million shares lands cents away from the dollars the books hold.
+          ? Math.abs(p.cost - lc) < 0.005 && Math.abs(p.fairValue - lfv) < FAIR_VALUE_TOLERANCE
           : undefined,
       }
   })

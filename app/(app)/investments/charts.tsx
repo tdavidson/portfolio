@@ -12,7 +12,7 @@
  * vehicle and one bar here (lib/charts/holdings.ts sums it).
  */
 
-import { useMemo } from 'react'
+import { useMemo, useState } from 'react'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, LabelList,
 } from 'recharts'
@@ -20,7 +20,7 @@ import { AXIS, ChartCard, EmptyPlot, HELD_HUE, HUE, INVEST_NEW, PROCEEDS_HUE, to
 import { RankedBars } from '@/components/ranked-bars'
 import { foldPositions, heldPositions, positionsByHolding, type HoldingPosition, type HoldingRow } from '@/lib/charts/holdings'
 import { multipleBuckets, othersLabel, ratio } from '@/lib/charts/ranked'
-import { holdingHref } from '@/lib/portfolio/holding-href'
+import { investmentHref } from '@/lib/portfolio/holding-href'
 
 type Fmt = (v: number) => string
 
@@ -48,13 +48,67 @@ export function InvestmentCharts({ rows, fmt, fmtFull }: { rows: HoldingRow[]; f
 
 function FairValueAndCost({ positions, fmt, fmtFull }: { positions: HoldingPosition[]; fmt: Fmt; fmtFull: Fmt }) {
   const held = useMemo(() => heldPositions(positions), [positions])
+  // Two readings of the same holdings: where the value sits (fair value against cost), and how well
+  // each has done (gross multiple — proceeds plus fair value over invested — against 1.0x).
+  const [scale, setScale] = useState<'value' | 'multiple'>('value')
+  const gross = (p: HoldingPosition) => ratio(p.totalValue, p.invested)
+  // Fair value is what is still held; a multiple is a result, so exits and write-offs count too.
+  // Which companies is the page's Status filter (Active = current holdings, All = every company).
+  const withMultiple = useMemo(() => positions.filter(p => gross(p) != null), [positions])
+  const view = scale === 'multiple' && withMultiple.length > 0 ? 'multiple' : 'value'
+
+  const toggle = withMultiple.length > 0 ? (
+    <div className="inline-flex rounded-md border p-0.5 text-xs" role="group" aria-label="Bar scale">
+      {(['value', 'multiple'] as const).map(mode => (
+        <button
+          type="button"
+          key={mode}
+          aria-pressed={view === mode}
+          onClick={() => setScale(mode)}
+          className={`px-2 py-1 rounded capitalize ${view === mode ? 'bg-muted font-medium' : 'text-muted-foreground'}`}
+        >
+          {mode}
+        </button>
+      ))}
+    </div>
+  ) : undefined
 
   return (
-    <ChartCard title="Fair value and cost by holding">
-      {held.length === 0 ? (
+    <ChartCard title={view === 'multiple' ? 'Gross multiple by holding' : 'Fair value and cost by holding'} action={toggle}>
+      {view === 'multiple' ? (
+        <RankedBars
+          // The two scales rank differently, so each keeps its own expanded state.
+          key="multiple"
+          items={withMultiple}
+          rank={p => gross(p) ?? 0}
+          fold={rest => foldPositions(rest, othersLabel(rest.length))}
+          noun="holdings"
+          series={[{ name: 'Gross multiple', color: HELD_HUE }]}
+          referenceLabel="1.00x"
+          valueHeader="Multiple"
+          noteHeader="Fair value"
+          row={p => {
+            const m = gross(p)
+            return {
+              key: p.companyId || p.name,
+              label: p.name,
+              href: p.companyId ? investmentHref(p.companyId) : undefined,
+              muted: !p.companyId,
+              badge: STATUS_BADGE[p.status],
+              values: [m ?? 0],
+              reference: 1,
+              value: multiple(m),
+              valueTitle: `${fmtFull(p.totalValue)} on ${fmtFull(p.invested)} invested`,
+              note: fmt(p.fairValue),
+              summary: `${p.name}: ${multiple(m)} gross — ${fmtFull(p.totalValue)} of proceeds and fair value on ${fmtFull(p.invested)} invested`,
+            }
+          }}
+        />
+      ) : held.length === 0 ? (
         <EmptyPlot label="Nothing is currently held." />
       ) : (
         <RankedBars
+          key="value"
           items={held}
           rank={p => p.fairValue}
           fold={rest => foldPositions(rest, othersLabel(rest.length))}
@@ -68,7 +122,7 @@ function FairValueAndCost({ positions, fmt, fmtFull }: { positions: HoldingPosit
             return {
               key: p.companyId || p.name,
               label: p.name,
-              href: p.companyId ? holdingHref(p.companyId) : undefined,
+              href: p.companyId ? investmentHref(p.companyId) : undefined,
               muted: !p.companyId,
               badge: STATUS_BADGE[p.status],
               values: [p.fairValue],

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import Link from 'next/link'
 import { AnalystToggleButton } from '@/components/analyst-button'
 import { AnalystPanel } from '@/components/analyst-panel'
 import { PortfolioNotesProvider, PortfolioNotesButton, PortfolioNotesPanel } from '@/components/portfolio-notes'
@@ -25,7 +26,11 @@ interface Interaction {
   company_name: string | null
 }
 
-export function InteractionsContent({ interactions }: { interactions: Interaction[] }) {
+export function InteractionsContent({ interactions, company = null }: {
+  interactions: Interaction[]
+  /** Set when the list is one company's (a company page's "View all"). */
+  company?: { id: string; name: string } | null
+}) {
   const fv = useFeatureVisibility()
   const [inboundAddress, setInboundAddress] = useState('')
   const [copied, setCopied] = useState(false)
@@ -47,7 +52,15 @@ export function InteractionsContent({ interactions }: { interactions: Interactio
               <AnalystToggleButton />
             </div>
           </div>
-          <p className="text-sm text-muted-foreground">Lightweight CRM to track qualitative value-adds across the portfolio</p>
+          {company ? (
+            <p className="text-sm text-muted-foreground">
+              With <Link href={`/companies/${company.id}`} className="text-foreground underline underline-offset-4">{company.name}</Link>
+              {' '}&middot;{' '}
+              <Link href="/interactions" className="underline underline-offset-4 hover:text-foreground">Show all</Link>
+            </p>
+          ) : (
+            <p className="text-sm text-muted-foreground">Lightweight CRM to track qualitative value-adds across the portfolio</p>
+          )}
           {inboundAddress && (
             <div className="flex items-end gap-1.5 pt-2">
               <div>

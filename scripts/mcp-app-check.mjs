@@ -127,7 +127,7 @@ const expect = (label, ok, detail = '') => {
   console.log(`${ok ? 'ok  ' : 'FAIL'} ${label}`)
 }
 
-for (const view of ['portfolio', 'company', 'statements', 'lps']) {
+for (const view of ['portfolio', 'company', 'statements', 'lps', 'calls', 'home']) {
   for (const theme of ['light', 'dark']) {
     const { tab, frame, errors, events } = await open(view, theme, 760)
     const seen = await events()

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Check, ChevronDown, MoreHorizontal } from 'lucide-react'
+import { Check, ChevronDown, MoreHorizontal, PencilLine, Plus, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
@@ -123,6 +123,35 @@ export function MoreMenu({ items }: { items: MoreItem[] }) {
             </button>
           )
         })}
+      </PopoverContent>
+    </Popover>
+  )
+}
+
+/**
+ * New plan, the one way to start one: build it yourself, or have the Analyst draft it from the
+ * entity's history. Without an AI key there is only one way, so the button just opens the dialog.
+ */
+export function NewPlanMenu({ onManual, onDraftWithAi }: { onManual: () => void; onDraftWithAi?: () => void }) {
+  const [open, setOpen] = useState(false)
+  if (!onDraftWithAi) {
+    return <Button onClick={onManual}><Plus className="mr-1.5 h-4 w-4" /> New plan</Button>
+  }
+  const choose = (fn: () => void) => () => { setOpen(false); fn() }
+  return (
+    <Popover open={open} onOpenChange={setOpen}>
+      <PopoverTrigger asChild>
+        <Button aria-haspopup="menu"><Plus className="mr-1.5 h-4 w-4" /> New plan <ChevronDown className="ml-1.5 h-3.5 w-3.5 opacity-70" /></Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 p-1">
+        <button type="button" className={cn(itemCls(false), 'items-start gap-2 justify-start')} onClick={choose(onManual)}>
+          <PencilLine className="mt-0.5 h-4 w-4 shrink-0" />
+          <span><span className="block font-medium text-foreground">Start from scratch</span><span className="block text-xs">Pick the accounts and rules yourself.</span></span>
+        </button>
+        <button type="button" className={cn(itemCls(false), 'items-start gap-2 justify-start')} onClick={choose(onDraftWithAi)}>
+          <Sparkles className="mt-0.5 h-4 w-4 shrink-0" />
+          <span><span className="block font-medium text-foreground">Draft with AI</span><span className="block text-xs">The Analyst suggests rules from the books&rsquo; history for you to review.</span></span>
+        </button>
       </PopoverContent>
     </Popover>
   )

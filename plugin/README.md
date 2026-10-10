@@ -9,7 +9,12 @@ deployment and nowhere else.
 ## Use it
 
 Connect the connector that comes with this plugin, sign in with your Portfolio account, and
-approve the connection. Then ask in plain words:
+approve the connection. Then start with:
+
+- **"What can you do?"** — opens your home dashboard: the dashboards you can open, the ones you
+  saved, and questions to try for each area your access covers. Click any of them.
+
+Or ask in plain words:
 
 - "Show me the portfolio."
 - "Open the dashboard for Meridian Robotics."
@@ -39,6 +44,13 @@ deployment over an encrypted connection, signed in as you. The figures are sent 
 assistant you are using (Claude or ChatGPT) so it can show and discuss them, under that
 provider's terms for your account. This plugin itself stores nothing and contains no
 credentials. It does not send your fund's data anywhere else.
+
+## Prompts
+
+Your assistant's prompt menu (in Claude, the + menu or `/` in Claude Code) lists ready-made
+requests from your deployment: *Get started*, *Portfolio review*, *Company check-in*,
+*Quarter-end review*, *LP capital status*, *Draft a forecast* and *Budget variance* — only the
+ones your access covers. Pick one, fill in the company or fund, and send.
 
 ## Skills
 

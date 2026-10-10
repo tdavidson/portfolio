@@ -21,8 +21,13 @@ import { scopeLiveReport, visibleLpEntityIds } from '@/lib/access/lp-scope'
 import { scopeCompanyRows } from '@/lib/access/scope'
 import { generateLiveReport, type LiveInvestmentRow } from '@/lib/accounting/live-report'
 import { lpCapitalSummary, lpStatement, listCapitalCalls } from '@/lib/accounting/capital-calls'
+import { resolvePeriod, customPeriod, type PeriodPreset } from '@/lib/accounting/statement-period'
+import { reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
+import { CarryRecipientStatementError, carryRecipientIds, seesIndividualCarry } from '@/lib/access/carry-visibility'
+import { siteOrigin } from '@/lib/site-links'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
+const STATEMENT_PRESETS: PeriodPreset[] = ['this_quarter', 'last_quarter', 'ytd', 'prior_year', 'itd']
 
 /**
  * Validate a vehicle name against the registry — never pass a caller's string through raw — and
@@ -144,11 +149,14 @@ function applyFilters<T extends { entity_id?: string; portfolio_group?: string }
   return out
 }
 
-/** Strip the carry line from a capital roll-forward unless the caller holds gp_economics. */
-function withoutCarry<T extends { carriedInterest?: number }>(rollForward: T, access: AccessContext): T {
-  if (!rollForward || hasAccess(access, 'gp_economics', 'read')) return rollForward
-  const { carriedInterest: _carry, ...rest } = rollForward
-  return rest as T
+/**
+ * An LP's carried-interest line is the fund's carry and is shown with their statement. A carry
+ * RECIPIENT's statement is what they earn — GP economics — and is refused without that grant
+ * (lib/access/carry-visibility.ts).
+ */
+async function refuseRecipientStatement(admin: SupabaseClient, fundId: string, vehicle: string, lp: EntityIdentity, access: AccessContext) {
+  if (seesIndividualCarry(access)) return
+  if ((await carryRecipientIds(admin, fundId, vehicle)).has(lp.entityId)) throw new CarryRecipientStatementError(lp.entityName)
 }
 
 export const LP_HANDLERS: Record<string, AgentToolHandler> = {
@@ -335,11 +343,13 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
 
   lp_capital_calls: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
-    const calls = await listCapitalCalls(admin, fundId, vehicle)
+    const today = new Date().toISOString().slice(0, 10)
+    const calls = await listCapitalCalls(admin, fundId, vehicle, today)
     return {
       vehicle,
       calls: calls.map(c => ({
         id: c.id,
+        number: c.callNumber,
         date: c.callDate,
         due_date: c.dueDate,
         description: c.description,
@@ -349,7 +359,13 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
         overdue: c.overdue,
         funded: c.settled,
         outstanding: c.outstanding,
-        lines: c.lines.map(l => ({ lp: l.name, amount: l.amount, funded: l.settled, outstanding: l.outstanding, status: l.status, funded_on: l.settledOn })),
+        lines: c.lines.map(l => ({
+          lp: l.name, amount: l.amount, funded: l.settled, outstanding: l.outstanding, status: l.status, funded_on: l.settledOn,
+          overdue: l.outstanding > 0 && !!c.dueDate && c.dueDate < today,
+          // The LP's own word from the portal. Not money received: until a payment is matched or
+          // recorded the line stays outstanding, but "says wired" is a different conversation.
+          says_wired: l.ack && l.outstanding > 0 ? { on: l.ack.wiredOn, reference: l.ack.reference } : null,
+        })),
       })),
     }
   },
@@ -366,6 +382,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
       )
     }
     const lp = matches[0]
+    await refuseRecipientStatement(admin, fundId, vehicle, lp, access)
 
     const start = input?.start ? String(input.start) : null
     const end = input?.end ? String(input.end) : null
@@ -393,11 +410,10 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
         receivable: result.row.receivable,
         ending_balance: result.row.ending,
       },
-      // The roll-forward carries a `carriedInterest` line — GP economics, not LP capital. On the
-      // GP's own statement that line IS the carry. Dropped rather than zeroed; 0 would read as
-      // "none accrued".
-      roll_forward_itd: withoutCarry(result.rollForward, access),
-      roll_forward_period: withoutCarry(result.periodRollForward, access),
+      // Includes the carried-interest line: the carry this LP is charged, which is the fund's carry.
+      // A recipient's statement — what they earn — was refused above without gp_economics.
+      roll_forward_itd: result.rollForward,
+      roll_forward_period: result.periodRollForward,
       transactions: result.transactions.map(t => ({
         date: t.date,
         memo: t.memo,
@@ -405,6 +421,72 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
         amount: t.amount,     // signed change to LP capital
         balance: t.balance,
       })),
+    }
+  },
+
+  // The documents. Each returns a signed link, not the PDF: the document is rendered when the link
+  // is opened, after the member's access is checked again (app/api/agent/reports/[token]). So these
+  // only resolve and validate what to render, with the same scoping as the figures above.
+  lp_statement_pdf: async ({ admin, fundId, access, userId, origin }: AgentToolContext, input: any) => {
+    if (!userId) throw new Error('Documents are issued to a signed-in member; this credential has no user.')
+    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
+    const lpScope = await lpToolScope(admin, access)
+    const matches = resolveLp(await loadIdentities(admin, fundId, lpScope.entityIds), String(input?.lp ?? ''))
+    if (matches.length > 1) {
+      throw new Error(
+        `"${input.lp}" resolves to ${matches.length} entities (${matches.map(m => m.entityName).join(', ')}). ` +
+        'A statement is per entity — pass one.'
+      )
+    }
+    const lp = matches[0]
+    await refuseRecipientStatement(admin, fundId, vehicle, lp, access)
+    const start = input?.start ? String(input.start) : null
+    const end = input?.end ? String(input.end) : null
+    for (const [label, v] of [['start', start], ['end', end]] as const) {
+      if (v && !ISO_DATE.test(v)) throw new Error(`${label} must be an ISO date (YYYY-MM-DD)`)
+    }
+    const preset = (input?.period ? String(input.period) : 'last_quarter') as PeriodPreset
+    if (!start && !end && !STATEMENT_PRESETS.includes(preset)) throw new Error(`period must be one of ${STATEMENT_PRESETS.join(', ')}`)
+    const period = start || end ? customPeriod(start, end) : resolvePeriod(preset)
+
+    // Fail here, in the conversation, rather than on a link that 404s later.
+    const check = await lpStatement(admin, fundId, vehicle, lp.entityId, { start: period.start, end: period.end })
+    if ('error' in check) throw new Error(check.error)
+
+    const { token, expiresAt } = signReportLink({
+      fundId, userId, kind: 'lp_statement',
+      args: { vehicle, lp: lp.entityId, start: period.start, end: period.end, label: period.label },
+    })
+    return {
+      document: 'Capital account statement (PDF)',
+      vehicle, investor: lp.investorName, entity: lp.entityName, period: period.label,
+      url: reportLinkUrl(origin ?? siteOrigin(), token),
+      expires_at: expiresAt,
+      note: 'Give the user this link. It opens the PDF for an hour, and only for this member.',
+    }
+  },
+
+  lp_report_card_pdf: async ({ admin, fundId, access, userId, origin }: AgentToolContext, input: any) => {
+    if (!userId) throw new Error('Documents are issued to a signed-in member; this credential has no user.')
+    const lpScope = await lpToolScope(admin, access)
+    const matches = resolveLp(await loadIdentities(admin, fundId, lpScope.entityIds), String(input?.investor ?? ''))
+    const investors = new Map<string, string>()
+    for (const m of matches) if (m.investorId) investors.set(m.investorId, m.investorName ?? m.entityName)
+    if (investors.size === 0) throw new Error(`"${input?.investor}" has no investor record to report on.`)
+    if (investors.size > 1) {
+      throw new Error(`"${input.investor}" matches ${investors.size} investors (${[...investors.values()].join(', ')}). Pass one.`)
+    }
+    const [[investorId, investorName]] = [...investors]
+
+    const { token, expiresAt } = signReportLink({ fundId, userId, kind: 'lp_report_card', args: { investor: investorId } })
+    return {
+      document: 'LP report card (PDF)',
+      investor: investorName,
+      // A member who sees only some entities gets a report card of only those.
+      vehicles: lpScope.names ?? 'all',
+      url: reportLinkUrl(origin ?? siteOrigin(), token),
+      expires_at: expiresAt,
+      note: 'Give the user this link. It opens the PDF for an hour, and only for this member.',
     }
   },
 }

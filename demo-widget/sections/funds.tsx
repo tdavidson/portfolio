@@ -8,6 +8,7 @@ import { BankView } from '@/app/(app)/funds/bank/view'
 import { CapitalAccountsView } from '@/app/(app)/funds/capital-accounts/view'
 import { LpStatementView } from '@/app/(app)/funds/capital-accounts/[lpEntityId]/view'
 import { ConstructionView } from '@/app/(app)/funds/construction/view'
+import { ForecastView } from '@/app/(app)/funds/forecast/view'
 import { JournalPageView } from '@/app/(app)/funds/journal/page-view'
 import { LedgerView } from '@/app/(app)/funds/ledger/view'
 import { MigrateView } from '@/app/(app)/funds/migrate/view'
@@ -107,6 +108,8 @@ function LpStatement({ v, entityId, lpEntityId, query }: { v: Vehicle; entityId:
 
 function EntitySubpage({ v, slug }: { v: Vehicle; slug: string }) {
   if (slug === 'construction') return <ConstructionView vehicle={v.vehicle} vehicleId={v.vehicleId} />
+  // The page renders the view bare, as the app does (app/(app)/funds/[id]/forecast/page.tsx).
+  if (slug === 'forecast') return <ForecastView vehicle={v.vehicle} vehicleId={v.vehicleId} />
   const page = SUBPAGES[slug]
   if (!page) return <NoData href={`/funds/${v.vehicleId ?? v.vehicle}/${slug}`} />
   return (

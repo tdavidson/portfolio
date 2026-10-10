@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveFundFromApiKey, authorizeToolUse, loadCredentialAccess } from '@/lib/accounting/api-keys'
 import { agentApiEnabled } from '@/lib/oauth/enabled'
+import { issuerFor } from '@/lib/oauth/metadata'
 import { AGENT_TOOLS, getTool, resolveVehicleForTool, accessDomainFor, accessDomainForCall, accessFeatureFor } from '@/lib/accounting/agent-tools'
 import { hasAccess } from '@/lib/access/effective'
 import { rateLimit } from '@/lib/rate-limit'
@@ -85,7 +86,7 @@ export async function POST(req: NextRequest) {
   try {
     const input = body?.input ?? {}
     const portfolioGroup = await resolveVehicleForTool(tool, admin, auth.fundId, input.vehicle, access)
-    const result = await tool.handler({ admin, fundId: auth.fundId, portfolioGroup, userId: auth.userId, access }, input)
+    const result = await tool.handler({ admin, fundId: auth.fundId, portfolioGroup, userId: auth.userId, access, origin: issuerFor(req) }, input)
     return NextResponse.json({ ok: true, result })
   } catch (e) {
     // Don't leak internals to an API-key caller — log the detail, return the message only.

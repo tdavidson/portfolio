@@ -5,6 +5,7 @@ import { Plus, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import type { DialogControl } from '@/components/add-investment-menu'
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog'
@@ -17,8 +18,10 @@ import { investingEntities } from '@/lib/portfolio/investing-entities'
  * the first fund holding is what activates them (lib/portfolio/fof.ts). Gating it on the state
  * it produces would make the feature unreachable.
  */
-export function AddFundHoldingButton({ onCreated }: { onCreated?: () => void }) {
-  const [open, setOpen] = useState(false)
+export function AddFundHoldingButton({ onCreated, open: openProp, onOpenChange, hideTrigger }: { onCreated?: () => void } & DialogControl) {
+  const [openState, setOpenState] = useState(false)
+  const open = openProp ?? openState
+  const setOpen = (o: boolean) => { setOpenState(o); onOpenChange?.(o) }
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [form, setForm] = useState({
@@ -72,9 +75,11 @@ export function AddFundHoldingButton({ onCreated }: { onCreated?: () => void }) 
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
+      {!hideTrigger && (
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="gap-1.5 h-8 py-2 text-muted-foreground hover:text-foreground"><Plus className="h-3.5 w-3.5" />Add fund</Button>
       </DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add an underlying fund</DialogTitle>

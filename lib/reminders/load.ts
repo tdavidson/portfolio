@@ -1,6 +1,7 @@
 // Every DB read the reminder sources need, for one fund. Kept apart from the sources so those
 // stay pure and testable over fixtures.
 
+import { loadCloseDates } from '@/lib/compliance/closes'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { lastEndedQuarter, metricQuarter, responseKey } from '@/lib/requests/response-status'
 import type { FundReminderData } from './collect'
@@ -81,11 +82,8 @@ export async function loadFundReminderData(
         .eq('fund_id', fundId).in('status', ['filed', 'not_applicable']).gte('year', y - 1)
         .order('id').range(from, to)),
     db.from('fund_vehicles').select('name').eq('fund_id', fundId),
-    allRows<{ portfolio_group: string; flow_date: string }>('fund_cash_flows', (from, to) =>
-      db.from('fund_cash_flows').select('portfolio_group, flow_date')
-        .eq('fund_id', fundId).eq('flow_type', 'commitment')
-        .gte('flow_date', `${y - 1}-01-01`).lte('flow_date', `${y + 1}-12-31`)
-        .order('flow_date').order('id').range(from, to)),
+    // Each vehicle's closes (closings, plus legacy commitment rows), for Form D and Blue Sky.
+    loadCloseDates(admin, fundId, `${y - 1}-01-01`, `${y + 1}-12-31`, { errorPrefix: 'reminders: ' }),
     db.from('email_requests').select('quarter, year, due_date, status')
       .eq('fund_id', fundId).not('quarter', 'is', null).gte('year', rq.year - 1),
     db.from('companies').select('id, name')
@@ -111,8 +109,7 @@ export async function loadFundReminderData(
   const dueCalls = rowsOf<{ id: string; vehicle_id: string | null }[]>('capital_calls', dueCallsRes) ?? []
   const currency = (rowsOf<{ currency?: string }>('fund_settings', currencyRes)?.currency as string | undefined) ?? 'USD'
 
-  const closeDates: Record<string, string[]> = {}
-  for (const c of closes) (closeDates[c.portfolio_group] ??= []).push(c.flow_date.slice(0, 10))
+  const closeDates = closes
 
   const hasData = new Set<string>()
   for (const mv of metrics) {

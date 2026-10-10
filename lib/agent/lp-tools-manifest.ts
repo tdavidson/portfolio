@@ -101,6 +101,42 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
     },
   },
   {
+    name: 'lp_statement_pdf',
+    description:
+      'A download link to one LP\'s capital account statement as a PDF — the same document the app produces: ' +
+      'the roll-forward for the period and since inception, ownership, and the contributions and distributions. ' +
+      'Use when the user asks for the statement as a file, to send, or to download. The link works for an hour; ' +
+      'give it to the user as a link. A statement is per LP entity and per vehicle.',
+    scope: 'read',
+    domain: 'lp',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vehicle: VEHICLE,
+        lp: LP,
+        period: { type: 'string', enum: ['this_quarter', 'last_quarter', 'ytd', 'prior_year', 'itd'], description: 'The statement period. Default last_quarter. Or pass start and end.' },
+        start: { type: 'string', description: 'Custom period start (YYYY-MM-DD).' },
+        end: { type: 'string', description: 'Custom period end (YYYY-MM-DD).' },
+      },
+      required: ['vehicle', 'lp'],
+    },
+  },
+  {
+    name: 'lp_report_card_pdf',
+    description:
+      'A download link to an investor\'s LP report card as a PDF: their positions across every vehicle aggregated — ' +
+      'commitment, paid-in, distributions, NAV, DPI, TVPI and IRR per vehicle and in total — on current figures. ' +
+      'Use when the user asks for an investor\'s report, report card or summary as a file. The link works for an hour; ' +
+      'give it to the user as a link.',
+    scope: 'read',
+    domain: 'lp',
+    inputSchema: {
+      type: 'object',
+      properties: { investor: { type: 'string', description: 'The investor (or one of their entities), by name or id.' } },
+      required: ['investor'],
+    },
+  },
+  {
     name: 'lp_capital_calls',
     description: 'The capital calls issued in a vehicle: date, description, total, and each LP\'s share.',
     scope: 'read',

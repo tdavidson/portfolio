@@ -123,7 +123,7 @@ export async function aggregatePortfolioData(
   // Filter by portfolio group using investment transactions
   const { data: allTransactions } = await admin
     .from('investment_transactions')
-    .select('company_id, transaction_type, transaction_date, round_name, investment_cost, share_price, proceeds_received, proceeds_escrow, cost_basis_exited, current_share_price, shares_acquired, unrealized_value_change, portfolio_group')
+    .select('company_id, transaction_type, transaction_date, round_name, investment_cost, share_price, proceeds_received, proceeds_escrow, cost_basis_exited, current_share_price, shares_acquired, unrealized_value_change, portfolio_group, converts_from_txn_id')
     .eq('fund_id', fundId)
     .order('transaction_date', { ascending: true }) as { data: {
       company_id: string; transaction_type: string; transaction_date: string | null
@@ -135,6 +135,7 @@ export async function aggregatePortfolioData(
       // is text[]). Must be compared with ===, never .includes() — on a string that
       // is a substring test, and "<X> SPV II" contains "<X> SPV".
       portfolio_group: string | null
+      converts_from_txn_id: string | null
     }[] | null }
 
   // Determine which companies belong to this portfolio group
@@ -184,13 +185,17 @@ export async function aggregatePortfolioData(
     // Determine company-wide latest share price from all transaction types
     let latestSharePrice: number | null = null
     let latestSharePriceDate: string | null = null
+    let latestFromConversion = false
 
     for (const t of txns) {
       if (t.transaction_type === 'investment') {
         if (t.share_price != null && t.share_price > 0 && t.transaction_date) {
-          if (!latestSharePriceDate || t.transaction_date > latestSharePriceDate) {
+          // Same day as a conversion: the priced round's price wins (computeSummary, the same rule).
+          const sameDayRound = t.transaction_date === latestSharePriceDate && latestFromConversion && !t.converts_from_txn_id
+          if (!latestSharePriceDate || t.transaction_date > latestSharePriceDate || sameDayRound) {
             latestSharePrice = Number(t.share_price)
             latestSharePriceDate = t.transaction_date
+            latestFromConversion = !!t.converts_from_txn_id
           }
         }
       }
@@ -220,6 +225,7 @@ export async function aggregatePortfolioData(
     const relevantTxns = [...groupTxns, ...companyWideTxns.filter(t => !groupTxns.includes(t))]
 
     // Build round map with cost basis tracking
+    const valueMarks: { date: string; amount: number; round: string | null }[] = []
     let totalInvested = 0
     let totalRealized = 0
     const roundMap = new Map<string, {
@@ -260,24 +266,37 @@ export async function aggregatePortfolioData(
           const round = roundMap.get(t.round_name)
           if (round) round.unrealizedValueChange += Number(t.unrealized_value_change)
         }
+        if (t.unrealized_value_change != null && t.current_share_price == null) {
+          valueMarks.push({ date: t.transaction_date ?? '', amount: Number(t.unrealized_value_change), round: t.round_name ?? null })
+        }
       }
     }
 
     // Compute per-round unrealized value using remaining basis fraction
     let unrealizedValue = 0
-    for (const round of Array.from(roundMap.values())) {
+    const pricedRounds = new Set<string>()
+    for (const [roundName, round] of Array.from(roundMap.entries())) {
       const isPricedEquity = round.sharesAcquired > 0 && round.investmentCost > 0
       const remainingBasis = round.investmentCost - round.costBasisExited
-      if (remainingBasis <= 0) {
+      // Same rules as computeSummary (lib/investments.ts): no price known means the marks are the
+      // valuation, and a zero-cost round (warrants) is only gone once basis has been exited.
+      if (remainingBasis <= 0 && (round.costBasisExited > 0 || round.investmentCost > 0)) {
         // All cost basis exited — no unrealized value
-      } else if (isPricedEquity) {
-        const fraction = round.investmentCost > 0 ? remainingBasis / round.investmentCost : 0
-        unrealizedValue += latestSharePrice != null ? round.sharesAcquired * fraction * latestSharePrice : 0
+      } else if (isPricedEquity && latestSharePrice != null) {
+        const fraction = remainingBasis / round.investmentCost
+        unrealizedValue += round.sharesAcquired * fraction * latestSharePrice
+        pricedRounds.add(roundName)
       } else {
         // Convertible / warrant: remaining basis + unrealized changes
         unrealizedValue += Math.max(0, remainingBasis + round.unrealizedValueChange)
       }
     }
+    // Value-change marks after the latest price move a priced position on from it; marks on or
+    // before it are already in the price (computeSummary, lib/investments.ts, the same rule).
+    unrealizedValue = Math.max(0, unrealizedValue + valueMarks
+      .filter(m => m.round == null || pricedRounds.has(m.round))
+      .filter(m => latestSharePriceDate == null || m.date > latestSharePriceDate)
+      .reduce((sum, m) => sum + m.amount, 0))
 
     let fmv: number
     if (c.status === 'exited') {

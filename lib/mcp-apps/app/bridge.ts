@@ -114,6 +114,15 @@ export class HostBridge {
     this.request('ui/update-model-context', { content: [{ type: 'text', text }] }).catch(() => {})
   }
 
+  /**
+   * Ask something in the conversation, as the user — a question picked on the home dashboard.
+   * `ui/message` is the extension's request for it; a host that has not declared the `message`
+   * capability may still accept it, so the caller falls back only when it is refused.
+   */
+  sendMessage(text: string): Promise<void> {
+    return this.request('ui/message', { role: 'user', content: [{ type: 'text', text }] }).then(() => {})
+  }
+
   /** Report the content's size so an inline view is given exactly the height it needs. */
   sendSize(width: number, height: number): void {
     if (this.connected) this.notify('ui/notifications/size-changed', { width, height })

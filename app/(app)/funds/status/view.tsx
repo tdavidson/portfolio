@@ -10,7 +10,10 @@ import { VehicleEditModal, type EditableVehicle } from '@/components/vehicle-edi
 import { DealCarryCard } from './deal-carry-card'
 import { BootstrapInvestmentsCard } from './bootstrap-investments'
 import { CarryTerms } from '../allocation-terms/carry-terms'
-import { useCanRead } from '@/components/access-context'
+import { useAccess, useCanRead, useIsAdmin } from '@/components/access-context'
+import { QuickActionButtons } from '@/components/quick-action-buttons'
+import { createActions } from '@/lib/start/quick-actions'
+import { CapitalCallsCard } from './capital-calls-card'
 import { isManagementCompany, VEHICLE_KIND_LABELS } from '@/lib/vehicle-kinds'
 import { MancoIntercompanyCard } from './intercompany-card'
 import { AllocationTermsView } from '../allocation-terms/view'
@@ -53,6 +56,8 @@ function EntityStatusView() {
   const lf = useLedgerFetch()
   const fundSeg = useFundSeg()
   const { group, kind, vehicleId } = useVehicle()
+  const access = useAccess()
+  const isAdmin = useIsAdmin()
   const manco = isManagementCompany(kind)
   // The status issues carry bare /funds/<page> hrefs (built server-side, where the URL's
   // vehicle id isn't known); rewrite them fund-first for the current vehicle.
@@ -120,6 +125,22 @@ function EntityStatusView() {
   return (
     <div className="space-y-6">
       <VehicleDetailsCard />
+
+      {/* The entity's everyday work, from its own page: the same shortcuts as Start, under the
+          same gates, with the capital pair opening this entity's capital accounts. A management
+          company has no partners to call or distribute to. */}
+      {(() => {
+        const actions = createActions(access, { isAdmin })
+          .filter(a => a.id !== 'add-deal' && a.id !== 'add-vehicle')
+          .filter(a => !manco || a.group !== 'capital')
+        return actions.length > 0 ? (
+          <div className="space-y-2">
+            <QuickActionButtons actions={actions} vehicleId={vehicleId} />
+          </div>
+        ) : null
+      })()}
+
+      {!manco && <CapitalCallsCard capitalHref={fundHref('/funds/capital-accounts')} />}
 
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

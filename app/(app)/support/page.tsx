@@ -1,8 +1,9 @@
 import type { Metadata } from 'next'
-import { Github, Scale, ExternalLink, Building2, ClipboardCheck, Mail, Upload, Send, Settings, MessageSquare, Monitor, PanelLeftClose, Sparkles, Shield, ShieldCheck, Handshake, Users, ArrowDownCircle, DollarSign, FileText, Briefcase, Crown, Lightbulb, Microscope } from 'lucide-react'
+import { Github, Scale, ExternalLink, BookOpen, Home, Newspaper, ListChecks, Globe, Building2, ClipboardCheck, Mail, Upload, Send, Settings, MessageSquare, Monitor, PanelLeftClose, Sparkles, Shield, ShieldCheck, Handshake, Users, ArrowDownCircle, DollarSign, FileText, Briefcase, Crown, Lightbulb, Microscope } from 'lucide-react'
 import { AnalystToggleButton } from '@/components/analyst-button'
 import { AnalystPanel } from '@/components/analyst-panel'
-import { PRIVACY_URL, TERMS_URL } from '@/lib/site-links'
+import { PRIVACY_URL, PRODUCT_DOCS, PRODUCT_SITE, TERMS_URL } from '@/lib/site-links'
+import { AREAS } from '@/lib/agent/getting-started'
 
 export const metadata: Metadata = { title: 'Support' }
 
@@ -11,12 +12,15 @@ export default function SupportPage() {
     <ul className="space-y-1 text-muted-foreground">
       <li><a href="#links" className="hover:text-foreground underline underline-offset-4">Links</a></li>
       <li><a href="#getting-started" className="hover:text-foreground underline underline-offset-4">Getting Started</a></li>
-      <li className="pl-4"><a href="#setup" className="hover:text-foreground underline underline-offset-4">Setup</a></li>
-      <li className="pl-4"><a href="#license" className="hover:text-foreground underline underline-offset-4">License</a></li>
-      <li className="pl-4"><a href="#pricing" className="hover:text-foreground underline underline-offset-4">Pricing</a></li>
+      <li className="pl-4"><a href="#start" className="hover:text-foreground underline underline-offset-4">Start</a></li>
+      <li className="pl-4"><a href="#setup" className="hover:text-foreground underline underline-offset-4">Self-hosting &amp; license</a></li>
       <li><a href="#portfolio" className="hover:text-foreground underline underline-offset-4">Portfolio</a></li>
+      <li className="pl-4"><a href="#company-detail" className="hover:text-foreground underline underline-offset-4">Company detail</a></li>
       <li><a href="#review" className="hover:text-foreground underline underline-offset-4">Review</a></li>
+      <li className="pl-4"><a href="#pending-actions" className="hover:text-foreground underline underline-offset-4">Pending actions</a></li>
       <li><a href="#inbound" className="hover:text-foreground underline underline-offset-4">Inbound</a></li>
+      <li className="pl-4"><a href="#email-detail" className="hover:text-foreground underline underline-offset-4">Email detail</a></li>
+      <li className="pl-4"><a href="#company-updates" className="hover:text-foreground underline underline-offset-4">Company updates</a></li>
       <li><a href="#import" className="hover:text-foreground underline underline-offset-4">Import</a></li>
       <li><a href="#asks" className="hover:text-foreground underline underline-offset-4">Asks</a></li>
       <li><a href="#settings" className="hover:text-foreground underline underline-offset-4">Settings</a></li>
@@ -27,17 +31,19 @@ export default function SupportPage() {
       <li><a href="#diligence" className="hover:text-foreground underline underline-offset-4">Diligence</a></li>
       <li><a href="#investments" className="hover:text-foreground underline underline-offset-4">Investments</a></li>
       <li><a href="#funds" className="hover:text-foreground underline underline-offset-4">Entities &amp; accounting</a></li>
+      <li className="pl-4"><a href="#accounting" className="hover:text-foreground underline underline-offset-4">Accounting</a></li>
       <li><a href="#forecast" className="hover:text-foreground underline underline-offset-4">Forecast</a></li>
       <li><a href="#management-company" className="hover:text-foreground underline underline-offset-4">Management company</a></li>
       <li><a href="#letters" className="hover:text-foreground underline underline-offset-4">Letters</a></li>
       <li><a href="#lps" className="hover:text-foreground underline underline-offset-4">LPs</a></li>
+      <li className="pl-4"><a href="#lp-portal" className="hover:text-foreground underline underline-offset-4">LP portal</a></li>
       <li><a href="#compliance" className="hover:text-foreground underline underline-offset-4">Compliance</a></li>
       <li><a href="#usage" className="hover:text-foreground underline underline-offset-4">Usage</a></li>
       <li><a href="#analyst" className="hover:text-foreground underline underline-offset-4">Analyst</a></li>
       <li><a href="#ai-assistants" className="hover:text-foreground underline underline-offset-4">Claude &amp; ChatGPT</a></li>
       <li><a href="#file-handling" className="hover:text-foreground underline underline-offset-4">File Handling &amp; Security</a></li>
-      <li><a href="#updates" className="hover:text-foreground underline underline-offset-4">Updates</a></li>
-      <li><a href="#sidebar" className="hover:text-foreground underline underline-offset-4">Theme &amp; Sidebar</a></li>
+      <li><a href="#updates" className="hover:text-foreground underline underline-offset-4">Version updates</a></li>
+      <li><a href="#sidebar" className="hover:text-foreground underline underline-offset-4">Navigation &amp; theme</a></li>
     </ul>
   )
 
@@ -101,6 +107,16 @@ export default function SupportPage() {
                   <Scale className="h-3.5 w-3.5" />License
                 </a>
               </li>
+              <li>
+                <a href={PRODUCT_SITE} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 hover:text-foreground transition-colors">
+                  <ExternalLink className="h-3.5 w-3.5" />Product
+                </a>
+              </li>
+              <li>
+                <a href={PRODUCT_DOCS} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 hover:text-foreground transition-colors">
+                  <BookOpen className="h-3.5 w-3.5" />Docs
+                </a>
+              </li>
               {TERMS_URL && (
                 <li>
                   <a href={TERMS_URL} target="_blank" rel="noopener noreferrer" className="hover:text-foreground transition-colors">Terms</a>
@@ -139,27 +155,41 @@ export default function SupportPage() {
             for your review.
           </p>
           <p className="text-muted-foreground mb-2">
-            Not everything arrives by email. When someone sends you a link to a Google Sheet, Google
-            Slides, Docsend deck, or any other hosted file, download it and upload it through the
-            <strong>Import</strong> page. The same goes for PDFs, Excel workbooks, Word docs, PowerPoint decks, CSVs,
-            and images &mdash; anything you can download, you can import. The AI pipeline processes
-            uploads identically to inbound emails.
+            Not everything arrives by email. Files you download &mdash; PDFs, Excel workbooks, Word docs,
+            PowerPoint decks, CSVs and images &mdash; can be added to a company&rsquo;s documents through the
+            <strong>Import</strong> page, and spreadsheets of metrics or investment history can be pasted there in
+            bulk.
+          </p>
+          <p className="text-muted-foreground mb-2">
+            Once data starts flowing, the <strong>Portfolio</strong> dashboard shows every company, the
+            <strong> Review</strong> queue catches anything that needs a human decision, and the <strong>Analyst</strong> is
+            available on every page. The goal is to spend less time on data entry and more time on the analysis
+            and conversations that matter.
           </p>
           <p className="text-muted-foreground">
-            Once data starts flowing, the <strong>Portfolio</strong> dashboard gives you a real-time view of every
-            company, the <strong>Review</strong> queue catches anything that needs a human decision, and the <strong>Analyst</strong> on
-            each company page synthesizes the data into actionable summaries. The goal is to spend
-            less time on data entry and more time on the analysis and conversations that matter.
+            The app is four products an admin turns on separately in Settings &mdash; <strong>Portfolio
+            Reporting</strong>, <strong>Investment Workflow</strong> (deals and diligence), <strong>LP Reporting</strong> and
+            <strong> Fund Operations</strong> (accounting, forecast, compliance) &mdash; so you only see what your fund
+            uses. On a phone you can install it as an app from the browser&rsquo;s Share or Install menu.
+          </p>
+        </div>
+
+        <div id="start" className="pl-4 border-l-2 border-border">
+          <h3 className="text-base font-medium mb-2 flex items-center gap-2">
+            <Home className="h-3.5 w-3.5 text-muted-foreground" />
+            Start
+          </h3>
+          <p className="text-muted-foreground">
+            Members land on <strong>Start</strong>: an Analyst chat across everything you can see, with quick actions for the common tasks &mdash; add a company, an investment or a vehicle, import documents, add a deal, issue a capital call, or declare a distribution. Ask a question or pick a task. Each entity&rsquo;s <strong>Admin</strong> page carries the same actions for that entity, with a <strong>Capital calls</strong> card showing each open call&rsquo;s received, outstanding and overdue, how many partners have paid, and who says they wired.
           </p>
         </div>
 
         <div id="setup" className="pl-4 border-l-2 border-border">
-          <h3 className="text-base font-medium mb-2">Setup</h3>
+          <h3 className="text-base font-medium mb-2">Self-hosting &amp; license</h3>
           <p className="text-muted-foreground mb-2">
             Under the hood, the platform uses a database, authentication, file storage, inbound email
             processing, and an AI provider, with prebuilt integrations for several third-party services
-            across the stack. The software can be downloaded and deployed on your own infrastructure
-            from{' '}
+            across the stack. Download it from{' '}
             <a
               href="https://github.com/tdavidson/reporting"
               target="_blank"
@@ -168,54 +198,18 @@ export default function SupportPage() {
             >
               GitHub
             </a>
-            . The README provides a detailed installation guide covering database setup, environment
-            variables, encryption, email providers, AI configuration, and deployment.
+            {' '}and deploy it on your own accounts; DOCS.md in the repository is the full installation guide
+            &mdash; database, environment variables, encryption, email providers, AI and deployment. You control
+            the operational details and the costs. Most services in the stack have generous free tiers; AI
+            features need an API key from Anthropic, OpenAI or OpenRouter, which are paid accounts.
           </p>
-          <p className="text-muted-foreground">
-            <a
-              href="https://www.hemrock.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-foreground underline underline-offset-4 hover:text-foreground/80"
-            >
-              Taylor Davidson
-            </a>
-            {' '}of Hemrock is available to set this up, onboard you and your portfolio data, and
-            provide ongoing support &mdash;{' '}
-            <a
-              href="https://www.hemrock.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-foreground underline underline-offset-4 hover:text-foreground/80"
-            >
-              contact him for details
-            </a>
-            .
-          </p>
-        </div>
-
-        <div id="license" className="pl-4 border-l-2 border-border">
-          <h3 className="text-base font-medium mb-2">License</h3>
-          <p className="text-muted-foreground mb-2">
-            Apache License 2.0. You are free to use it, modify it,
-            and deploy it on your own infrastructure &mdash; for your own fund or commercially. There are no
-            per-seat fees and no single-fund restriction. It includes an express patent grant, and the
-            software is provided as-is, without warranty of any kind.
-          </p>
-          <p className="text-muted-foreground mb-2">
-            The license covers the source code and documentation. Per its trademark clause, it does not
-            grant rights to the &ldquo;Hemrock&rdquo; or &ldquo;Unstructured Ventures&rdquo; names or logos
-            &mdash; if you fork or redeploy the software, please use your own branding.
-          </p>
-          <p className="text-muted-foreground">
-            Need help deploying, hosting, or supporting it? Reach out to{' '}
-            <a
-              href="mailto:hello@hemrock.com"
-              className="text-foreground underline underline-offset-4 hover:text-foreground/80"
-            >
-              hello@hemrock.com
-            </a>
-            . Read the{' '}
+          <p id="license" className="text-muted-foreground mb-2">
+            <strong>License:</strong> Apache License 2.0. You are free to use it, modify it, and deploy it on
+            your own infrastructure &mdash; for your own fund or commercially. There are no per-seat fees and no
+            single-fund restriction. It includes an express patent grant, and the software is provided as-is,
+            without warranty of any kind. Per its trademark clause, it does not grant rights to the
+            &ldquo;Hemrock&rdquo; or &ldquo;Unstructured Ventures&rdquo; names or logos &mdash; if you fork or
+            redeploy the software, please use your own branding. Read the{' '}
             <a
               href="https://github.com/tdavidson/reporting/blob/main/LICENSE.md"
               target="_blank"
@@ -226,31 +220,6 @@ export default function SupportPage() {
             </a>
             .
           </p>
-        </div>
-
-        <div id="pricing" className="pl-4 border-l-2 border-border">
-          <h3 className="text-base font-medium mb-2">Pricing</h3>
-          <p className="text-muted-foreground mb-2">
-            You can download and deploy this platform for your own use under the terms of the{' '}
-            <a
-              href="https://github.com/tdavidson/reporting/blob/main/LICENSE.md"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-foreground underline underline-offset-4 hover:text-foreground/80"
-            >
-              license
-            </a>
-            , using your own accounts for the components in the stack &mdash; database, hosting,
-            email providers, file storage, and AI. This means you control your own operational
-            details and costs, and all of those costs are controlled by you.
-          </p>
-          <p className="text-muted-foreground mb-2">
-            Most of the services used in the stack have fairly generous free pricing tiers that
-            should handle normal usage of the product, but your costs may vary depending on your
-            portfolio size and usage patterns. The platform does require use of Anthropic or OpenAI
-            API keys for AI-powered features (metric extraction, summaries, and analysis), which
-            will require paid accounts with those providers.
-          </p>
           <p className="text-muted-foreground">
             <a
               href="https://www.hemrock.com"
@@ -260,15 +229,10 @@ export default function SupportPage() {
             >
               Taylor Davidson
             </a>
-            {' '}of Hemrock is also available to set up, host, and manage the platform for you,
-            including onboarding your portfolio data and providing ongoing support &mdash;{' '}
-            <a
-              href="https://www.hemrock.com"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-foreground underline underline-offset-4 hover:text-foreground/80"
-            >
-              contact him for details and pricing
+            {' '}of Hemrock offers paid setup and support on your own infrastructure and accounts, including
+            onboarding your portfolio data &mdash; write to{' '}
+            <a href="mailto:hello@hemrock.com" className="text-foreground underline underline-offset-4 hover:text-foreground/80">
+              hello@hemrock.com
             </a>
             .
           </p>
@@ -280,28 +244,16 @@ export default function SupportPage() {
             Portfolio
           </h2>
           <p className="text-muted-foreground mb-2">
-            The Portfolio page is the main dashboard and your starting point for monitoring the fund.
-            It shows all active companies with key headline metrics (such as MRR and cash balance) so you
-            can quickly scan the health of the portfolio without clicking into individual companies.
-            Companies are displayed as cards with their most recently reported figures.
+            The Portfolio page is the main dashboard for monitoring the fund. Companies show as <strong>cards or a table</strong> with their headline metrics (such as MRR and cash balance), filtered by status (Active by default) and sorted by name or investment date. Fund holdings and digital assets are listed below the companies.
           </p>
           <p className="text-muted-foreground mb-2">
-            Click any company card to open its detail page. The detail page shows historical metric
-            charts, the Analyst summary, uploaded documents, and a notes panel. You can track how
-            metrics have trended over time, upload supplementary documents (board decks, strategy memos,
-            etc.) to give the AI more context, and generate or regenerate AI summaries on demand.
+            An <strong>entity picker</strong> narrows the dashboard to one fund or SPV; your choice is saved to your account, and an admin sets the default under Settings &rarr; Portfolio Reporting &rarr; Dashboard entities. Settings &rarr; <strong>Default metrics</strong> applies a metric set to every company.
           </p>
           <p className="text-muted-foreground mb-2">
-            At the top of each company page you&apos;ll see headline numbers and metadata like industry,
-            stage, and any tags your team has applied. Admins can edit company details, add or remove
-            metrics, and manage aliases (alternative names) that help the system match inbound emails
-            to the right company.
+            Click any company to open its detail page. Anyone with write access to the portfolio can edit company details, metrics and aliases (alternative names that help the system match inbound emails to the right company).
           </p>
           <p className="text-muted-foreground">
-            The dashboard also includes a shared notes section at the bottom where team members can post
-            fund-level observations &mdash; market commentary, cross-portfolio themes, reminders for the
-            next IC meeting, and so on. Each note belongs to an entity, and is read by the people who can see
-            that entity.
+            The header&rsquo;s notes and chat buttons open the fund-level notes and the Analyst. Each note belongs to an entity, and is read by the people who can see that entity.
           </p>
         </div>
 
@@ -313,9 +265,12 @@ export default function SupportPage() {
           <p className="text-muted-foreground mb-2">
             Clicking a company on the Portfolio dashboard opens its detail page. At the top you&apos;ll
             see the company name, headline metrics (like MRR and cash balance), and badges for stage,
-            industry, and portfolio groups. Admins can click the edit button to update the company&apos;s
-            name, aliases, stage, industry, founders, overview, and other details that give the AI more
-            context for analysis.
+            industry and portfolio groups &mdash; or <strong>Fund holding</strong> / <strong>Digital asset</strong>. Anyone
+            with write access can edit the name, aliases, stage, industry, founders, overview, and other details
+            that give the AI more context for analysis. The same page holds fund holdings (with the underlying
+            fund&rsquo;s register: commitment, NAV and capital calls) and digital assets (with wallets and units),
+            and companies and assets show a <strong>price feed</strong> with any marks owed; it shows only the panels
+            that kind of holding uses.
           </p>
           <p className="text-muted-foreground mb-2">
             The main content area starts with the <strong>Analyst</strong> card. This is where you
@@ -338,6 +293,8 @@ export default function SupportPage() {
             notes &mdash; and edit or delete the value directly. You can also add data points manually
             using the &ldquo;Add&rdquo; button on each card, which is useful for entering historical data
             or correcting values. An export button at the top lets you download all metric data as a CSV.
+            An <strong>Updates</strong> panel lists each update the company reported, with its period, attachments,
+            an inline preview, and the OCR status of scanned pages.
           </p>
           <p className="text-muted-foreground mb-2">
             Further down the page, a <strong>documents section</strong> lists all files associated with
@@ -351,15 +308,8 @@ export default function SupportPage() {
             read only by people who can see Fund I.
           </p>
           <p className="text-muted-foreground">
-            The company page also includes an <strong>Investments</strong> section that tracks the
-            fund&apos;s transaction history with that company. You can record investment rounds (with
-            date, round name, amount invested, shares acquired, and cost per share), proceeds from
-            exits or distributions (including escrowed amounts), and unrealized gain changes (current
-            share price updates). The section displays summary metrics &mdash; total invested, current
-            fair market value, MOIC, and total realized &mdash; along with a detailed transaction
-            table. Admins can add, edit, and delete transactions directly from this panel. For exited
-            companies the FMV reflects total realized proceeds; for written-off companies it shows zero;
-            and for active companies it uses the latest share price multiplied by total shares held.
+            The company page also has an <strong>Investments</strong> section with the fund&rsquo;s transactions in
+            that company &mdash; see <a href="#investments" className="text-foreground underline underline-offset-4 hover:text-foreground/80">Investments</a>.
           </p>
         </div>
 
@@ -372,8 +322,11 @@ export default function SupportPage() {
             When inbound emails are processed, the AI pipeline sometimes flags items that need a human
             decision. These flagged items appear in the Review queue. Common reasons include: a <strong>new
             company</strong> was detected that doesn&apos;t match any existing portfolio company, a metric
-            value was extracted with <strong>low confidence</strong>, a reporting period was ambiguous, or a metric
-            couldn&apos;t be found in the report at all.
+            value was extracted with <strong>low confidence</strong>, a reporting period was ambiguous or duplicated, the
+            company couldn&apos;t be identified, or a metric couldn&apos;t be found in the report at all. Review also
+            holds emails that match a deal in diligence (<strong>Diligence match</strong>, accepted into its data room
+            by a person), and NAV, capital-call and distribution notices from funds you hold &mdash; each fund notice
+            is approved into the right entity.
           </p>
           <p className="text-muted-foreground mb-2">
             Each review item shows you the issue type, the extracted value (if any), and a snippet of
@@ -394,6 +347,16 @@ export default function SupportPage() {
           </p>
         </div>
 
+        <div id="pending-actions" className="pl-4 border-l-2 border-border">
+          <h3 className="text-base font-medium mb-2 flex items-center gap-2">
+            <ListChecks className="h-3.5 w-3.5 text-muted-foreground" />
+            Pending actions
+          </h3>
+          <p className="text-muted-foreground">
+            <strong>Pending actions</strong> (admins) lists changes the Analyst or a connected agent staged rather than made &mdash; metric updates, investments, capital calls &mdash; each to approve or reject. It appears in the sidebar only when something is waiting.
+          </p>
+        </div>
+
         <div id="inbound">
           <h2 className="text-base font-medium mb-2 flex items-center gap-2">
             <Mail className="h-4 w-4 text-muted-foreground" />
@@ -403,10 +366,11 @@ export default function SupportPage() {
             Inbound shows every email that has been received and processed by the system. It&apos;s the
             audit trail for all automated report ingestion. Each row displays the sender, subject line,
             which company the email was matched to, and the <strong>processing status</strong> (success, needs review,
-            failed, processing, or pending).
+            failed, processing, pending, or skipped). Every email is first classified as reporting, an interaction,
+            a deal, diligence, or other, and the detail page shows where it was routed.
           </p>
           <p className="text-muted-foreground mb-2">
-            You can filter the list by status and date range to quickly find specific emails. Filters
+            Filter by status, company and date range (from the last 7 days to last year). Filters
             apply immediately as you change them. The list is paginated and sorted by most recent first,
             so new emails always appear at the top.
           </p>
@@ -455,13 +419,22 @@ export default function SupportPage() {
             for debugging or reference.
           </p>
           <p className="text-muted-foreground">
-            Two actions are available at the bottom. <strong>Process Email</strong> lets you rerun the
-            entire AI pipeline on this email &mdash; useful if you&apos;ve since added the company to
-            your portfolio, updated metric definitions, or changed AI providers. It will replace any
-            existing extracted metrics and review items with fresh results. If file storage is
-            connected, a <strong>Save to File Storage</strong> button lets you manually push the email
-            and its attachments to your Google Drive, organized into the appropriate company
-            folder.
+            <strong>Approve</strong> accepts every open metric review on the email in one click (fund notices stay
+            open for their own review). <strong>Process</strong> reruns the email &mdash; automatically (reclassified),
+            or forced as reporting, an interaction or a new deal &mdash; replacing its extracted metrics and review
+            items; you can also file it without processing, or skip it. If Google Drive is connected,
+            <strong> Save to storage</strong> pushes the email and its attachments into the company&rsquo;s folder, and a
+            document can be uploaded against the email.
+          </p>
+        </div>
+
+        <div id="company-updates" className="pl-4 border-l-2 border-border">
+          <h3 className="text-base font-medium mb-2 flex items-center gap-2">
+            <Newspaper className="h-3.5 w-3.5 text-muted-foreground" />
+            Company updates
+          </h3>
+          <p className="text-muted-foreground">
+            Reporting emails become <strong>Company updates</strong> (Portfolio &rarr; Updates): a searchable record of what each company reported, with its attachments. Images and scanned PDF pages are queued for OCR &mdash; transcribed by the AI vision model &mdash; so their text is searchable too. You see the updates of the companies in your entities.
           </p>
         </div>
 
@@ -471,42 +444,13 @@ export default function SupportPage() {
             Import
           </h2>
           <p className="text-muted-foreground mb-2">
-            Import lets you process reports manually when they arrive outside the normal email flow.
-            You can paste email text directly, upload file attachments (PDFs, Excel spreadsheets, Word
-            documents, PowerPoint decks, CSV files, and images up to 20 MB each), paste email text directly, or combine both. The system runs the
-            same AI pipeline as automated inbound processing &mdash; identifying the company, extracting
-            metrics, and writing results to the database.
+            <strong>Document Upload</strong> matches each file to a company by name and saves it to that company&rsquo;s documents, where the Analyst can use it. It accepts PDF, Word, PowerPoint, Excel, CSV and JPEG/PNG files up to 20 MB; files over 10 MB keep their extracted text only. To have a report&rsquo;s metrics extracted, forward it to the inbound address instead.
           </p>
           <p className="text-muted-foreground mb-2">
-            This is useful for several scenarios: reports received through Slack or other messaging tools,
-            historical data you want to backfill from older files, reports forwarded from colleagues
-            outside the authorized sender list, or situations where you want to re-extract data from a
-            document with updated metrics definitions.
-          </p>
-          <p className="text-muted-foreground mb-2">
-            When you submit an import, the system processes it identically to an inbound email. The
-            result appears in the Inbound list with the same status tracking, and any flagged items
-            show up in the Review queue. You can import multiple reports in sequence without waiting
-            for each one to finish.
-          </p>
-          <p className="text-muted-foreground mb-2">
-            You can also paste data that covers <strong>multiple companies</strong> at once &mdash; for example, rows copied
-            from a spreadsheet or CSV file containing metrics across your portfolio. The system will parse
-            the data, create new companies if they don&apos;t already exist, add new metrics as needed, and
-            populate values for existing companies and metrics. This makes it easy to bulk import historical
-            data or onboard an entire portfolio in one step.
-          </p>
-          <p className="text-muted-foreground mb-2">
-            Additionally, you can paste <strong>investment transaction data</strong> &mdash; rounds, proceeds, valuations,
-            and share prices &mdash; and the AI will parse the entries and match them to your portfolio
-            companies. This is useful for bulk-importing cap table history, backfilling historical rounds,
-            or onboarding an entire portfolio&apos;s investment data at once. Transactions are written to
-            each company&apos;s Investments section automatically.
+            You can also paste data that covers <strong>multiple companies</strong> at once &mdash; for example, rows copied from a spreadsheet or CSV file containing metrics across your portfolio. The system will parse the data, create new companies if they don&apos;t already exist, add new metrics as needed, and populate values for existing companies and metrics. An Email column adds those addresses to the authorized senders.
           </p>
           <p className="text-muted-foreground">
-            Tip: for best results, include the company name and reporting period somewhere in the pasted
-            text or attachment. The AI uses these cues to match the report to the correct company and
-            assign the right period to extracted metrics.
+            Additionally, you can paste <strong>investment transaction data</strong> &mdash; rounds, proceeds, valuations, and share prices &mdash; and the AI will parse the entries and match them to your portfolio companies. This is useful for bulk-importing cap table history, backfilling historical rounds, or onboarding an entire portfolio&apos;s investment data at once. Transactions are written to each company&apos;s Investments section automatically.
           </p>
         </div>
 
@@ -522,16 +466,17 @@ export default function SupportPage() {
             request so you know what was sent and when.
           </p>
           <p className="text-muted-foreground mb-2">
-            The <strong>email composer</strong> supports a customizable subject and HTML body. You can write a standard
-            template that you reuse each quarter, or tailor messages for specific companies. Emails are
-            sent through whichever outbound email provider your admin has configured (Gmail, Resend,
-            Postmark, or Mailgun).
+            The <strong>email composer</strong> takes a plain-text subject and body, pre-filled from your last ask.
+            Set the from name and address, the reporting period and the date responses are due, add CC and BCC,
+            and send yourself a test first. Emails go out through whichever outbound provider your admin has
+            configured (Gmail, Resend, Postmark, or Mailgun).
           </p>
           <p className="text-muted-foreground mb-2">
             Each request is logged with its recipient list, send timestamp, and delivery results. You
-            can view past requests to see the full history of reporting asks. This is helpful for
-            tracking which companies have been contacted and following up with those that haven&apos;t
-            responded.
+            can view past requests to see the full history of reporting asks. The <strong>response tracker</strong> is a
+            grid of companies by quarter, each marked yes, no, n/a or waived, so you can see who still owes a report.
+            Operational reminders (Settings) can email you when it&rsquo;s time to send the quarterly ask and which
+            companies haven&rsquo;t responded by the due date.
           </p>
           <p className="text-muted-foreground">
             When companies reply to your ask email with their report, those replies flow into the
@@ -547,22 +492,13 @@ export default function SupportPage() {
             Settings
           </h2>
           <p className="text-muted-foreground mb-2">
-            Settings is where the platform is configured. Most settings are admin-only, but all users
-            can update their display name (shown on notes and activity) and enable two-factor
-            authentication for additional account security.
+            Everyone can set their display name, two-factor authentication, note notifications, and their own API and MCP keys; non-admins can also connect their own Affinity key and read the AI summary prompt.
           </p>
           <p className="text-muted-foreground mb-2">
-            For admins, Settings covers the full platform configuration: <strong>AI provider keys</strong> and model
-            selection (Anthropic, OpenAI, and/or OpenRouter), the default AI provider
-            for the fund, <strong>feature visibility</strong> controls, inbound email setup (Postmark or Mailgun), outbound email
-            providers (Gmail, Resend, Postmark, or Mailgun), file storage connections (Google Drive),
-            the AI summary prompt, and email templates for reporting asks.
+            Admins configure the <strong>organization</strong> &mdash; fund name, logo and address, the sign-in page, appearance (accent colour), currency, team and roles, AI providers (Anthropic, OpenAI and/or OpenRouter), inbound email (Postmark or Mailgun) and authorized senders, outbound email (Gmail, Resend, Postmark or Mailgun), authentication email templates, file storage (Google Drive), analytics, usage tracking, operational reminders, Agent access and the version card &mdash; and turn on each <strong>product</strong>.
           </p>
           <p className="text-muted-foreground mb-2">
-            Admins also manage the <strong>authorized senders</strong> list (email addresses allowed to submit reports
-            via the inbound pipeline), <strong>team members</strong> and their roles, and an allow-list that controls
-            who can sign up for the platform. A danger zone at the bottom allows admins to permanently
-            delete all fund data if needed.
+            Each product group has a <em>Turn on</em> button and a row per feature, set to members, admins only, or off: <strong>Portfolio Reporting</strong> (default metrics, the AI summary prompt, dashboard entities), <strong>Investment Workflow</strong> (deal screening, external deal research, known referrers, AI models, diligence schemas, style anchors, defaults and caps, the Affinity connection), <strong>LP Reporting</strong> (the LP portal), and <strong>Fund Operations</strong> &mdash; whose accounting configuration lives on each entity&rsquo;s Admin page. A danger zone at the end of the organization settings permanently deletes all fund data.
           </p>
           <div id="access" className="pl-4 border-l-2 border-border mb-2">
             <h3 className="font-medium mb-1">Access</h3>
@@ -590,16 +526,16 @@ export default function SupportPage() {
           </div>
           <p className="text-muted-foreground">
             For detailed technical setup instructions &mdash; configuring Supabase, environment
-            variables, encryption keys, email providers, deployment, and more &mdash; see the{' '}
+            variables, encryption keys, email providers, deployment, and more &mdash; see DOCS.md in the{' '}
             <a
               href="https://github.com/tdavidson/reporting"
               target="_blank"
               rel="noopener noreferrer"
               className="text-foreground underline underline-offset-4 hover:text-foreground/80"
             >
-              README on GitHub
+              repository on GitHub
             </a>
-            . It is the best reference for technical implementation details.
+            .
           </p>
         </div>
 
@@ -609,8 +545,8 @@ export default function SupportPage() {
             Notes
           </h2>
           <p className="text-muted-foreground mb-2">
-            Notes are available in three places: on each company&apos;s detail page, on the Portfolio
-            dashboard, and on the dedicated Notes page. They provide a lightweight way for team members
+            Notes are on each company&apos;s detail page, on the Notes page, and in a notes panel on the
+            Portfolio, Investments, Asks, Interactions, Compliance, LPs and deal pages. They provide a lightweight way for team members
             to share observations, context, and follow-up items without leaving the platform.
           </p>
           <p className="text-muted-foreground mb-2">
@@ -625,8 +561,9 @@ export default function SupportPage() {
           <p className="text-muted-foreground mb-2">
             The Notes page is a centralized feed that collects all notes across the fund in one place.
             You can filter by All notes, General (fund-level) notes, or just notes where you were
-            @mentioned. Each note shows the author, timestamp, and which company it belongs to (if any),
-            with unread notes highlighted so you can quickly catch up on what you&apos;ve missed.
+            @mentioned. Each note shows the author, timestamp, its entity, and which company it belongs to (if
+            any), with unread notes highlighted so you can quickly catch up on what you&apos;ve missed. Reply to
+            a note to keep a thread together, and pin the ones that should stay at the top.
           </p>
           <p className="text-muted-foreground mb-2">
             Notes support <strong>@mentions</strong> &mdash; type <strong>@</strong> while writing a note
@@ -641,15 +578,13 @@ export default function SupportPage() {
           </p>
           <p className="text-muted-foreground mb-2">
             Notification preferences are managed in <strong>Settings</strong> under your user profile.
-            You can choose to receive email notifications for all notes across the fund, only when you
-            are @mentioned, or turn notifications off entirely. Company follows work alongside whichever
-            level you choose &mdash; if you follow a company, you&apos;ll get notified about notes on
-            that company regardless of your global setting.
+            Choose <em>All notes</em>, <em>@Mentions &amp; followed companies</em> (and pick the companies to
+            follow), or <em>None</em>, which sends nothing.
           </p>
           <p className="text-muted-foreground">
             All notes show the author&apos;s display name and timestamp. Team members can edit or
-            delete their own notes. Notes are visible to everyone on the team, so they work well as a
-            lightweight internal communication tool alongside your existing workflows.
+            delete their own notes. Each note belongs to an entity, and only people who can see that entity
+            read it.
           </p>
         </div>
 
@@ -665,9 +600,8 @@ export default function SupportPage() {
             (not a metrics report), and uses AI to extract a summary and identify any introductions.
           </p>
           <p className="text-muted-foreground mb-2">
-            The classification is automatic: emails from fund members are routed to the interaction pipeline,
-            while emails from authorized senders (portfolio companies) continue through the existing metrics
-            extraction pipeline. No manual tagging is required.
+            The inbound classifier decides whether an email is a report, an interaction, a deal or something
+            else; mail from fund members leans toward interactions. No manual tagging is required.
           </p>
           <p className="text-muted-foreground mb-2">
             For each interaction, the AI generates a short summary, detects whether the email contains an
@@ -676,15 +610,15 @@ export default function SupportPage() {
             related to a specific company.
           </p>
           <p className="text-muted-foreground mb-2">
-            The Interactions page shows all logged interactions across the fund, with filter tabs
-            for <strong>All</strong> and <strong>Intros</strong>. Each entry shows the date, linked company,
+            The Interactions page shows all logged interactions across the fund. Filter by tag &mdash; intro,
+            hiring, strategy, fundraising, product, partnership, legal, operations &mdash; for the tags present. Each entry shows the date, linked company,
             subject line, AI summary, and an intro badge when introductions were detected. Click the intro
             details to expand and see the names, emails, and context of introduced contacts.
           </p>
           <p className="text-muted-foreground mb-2">
             On each company&apos;s detail page, a <strong>Recent Interactions</strong> section shows the
             latest interactions for that company, with intro entries highlighted in a distinct style. A
-            &ldquo;View all&rdquo; link takes you to the full interactions list filtered to that company.
+            &ldquo;View all&rdquo; link takes you to the full interactions list.
           </p>
           <p className="text-muted-foreground">
             The fund&apos;s inbound email address is displayed at the top of the Interactions page for
@@ -702,10 +636,11 @@ export default function SupportPage() {
             Deals is the inbound side of deal flow &mdash; cold pitches, partner-forwarded intros, and
             scout submissions arrive at your existing inbound email address and are screened against your
             fund&apos;s thesis before they reach a partner&apos;s inbox. Every inbound email runs through a
-            content-aware classifier that decides between four destinations: <strong>reporting</strong> (portfolio
+            content-aware classifier that decides between five destinations: <strong>reporting</strong> (portfolio
             metrics), <strong>interactions</strong> (CRM-style emails from fund members),
-            <strong>deals</strong> (a company pitching the fund), or <strong>other</strong> (newsletters,
-            recruiter spam, vendor pitches). Sender identity is a strong signal but not a hard rule, so a
+            <strong> deals</strong> (a company pitching the fund), <strong>diligence</strong> (an email about a company
+            already in diligence), or <strong>other</strong> (newsletters, recruiter spam, vendor pitches &mdash; filed
+            without processing). Sender identity is a strong signal but not a hard rule, so a
             partner forwarding a cold pitch lands in Deals where it belongs.
           </p>
           <p className="text-muted-foreground mb-2">
@@ -714,16 +649,19 @@ export default function SupportPage() {
             thesis-fit analysis with a fit score (strong, moderate, weak, out of thesis). Out-of-thesis pitches
             auto-archive and surface in a weekly digest email so partners can sanity-check without eyeballing
             every cold pitch. Founders can also submit pitches directly via a public form at a per-fund URL
-            &mdash; admins generate or rotate the URL in Settings.
+            &mdash; admins generate or rotate the URL in Settings. <strong>New deal</strong> adds one by hand, and each
+            deal belongs to an entity. <strong>External deal research</strong> runs web research on the founders and
+            company for deals at or above a fit threshold you set in Settings.
           </p>
           <p className="text-muted-foreground mb-2">
             The Deals page lists active pitches as a sortable table or a kanban board (drag-and-drop across
-            status columns: new, reviewing, advancing, met, passed). Click a pitch to see the summary,
+            status columns New, Reviewing, Advancing, Met, Diligence, Invested and Passed); moving a deal to
+            Diligence opens a diligence record pre-filled from it. Click a pitch to see the summary,
             thesis-fit analysis, source email, attachments, founders, intro source, and a deal-scoped Analyst
             chat that knows the pitch and your thesis.
           </p>
           <p className="text-muted-foreground">
-            Settings &rarr; Deals controls the investment thesis, screening prompt, public submission token,
+            Settings &rarr; Investment Workflow controls the investment thesis, screening prompt, public submission token,
             and the Known Referrers list (scouts and friends-of-fund whose intros bias toward Deals).
             Uncertain items go to a Review queue with the top two predicted destinations for one-click
             resolution &mdash; nothing is silently dropped.
@@ -739,12 +677,15 @@ export default function SupportPage() {
             Diligence is the pre-investment workflow: when a deal is worth real time, you create a diligence
             record, upload the data room, and run a schema-driven agent that ingests the
             documents, conducts external research, asks partner Q&amp;A, drafts a structured memo, scores it
-            per your rubric, and renders to Word or Google Docs. Each diligence record has tabs for Decision,
-            Data Room (uploaded files), Diligence (external research), Partner Q&amp;A, and Memo (drafts).
+            per your rubric, and renders to Word or Google Docs. Each diligence record has Checklist, Data Room,
+            Research, Founders, Scoring, Memo and Settings tabs. The checklist is assessed against the data room
+            (found, partial, missing, n/a); documents are categorized; call recordings are transcribed; notes and
+            files can be imported from Affinity; inbound emails about the deal can be accepted into its data room;
+            and each deal shows its token, cost and time usage.
           </p>
           <p className="text-muted-foreground mb-2">
             The agent is operated by <strong>seven YAML/MD configuration files</strong> (&ldquo;schemas&rdquo;)
-            that admins edit per-fund through an in-app editor under Settings &rarr; Diligence &rarr; Schemas:
+            that admins edit per-fund through an in-app editor under Settings &rarr; Investment Workflow &rarr; Diligence &rarr; Schemas:
             instructions, rubric, qa_library, data_room_ingestion, research_dossier, memo_output, and
             style_anchors. The schema editor is a plain-text editor with inline YAML syntax validation and
             version history; rolling back to a prior version is one click. Defaults are seeded automatically
@@ -752,7 +693,7 @@ export default function SupportPage() {
           </p>
           <p className="text-muted-foreground mb-2">
             <strong>Style Anchors</strong> are uploaded reference memos that teach the agent your firm&apos;s
-            voice. Upload 3&ndash;8 prior memos in Settings &rarr; Diligence &rarr; Style Anchors, tag each
+            voice. Upload 3&ndash;8 prior memos in Settings &rarr; Investment Workflow &rarr; Diligence &rarr; Style anchors, tag each
             with vintage, sector, voice representativeness, and partner notes, and the agent uses them to
             match structure and tone during drafting. Reference memos teach voice &mdash; they never supply
             facts to a new memo.
@@ -780,9 +721,10 @@ export default function SupportPage() {
             items so you can triage them in one pass. The <strong>Analytics</strong> view shows the agent
             funnel (created &rarr; ingestion &rarr; research &rarr; Q&amp;A &rarr; draft &rarr; finalized
             &rarr; won) with drop-off percentages, time-in-stage medians, win/loss by sector, and throughput
-            per lead partner. Settings &rarr; Diligence &rarr; Defaults sets per-deal and monthly token caps
-            (with current-month usage bar) and per-stage AI provider overrides &mdash; e.g. cheap model for
-            ingest, stronger model for draft.
+            per lead partner. Settings &rarr; Investment Workflow &rarr; Diligence &rarr; Defaults &amp; caps
+            sets per-deal and monthly token caps (with a current-month usage bar), the research web-search toggle
+            and the transcription check; <em>Per-stage AI models</em> picks a model per stage &mdash; e.g. a cheap
+            model for ingest, a stronger one for draft.
           </p>
         </div>
 
@@ -792,22 +734,19 @@ export default function SupportPage() {
             Investments
           </h2>
           <p className="text-muted-foreground mb-2">
-            The Investments page provides a fund-level view of all investment transactions across your portfolio.
-            It aggregates data from each company&apos;s individual Investments section into a single table,
-            showing total invested, current fair market value (FMV), MOIC, and total realized across the entire fund.
+            Investments lists every holding &mdash; companies, fund holdings and digital assets &mdash; at cost and value, with a per-vehicle summary (MOIC, IRR and, where the books exist, TVPI, DPI and RVPI) and two charts. One <strong>Add</strong> menu creates a company, fund holding, digital asset or vehicle. <strong>Filters</strong> narrow it by vehicle type, status and individual entity, and each vehicle&rsquo;s name opens its entity page.
           </p>
           <p className="text-muted-foreground mb-2">
-            On each <strong>company detail page</strong>, the Investments section tracks the fund&apos;s transaction
-            history with that specific company. You can record investment rounds (with date, round name, amount invested,
-            shares acquired, and cost per share), proceeds from exits or distributions (including escrowed amounts),
-            and unrealized gain changes (current share price updates). Summary metrics &mdash; total invested,
-            current FMV, MOIC, and total realized &mdash; are displayed above the transaction table.
+            The holdings chart switches between <strong>Value</strong> (fair value against current cost) and <strong>Multiple</strong> (gross multiple &mdash; proceeds plus fair value over invested &mdash; against 1.0x). The multiple view follows the Status filter, so <em>All</em> includes exits and write-offs.
+          </p>
+          <p className="text-muted-foreground mb-2">
+            A direct deal or SPV whose holdings carry no figures yet &mdash; none recorded, or set up but never given an investment, proceeds or a mark &mdash; is shown as a <strong>Deal vehicle</strong> at the sum of its LP positions: paid-in as invested, distributions as proceeds, NAV as value. The moment any of its holdings has a figure, the holdings take over, so nothing is counted twice.
+          </p>
+          <p className="text-muted-foreground mb-2">
+            On each <strong>company detail page</strong>, the Investments section holds the fund&rsquo;s transactions with that company: investments, conversions, proceeds and escrow receipts, valuation updates, rounds, share splits and income. Each one posts its entry to the entity&rsquo;s books. Summary metrics &mdash; total invested, current FMV, MOIC, and total realized &mdash; are shown above the transaction table.
           </p>
           <p className="text-muted-foreground">
-            Admins can add, edit, and delete transactions directly. For exited companies the FMV reflects total
-            realized proceeds; for written-off companies it shows zero; and for active companies it uses the latest
-            share price multiplied by total shares held. Investment data can also be bulk-imported via the
-            Import page by pasting transaction data from a spreadsheet.
+            Anyone with write access to investments can add, edit or delete transactions. For exited companies the FMV reflects total realized proceeds; for written-off companies it shows zero; and for active companies it uses the latest share price multiplied by the shares still held &mdash; or, where no share price has been recorded, the remaining cost plus its marks. Investment data can also be bulk-imported via the Import page by pasting transaction data from a spreadsheet.
           </p>
         </div>
 
@@ -843,6 +782,19 @@ export default function SupportPage() {
               <strong>Close</strong> reviews and locks each month: drafts and suggested recurring entries can be
               posted right there, it reconciles ledger cash to the bank feed, trues up carried interest, and
               lists every partner allocation in the month. The full guide is ACCOUNTING.md in the repository.
+            </p>
+            <p className="text-muted-foreground mt-2">
+              <strong>GP economics</strong> (carry terms, carry accrued and paid per partner, per-deal carry and GP
+              entity ownership) and <strong>Tax reporting</strong> (Schedule K-1 packages per vehicle and tax year,
+              the allocation behind them, and delivery to the LP portal) are separate switches, so someone can keep
+              the books without seeing the partners&rsquo; carry.
+            </p>
+            <p className="text-muted-foreground mt-2">
+              <strong>Capital calls and distributions</strong> are issued from an entity&rsquo;s Capital accounts (or its
+              Admin page): as an amount or a percentage of commitments, split pro-rata, or <em>pasted from a
+              spreadsheet</em> &mdash; a partner column, an amount, and optionally what was paid and when. The sheet fills
+              each partner&rsquo;s line for you to check, and anything already paid is recorded as a receipt when you
+              issue, so the call shows who has paid from the start.
             </p>
           </div>
         </div>
@@ -880,11 +832,10 @@ export default function SupportPage() {
           <p className="text-muted-foreground mb-2">
             The management company is the firm&rsquo;s own operating entity &mdash; the company that
             employs the team, collects the management fee and pays the rent &mdash; as opposed to the
-            funds it manages. It gets its own section rather than a row on the Funds page because it
-            is a different kind of thing: it has no commitments, no NAV, no TVPI and no limited
-            partners, so every column of a fund performance table would be a dash. Switch it on in
-            Settings &rarr; Feature visibility, then add a vehicle of type{' '}
-            <strong>Management company</strong>: its chart of accounts is there from creation. Members also
+            funds it manages. It is listed on Entities with the funds but in its own table, because it has
+            no commitments, no NAV, no TVPI and no limited partners. Switch it on under Settings &rarr; Fund
+            Operations, then add a vehicle of type <strong>Management company</strong> from Investments or Start:
+            its chart of accounts is there from creation. Members also
             need the separate Management company grant (Settings &rarr; Team &rarr; Access).
           </p>
           <p className="text-muted-foreground mb-2">
@@ -912,7 +863,8 @@ export default function SupportPage() {
             because the cash usually moves in a different quarter from the charge. Balances are shown
             per counterparty with due-from and due-to kept apart rather than netted, and they are read
             from the ledger rather than summed from the register &mdash; so a correcting journal entry
-            is reflected without anyone having to amend a record as well.
+            is reflected without anyone having to amend a record as well. The same charges can be recorded from
+            the fund side, on a fund&rsquo;s Admin page.
           </p>
           <p className="text-muted-foreground mb-2">
             <strong>The books themselves are the same tools a fund uses</strong>, scoped to this
@@ -964,8 +916,8 @@ export default function SupportPage() {
             default generation prompt.
           </p>
           <p className="text-muted-foreground">
-            When you&apos;re satisfied with the letter, export it as a .docx file for final formatting
-            and distribution. If Google Drive is connected, you can export directly to Drive.
+            When you&apos;re satisfied with the letter, download it as .docx, or export it to Google Docs if
+            Google is connected. With the LP portal on, <strong>Share with LPs</strong> publishes it to the portal.
           </p>
         </div>
 
@@ -975,37 +927,27 @@ export default function SupportPage() {
             LPs
           </h2>
           <p className="text-muted-foreground mb-2">
-            LPs helps you track and report on your limited partner positions across snapshots. Each
-            snapshot represents LP positions at a point in time &mdash; typically a quarter-end. The
-            LPs index page lists all snapshots; click one to view investor data, summary cards, and
-            the full investor table.
+            <strong>LPs</strong> rolls every LP across every vehicle up to the investor, live as of any date: commitment, paid-in, distributions, NAV, DPI, TVPI and IRR, with charts, search and a vehicle filter. Print investor <strong>report cards</strong> (one PDF each, or all at once), export to Excel, group or rename investors, and set the report header and footer from its Settings button.
           </p>
           <p className="text-muted-foreground mb-2">
-            To get data in, create a new snapshot and paste spreadsheet content into the <strong>import dialog</strong>.
-            AI automatically matches columns to fields like investor name, entity, commitment, paid-in
-            capital, distributions, NAV, DPI, RVPI, TVPI, and IRR. Investors, entities, and investments
-            are created or updated automatically, and rows with zero commitment and no financial data
-            are filtered out.
+            <strong>Capital accounts</strong> keeps each vehicle&rsquo;s administrator statements as dated positions you paste or type, with history and inline editing. Sharing with LPs freezes a snapshot of the figures.
           </p>
+          <p className="text-muted-foreground mb-2">
+            <strong>Documents</strong> manages the portal side: invite LPs and their authorized users (one at a time or from a pasted sheet), the onboarding checklist with LP uploads to review, shared documents, and messages. <strong>Preview portal</strong> shows the portal as an LP sees it, and <strong>Activity</strong> shows who logged in, viewed or downloaded.
+          </p>
+          <p className="text-muted-foreground">
+            These are separate switches under LP Reporting: LPs, LP Capital Accounts, LP Documents and Sharing, and LP Activity Log.
+          </p>
+        </div>
 
-          <p className="text-muted-foreground mb-2">
-            The snapshot detail page shows all investors with aggregated metrics. Expand an investor
-            to see individual entity and portfolio group line items. All values are <strong>inline-editable</strong>:
-            click a row to edit metrics, or click an investor name to rename. Investors can be grouped
-            under a parent for consolidated reporting, and duplicate investors can be merged together.
-            When a snapshot has multiple portfolio groups, a <strong>portfolio group filter</strong> appears in the header to include
-            or exclude specific groups from the view and totals.
+        <div id="lp-portal" className="pl-4 border-l-2 border-border">
+          <h3 className="text-base font-medium mb-2 flex items-center gap-2">
+            <Globe className="h-3.5 w-3.5 text-muted-foreground" />
+            LP portal
+          </h3>
+          <p className="text-muted-foreground">
+            Your LPs sign in to their own portal, separate from the app: an overview of their positions, notices for capital calls and distributions (with a &ldquo;We&rsquo;ve wired&rdquo; form), letters, documents, onboarding, a way to contact you, and their settings. Each LP sees only their own entities.
           </p>
-          <p className="text-muted-foreground mb-2">
-            Each snapshot can have its own <strong>report header and footer</strong>, configured via the Settings button.
-            These appear on individual investor PDFs and batch exports. Click the document icon on any
-            investor row to view their <strong>individual report</strong>, which includes a capital summary table, a
-            performance metrics table, and a narrative summary of total invested, distributions, and
-            current value. The &ldquo;Batch PDFs&rdquo; button generates all selected investor reports
-            at once and downloads them as a ZIP file of individual PDFs. You can also <strong>export to Excel</strong> with
-            all investors, entities, portfolio groups, and metrics.
-          </p>
-
         </div>
 
         <div id="compliance">
@@ -1031,14 +973,14 @@ export default function SupportPage() {
             by category &mdash; SEC filings in amber, tax filings in green, internal compliance in blue,
             fund reporting in purple, state compliance in rose, CFTC in orange, and AML/FinCEN in red.
             Quarterly items like partnership expense reviews and access person disclosures appear in each
-            quarter independently, so you can track and dismiss them separately. Certain <strong>event-driven</strong> filings
-            like Form D and Blue Sky appear only in the months where your fund has committed
-            capital entries, derived automatically from your fund cash flows data.
+            quarter independently, so you can track and dismiss them separately. Items can be per vehicle, and
+            you see those for your entities; other years are a click away, and upcoming filings appear in the
+            operational-reminders digest.
           </p>
           <p className="text-muted-foreground mb-2">
-            When you finish a filing, mark it as done by <strong>dismissing</strong> it for the year or quarter. You can
-            filter the view between active items, dismissed items, or all items to see what&apos;s been
-            completed and what remains. An <strong>all items</strong> view provides a comprehensive list of every compliance
+            When you finish a filing, mark it <strong>complete</strong> (with an optional note and filing link), or
+            <strong> dismiss</strong> it if it doesn&apos;t apply; filter by Active, Completed, Dismissed or All. The
+            page has Calendar, All Items, Fund Profile and Filing Links tabs. The <strong>all items</strong> view provides a comprehensive list of every compliance
             item organized by category, with each item showing its frequency, deadline, applicability,
             filing system, and any relevant notes or alerts.
           </p>
@@ -1066,20 +1008,13 @@ export default function SupportPage() {
             Usage
           </h2>
           <p className="text-muted-foreground mb-2">
-            Usage is an <strong>admin-only</strong> page that shows how your fund is consuming AI tokens
-            and how team members are using the platform.
+            <strong>AI Usage</strong> is an admin-only page that shows how your fund is consuming AI tokens and how team members are using the platform.
           </p>
           <p className="text-muted-foreground mb-2">
-            The top section displays <strong>AI token usage</strong> broken down by provider (Anthropic,
-            OpenAI, and/or OpenRouter), with month-to-date totals for input tokens, output tokens, and estimated cost.
-            A daily breakdown table shows usage by model, so you can see exactly where tokens are being
-            spent &mdash; email processing, metric extraction, company identification, summaries, or
-            analyst conversations.
+            The top section shows <strong>AI token usage</strong> by provider (Anthropic, OpenAI and/or OpenRouter), with month-to-date input tokens, output tokens and estimated cost. A daily table breaks usage down by provider and model, and a monthly summary shows totals by month.
           </p>
           <p className="text-muted-foreground">
-            The bottom section shows <strong>team activity</strong>: a summary of actions per team member
-            (logins, company updates, imports, notes, reviews resolved) and a recent activity feed with
-            timestamps. This gives admins visibility into how the platform is being used across the team.
+            The bottom section shows <strong>team activity</strong>: logins, companies, imports and other actions per team member, and a recent activity feed. Activity logging can be turned off in Settings &rarr; Usage tracking.
           </p>
         </div>
 
@@ -1101,10 +1036,9 @@ export default function SupportPage() {
             interpret financial data from reports, or answer any question about the company&apos;s data.
           </p>
           <p className="text-muted-foreground mb-2">
-            On <strong>portfolio-wide pages</strong> (Portfolio, Investments, Asks, Notes), the Analyst has
-            access to fund-level data across the companies and entities you can see &mdash; investment amounts, FMV, MOIC, and your
-            team&apos;s discussion notes. Use it to compare companies, get portfolio-level insights, or ask
-            about cross-portfolio trends and themes.
+            Elsewhere it is scoped to the section you&rsquo;re in &mdash; portfolio, deals, diligence, LPs, or an
+            entity&rsquo;s books &mdash; and only to the entities you can see; on Start it covers all of them. Use it to
+            compare companies, get portfolio-level insights, or ask about cross-portfolio trends and themes.
           </p>
           <p className="text-muted-foreground mb-2">
             Your <strong>chat history</strong> is persistent and saved to your account in the database. You can close the panel,
@@ -1128,14 +1062,21 @@ export default function SupportPage() {
           <p className="text-muted-foreground mb-2">
             Use the header controls to manage conversations: the <strong>clock icon</strong> opens your
             conversation history, the <strong>plus icon</strong> starts a new conversation, and you can
-            delete old conversations from the history list. If your fund has both Anthropic and OpenAI
-            configured, a model selector lets you choose which AI to use.
+            delete old conversations from the history list. Pick a model from any configured provider (or
+            Auto) and, where the model supports it, an effort level.
           </p>
-          <p className="text-muted-foreground">
+          <p className="text-muted-foreground mb-2">
             The Analyst can also save its responses directly as company summaries using the &ldquo;Save
             as Summary&rdquo; button that appears below each response on company pages. This lets you
             use the chat to iteratively refine a summary and then commit it to the company&apos;s record
             with one click.
+          </p>
+          <p className="text-muted-foreground">
+            <strong>Attach a document</strong> (PDF, Word, Excel, Markdown, CSV or text) to ask about it; in an
+            entity&rsquo;s books the Analyst drafts the journal entry from a capital-call notice, invoice or wire,
+            saved as a draft for you to review. Changes it proposes elsewhere &mdash; metric updates, investments,
+            capital calls &mdash; appear as Approve/Reject cards and in Pending actions. On Forecast, <em>Draft with
+            AI</em> opens it with the entity&rsquo;s history.
           </p>
         </div>
 
@@ -1166,7 +1107,7 @@ export default function SupportPage() {
             <h3 className="font-medium mb-1">ChatGPT</h3>
             <ol className="list-decimal pl-5 text-muted-foreground space-y-1">
               <li>Copy the <strong>MCP URL</strong> from Settings &rarr; API and MCP.</li>
-              <li>In ChatGPT, open <strong>Plugins</strong>, choose <strong>+</strong>, then <strong>Add custom MCP server</strong>; paste the URL and create it as a plugin.</li>
+              <li>In ChatGPT, open <strong>Plugins</strong>, choose <strong>+</strong>, then <strong>Add custom MCP server</strong>; paste the URL, upload the icon from Settings &rarr; API and MCP, and create it as a plugin.</li>
               <li>Connect, sign in to your fund and approve.</li>
             </ol>
             <p className="text-muted-foreground mt-1">
@@ -1176,11 +1117,45 @@ export default function SupportPage() {
               (DOCS.md has the exact entry).
             </p>
           </div>
+          <div className="pl-4 border-l-2 border-border mb-2">
+            <h3 className="font-medium mb-1">Getting started</h3>
+            <p className="text-muted-foreground mb-2">
+              Once connected, ask <strong>&ldquo;What can you do?&rdquo;</strong>. That opens your <strong>home
+              dashboard</strong>: tiles for the dashboards your access allows (the portfolio, statements per
+              entity, LP capital), the dashboards you and your colleagues saved, and questions for each area
+              you can see &mdash; click one and it is asked for you.
+            </p>
+            <p className="text-muted-foreground mb-2">
+              <strong>Prompts</strong> are ready-made requests in your assistant&rsquo;s prompt menu (in Claude, the
+              + menu; in Claude Code, type /): <em>Get started</em>, <em>Portfolio review</em>, <em>Company
+              check-in</em>, <em>Quarter-end review</em>, <em>LP capital status</em>, <em>Draft a forecast</em> and{' '}
+              <em>Budget variance</em> &mdash; only those your access covers. Pick one, fill in the company or
+              fund, and send. Ask for an LP&rsquo;s capital account statement or an investor&rsquo;s report card as a
+              PDF and the assistant gives you a download link that works for an hour, for you only.
+            </p>
+            <ul className="list-disc pl-5 text-muted-foreground space-y-1">
+              {AREAS.map(a => (
+                <li key={a.key}><strong>{a.label}</strong> &mdash; &ldquo;{a.questions[0]}&rdquo; &middot; &ldquo;{a.questions[1]}&rdquo;</li>
+              ))}
+            </ul>
+          </div>
           <p className="text-muted-foreground">
             The plugin is built for your own deployment&rsquo;s address and contains no key and no data. You
             choose read, or read and change, when you approve; revoking it or switching Agent access off
             stops it at once. Ask the assistant to <em>save this dashboard</em> to reopen it later, in either
             assistant, always on current figures.
+          </p>
+          <div className="pl-4 border-l-2 border-border mt-2">
+            <h3 className="font-medium mb-1">What the assistants can show</h3>
+            <ul className="list-disc pl-5 text-muted-foreground space-y-1">
+              <li><strong>Portfolio</strong> &mdash; pick an entity, switch between current holdings and all companies, and chart by fair value or by gross multiple.</li>
+              <li><strong>Capital calls</strong> &mdash; &ldquo;who still owes us on the latest call?&rdquo; shows each LP as paid, partly paid, says wired (their word from the portal, not yet received), unpaid or overdue, with the fund&rsquo;s other calls to switch between.</li>
+              <li><strong>LP documents</strong> &mdash; ask for an LP&rsquo;s capital account statement or an investor&rsquo;s report card as a PDF; the link works for an hour, only for you, and checks your access again when opened.</li>
+              <li><strong>Carried interest</strong> &mdash; the fund&rsquo;s carry is shown to anyone who can see LP capital; what each carry recipient personally earns needs GP economics access.</li>
+            </ul>
+          </div>
+          <p className="text-muted-foreground mt-2">
+            <strong>The connector&rsquo;s icon.</strong> ChatGPT uses the icon you upload when adding the server (download it from Settings &rarr; API and MCP). Claude currently shows a generic icon for every custom connector; the server already declares your fund&rsquo;s icon for when it reads it.
           </p>
         </div>
 
@@ -1190,14 +1165,14 @@ export default function SupportPage() {
             File Handling &amp; Security
           </h2>
           <p className="text-muted-foreground mb-2">
-            The platform accepts a wide range of file types for processing: PDFs, Excel spreadsheets
-            (.xlsx, .xls), Word documents (.docx), PowerPoint presentations (.pptx), CSV files, and
-            images (PNG, JPEG, GIF, WebP). Files can be uploaded through the Import page, attached to
+            The platform accepts PDF, Word (.doc/.docx), PowerPoint (.ppt/.pptx), Excel (.xls/.xlsx), CSV and
+            JPEG/PNG images. Files can be uploaded through the Import page, attached to
             inbound emails, or uploaded directly to a company&apos;s documents section.
           </p>
           <p className="text-muted-foreground mb-2">
-            Individual file uploads are limited to <strong>20 MB per file</strong>. This applies
-            to both manual uploads and email attachments. For larger files (such as high-resolution board
+            Individual file uploads are limited to <strong>20 MB per file</strong>, for both manual uploads and
+            email attachments; files over 10 MB keep their extracted text only. Diligence data rooms accept files
+            up to 100 MB. For larger files (such as high-resolution board
             decks or extensive spreadsheets), consider splitting them into smaller parts, compressing images,
             or exporting to a more compact format before uploading. The AI processing pipeline works best
             with focused, well-structured documents rather than very large omnibus files.
@@ -1206,14 +1181,14 @@ export default function SupportPage() {
             The system extracts <strong>text content</strong> from uploaded files to make
             them available to the AI for analysis and metric extraction. PDFs and Office documents have
             their text extracted server-side. Images are processed using the AI&apos;s <strong>vision capabilities</strong> to
-            read charts, tables, and text directly from screenshots or photos of reports.
+            read charts, tables, and text directly from screenshots or photos of reports, and images and scanned PDF
+            pages in company updates are queued for OCR so their text is searchable.
           </p>
           <p className="text-muted-foreground mb-2">
-            The platform does not currently include built-in antivirus or <strong>malware scanning</strong> of uploaded
-            files. Files are stored in your configured storage provider (Supabase Storage or Google
-            Drive), which may provide their own scanning capabilities depending on your plan and
-            configuration. If your organization requires virus scanning, we recommend configuring it at
-            the storage provider level or scanning files before uploading them to the platform.
+            Every upload is <strong>checked before it is stored</strong>: blocked file types, executable content,
+            files whose contents don&apos;t match their type, and archive bombs are rejected. This is not a full
+            antivirus, so if your policy requires one, add scanning at the storage provider (Supabase Storage or
+            Google Drive) as well.
           </p>
           <p className="text-muted-foreground mb-2">
             When <strong>file storage</strong> is configured (Google Drive),
@@ -1224,8 +1199,8 @@ export default function SupportPage() {
           </p>
           <p className="text-muted-foreground">
             Uploaded files and their extracted content are only accessible to members of your fund.
-            <strong>Row-level security</strong> policies ensure that users can only see data belonging to their fund.
-            File content sent to AI providers (Anthropic or OpenAI) for processing is subject to those
+            <strong>Row-level security</strong> limits each user to their fund and, within it, to the entities they&rsquo;ve
+            been granted, storage included. File content sent to AI providers (Anthropic, OpenAI or OpenRouter) for processing is subject to those
             providers&apos; <strong>data handling policies</strong> &mdash; refer to their documentation for details on
             data retention and usage.
           </p>
@@ -1234,7 +1209,7 @@ export default function SupportPage() {
         <div id="updates">
           <h2 className="text-base font-medium mb-2 flex items-center gap-2">
             <ArrowDownCircle className="h-4 w-4 text-muted-foreground" />
-            Updates
+            Version updates
           </h2>
           <p className="text-muted-foreground mb-2">
             The platform includes a built-in update checker that compares your installed version against
@@ -1249,8 +1224,9 @@ export default function SupportPage() {
           <p className="text-muted-foreground">
             Each installation has a unique <strong className="text-foreground">Installation ID</strong> &mdash;
             a UUID generated automatically in your database. This ID is specific to your deployment and is
-            shown at the bottom of the Updates page. Only admins can see the Updates page; non-admin users
-            are not shown the update indicator.
+            shown at the bottom of the Updates page, and is sent to GitHub with the version check. Only admins
+            can see the Updates page; non-admin users are not shown the update indicator. (Not to be confused with
+            Portfolio &rarr; Updates, which is company updates.)
           </p>
         </div>
 
@@ -1258,20 +1234,16 @@ export default function SupportPage() {
           <h2 className="text-base font-medium mb-2 flex items-center gap-2">
             <Monitor className="h-4 w-4 text-muted-foreground" />
             <PanelLeftClose className="h-4 w-4 text-muted-foreground" />
-            Theme &amp; Sidebar
+            Navigation &amp; theme
           </h2>
           <p className="text-muted-foreground mb-2">
-            At the bottom of the sidebar you&apos;ll find two utility controls. The theme toggle cycles
-            between System, Light, and Dark modes. System mode follows your operating system&apos;s
-            preference, so if your OS switches to dark mode at night, the platform will follow
-            automatically.
+            The sidebar follows the products: Start, Inbound, Deals, Diligence (Inbox, Analytics), Portfolio (Import, Investments, Asks, Interactions, Updates, Letters, Notes, Compliance), LPs (Capital accounts, Documents, Preview portal, Activity), Entities, Usage, Settings and Support &mdash; only the sections you can see. A lock marks admin-only items, and admins see an Updates link when a new version is out.
+          </p>
+          <p className="text-muted-foreground mb-2">
+            At the bottom, the theme toggle cycles between System, Light and Dark; System follows your operating system&apos;s preference. The <strong>Hide sidebar</strong> button collapses it to an icon strip for more room.
           </p>
           <p className="text-muted-foreground">
-            Below the theme toggle is the sidebar collapse button. Collapsing the sidebar reduces it
-            to a narrow icon-only strip, giving you more horizontal space for content &mdash; especially
-            useful on smaller screens or when viewing wide metric charts. Click the button again to
-            expand the sidebar back to its full width. On mobile, the sidebar opens as a slide-over
-            overlay and closes when you navigate or tap outside it.
+            On a phone, a tab bar at the bottom holds four sections plus <strong>More</strong> for everything else; a dot on More means something is waiting. Install the app from the browser&rsquo;s Share or Install menu to use it full-screen.
           </p>
         </div>
         </div>

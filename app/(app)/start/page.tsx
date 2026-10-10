@@ -1,18 +1,13 @@
 'use client'
 
 import Link from 'next/link'
-import { Plus, Landmark, HandCoins, type LucideIcon } from 'lucide-react'
-import { Button } from '@/components/ui/button'
 import { useAccess } from '@/components/access-context'
 import { useAnalystContext } from '@/components/analyst-context'
 import { useIsAdmin } from '@/components/feature-visibility-context'
 import { AnalystConversation } from '@/components/analyst-conversation'
-import { AddCompanyButton } from '@/components/add-company-button'
-import { AddInvestmentButton } from '@/components/add-investment-button'
 import { useVehicle } from '@/components/accounting-vehicle'
-import { AddVehicleButton } from '@/components/add-vehicle-button'
-import { ImportDocumentsButton } from '@/components/import-documents'
 import { createActions, suggestedPrompts } from '@/lib/start/quick-actions'
+import { QuickActionButtons } from '@/components/quick-action-buttons'
 
 /**
  * Where a signed-in member lands.
@@ -31,56 +26,20 @@ export default function StartPage() {
   const access = useAccess()
   const { hasAIKey } = useAnalystContext()
 
-  // Icons stay here rather than in lib/start/quick-actions.ts, which is a pure module the tests
-  // import without React. The modal actions carry their own (a Plus, inside each button component);
-  // these are the link actions'. The capital pair uses the same glyph as the page they open, and
-  // the distribution gets the hand-with-coins because it is money going OUT.
-  const LINK_ICONS: Record<string, LucideIcon> = {
-    'add-deal': Plus,
-    'issue-capital-call': Landmark,
-    'declare-distribution': HandCoins,
-  }
-
   const prompts = suggestedPrompts(access)
   const isAdmin = useIsAdmin()
   const actions = createActions(access, { isAdmin })
   // The capital actions link to the firm-wide capital accounts landing, which asks which entity.
   // When the browser already has one in context (the fund last worked in), skip the question.
   const { vehicleId } = useVehicle()
-  const hrefFor = (href: string) =>
-    vehicleId ? href.replace('/funds/capital-accounts', `/funds/${vehicleId}/capital-accounts`) : href
 
   // Desktop only. Adding a company or vehicle and importing documents are sit-down jobs —
   // forms and file pickers — and on a phone the buttons pushed the footer up past the tab bar
   // while offering nothing a thumb would start.
-  // One row per group — see CreateAction.group. A group with nothing in it renders no row, so a
-  // fund without LP capital sees exactly what it saw before.
-  const groups = (['create', 'capital'] as const)
-    .map(g => actions.filter(a => a.group === g))
-    .filter(g => g.length > 0)
-
   const shortcuts = actions.length > 0 && (
     <div className="hidden space-y-3 pt-12 md:block">
       <p className="text-left text-xs text-muted-foreground">Or start from here:</p>
-      {groups.map((group, i) => (
-      <div key={i} className="flex flex-wrap justify-start gap-2">
-        {group.map(a => {
-          if (a.kind === 'link') {
-            const Icon = LINK_ICONS[a.id]
-            return (
-              <Button key={a.id} variant="outline" size="sm" asChild className="gap-1.5 h-8 py-2 text-muted-foreground hover:text-foreground">
-                <Link href={hrefFor(a.href!)}>{Icon && <Icon className="h-3.5 w-3.5" />}{a.label}</Link>
-              </Button>
-            )
-          }
-          if (a.id === 'add-investment') return <AddInvestmentButton key={a.id} />
-          if (a.id === 'add-company') return <AddCompanyButton key={a.id} />
-          if (a.id === 'import-documents') return <ImportDocumentsButton key={a.id} />
-          if (a.id === 'add-vehicle') return <AddVehicleButton key={a.id} />
-          return null
-        })}
-      </div>
-      ))}
+      <QuickActionButtons actions={actions} vehicleId={vehicleId} />
     </div>
   )
 

@@ -539,6 +539,7 @@ export const UNGATED_ROUTES: Record<string, string> = {
   'api/pending-actions/[id]/reject': 'Domain resolved from the row; write enforced in-handler.',
 
   'api/mcp': 'MCP: authenticates by API key/OAuth token; gated per tool by domain.',
+  'api/agent/reports/[token]': 'Signed, one-hour link an agent tool issued (lib/agent/report-links.ts); re-checks the member\'s live membership, lp_capital grant and entities in-handler.',
   'api/accounting/mcp': 'MCP (legacy path): as api/mcp.',
   'api/agent': 'Agent REST: as api/mcp.',
 

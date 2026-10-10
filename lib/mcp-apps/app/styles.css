@@ -174,6 +174,7 @@ p, h1, h2 { margin: 0; }
 /* Square at the baseline, rounded at the data end. */
 .bar-fill, .bar-commit { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 0 4px 4px 0; }
 .bar-fill { background: var(--pf-series); }
+.bar-fill-loss { background: hsl(var(--destructive)); }
 .bar-commit { background: var(--pf-series-soft); }
 /* A ring in the surface colour keeps the tick legible where it crosses the bar. */
 .bar-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--pf-text); box-shadow: 0 0 0 2px var(--pf-bg); }
@@ -273,4 +274,55 @@ p, h1, h2 { margin: 0; }
 @media (prefers-reduced-motion: no-preference) {
   .sk { animation: pf-pulse 1.4s ease-in-out infinite; }
   @keyframes pf-pulse { 50% { opacity: 0.55; } }
+}
+
+/* Home: dashboards to open, saved ones to reopen, questions to ask. */
+.launch { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 10px; }
+.launch-card {
+  display: grid; gap: 4px; text-align: left; padding: 12px 14px; cursor: pointer;
+  font: inherit; color: inherit; background: var(--pf-bg);
+  border: 1px solid var(--pf-border); border-radius: var(--radius-card);
+  transition: background 150ms var(--ease-out, ease-out), border-color 150ms var(--ease-out, ease-out);
+}
+.launch-card:hover { background: var(--pf-raised); border-color: hsl(var(--primary) / 0.5); }
+.launch-card:focus-visible, .chip:focus-visible, .ask:focus-visible { outline: 2px solid hsl(var(--ring)); outline-offset: 2px; }
+.launch-title { font-weight: 600; }
+.launch-sub { font-size: 13px; color: var(--pf-muted); }
+.chips { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip {
+  display: inline-flex; align-items: center; gap: 6px; padding: 5px 10px; cursor: pointer;
+  font: inherit; font-size: 13px; color: inherit; background: var(--pf-bg);
+  border: 1px solid var(--pf-border); border-radius: 999px;
+}
+.chip:hover { background: var(--pf-raised); }
+.chip-tag { font-size: 11px; color: var(--pf-muted); }
+.ask-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+.ask-area { display: grid; gap: 4px; align-content: start; min-width: 0; }
+.ask-label { font-weight: 600; }
+.ask-blurb { font-size: 12px; color: var(--pf-muted); margin-bottom: 2px; }
+.ask {
+  text-align: left; padding: 6px 10px; cursor: pointer;
+  font: inherit; font-size: 13px; color: inherit; background: var(--pf-raised);
+  border: 1px solid transparent; border-radius: var(--radius);
+}
+.ask:hover { border-color: var(--pf-border); }
+.tips { margin: 0; padding-left: 18px; display: grid; gap: 4px; color: var(--pf-muted); font-size: 13px; }
+
+/* Capital calls: a line's standing, in words first and colour second. */
+.status { display: inline-block; padding: 1px 8px; border-radius: 999px; font-size: 12px; white-space: nowrap; }
+.status-good { background: hsl(var(--success-subtle)); color: hsl(var(--success)); }
+.status-bad { background: hsl(var(--destructive-subtle)); color: hsl(var(--destructive)); }
+.status-info { background: hsl(var(--warning-subtle)); color: hsl(var(--warning)); }
+.status-neutral { border: 1px solid var(--pf-border); color: var(--pf-muted); }
+
+/* The entity picker: the platform's own select, in the segmented control's clothes. */
+.picker {
+  max-width: 100%;
+  padding: 5px 28px 5px 10px;
+  border: 1px solid var(--pf-border);
+  border-radius: var(--radius);
+  background: var(--pf-bg);
+  color: var(--pf-text);
+  font: inherit;
+  font-size: 13px;
 }

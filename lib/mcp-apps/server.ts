@@ -29,6 +29,11 @@ export function getMcpTool(name: unknown): McpTool | undefined {
   return typeof name === 'string' ? MCP_TOOLS.find(t => t.name === name) : undefined
 }
 
+/** The access predicate the getting-started catalog filters by (lib/agent/getting-started.ts). */
+export function canReadFor(access: AccessContext) {
+  return (domain: Parameters<typeof hasAccess>[1], feature?: Parameters<typeof hasAccess>[3]) => hasAccess(access, domain, 'read', feature)
+}
+
 const isUi = (tool: McpTool) => (tool as DashboardTool).ui === true
 const isPersonal = (tool: McpTool) => (tool as DashboardTool).personal === true
 
@@ -189,6 +194,9 @@ export function authorizeMcpTool(tool: McpTool, auth: ResolvedKey, access: Acces
  * The fund's theme is left out of the text; it is presentation, not something to reason over.
  */
 export function toolResult(tool: McpTool, result: unknown) {
+  if (isUi(tool) && isDashboardPayload(result) && result.view === 'home') {
+    return { content: [{ type: 'text', text: result.data.help }], structuredContent: result }
+  }
   if (isUi(tool) && isDashboardPayload(result)) {
     const forModel = {
       dashboard: result.title,

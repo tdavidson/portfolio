@@ -69,10 +69,15 @@ beforeEach(() => {
 })
 
 describe('initialize', () => {
-  it('answers in the client\'s protocol version and advertises tools and resources', async () => {
+  it('answers in the client\'s protocol version and advertises tools, resources and prompts', async () => {
     const { body } = await rpc('initialize', { protocolVersion: '2025-06-18', capabilities: { extensions: { 'io.modelcontextprotocol/ui': { mimeTypes: ['text/html;profile=mcp-app'] } } } })
     expect(body.result.protocolVersion).toBe('2025-06-18')
-    expect(body.result.capabilities).toEqual({ tools: {}, resources: {} })
+    expect(body.result.capabilities).toEqual({ tools: {}, resources: {}, prompts: {} })
+    // The fund's square app mark, absolute on the address the host reached, for a host that shows icons.
+    expect(body.result.serverInfo.icons).toEqual([
+      { src: 'https://fund.test/api/pwa-icon?size=192', mimeType: 'image/png', sizes: ['192x192'] },
+      { src: 'https://fund.test/api/pwa-icon?size=512', mimeType: 'image/png', sizes: ['512x512'] },
+    ])
   })
 
   it('still serves a client that only speaks the original revision', async () => {
@@ -172,6 +177,34 @@ describe('tools/call', () => {
 
   it('reports an unknown tool as a protocol error', async () => {
     expect((await call('show_everything')).body.error.code).toBe(-32602)
+  })
+})
+
+describe('prompts', () => {
+  it('lists the templates for the member\'s areas, and renders one with its arguments', async () => {
+    const prompts: any[] = (await rpc('prompts/list')).body.result.prompts
+    const names = prompts.map(p => p.name)
+    expect(names).toContain('get_started')
+    expect(names).toContain('company_check_in')
+    // Portfolio only: no books, LP or forecast templates on offer.
+    expect(names).not.toContain('quarter_end_review')
+    expect(names).not.toContain('draft_forecast')
+    const got = (await rpc('prompts/get', { name: 'company_check_in', arguments: { company: 'Acme' } })).body.result
+    expect(got.messages[0]).toEqual({ role: 'user', content: { type: 'text', text: expect.stringContaining('Open the dashboard for Acme') } })
+  })
+
+  it('refuses a template outside the member\'s access, or one missing its argument', async () => {
+    expect((await rpc('prompts/get', { name: 'draft_forecast', arguments: { vehicle: 'Fund I' } })).body.error.code).toBe(-32602)
+    expect((await rpc('prompts/get', { name: 'company_check_in', arguments: {} })).body.error.message).toMatch(/company/)
+  })
+})
+
+describe('the home dashboard', () => {
+  it('opens for any member, as help text for the model and a launcher for the view', async () => {
+    const res = (await call('show_home')).body.result
+    expect(res.structuredContent.view).toBe('home')
+    expect(res.structuredContent.data.dashboards.map((d: any) => d.tool)).toEqual(['show_portfolio_dashboard'])
+    expect(res.content[0].text).toContain("Northgate's Portfolio deployment")
   })
 })
 

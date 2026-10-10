@@ -59,6 +59,20 @@ const ARGUMENTS = {
 
 export const DASHBOARD_TOOL_MANIFEST: DashboardToolMeta[] = [
   {
+    name: 'show_home',
+    description:
+      'Show the home dashboard: the dashboards this user can open, their saved and shared dashboards, and example ' +
+      'questions for each area they can access. Use this when the user asks what you can do, asks for help, says ' +
+      '"get started" or "home", or seems unsure what to ask. Then give a short, friendly overview with three ' +
+      'suggestions to try first. The same overview also comes back as text.',
+    scope: 'read',
+    domain: 'portfolio',
+    // Everyone gets a home page: it lists only what the member's own access allows.
+    personal: true,
+    ui: true,
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
     name: 'show_portfolio_dashboard',
     description:
       'Show the portfolio overview as an interactive dashboard: cost, fair value, unrealized gain and gross MOIC, ' +
@@ -135,6 +149,24 @@ export const DASHBOARD_TOOL_MANIFEST: DashboardToolMeta[] = [
       properties: {
         vehicle: VEHICLE,
         as_of: { type: 'string', description: `Optional ${ISO_DATE}. Defaults to today.` },
+      },
+    },
+  },
+  {
+    name: 'show_capital_calls',
+    description:
+      'Show a capital call as an interactive dashboard: the amount called, received and still owed, and every LP\'s ' +
+      'status — paid, partly paid, says they wired (from the LP portal, not yet received), unpaid, overdue — with the ' +
+      'fund\'s other calls to switch between. Use when the user asks who has paid a call, who still owes, or to see ' +
+      'the capital calls. Defaults to the latest call. The figures also come back as text.',
+    scope: 'read',
+    domain: 'lp',
+    ui: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vehicle: VEHICLE,
+        call: { type: 'string', description: 'Which call: "latest" (default), its number, its date (YYYY-MM-DD), or its id.' },
       },
     },
   },

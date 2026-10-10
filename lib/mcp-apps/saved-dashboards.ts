@@ -35,6 +35,8 @@ const VIEW_ARGS: Record<DashboardView, { key: string; kind: 'text' | 'date' | 'p
     { key: 'start', kind: 'date' }, { key: 'end', kind: 'date' },
   ],
   lps: [{ key: 'vehicle', kind: 'text' }, { key: 'as_of', kind: 'date' }],
+  // `call` is kept as given ("latest" by default), so a saved "latest call" stays the latest.
+  calls: [{ key: 'vehicle', kind: 'text' }, { key: 'call', kind: 'text' }],
 }
 
 export function isDashboardView(v: unknown): v is DashboardView {

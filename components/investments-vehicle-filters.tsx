@@ -25,6 +25,11 @@ interface Props {
   onToggleShowEmpty: () => void
   status: string
   onStatusChange: (s: string) => void
+  /** The entities with holdings, to pick from; and the ones left out. Empty hidden = all shown. */
+  entities?: string[]
+  hiddenEntities?: Set<string>
+  onToggleEntity?: (name: string) => void
+  onShowAllEntities?: () => void
 }
 
 function CheckRow({ checked, label, onClick, muted }: { checked: boolean; label: string; onClick: () => void; muted?: boolean }) {
@@ -41,8 +46,9 @@ function CheckRow({ checked, label, onClick, muted }: { checked: boolean; label:
 export function InvestmentVehicleFilters({
   selectedKinds, onToggleKind, showEmpty, onToggleShowEmpty,
   status, onStatusChange,
+  entities = [], hiddenEntities = new Set(), onToggleEntity, onShowAllEntities,
 }: Props) {
-  const active = selectedKinds.size < VEHICLE_KINDS.length || showEmpty || status !== ''
+  const active = selectedKinds.size < VEHICLE_KINDS.length || showEmpty || status !== '' || hiddenEntities.size > 0
 
   return (
     <Popover>
@@ -65,6 +71,20 @@ export function InvestmentVehicleFilters({
         <div className="border-t">
           <CheckRow checked={showEmpty} label="Show empty vehicles (no transactions)" onClick={onToggleShowEmpty} muted />
         </div>
+
+        {entities.length > 1 && onToggleEntity && (
+          <>
+            <div className="flex items-center justify-between px-4 py-2 border-y bg-muted text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+              <span>Entities</span>
+              {hiddenEntities.size > 0 && onShowAllEntities && (
+                <button type="button" onClick={onShowAllEntities} className="normal-case tracking-normal hover:text-foreground">Show all</button>
+              )}
+            </div>
+            {entities.map(name => (
+              <CheckRow key={name} checked={!hiddenEntities.has(name)} label={name} onClick={() => onToggleEntity(name)} />
+            ))}
+          </>
+        )}
 
         <div className="px-4 py-2 border-y bg-muted text-[11px] font-medium uppercase tracking-wider text-muted-foreground">Status</div>
         {STATUS_OPTIONS.map(opt => (

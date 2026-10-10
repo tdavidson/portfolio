@@ -9,7 +9,7 @@
 // does not add it to context), so the text block is what makes "ask a question about what you are
 // looking at" work in both.
 
-export const DASHBOARD_VIEWS = ['portfolio', 'company', 'statements', 'lps'] as const
+export const DASHBOARD_VIEWS = ['portfolio', 'company', 'statements', 'lps', 'calls'] as const
 export type DashboardView = (typeof DASHBOARD_VIEWS)[number]
 
 /** The tool that renders each view. The view calls these by name to drill in or change a filter. */
@@ -18,6 +18,7 @@ export const VIEW_TOOL: Record<DashboardView, string> = {
   company: 'show_company_dashboard',
   statements: 'show_financial_statements',
   lps: 'show_lp_dashboard',
+  calls: 'show_capital_calls',
 }
 
 export const VIEW_LABEL: Record<DashboardView, string> = {
@@ -25,6 +26,7 @@ export const VIEW_LABEL: Record<DashboardView, string> = {
   company: 'Company detail',
   statements: 'Financial statements',
   lps: 'LP capital',
+  calls: 'Capital calls',
 }
 
 export interface DashboardBranding {
@@ -92,6 +94,8 @@ export interface PortfolioData {
    * `accounting` grant: that half is the fund's financial position, not the portfolio's.
    */
   performance: VehiclePerformance[] | null
+  /** The entities this member can see, to switch the dashboard to one of them. */
+  vehicles?: string[]
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -198,9 +202,8 @@ export interface StatementsData {
     partners: PartnerCapitalRow[]
     totals: PartnerCapitalRow
     /**
-     * True when the carried-interest line and the General Partner row were left out because the
-     * caller lacks `gp_economics`. The view says so: without those lines the rows do not sum to
-     * the balance sheet's equity, and a silent gap would read as an error in the books.
+     * True when the carry recipients' rows were folded into one combined row because the caller
+     * lacks `gp_economics` (lib/access/carry-visibility.ts). The view says so.
      */
     carryWithheld: boolean
   }
@@ -241,19 +244,85 @@ export interface LpData {
 
 // ---------------------------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------------------------
+// Capital calls — one call, and who has paid it
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * Where one partner stands on one call. `says_wired` is the partner's own word from the portal
+ * ("we wired on…") with nothing yet received: worth a look at the bank, not a reminder.
+ */
+export type CallLineStatus = 'paid' | 'partial' | 'says_wired' | 'unpaid'
+
+export interface CallSummary {
+  id: string
+  number: number | null
+  date: string
+  dueDate: string | null
+  description: string | null
+  total: number
+  received: number
+  outstanding: number
+  /** open | partial | settled, from the books (lib/accounting/settlement.ts). */
+  status: 'open' | 'partial' | 'settled'
+  /** Still owed past the due date. */
+  overdue: boolean
+}
+
+export interface CallLine {
+  lp: string
+  called: number
+  received: number
+  outstanding: number
+  status: CallLineStatus
+  overdue: boolean
+  receivedOn: string | null
+  saysWired: { on: string | null; reference: string | null } | null
+}
+
+export interface CallsData {
+  vehicle: string
+  /** Every call on the vehicle, newest first, to switch between. */
+  calls: CallSummary[]
+  /** The call being shown; null when the vehicle has none. */
+  selected: (CallSummary & { lines: CallLine[] }) | null
+}
+
+// ---------------------------------------------------------------------------------------------
+// Home — where a member starts: what they can open, what they saved, what to ask
+// ---------------------------------------------------------------------------------------------
+
+/** Not a saveable dashboard (it has no figures); the launcher for the ones that are. */
+export const HOME_TOOL = 'show_home'
+
+export interface HomeData {
+  /** The dashboards this member may open, with the tool and arguments that open each. */
+  dashboards: { view: DashboardView; label: string; description: string; tool: string; args: Record<string, unknown> }[]
+  /** Their own and their colleagues' shared dashboards, most recent first. */
+  saved: SavedDashboardSummary[]
+  /** Example questions for the areas they can read. Clicking one asks it in the conversation. */
+  areas: { key: string; label: string; blurb: string; questions: string[] }[]
+  tips: string[]
+  /** The same, as text: what the model reads, and what a host without MCP Apps shows. */
+  help: string
+}
+
 export type PortfolioPayload = PayloadBase<'portfolio', PortfolioData>
 export type CompanyPayload = PayloadBase<'company', CompanyData>
 export type StatementsPayload = PayloadBase<'statements', StatementsData>
 export type LpPayload = PayloadBase<'lps', LpData>
+export type CallsPayload = PayloadBase<'calls', CallsData>
 
-export type DashboardPayload = PortfolioPayload | CompanyPayload | StatementsPayload | LpPayload
+export type HomePayload = Omit<PayloadBase<DashboardView, HomeData>, 'view'> & { view: 'home' }
+
+export type DashboardPayload = PortfolioPayload | CompanyPayload | StatementsPayload | LpPayload | CallsPayload | HomePayload
 
 /** Narrowing guard for anything arriving over the wire. */
 export function isDashboardPayload(x: unknown): x is DashboardPayload {
   if (!x || typeof x !== 'object') return false
   const p = x as { view?: unknown; data?: unknown }
   return typeof p.view === 'string'
-    && (DASHBOARD_VIEWS as readonly string[]).includes(p.view)
+    && ((DASHBOARD_VIEWS as readonly string[]).includes(p.view) || p.view === 'home')
     && !!p.data && typeof p.data === 'object'
 }
 

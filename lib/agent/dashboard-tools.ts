@@ -10,6 +10,7 @@
 //   - `open_dashboard` is a personal tool, cleared on membership alone, so it checks the saved
 //     view's domain itself before building anything. See `viewDenial`.
 
+import { carryRecipientIds, combineCarryRecipients, seesIndividualCarry } from '@/lib/access/carry-visibility'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-tools'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
@@ -29,12 +30,16 @@ import { shortDate } from '@/lib/mcp-apps/app/format'
 import {
   STATEMENT_PRESETS, VIEW_LABEL,
   type CompanyPayload, type DashboardBranding, type DashboardPayload, type DashboardView,
+  type CallLine, type CallSummary, type CallsPayload,
   type LpPayload, type LpRow, type PartnerCapitalRow, type PortfolioPayload,
   type SavedDashboardSummary, type StatementsPayload, type VehiclePerformance,
 } from '@/lib/mcp-apps/payload'
 import {
   deleteDashboard, listDashboards, parseSave, resolveDashboard, sanitizeArguments, saveDashboard,
 } from '@/lib/mcp-apps/saved-dashboards'
+import { listVehicles } from '@/lib/accounting/load'
+import { areasFor, DASHBOARD_TIPS, helpText, type CanRead } from './getting-started'
+import type { HomePayload } from '@/lib/mcp-apps/payload'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
@@ -118,11 +123,15 @@ async function portfolioView(ctx: AgentToolContext, input: any): Promise<Portfol
   // gated `accounting` (as fund_performance and api/accounting/fund-economics are). The overview's
   // own domain is `portfolio`, so this half is included only for a caller who holds both.
   const showPerformance = hasAccess(ctx.access, 'accounting', 'read')
-  const [summary, performance, branding] = await Promise.all([
+  const [summary, performance, branding, allVehicles, scope] = await Promise.all([
     PORTFOLIO_HANDLERS.portfolio_summary(ctx, args),
     showPerformance ? vehiclePerformance(ctx, vehicle, asOf) : Promise.resolve(null),
     loadBranding(ctx.admin, ctx.fundId),
+    listVehicles(ctx.admin, ctx.fundId).catch(() => [] as string[]),
+    entityScopeFor(ctx.admin, ctx.access),
   ])
+  // The entity picker offers only the member's own entities (the tool refuses any other).
+  const vehicles = scope.vehicleNames === null ? allVehicles : allVehicles.filter(v => scope.vehicleNames!.includes(v))
 
   return {
     view: 'portfolio',
@@ -137,6 +146,7 @@ async function portfolioView(ctx: AgentToolContext, input: any): Promise<Portfol
       positions: summary.positions,
       totals: summary.totals,
       performance,
+      vehicles,
     },
   }
 }
@@ -240,26 +250,27 @@ async function statementsView(ctx: AgentToolContext, input: any): Promise<Statem
   ])
   const p = pkg.payload
 
-  // The carried-interest line is GP economics, and the General Partner's row IS the carry. Both
-  // are dropped, not zeroed, for a caller without that grant: zero would read as "none accrued".
-  // Same rule as capital_accounts and lp_statement. `carryWithheld` tells the view to say so.
+  // The fund's carry — each LP's carried-interest line, the General Partner's total — is shown to
+  // anyone who may read partners' capital. What each carry RECIPIENT earns is GP economics: without
+  // that grant their rows are folded into one combined row, so the table still adds up and the
+  // fund's carry stays visible (lib/access/carry-visibility.ts). `carryWithheld` tells the view.
   //
   // The roll-forward itself is LP capital. Holding `accounting` normally confers it (the partner
   // accounts ARE the ledger), but a fund that has switched LPs off or hidden them denies it to
   // everyone, and then this tab is left out, as capital_accounts is refused.
   const showCapital = hasAccess(ctx.access, 'lp_capital', 'read')
-  const showCarry = hasAccess(ctx.access, 'gp_economics', 'read')
   const cpc = p.changesInPartnersCapital
-  const partners = showCarry ? cpc.partners : cpc.partners.filter(row => row.id !== 'gp')
+  const { rows: partners, combined } = seesIndividualCarry(ctx.access)
+    ? { rows: cpc.partners, combined: 0 }
+    : combineCarryRecipients(cpc.partners, await carryRecipientIds(ctx.admin, ctx.fundId, vehicle))
   const fields = ACTIVITY_FIELDS
-    .filter(f => showCarry || f !== 'carriedInterest')
     // Only the lines that moved for someone, so a fund with no FX has no FX row.
     .filter(f => partners.some(row => row[f] !== 0))
   const totals = (['beginning', ...fields, 'ending'] as (keyof CapitalAccount)[]).reduce((acc, f) => {
     acc[f] = r2(partners.reduce((sum, row) => sum + row[f], 0))
     return acc
   }, {} as CapitalAccount)
-  const carryWithheld = !showCarry && cpc.partners.some(row => row.id === 'gp' || row.carriedInterest !== 0)
+  const carryWithheld = combined > 0
 
   const section = (s: { label: string; rows: { code: string; name: string; amount: number }[]; total: number }) => ({
     label: s.label,
@@ -364,11 +375,63 @@ async function lpView(ctx: AgentToolContext, input: any): Promise<LpPayload> {
   }
 }
 
+/** Pick a call: "latest", its number ("3", "#3"), its date, or its id. */
+function pickCall<C extends { id: string; number: number | null; date: string }>(calls: C[], ref: string | undefined): C {
+  if (!ref || ref.toLowerCase() === 'latest') return calls[0]
+  const n = ref.replace(/^#/, '')
+  const hit = calls.find(c => c.id === ref)
+    ?? calls.find(c => c.number != null && String(c.number) === n)
+    ?? calls.find(c => c.date === ref)
+  if (hit) return hit
+  throw new Error(`No capital call "${ref}". This vehicle's calls: ${calls.map(c => `${c.number != null ? `#${c.number} ` : ''}${c.date}`).join(', ')}.`)
+}
+
+async function callsView(ctx: AgentToolContext, input: any): Promise<CallsPayload> {
+  const call = text(input?.call)
+  // lp_capital_calls resolves the vehicle against the member's entities and asks which one when
+  // the fund has several.
+  const [report, branding] = await Promise.all([
+    LP_HANDLERS.lp_capital_calls(ctx, { vehicle: text(input?.vehicle) ?? '' }),
+    loadBranding(ctx.admin, ctx.fundId),
+  ])
+  const vehicle: string = report.vehicle
+  const calls: CallSummary[] = (report.calls ?? []).map((c: any) => ({
+    id: c.id, number: c.number ?? null, date: c.date, dueDate: c.due_date ?? null, description: c.description ?? null,
+    total: r2(num(c.total)), received: r2(num(c.funded)), outstanding: r2(num(c.outstanding)), status: c.status, overdue: !!c.overdue,
+  }))
+  const args = { vehicle, ...(call ? { call } : {}) }
+  const base = { view: 'calls' as const, args, generatedAt: new Date().toISOString(), branding }
+  if (calls.length === 0) {
+    return { ...base, title: VIEW_LABEL.calls, subtitle: vehicle, data: { vehicle, calls, selected: null } }
+  }
+
+  const chosen = pickCall(calls, call)
+  const raw = (report.calls as any[]).find(c => c.id === chosen.id)
+  const lines: CallLine[] = (raw.lines ?? []).map((l: any) => ({
+    lp: l.lp,
+    called: r2(num(l.amount)),
+    received: r2(num(l.funded)),
+    outstanding: r2(num(l.outstanding)),
+    status: l.status === 'settled' ? 'paid' : l.status === 'partial' ? 'partial' : l.says_wired ? 'says_wired' : 'unpaid',
+    overdue: !!l.overdue,
+    receivedOn: l.funded_on ?? null,
+    saysWired: l.says_wired ?? null,
+  }))
+  const label = `${chosen.number != null ? `Call #${chosen.number}` : 'Capital call'} · ${shortDate(chosen.date)}`
+  return {
+    ...base,
+    title: VIEW_LABEL.calls,
+    subtitle: [vehicle, label].join(' · '),
+    data: { vehicle, calls, selected: { ...chosen, lines } },
+  }
+}
+
 const VIEW_BUILDERS: Record<DashboardView, (ctx: AgentToolContext, input: any) => Promise<DashboardPayload>> = {
   portfolio: portfolioView,
   company: companyView,
   statements: statementsView,
   lps: lpView,
+  calls: callsView,
 }
 
 /**
@@ -381,6 +444,7 @@ export const VIEW_ACCESS_DOMAIN: Record<DashboardView, Domain> = {
   company: 'portfolio',
   statements: 'accounting',
   lps: 'lp_capital',
+  calls: 'lp_capital',
 }
 
 /** Null when the caller may open this view; otherwise the refusal to return. */
@@ -453,11 +517,65 @@ async function canonical(ctx: AgentToolContext, params: Record<string, string>):
   return out
 }
 
+/**
+ * The home dashboard: what this member can open, what they saved, what to ask. Everything in it
+ * is filtered by their own access — a dashboard tile only for a view `viewDenial` allows, a
+ * statements tile only for an entity they can see, questions only for areas they can read.
+ */
+async function homeView(ctx: AgentToolContext): Promise<HomePayload> {
+  const canRead: CanRead = (domain, feature) => hasAccess(ctx.access, domain, 'read', feature)
+  const [branding, all, visible, scope, vehicles] = await Promise.all([
+    loadBranding(ctx.admin, ctx.fundId),
+    ctx.userId ? listDashboards(ctx.admin, ctx.fundId, ctx.userId) : Promise.resolve([] as SavedDashboardSummary[]),
+    dashboardVisibility(ctx),
+    entityScopeFor(ctx.admin, ctx.access),
+    listVehicles(ctx.admin, ctx.fundId).catch(() => [] as string[]),
+  ])
+  const mine = scope.vehicleNames === null ? vehicles : vehicles.filter(v => scope.vehicleNames!.includes(v))
+
+  const dashboards: HomePayload['data']['dashboards'] = []
+  if (!viewDenial(ctx.access, 'portfolio')) {
+    dashboards.push({ view: 'portfolio', label: VIEW_LABEL.portfolio, description: 'Cost, fair value and MOIC, by company. Click a company to drill in.', tool: 'show_portfolio_dashboard', args: {} })
+  }
+  if (!viewDenial(ctx.access, 'statements')) {
+    // One tile per entity, up to four: the statements are always for one set of books.
+    for (const v of mine.slice(0, 4)) {
+      dashboards.push({ view: 'statements', label: `Statements — ${v}`, description: 'Balance sheet, income, cash flows and partners\' capital, year to date.', tool: 'show_financial_statements', args: { vehicle: v, period: 'ytd' } })
+    }
+  }
+  if (!viewDenial(ctx.access, 'lps')) {
+    dashboards.push({ view: 'lps', label: VIEW_LABEL.lps, description: 'Commitments, calls, distributions and NAV by investor.', tool: 'show_lp_dashboard', args: {} })
+    // The latest call on the member's first entity; the dashboard itself switches between calls.
+    const callsVehicle = mine[0]
+    if (callsVehicle) dashboards.push({ view: 'calls', label: VIEW_LABEL.calls, description: 'Who has paid the latest call, who says they wired, and who still owes.', tool: 'show_capital_calls', args: { vehicle: callsVehicle } })
+  }
+
+  const saved = all.filter(d => d.kind !== 'standard' && visible.listed(d)).slice(0, 8)
+  const areas = areasFor(canRead).map(a => ({ key: a.key, label: a.label, blurb: a.blurb, questions: a.questions }))
+  const help = helpText({
+    fundName: branding.fundName,
+    canRead,
+    dashboards: dashboards.map(d => d.label),
+    saved: saved.map(d => d.name),
+  })
+  return {
+    view: 'home',
+    title: branding.fundName ? `${branding.fundName} — home` : 'Home',
+    subtitle: 'What you can open, and what to ask',
+    args: {},
+    generatedAt: new Date().toISOString(),
+    branding,
+    data: { dashboards, saved, areas, tips: DASHBOARD_TIPS, help },
+  }
+}
+
 export const DASHBOARD_HANDLERS: Record<string, AgentToolHandler> = {
+  show_home: homeView,
   show_portfolio_dashboard: portfolioView,
   show_company_dashboard: companyView,
   show_financial_statements: statementsView,
   show_lp_dashboard: lpView,
+  show_capital_calls: callsView,
 
   list_dashboards: async (ctx: AgentToolContext) => {
     const [all, visible] = await Promise.all([

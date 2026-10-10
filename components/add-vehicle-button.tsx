@@ -4,6 +4,7 @@ import { useState } from 'react'
 import { Plus, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
+import type { DialogControl } from '@/components/add-investment-menu'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogTrigger } from '@/components/ui/dialog'
 import { VEHICLE_KIND_OPTIONS, isManagementCompany } from '@/lib/vehicle-kinds'
 
@@ -19,8 +20,10 @@ const KINDS = VEHICLE_KIND_OPTIONS
  * lets the caller SEE what they just made — so a management company goes to the manco route, which
  * is what lets a manco-only bookkeeper add one, and refuses one to someone who could not open it.
  */
-export function AddVehicleButton({ onCreated }: { onCreated?: () => void }) {
-  const [open, setOpen] = useState(false)
+export function AddVehicleButton({ onCreated, open: openProp, onOpenChange, hideTrigger }: { onCreated?: () => void } & DialogControl) {
+  const [openState, setOpenState] = useState(false)
+  const open = openProp ?? openState
+  const setOpen = (o: boolean) => { setOpenState(o); onOpenChange?.(o) }
   const [name, setName] = useState('')
   const [kind, setKind] = useState('fund')
   const [busy, setBusy] = useState(false)
@@ -48,11 +51,13 @@ export function AddVehicleButton({ onCreated }: { onCreated?: () => void }) {
 
   return (
     <Dialog open={open} onOpenChange={o => { setOpen(o); if (!o) setErr(null) }}>
+      {!hideTrigger && (
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="gap-1.5 h-8 py-2 text-muted-foreground hover:text-foreground">
           <Plus className="h-3.5 w-3.5" />Add vehicle
         </Button>
       </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-sm">
         <DialogHeader>
           <DialogTitle>Add vehicle</DialogTitle>

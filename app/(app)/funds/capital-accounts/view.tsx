@@ -7,6 +7,7 @@ import { useLpPortalEnabled, useIsAdmin } from '@/components/feature-visibility-
 import Link from 'next/link'
 import { useSearchParams } from 'next/navigation'
 import { capitalActionFromParam } from '@/lib/accounting/capital-action'
+import { parseRegisterSheet, type RegisterPayment } from '@/lib/accounting/register-sheet'
 import { Loader2, Check, AlertTriangle, Landmark, ChevronRight, Share2, Search, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
@@ -94,6 +95,16 @@ export function CapitalAccountsView() {
   const [callDate, setCallDate] = useState('')
   const [description, setDescription] = useState('')
   const [callTotal, setCallTotal] = useState('')
+  // A call is often set as a share of commitments ("call 10%") rather than an amount. The percentage
+  // is turned into the amount it means — that share of total commitments — and split the same way.
+  const [callBasis, setCallBasis] = useState<'amount' | 'percent'>('amount')
+  // A call or distribution pasted from a spreadsheet: each partner's amount, and what they have
+  // already paid (or been paid). The sheet fills the lines below for review; the payments are
+  // posted after the call is issued (lib/accounting/register-import.ts).
+  const [sheetOpen, setSheetOpen] = useState(false)
+  const [sheetText, setSheetText] = useState('')
+  const [sheetNote, setSheetNote] = useState<{ ok: boolean; text: string } | null>(null)
+  const [payments, setPayments] = useState<RegisterPayment[]>([])
   // Calls only: a notice is a demand with a deadline, and the deadline is recorded at issue.
   const [dueDate, setDueDate] = useState('')
   const [amounts, setAmounts] = useState<Record<string, string>>({})
@@ -156,9 +167,15 @@ export function CapitalAccountsView() {
   const enteredCarry = Object.values(carryAmounts).reduce((s, v) => s + (Number(v) || 0), 0)
   const carryRecipients = preview?.carryLines.map(l => l.lpEntityId) ?? []
 
+  const totalCommitment = rows.reduce((s, r) => s + (Number(r.commitment) || 0), 0)
+  const percentAmount = (pct: number) => Math.round(totalCommitment * pct) / 100
+
   async function splitProRata() {
-    const t = Number(callTotal)
-    if (!Number.isFinite(t) || t <= 0) { setMsg({ ok: false, text: 'Enter a positive total to split' }); return }
+    const entered = Number(callTotal)
+    const byPercent = !isDist && callBasis === 'percent'
+    if (byPercent && (!Number.isFinite(entered) || entered <= 0 || entered > 100)) { setMsg({ ok: false, text: 'Enter a percentage between 0 and 100' }); return }
+    const t = byPercent ? percentAmount(entered) : entered
+    if (!Number.isFinite(t) || t <= 0) { setMsg({ ok: false, text: byPercent ? 'No commitments to take a percentage of' : 'Enter a positive total to split' }); return }
     const res = await lf(isDist ? '/api/accounting/distributions' : '/api/accounting/capital-calls', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(isDist
@@ -182,6 +199,21 @@ export function CapitalAccountsView() {
     if (isDist) setEdited(true)
   }
 
+  function readSheet() {
+    const parsed = parseRegisterSheet(sheetText, rows.map(r => ({ lpEntityId: r.lpEntityId, name: r.name })))
+    if (parsed.error) { setSheetNote({ ok: false, text: parsed.error }); return }
+    if (parsed.lines.length === 0) { setSheetNote({ ok: false, text: 'No rows matched a partner in this entity.' }); return }
+    setAmounts(Object.fromEntries(parsed.lines.map(l => [l.lpEntityId, String(l.amount)])))
+    setPayments(parsed.lines.filter(l => l.paid > 0).map(l => ({ lpEntityId: l.lpEntityId, amount: l.paid, date: l.paidOn })))
+    if (isDist) { setPreview(null); setEdited(true) }
+    const paidCount = parsed.lines.filter(l => l.paid > 0).length
+    setSheetNote({
+      ok: parsed.unmatched.length === 0,
+      text: `Read ${parsed.lines.length} partner${parsed.lines.length === 1 ? '' : 's'}${paidCount ? `; ${paidCount} with ${isDist ? 'payments made' : 'payments received'}, recorded when you ${isDist ? 'declare' : 'issue'}` : ''}.`
+        + (parsed.unmatched.length ? ` Not matched to a partner: ${parsed.unmatched.join(', ')}.` : ''),
+    })
+  }
+
   const operationNonce = useRef<string | null>(null)
   async function issue() {
     operationNonce.current ??= crypto.randomUUID()
@@ -198,6 +230,10 @@ export function CapitalAccountsView() {
     const carryLines = carryRecipients
       .map(id => ({ lpEntityId: id, amount: Number(carryAmounts[id]) || 0 }))
       .filter(l => l.amount > 0)
+    // Only payments for partners still on the register, never more than their line.
+    const paidNow = payments
+      .filter(p => lines.some(l => l.lpEntityId === p.lpEntityId))
+      .map(p => ({ ...p, amount: Math.min(p.amount, lines.find(l => l.lpEntityId === p.lpEntityId)!.amount) }))
     const res = await lf(isDist ? '/api/accounting/distributions' : '/api/accounting/capital-calls', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
       body: isDist
@@ -206,17 +242,22 @@ export function CapitalAccountsView() {
             splitMethod: fromPreview ? preview.method : 'manual',
             tiers: fromPreview && preview.method === 'waterfall' ? preview.tiers : null,
             character: fromPreview && preview.method === 'waterfall' ? preview.suggestedCharacter : undefined,
+            ...(paidNow.length ? { payments: paidNow } : {}),
           })
-        : JSON.stringify({ action: 'issue', requestKey: operationNonce.current, callDate, dueDate: dueDate || null, description: description || null, scope: mode, lines }),
+        : JSON.stringify({ action: 'issue', requestKey: operationNonce.current, callDate, dueDate: dueDate || null, description: description || null, scope: mode, lines, ...(paidNow.length ? { payments: paidNow } : {}) }),
     })
     const data = await res.json()
     setIssuing(false)
     if (!res.ok) { setMsg({ ok: false, text: data.error ?? (isDist ? 'Could not declare distribution' : 'Could not issue call') }); return }
-    setMsg({ ok: true, text: isDist
+    const paidText = data.paymentsError
+      ? ` The payments from the sheet were not recorded: ${data.paymentsError}`
+      : data.paymentsPosted ? ` ${data.paymentsPosted} payment${data.paymentsPosted === 1 ? '' : 's'} from the sheet recorded.` : ''
+    setMsg({ ok: !data.paymentsError, text: (isDist
       ? 'Distribution declared. Record or match the payment as it arrives.'
-      : 'Call issued.' })
+      : 'Call issued.') + paidText })
     operationNonce.current = null
     setAmounts({}); setCarryAmounts({}); setPreview(null); setEdited(false); setCallTotal(''); setDescription('')
+    setPayments([]); setSheetText(''); setSheetNote(null); setSheetOpen(false)
     load()
   }
 
@@ -405,10 +446,48 @@ export function CapitalAccountsView() {
             </div>}
           </div>
 
+          <div className="space-y-2">
+            <button type="button" onClick={() => setSheetOpen(o => !o)} className="text-xs text-muted-foreground underline underline-offset-4 hover:text-foreground">
+              {sheetOpen ? 'Hide spreadsheet' : 'Paste from a spreadsheet'}
+            </button>
+            {sheetOpen && (
+              <div className="space-y-2 rounded-card border p-3">
+                <p className="text-xs text-muted-foreground">
+                  Paste rows with a header: a partner column, an amount column ({isDist ? '“Distribution” or “Amount”' : '“Called” or “Amount”'}), and optionally
+                  {isDist ? ' “Paid” and “Paid on”' : ' “Paid” (or “Funded”) and “Paid on”'}. Partners are matched by name; the lines below fill in for you to check, and
+                  anything already paid is recorded when you {isDist ? 'declare' : 'issue'}.
+                </p>
+                <textarea
+                  value={sheetText}
+                  onChange={e => setSheetText(e.target.value)}
+                  rows={6}
+                  placeholder={isDist ? 'Partner\tDistribution\tPaid\tPaid on' : 'Partner\tCalled\tPaid\tPaid on'}
+                  className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm tabular-nums"
+                />
+                <div className="flex items-center gap-2">
+                  <Button size="sm" variant="outline" onClick={readSheet} disabled={!sheetText.trim()}>Read sheet</Button>
+                  {sheetNote && <span className={`text-sm ${sheetNote.ok ? 'text-muted-foreground' : 'text-warning'}`}>{sheetNote.text}</span>}
+                </div>
+              </div>
+            )}
+          </div>
+
           {(isDist || mode === 'fund_wide') && (
             <div className="flex items-end gap-2">
-              <label className="text-xs text-muted-foreground">{isDist ? 'Total to distribute' : 'Total to call'}
-                <input value={callTotal} onChange={e => setCallTotal(e.target.value)} inputMode="decimal" placeholder="0.00" className="block mt-1 border border-input rounded px-2 py-1.5 text-sm font-mono bg-transparent w-40" />
+              {!isDist && (
+                <div className="text-xs text-muted-foreground">
+                  <span className="block mb-1">Call by</span>
+                  <div className="inline-flex rounded border border-input overflow-hidden">
+                    <button type="button" aria-pressed={callBasis === 'amount'} onClick={() => setCallBasis('amount')} className={`px-2.5 py-1.5 text-xs ${callBasis === 'amount' ? 'bg-accent text-foreground' : 'text-muted-foreground'}`}>Amount</button>
+                    <button type="button" aria-pressed={callBasis === 'percent'} onClick={() => setCallBasis('percent')} className={`px-2.5 py-1.5 text-xs border-l border-input ${callBasis === 'percent' ? 'bg-accent text-foreground' : 'text-muted-foreground'}`}>% of commitments</button>
+                  </div>
+                </div>
+              )}
+              <label className="text-xs text-muted-foreground">{isDist ? 'Total to distribute' : callBasis === 'percent' ? 'Percent of commitments' : 'Total to call'}
+                <input value={callTotal} onChange={e => setCallTotal(e.target.value)} inputMode="decimal" placeholder={!isDist && callBasis === 'percent' ? '10' : '0.00'} className="block mt-1 border border-input rounded px-2 py-1.5 text-sm tabular-nums bg-transparent w-40" />
+                {!isDist && callBasis === 'percent' && Number(callTotal) > 0 && (
+                  <span className="block mt-1 tabular-nums">= {fmt(percentAmount(Number(callTotal)))} of {fmt(totalCommitment)}</span>
+                )}
               </label>
               {isDist && (
                 <div className="text-xs text-muted-foreground">

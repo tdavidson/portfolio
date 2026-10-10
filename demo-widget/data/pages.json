@@ -1,6 +1,6 @@
 {
  "schemaVersion": 2,
- "generatedAt": "2026-10-08",
+ "generatedAt": "2026-10-10",
  "pages": {
   "/dashboard": {
    "companies": [
@@ -479,6 +479,7 @@
     "gp_economics": "everyone",
     "tax_reporting": "off",
     "management_company": "off",
+    "budgeting": "everyone",
     "funds": "everyone",
     "lp_portal_access": "everyone"
    },
@@ -652,6 +653,7 @@
     "gp_economics": "everyone",
     "tax_reporting": "off",
     "management_company": "off",
+    "budgeting": "everyone",
     "funds": "everyone",
     "lp_portal_access": "everyone"
    },
@@ -776,6 +778,7 @@
     "gp_economics": "everyone",
     "tax_reporting": "off",
     "management_company": "off",
+    "budgeting": "everyone",
     "funds": "everyone",
     "lp_portal_access": "everyone"
    },
@@ -895,6 +898,7 @@
     "gp_economics": "everyone",
     "tax_reporting": "off",
     "management_company": "off",
+    "budgeting": "everyone",
     "funds": "everyone",
     "lp_portal_access": "everyone"
    },
@@ -1017,6 +1021,7 @@
     "gp_economics": "everyone",
     "tax_reporting": "off",
     "management_company": "off",
+    "budgeting": "everyone",
     "funds": "everyone",
     "lp_portal_access": "everyone"
    },
@@ -1155,6 +1160,7 @@
     "gp_economics": "everyone",
     "tax_reporting": "off",
     "management_company": "off",
+    "budgeting": "everyone",
     "funds": "everyone",
     "lp_portal_access": "everyone"
    },
@@ -1310,6 +1316,7 @@
     "gp_economics": "everyone",
     "tax_reporting": "off",
     "management_company": "off",
+    "budgeting": "everyone",
     "funds": "everyone",
     "lp_portal_access": "everyone"
    },
@@ -1464,6 +1471,7 @@
     "gp_economics": "everyone",
     "tax_reporting": "off",
     "management_company": "off",
+    "budgeting": "everyone",
     "funds": "everyone",
     "lp_portal_access": "everyone"
    },
@@ -1977,7 +1985,8 @@
      "created_at": "2026-07-01T15:00:30.424158+00:00",
      "company_name": null
     }
-   ]
+   ],
+   "company": null
   },
   "/deals": {
    "initialDeals": [

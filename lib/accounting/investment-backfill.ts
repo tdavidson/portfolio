@@ -67,7 +67,8 @@ const chunks = <T,>(xs: T[]) => Array.from({ length: Math.ceil(xs.length / CHUNK
  */
 export function impliesNoEntry(t: any): boolean {
   if (t.transaction_type === 'round_info' || t.transaction_type === 'split') return true
-  if (t.transaction_type === 'unrealized_gain_change') return n(t.unrealized_value_change) === 0 && n(t.fx_value_change) === 0
+  // A mark recorded as a share price books the change in value that price implies.
+  if (t.transaction_type === 'unrealized_gain_change') return n(t.unrealized_value_change) === 0 && n(t.fx_value_change) === 0 && !(n(t.current_share_price) > 0)
   if (t.transaction_type === 'investment' && !t.converts_from_txn_id) return n(t.investment_cost) + n(t.fee_amount) === 0
   if (t.transaction_type === 'income') return n(t.income_amount) === 0
   if (t.transaction_type === 'escrow_receipt') return n(t.proceeds_received) === 0
@@ -91,6 +92,13 @@ async function loadPending(admin: SupabaseClient, fundId: string, vehicleId: str
       .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('vehicle_id', vehicleId)
       .neq('status', 'void').like('source_ref', `${TXN_REF_PREFIX}%`).order('id').range(from, to)),
   ])
+  // Company-wide share prices revalue this vehicle too, for the companies it holds.
+  const held = Array.from(new Set(txns.filter(t => t.transaction_type === 'investment').map(t => t.company_id as string)))
+  const companyWide = held.length === 0 ? [] : await readAll<any>((from, to) => admin.from('investment_transactions' as any).select('*')
+    .eq('fund_id', fundId).is('portfolio_group', null).eq('transaction_type', 'unrealized_gain_change').in('company_id', held)
+    .order('transaction_date').order('id').range(from, to))
+  txns.push(...companyWide.filter(t => Number(t.current_share_price) > 0))
+  txns.sort((a, b) => String(a.transaction_date).localeCompare(String(b.transaction_date)) || String(a.id).localeCompare(String(b.id)))
   const done = new Set(derived.map(e => e.source_ref as string))
   let alreadyDerived = 0
   const pending = txns.filter(t => {

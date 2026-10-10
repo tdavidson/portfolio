@@ -310,6 +310,10 @@ The deployment is an MCP server and a REST API. Everything an agent does runs ag
 
 The MCP URL is `https://<your-domain>/api/mcp` (`/api/accounting/mcp` still answers). Claude and ChatGPT sign in with **OAuth 2.1** — dynamic client registration, PKCE, discovery at `/.well-known/oauth-authorization-server` and `/.well-known/oauth-protected-resource` — on your fund's branded consent screen, where the member chooses read, or read and change. Access tokens last an hour and refresh for 30 days. **API keys** (`lk_…`) are per member, read or read & write, and revocable in Settings; a key's scope is a ceiling, and every write is still checked against the member's grant for that area.
 
+**Getting started once connected.** Ask "What can you do?" — the assistant opens the member's **home dashboard** (`show_home`): what they can open, their saved dashboards, and questions to click. The endpoint also serves **MCP prompts** (`prompts/list`, `prompts/get`) — Get started, Portfolio review, Company check-in, Quarter-end review, LP capital status, Draft a forecast, Budget variance — filtered to the member's access; hosts list them in their prompt menu. Settings → API and MCP shows the same *Try asking* list. The catalog behind all three is `lib/agent/getting-started.ts`.
+
+**Documents.** `lp_statement_pdf` and `lp_report_card_pdf` return a signed link to `/api/agent/reports/<token>` rather than the file. The token names the member, the fund and the document, is signed with a key derived from `ENCRYPTION_KEY` (rotating it voids every link), and expires after an hour; opening it re-checks the member's live access and renders the PDF. Nothing is stored.
+
 **What it can reach.** The tool list is filtered to the areas the member can read and the entities they can see, and re-checked on every call. Requests are limited per fund to 300 reads or 60 writes a minute, in batches of up to 20 calls. The Analyst never writes directly — it stages changes for approval — and `/api/v1` (chat, streamed chat over Server-Sent Events, conversations, approving staged actions with an `Idempotency-Key`) takes only OAuth tokens issued for it.
 
 ### Dashboards in Claude and ChatGPT
@@ -326,7 +330,9 @@ It needs **Settings > Agent access** switched on by an admin, which is off by de
 
 **Connecting Claude.** Download **Plugin for Claude** from Settings. In Claude, go to **Customize > Plugins > Add > Upload plugin** and select the file, then open the plugin's **Connectors** tab, connect it and sign in. The plugin is the connector plus two skills that tell Claude when to open a dashboard and how to save one. The connector alone (add the MCP URL as a custom connector) also draws the dashboards; the skills make Claude better at choosing them.
 
-**Connecting ChatGPT.** In **Plugins**, choose the plus button, then **Add custom MCP server**, paste the MCP URL from Settings, and create it as a plugin. That is all the dashboards need. To add the skills in the ChatGPT desktop app or Codex, download **Plugin for ChatGPT**, unzip it to `~/.agents/plugins/portfolio/`, list it in `~/.agents/plugins/marketplace.json`, and restart the app:
+**Connecting ChatGPT.** In **Plugins**, choose the plus button, then **Add custom MCP server**, paste the MCP URL from Settings, upload the icon from Settings → API and MCP under **Icon** (your fund's square app mark, `/api/pwa-icon?size=192`), and create it as a plugin. That is all the dashboards need.
+
+**The connector's icon.** ChatGPT takes the icon you upload. The server also declares it in its `initialize` response (`serverInfo.icons`, MCP 2025-11-25) for hosts that read it; Claude currently shows a generic globe for every custom connector and ignores the field, so nothing is needed there until it does. To add the skills in the ChatGPT desktop app or Codex, download **Plugin for ChatGPT**, unzip it to `~/.agents/plugins/portfolio/`, list it in `~/.agents/plugins/marketplace.json`, and restart the app:
 
 ```json
 {

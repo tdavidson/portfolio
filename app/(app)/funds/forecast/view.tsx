@@ -1,14 +1,13 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { AlertTriangle, Loader2, Plus, RefreshCw, Sparkles } from 'lucide-react'
+import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import { useAnalystContext } from '@/components/analyst-context'
 import { useCurrency, formatCurrency, formatCurrencyFull } from '@/components/currency-context'
 import { useLedgerFetch } from '@/components/accounting-vehicle'
 import { FundSubpageChrome } from '@/components/fund-subpage-chrome'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { EmptyState } from '@/components/ui/empty-state'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
 import { addMonths, presetRange, type Interval, type MonthKey, type RangePreset } from '@/lib/forecast/months'
@@ -16,7 +15,7 @@ import type { PlanDetail, SeriesResult, VarianceResponse } from '@/lib/forecast/
 import { CashChart, CashFlowTimeline, PnlChart } from './charts'
 import { FeeLinksDialog } from './fee-links'
 import { RuleDialog, type RuleSubmit } from './rule-dialog'
-import { MonthRangePicker, MoreMenu, type RangeChoice } from './toolbar'
+import { MonthRangePicker, MoreMenu, NewPlanMenu, type RangeChoice } from './toolbar'
 import { VarianceSection } from './variance'
 
 type PlanListItem = PlanDetail['plan'] & { versions: { id: string; versionNo: number; label: string | null; status: string; publishedAt: string }[] }
@@ -341,17 +340,15 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
             { label: 'Fee links…', onSelect: () => setLinking(true) },
             { label: 'Download CSV', href: exportHref },
           ]} />
-          {hasAIKey && (
-            <Button variant="outline" onClick={draftWithAi}><Sparkles className="mr-1.5 h-4 w-4" /> Draft with AI</Button>
-          )}
-          <Button onClick={() => setCreating(true)}><Plus className="mr-1.5 h-4 w-4" /> New plan</Button>
+          <NewPlanMenu onManual={() => setCreating(true)} onDraftWithAi={hasAIKey ? draftWithAi : undefined} />
         </div>
       </div>
 
       {plans && plans.length === 0 && !listError && (
-        <EmptyState className="mb-6" action={<Button onClick={() => setCreating(true)}><Plus className="mr-1.5 h-4 w-4" /> New plan</Button>}>
+        // No button: New plan is right above, and the actuals below are the page's content, not a void.
+        <p className="mb-4 text-sm text-muted-foreground">
           No budgets or forecasts for {vehicle} yet. The actuals below come straight from the posted ledger.
-        </EmptyState>
+        </p>
       )}
 
       {series && (

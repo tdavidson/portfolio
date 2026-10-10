@@ -13,6 +13,17 @@ export function holdingHref(companyId: string, vehicleId?: string | null, asOf?:
   return qs.length > 0 ? `${base}?${qs.join('&')}` : base
 }
 
+/**
+ * A deal vehicle carried at its LP positions (no recorded holdings; app/api/portfolio/investments)
+ * has no holding page: its row id is this prefix plus the vehicle id, and it opens on the entity.
+ */
+export const DEAL_VEHICLE_PREFIX = 'vehicle:'
+
+/** Where an Investments row opens: the holding's page, or the entity's for a deal vehicle. */
+export function investmentHref(rowId: string): string {
+  return rowId.startsWith(DEAL_VEHICLE_PREFIX) ? `/funds/${encodeURIComponent(rowId.slice(DEAL_VEHICLE_PREFIX.length))}` : holdingHref(rowId)
+}
+
 /** A schedule-of-investments row's link, on the entity the schedule is for. Null for a pooled
  *  ledger-only row, which names no holding. */
 export function soiRowHref(row: { companyId?: string | null }, vehicleId?: string | null): string | null {

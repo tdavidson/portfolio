@@ -44,7 +44,19 @@ let disposers: (() => void)[] = []
 const openai = (window as unknown as { openai?: {
   toolOutput?: unknown
   callTool?: (name: string, args: Record<string, unknown>) => Promise<ToolResult>
+  sendFollowUpMessage?: (args: { prompt: string }) => Promise<void>
 } }).openai
+
+/** Ask in the conversation: the standard request, then ChatGPT's own, else tell the caller it could not. */
+async function ask(text: string): Promise<boolean> {
+  if (bridge.connected) {
+    try { await bridge.sendMessage(text); return true } catch { /* try the next way */ }
+  }
+  if (openai?.sendFollowUpMessage) {
+    try { await openai.sendFollowUpMessage({ prompt: text }); return true } catch { /* fall through */ }
+  }
+  return false
+}
 
 // ---------------------------------------------------------------------------------------------
 // Host context: theme, the host's own style variables, safe areas, display mode
@@ -211,6 +223,7 @@ function render(): void {
     onDispose: dispose => { disposers.push(dispose) },
     statementTab: state.statementTab,
     setStatementTab: tab => { state.statementTab = tab; render() },
+    ask,
   }
 
   const read = clockTime(payload.generatedAt, locale)

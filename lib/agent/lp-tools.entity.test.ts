@@ -60,3 +60,18 @@ describe('LP agent tools — the caller\'s entities only', () => {
     await expect(LP_HANDLERS.lp_live_report(ctx, { lp: 'Aldis' })).rejects.toThrow(/No LP matching "Aldis"/)
   })
 })
+
+describe('LP document links', () => {
+  it('issues a report card link for an investor they can see, on the origin they reached, scoped to their entities', async () => {
+    process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'test-key-for-report-links'
+    const { verifyReportLink } = await import('./report-links')
+    const out = await LP_HANDLERS.lp_report_card_pdf({ ...ctx, origin: 'https://fund.test' }, { investor: 'Cranmore' })
+    expect(out).toMatchObject({ investor: 'Cranmore', vehicles: ['Fund I'] })
+    expect(out.url).toMatch(/^https:\/\/fund\.test\/api\/agent\/reports\//)
+    expect(verifyReportLink(out.url.split('/').pop())).toMatchObject({ fundId: 'f1', userId: 'u1', kind: 'lp_report_card', args: { investor: 'i1' } })
+  })
+  it('never issues one for an LP outside their entities, or for a credential with no member', async () => {
+    await expect(LP_HANDLERS.lp_report_card_pdf(ctx, { investor: 'Aldis' })).rejects.toThrow(/No LP matching "Aldis"/)
+    await expect(LP_HANDLERS.lp_report_card_pdf({ ...ctx, userId: null }, { investor: 'Cranmore' })).rejects.toThrow(/signed-in member/)
+  })
+})

@@ -50,7 +50,7 @@ describe('loadReminderSettings', () => {
 describe('loadFundReminderData', () => {
   const tables = [
     'compliance_items', 'fund_compliance_profile', 'compliance_fund_settings', 'compliance_deadlines',
-    'fund_vehicles', 'fund_cash_flows', 'email_requests', 'companies', 'metric_values', 'ask_response_overrides',
+    'fund_vehicles', 'fund_cash_flows', 'vehicle_closings', 'email_requests', 'companies', 'metric_values', 'ask_response_overrides',
     'capital_calls',
   ]
 
@@ -59,22 +59,25 @@ describe('loadFundReminderData', () => {
     await expect(loadFundReminderData(db, 'f', '2026-09-18', 0)).rejects.toThrow(`reminders: ${table} load failed: timeout`)
   })
 
-  it('pages fund_cash_flows, metric_values and the closed compliance_deadlines read past 1000 rows, in a stable order', async () => {
+  it('pages the closes, metric_values and the closed compliance_deadlines read past 1000 rows, in a stable order', async () => {
     const pageOf = (row: object) => (range?: [number, number]) =>
       ok(range && range[0] === 0 ? Array.from({ length: 1000 }, () => row) : [row])
     const { db, calls } = fakeDb({
       fund_cash_flows: pageOf({ portfolio_group: 'Fund I', flow_date: '2026-03-01' }),
+      vehicle_closings: pageOf({ vehicle_id: 'v1', close_date: '2026-04-01' }),
+      fund_vehicles: ok([{ id: 'v1', name: 'Fund I' }]),
       metric_values: pageOf({ company_id: 'c1', period_year: 2026, period_quarter: 2, period_month: null }),
       compliance_deadlines: pageOf({ compliance_item_id: 'form-adv', portfolio_group: '', quarter: 0, year: 2026 }),
     })
     const data = await loadFundReminderData(db, 'f', '2026-09-18', 0)
 
-    for (const table of ['fund_cash_flows', 'metric_values', 'compliance_deadlines']) {
+    for (const table of ['fund_cash_flows', 'vehicle_closings', 'metric_values', 'compliance_deadlines']) {
       const reads = calls.filter(c => c.table === table)
       expect(reads.map(c => c.range), table).toEqual([[0, 999], [1000, 1999]])
       expect(reads[0].orders.at(-1), table).toBe('id')
     }
     expect(data.compliance.closed).toHaveLength(1001)
-    expect(data.compliance.closeDates['Fund I']).toHaveLength(1001)
+    // Every page was read; a close is a date, so the same date many times is one close.
+    expect(data.compliance.closeDates['Fund I']).toEqual(['2026-03-01', '2026-04-01'])
   })
 })

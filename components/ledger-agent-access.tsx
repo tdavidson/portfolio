@@ -9,6 +9,8 @@ import { DILIGENCE_TOOL_MANIFEST } from '@/lib/agent/diligence-tools-manifest'
 import { DEALS_TOOL_MANIFEST } from '@/lib/agent/deals-tools-manifest'
 import { LP_TOOL_MANIFEST } from '@/lib/agent/lp-tools-manifest'
 import { DASHBOARD_TOOL_MANIFEST } from '@/lib/agent/dashboard-tools-manifest'
+import { areasFor, DASHBOARD_TIPS, promptsFor } from '@/lib/agent/getting-started'
+import { useAccess } from '@/components/access-context'
 
 // One surface, one key, the whole firm — deal flow at the top of the funnel, the deals
 // under diligence, what the fund ended up owning, what the LPs hold, and what the books
@@ -217,12 +219,16 @@ export function LedgerAgentAccess({ isAdmin, section = 'keys' }: { isAdmin: bool
           </li>
           <li>
             <strong>ChatGPT</strong> — in Plugins, choose the plus button, then Add custom MCP server,
-            paste the MCP URL above and create it as a plugin. That is all the dashboards need. The
+            paste the MCP URL above and, under Icon, upload{' '}
+            <a href="/api/pwa-icon?size=192" download="portfolio-icon.png" className="underline underline-offset-4 hover:text-foreground">this icon</a>
+            {' '}(your fund&rsquo;s app mark), and create it as a plugin. That is all the dashboards need. The
             download adds the skills for the ChatGPT desktop app: unzip it into a plugin marketplace
             folder (DOCS.md has the steps).
           </li>
         </ul>
       </div>
+
+      <TryAsking />
 
       {newToken && (
         <div className="rounded-card border border-warning/40 bg-warning/10 p-3 text-sm">
@@ -284,6 +290,52 @@ export function LedgerAgentAccess({ isAdmin, section = 'keys' }: { isAdmin: bool
       )}
       </>
       )}
+    </div>
+  )
+}
+
+
+/**
+ * What to say once connected — the same catalog the home dashboard and the MCP prompt menu use
+ * (lib/agent/getting-started.ts), filtered to the areas this member can read.
+ */
+function TryAsking() {
+  const level = useAccess()
+  const canRead = (domain: Parameters<typeof level>[0], feature?: Parameters<typeof level>[1]) => {
+    const l = level(domain, feature)
+    return l === 'read' || l === 'write'
+  }
+  const areas = areasFor(canRead)
+  const prompts = promptsFor(canRead)
+  return (
+    <div className="rounded-card border bg-muted/30 p-3 space-y-3">
+      <div>
+        <p className="text-xs font-medium">Try asking</p>
+        <p className="text-xs text-muted-foreground">
+          Start with <strong>&ldquo;What can you do?&rdquo;</strong> &mdash; it opens your home dashboard, with the
+          dashboards you can open, the ones you saved, and questions you can click.
+        </p>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2">
+        {areas.map(a => (
+          <div key={a.key} className="space-y-1">
+            <p className="text-xs font-medium">{a.label} <span className="font-normal text-muted-foreground">&middot; {a.blurb}</span></p>
+            <ul className="text-xs text-muted-foreground space-y-0.5">
+              {a.questions.map(q => <li key={q}>&ldquo;{q}&rdquo;</li>)}
+            </ul>
+          </div>
+        ))}
+      </div>
+      <div className="space-y-1">
+        <p className="text-xs font-medium">Prompts</p>
+        <p className="text-xs text-muted-foreground">
+          Ready-made requests in your assistant&rsquo;s prompt menu (in Claude, the + menu; in Claude Code, type /):{' '}
+          {prompts.map(p => p.title).join(', ')}.
+        </p>
+      </div>
+      <ul className="text-xs text-muted-foreground space-y-0.5 list-disc ml-4">
+        {DASHBOARD_TIPS.slice(0, 2).map(t => <li key={t}>{t}</li>)}
+      </ul>
     </div>
   )
 }

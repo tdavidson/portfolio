@@ -6,6 +6,7 @@ import { Plus, Loader2 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import type { DialogControl } from '@/components/add-investment-menu'
 import {
   Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle, DialogTrigger,
 } from '@/components/ui/dialog'
@@ -17,10 +18,12 @@ import { investingEntities, type EntityChoice } from '@/lib/portfolio/investing-
  * Adds a holding that is a DIGITAL ASSET (companies.holding_type = 'crypto'). Its wallets and its
  * price feed are configured on its own page, which is where this goes once it exists.
  */
-export function AddDigitalAssetButton() {
+export function AddDigitalAssetButton({ open: openProp, onOpenChange, hideTrigger }: DialogControl = {}) {
   const router = useRouter()
   const canWrite = useCanWrite('portfolio', 'investments')
-  const [open, setOpen] = useState(false)
+  const [openState, setOpenState] = useState(false)
+  const open = openProp ?? openState
+  const setOpen = (o: boolean) => { setOpenState(o); onOpenChange?.(o) }
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [name, setName] = useState('')
@@ -71,9 +74,11 @@ export function AddDigitalAssetButton() {
 
   return (
     <Dialog open={open} onOpenChange={o => { setOpen(o); setError(null) }}>
+      {!hideTrigger && (
       <DialogTrigger asChild>
         <Button variant="outline" size="sm" className="gap-1.5 h-8 py-2 text-muted-foreground hover:text-foreground"><Plus className="h-3.5 w-3.5" />Add digital asset</Button>
       </DialogTrigger>
+      )}
       <DialogContent>
         <DialogHeader>
           <DialogTitle>Add a digital asset</DialogTitle>

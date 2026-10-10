@@ -5,9 +5,11 @@ description: >
   connector can answer from the fund's own records: "what is our TVPI", "how much have we
   called", "what did we invest in Acme", "which companies are marked below cost", "what is
   Acme's runway", "how much has each LP funded", "what is our net income this year", "do our
-  books agree with the administrator", "what did Acme say in their last update".
+  books agree with the administrator", "what did Acme say in their last update" — and when the
+  user wants an LP document as a file: "send me Cranmore's capital account statement", "a PDF of
+  the report card for Aldis".
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Answering questions about the fund
@@ -34,9 +36,16 @@ If the user wants to *look at* something rather than get an answer, show a dashb
 | LP positions as the administrator reported them | `lp_snapshot` |
 | Whether the books agree with the administrator | `lp_reconcile_snapshot` |
 | One LP's capital account statement | `lp_statement` |
-| Capital calls and who has funded them | `lp_capital_calls` |
+| One LP's capital account statement **as a PDF** | `lp_statement_pdf` |
+| An investor's report card (every vehicle aggregated) **as a PDF** | `lp_report_card_pdf` |
+| Capital calls and who has funded them (including "says wired" from the LP portal) | `lp_capital_calls` |
 | Balance sheet, income statement, trial balance | `financial_statements` |
 | Budget and forecast against actuals | `forecast_variance`, `forecast_series` |
+
+The two PDF tools return a link, not the document. Give the user the link as a link, say it
+works for an hour and only for them, and do not try to open or summarize it — call
+`lp_statement` or `lp_live_report` for the figures. A statement is per LP entity and per vehicle;
+if the name matches several entities, ask which.
 
 Only the tools the user's access allows are listed for them. If a tool here is not available,
 the user's access does not include that area: say so, and do not look for another route to the

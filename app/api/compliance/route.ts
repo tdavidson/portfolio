@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { overlayCompletion, parseYear, type DeadlineRow } from '@/lib/compliance/completion'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 import { scopeCompanyRows } from '@/lib/access/scope'
+import { closeMonthsFor, loadCloseDates } from '@/lib/compliance/closes'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
@@ -22,7 +23,7 @@ export async function GET(req: NextRequest) {
   // Completion is per year: ?year= picks which occurrences to overlay (default: this UTC year).
   const year = parseYear(req.nextUrl.searchParams.get('year'))
 
-  const [itemsRes, profileRes, settingsRes, deadlinesRes, groupsRes, commitmentsRes] = await Promise.all([
+  const [itemsRes, profileRes, settingsRes, deadlinesRes, groupsRes, closeDates] = await Promise.all([
     admin.from('compliance_items').select('*').order('sort_order'),
     admin.from('fund_compliance_profile').select('*').eq('fund_id', membership.fund_id).maybeSingle(),
     admin.from('compliance_fund_settings').select('*').eq('fund_id', membership.fund_id),
@@ -31,28 +32,14 @@ export async function GET(req: NextRequest) {
     // free-text group name and also carried carry_rate / gp_commit_pct, both obsolete. Reading
     // vintage from two places is how the two start disagreeing.
     admin.from('fund_vehicles' as any).select('name, vintage_year').eq('fund_id', membership.fund_id) as unknown as { data: { name: string; vintage_year: number | null }[] | null; error: any },
-    // Commitment entries = closes — get dates for current year to place event-driven items
-    admin.from('fund_cash_flows')
-      .select('portfolio_group, flow_date')
-      .eq('fund_id', membership.fund_id)
-      .eq('flow_type', 'commitment')
-      .gte('flow_date', `${year}-01-01`)
-      .lte('flow_date', `${year}-12-31`)
-      .order('flow_date'),
+    // Each vehicle's closes, to place the event-driven filings (Form D, Blue Sky).
+    loadCloseDates(admin, membership.fund_id, `${year}-01-01`, `${year}-12-31`),
   ])
 
   const groups = ((groupsRes.data ?? []) as unknown as { name: string; vintage_year: number | null }[])
     .map(v => ({ portfolio_group: v.name, vintage: v.vintage_year }))
 
-  // Build a map of portfolio_group -> months with closes
-  const closeMonths: Record<string, number[]> = {}
-  for (const row of (commitmentsRes.data ?? []) as { portfolio_group: string; flow_date: string }[]) {
-    const month = new Date(row.flow_date).getMonth() + 1
-    if (!closeMonths[row.portfolio_group]) closeMonths[row.portfolio_group] = []
-    if (!closeMonths[row.portfolio_group].includes(month)) {
-      closeMonths[row.portfolio_group].push(month)
-    }
-  }
+  const closeMonths = closeMonthsFor(closeDates, year)
 
   // Fund-level items stay; anything tied to an entity is shown for the caller's entities only.
   const scope = await loadEntityScopeForUser(admin, user.id)

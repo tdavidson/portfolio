@@ -464,7 +464,10 @@ export async function generateInvestorReportPdf(
  */
 export async function generateLiveInvestorReportPdf(
   admin: any,
-  opts: { fundId: string; investorIds: string[] },
+  /** `groups`: only these vehicles (a member scoped to some entities); absent or null = all.
+   *  `omit`: positions to leave out, by vehicle → LP entity ids (a carry recipient's, for a caller
+   *  without gp_economics; lib/access/carry-visibility.ts). */
+  opts: { fundId: string; investorIds: string[]; groups?: string[] | null; omit?: Map<string, Set<string>> },
 ): Promise<{ pdf: Buffer; fileName: string } | null> {
   const { fundId, investorIds } = opts
   if (investorIds.length === 0) return null
@@ -481,7 +484,9 @@ export async function generateLiveInvestorReportPdf(
     ((entsRes.data as any[]) ?? []).map(e => [e.id, { entity_name: e.entity_name, investor_id: e.investor_id }])
   )
   const investorSet = new Set(investorIds)
-  const mine = report.rows.filter((r: any) => investorSet.has(entInfo.get(r.entity_id)?.investor_id ?? ''))
+  const mine = report.rows.filter((r: any) =>
+    investorSet.has(entInfo.get(r.entity_id)?.investor_id ?? '') && (opts.groups == null || opts.groups.includes(r.portfolio_group))
+    && !opts.omit?.get(r.portfolio_group)?.has(r.entity_id))
   if (mine.length === 0) return null
 
   const invRows: InvestmentRow[] = mine.map((r: any, i: number) => {

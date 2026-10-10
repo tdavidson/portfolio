@@ -6,6 +6,7 @@
 
 import { VIEW_TOOL } from './payload'
 import type {
+  HomePayload, CallsPayload, CallLine,
   CompanyMetricSeries, CompanyPayload, DashboardBranding, DashboardPayload, LpPayload, LpRow,
   PartnerCapitalRow, PortfolioPayload, PortfolioPosition, StatementLine, StatementsPayload,
 } from './payload'
@@ -30,7 +31,7 @@ const positions = [
   co('Castellan', 'Seed', 'Security', 650000, 380000),
   co('Ostrander Bio', 'Seed', 'Biotech', 700000, 350000),
   co('Fennel', 'Pre-seed', 'Consumer', 300000, 150000),
-  co('Greyfriar', 'Pre-seed', 'Fintech', 250000, 0, 0, 'written_off'),
+  co('Greyfriar', 'Pre-seed', 'Fintech', 250000, 0, 0, 'written-off'),
 ]
 const tf = positions.reduce((s, p) => s + p.fairValue, 0)
 positions.forEach(p => { p.pctOfPortfolio = Math.round((p.fairValue / tf) * 10000) / 100 })
@@ -40,7 +41,7 @@ const tr = positions.reduce((s, p) => s + p.realized, 0)
 export const portfolio: PortfolioPayload = {
   view: 'portfolio', title: 'Portfolio overview', subtitle: 'All vehicles · as of 9 Oct 2026', args: {}, generatedAt: now, branding,
   data: {
-    asOf: '2026-10-09', vehicle: 'all', positions,
+    asOf: '2026-10-09', vehicle: 'all', positions, vehicles: ['Fund I', 'Fund II', 'Meridian SPV'],
     totals: { cost: tc, fairValue: tf, unrealized: tf - tc, realized: tr, grossMoic: Math.round(((tf + tr) / tc) * 100) / 100 },
     performance: [
       { vehicle: 'Fund I', committed: 20000000, called: 14500000, unfunded: 5500000, distributed: 2100000, nav: 22400000, dpi: 0.14, rvpi: 1.54, tvpi: 1.69 },
@@ -130,7 +131,53 @@ export const lps: LpPayload = {
   view: 'lps', title: 'LP capital', subtitle: 'All vehicles · as of 9 Oct 2026', args: {}, generatedAt: now, branding,
   data: { asOf: '2026-10-09', vehicle: 'all', rows, totals: { commitment: t('commitment'), paidIn: t('paidIn'), distributions: t('distributions'), nav: t('nav'), dpi: Math.round((t('distributions') / t('paidIn')) * 100) / 100, rvpi: Math.round((t('nav') / t('paidIn')) * 100) / 100, tvpi: Math.round(((t('distributions') + t('nav')) / t('paidIn')) * 100) / 100 } },
 }
-export const SAMPLE_DASHBOARDS = { portfolio, company, statements, lps }
+const callLine = (lp: string, called: number, received: number, status: CallLine['status'], extra: Partial<CallLine> = {}): CallLine =>
+  ({ lp, called, received, outstanding: called - received, status, overdue: false, receivedOn: status === 'paid' ? '2026-09-24' : null, saysWired: null, ...extra })
+const callLines: CallLine[] = [
+  callLine('Halvorsen Family Trust', 420000, 420000, 'paid'),
+  callLine('Meridian Endowment', 700000, 700000, 'paid'),
+  callLine('S. Lindqvist', 105000, 0, 'says_wired', { saysWired: { on: '2026-10-07', reference: 'FT2610071' } }),
+  callLine('Okafor Capital', 280000, 140000, 'partial', { overdue: true }),
+  callLine('Reyes Partners', 175000, 0, 'unpaid', { overdue: true }),
+  callLine('General Partner', 70000, 70000, 'paid'),
+]
+const sumOf = (k: 'called' | 'received' | 'outstanding') => callLines.reduce((s, l) => s + l[k], 0)
+export const calls: CallsPayload = {
+  view: 'calls', title: 'Capital calls', subtitle: 'Fund I · Call #4 · 15 Sep 2026', args: { vehicle: 'Fund I' }, generatedAt: now, branding,
+  data: {
+    vehicle: 'Fund I',
+    calls: [
+      { id: 'k4', number: 4, date: '2026-09-15', dueDate: '2026-10-01', description: 'Follow-ons and Q4 fees', total: sumOf('called'), received: sumOf('received'), outstanding: sumOf('outstanding'), status: 'partial', overdue: true },
+      { id: 'k3', number: 3, date: '2026-04-01', dueDate: '2026-04-15', description: 'Meridian Series B', total: 1500000, received: 1500000, outstanding: 0, status: 'settled', overdue: false },
+      { id: 'k2', number: 2, date: '2025-10-01', dueDate: '2025-10-15', description: null, total: 1200000, received: 1200000, outstanding: 0, status: 'settled', overdue: false },
+    ],
+    selected: null as any,
+  },
+}
+calls.data.selected = { ...calls.data.calls[0], lines: callLines }
+
+export const home: HomePayload = {
+  view: 'home', title: 'Northgate — home', subtitle: 'What you can open, and what to ask', args: {}, generatedAt: now, branding,
+  data: {
+    dashboards: [
+      { view: 'portfolio', label: 'Portfolio overview', description: 'Cost, fair value and MOIC, by company. Click a company to drill in.', tool: 'show_portfolio_dashboard', args: {} },
+      { view: 'statements', label: 'Statements — Fund I', description: "Balance sheet, income, cash flows and partners' capital, year to date.", tool: 'show_financial_statements', args: { vehicle: 'Fund I', period: 'ytd' } },
+      { view: 'lps', label: 'LP capital', description: 'Commitments, calls, distributions and NAV by investor.', tool: 'show_lp_dashboard', args: {} },
+    ],
+    saved: [
+      { id: 'd1', name: 'Q3 LP review', view: 'lps', arguments: {}, kind: 'mine', updatedAt: now },
+      { id: 'd2', name: 'Team portfolio', view: 'portfolio', arguments: {}, kind: 'shared', updatedAt: now },
+    ],
+    areas: [
+      { key: 'portfolio', label: 'Portfolio', blurb: 'Companies, positions, marks and KPIs.', questions: ['Show me the portfolio.', 'Which companies are marked below cost?'] },
+      { key: 'books', label: 'Books', blurb: 'Financial statements, the ledger and the bank.', questions: ['Pull up the balance sheet for our main fund, last quarter.'] },
+      { key: 'lps', label: 'LP capital', blurb: 'Commitments, calls, distributions and NAV by investor.', questions: ['Who has funded their capital calls?'] },
+    ],
+    tips: ['Say "save this as Q3 LP review" to keep a dashboard; it always reopens on current figures.'],
+    help: 'You are connected to Northgate.',
+  },
+}
+export const SAMPLE_DASHBOARDS = { portfolio, company, statements, lps, calls, home }
 
 /** The sample each `show_*` tool returns, for a host standing in for the MCP server. */
 export const SAMPLE_BY_TOOL: Record<string, DashboardPayload> = {
@@ -138,4 +185,6 @@ export const SAMPLE_BY_TOOL: Record<string, DashboardPayload> = {
   [VIEW_TOOL.company]: company,
   [VIEW_TOOL.statements]: statements,
   [VIEW_TOOL.lps]: lps,
+  [VIEW_TOOL.calls]: calls,
+  show_home: home,
 }

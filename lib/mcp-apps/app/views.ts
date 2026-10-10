@@ -11,7 +11,8 @@ import { DASH, fractionPercent, multiple, percent, share, shortDate, titleCase, 
 import { button, dataTable, empty, note, section, segmented, tiles, type Column, type Tile } from './ui'
 import {
   STATEMENT_PRESETS, STATEMENT_PRESET_LABEL, VIEW_TOOL,
-  type CompanyMetricSeries, type CompanyPayload, type DashboardPayload, type LpPayload, type LpRow,
+  type CallLine, type CallLineStatus, type CallSummary, type CallsPayload,
+  type CompanyMetricSeries, type CompanyPayload, type DashboardPayload, type HomePayload, type LpPayload, type LpRow,
   type PartnerCapitalRow, type PortfolioPayload, type PortfolioPosition, type StatementPreset,
   type StatementsData, type StatementsPayload,
 } from '../payload'
@@ -30,6 +31,8 @@ export interface ViewContext {
   /** Which statement is showing, kept across a period change. */
   statementTab: StatementTab
   setStatementTab(tab: StatementTab): void
+  /** Ask a question in the conversation, as the user. Resolves false when the host would not take it. */
+  ask(text: string): Promise<boolean>
 }
 
 export type StatementTab = 'balance' | 'income' | 'cash' | 'capital'
@@ -40,7 +43,58 @@ export function renderView(payload: DashboardPayload, ctx: ViewContext): Node[] 
     case 'company': return company(payload, ctx)
     case 'statements': return statements(payload, ctx)
     case 'lps': return lps(payload, ctx)
+    case 'calls': return calls(payload, ctx)
+    case 'home': return home(payload, ctx)
   }
+}
+
+// ---------------------------------------------------------------------------------------------
+// Home — the launcher: open a dashboard, reopen a saved one, or ask a question
+// ---------------------------------------------------------------------------------------------
+
+function home(payload: HomePayload, ctx: ViewContext): Node[] {
+  const { dashboards, saved, areas, tips } = payload.data
+  const out: Node[] = []
+
+  out.push(section('Dashboards',
+    dashboards.length
+      ? h('div', { class: 'launch' }, dashboards.map(d =>
+          h('button', { type: 'button', class: 'launch-card', onclick: () => ctx.open(d.tool, d.args, 'push') },
+            h('span', { class: 'launch-title' }, d.label),
+            h('span', { class: 'launch-sub' }, d.description))))
+      : empty('Your access does not include any dashboards yet. Ask an admin for access to the portfolio, the books or LP capital.')))
+
+  if (saved.length) {
+    out.push(section('Saved',
+      h('div', { class: 'chips' }, saved.map(s =>
+        h('button', { type: 'button', class: 'chip', title: s.kind === 'shared' ? 'Shared with the fund' : 'Yours', onclick: () => ctx.open('open_dashboard', { dashboard: s.id }, 'push') },
+          s.name, s.kind === 'shared' ? h('span', { class: 'chip-tag' }, 'shared') : null)))))
+  }
+
+  if (areas.length) {
+    // In the inline card, one question per area keeps it short; the full view lists them all.
+    const status = h('p', { class: 'note', 'aria-live': 'polite' })
+    const ask = (q: string) => {
+      void ctx.ask(q).then(sent => {
+        status.textContent = sent ? '' : `Type or paste this into the conversation: "${q}"`
+      })
+    }
+    out.push(section('Try asking',
+      h('div', { class: 'ask-grid' }, areas.map(a =>
+        h('div', { class: 'ask-area' },
+          h('p', { class: 'ask-label' }, a.label),
+          h('p', { class: 'ask-blurb' }, a.blurb),
+          (ctx.compact ? a.questions.slice(0, 1) : a.questions).map(q =>
+            h('button', { type: 'button', class: 'ask', onclick: () => ask(q) }, q))))),
+      status))
+  }
+
+  if (!ctx.compact && tips.length) {
+    out.push(section('Tips', h('ul', { class: 'tips' }, tips.map(t => h('li', null, t)))))
+  }
+  const more = expandButton(ctx, 'Show all questions and tips')
+  if (more) out.push(more)
+  return out
 }
 
 const signed = (fmt: Formatters, v: number) => (v > 0 ? `+${fmt.compact(v)}` : fmt.compact(v))
@@ -57,6 +111,26 @@ function portfolio(payload: PortfolioPayload, ctx: ViewContext): Node[] {
   const { fmt } = ctx
   const { positions, totals, performance } = payload.data
   const out: Node[] = []
+
+  // Which entity: all of them, or one. Re-runs the tool, so the figures (and the fund performance)
+  // are the entity's own, not a client-side slice of the whole. A native select, not a button row:
+  // a fund can have twenty entities, and the platform's own menu is never clipped by the host.
+  const vehicles = payload.data.vehicles ?? []
+  if (vehicles.length > 1) {
+    const current = payload.args.vehicle ?? ''
+    const select = h('select', {
+      class: 'picker', 'aria-label': 'Entity',
+      onchange: (e: Event) => {
+        const v = (e.target as HTMLSelectElement).value
+        ctx.open(VIEW_TOOL.portfolio, { ...(v ? { vehicle: v } : {}), ...(payload.args.as_of ? { as_of: payload.args.as_of } : {}) }, 'replace')
+      },
+    },
+      h('option', { value: '' }, 'All entities'),
+      ...vehicles.map(v => h('option', { value: v }, v)),
+    ) as HTMLSelectElement
+    select.value = vehicles.includes(String(current)) ? String(current) : ''
+    out.push(h('div', { class: 'filters' }, select))
+  }
 
   const headline: Tile[] = [
     { label: 'Fair value', value: fmt.compact(totals.fairValue), sub: `${positions.length} ${positions.length === 1 ? 'position' : 'positions'}` },
@@ -81,69 +155,132 @@ function portfolio(payload: PortfolioPayload, ctx: ViewContext): Node[] {
         sub: called === null ? `of ${fmt.compact(t.committed)} committed` : `${percent(called, 0)} of ${fmt.compact(t.committed)} committed`,
       },
       { label: 'Distributed', value: fmt.compact(t.distributed) },
-      { label: 'DPI', value: multiple(t.called > 0 ? t.distributed / t.called : null), sub: 'Distributions to paid-in' },
+      // DPI says nothing until something has been distributed: 0.00x is just "Distributed $0" again.
+      ...(t.distributed !== 0 ? [{ label: 'DPI', value: multiple(t.called > 0 ? t.distributed / t.called : null), sub: 'Distributions to paid-in' }] : []),
       { label: 'TVPI', value: multiple(t.called > 0 ? (t.distributed + t.nav) / t.called : null), sub: 'Total value to paid-in' },
     ])))
+  }
+
+  const openCompany = (p: PortfolioPosition) => ctx.open(VIEW_TOOL.company, { company: p.companyId, ...(payload.args.vehicle ? { vehicle: payload.args.vehicle } : {}) }, 'push')
+
+  // Which companies: what is held now (the default — a written-off or fully exited company has no
+  // bar to draw), or every company the fund ever backed, exits and write-offs included.
+  const isCurrent = (p: PortfolioPosition) => {
+    const status = (p.status ?? '').replace('_', '-')
+    return status !== 'exited' && status !== 'written-off' && (p.fairValue > 0.5 || p.cost > 0.5)
+  }
+  let which: 'current' | 'all' = 'current'
+  let mode: 'value' | 'multiple' = 'value'
+  const limit = ctx.compact ? 5 : 12
+  const slot = h('div', { class: 'body' })
+
+  const draw = () => {
+    const list = which === 'current' ? positions.filter(isCurrent) : positions
+    const nodes: Node[] = []
+    nodes.push(h('div', { class: 'filters' },
+      segmented('Companies', [
+        { value: 'current', label: 'Current holdings' },
+        { value: 'all', label: 'All companies' },
+      ], which, w => { which = w; draw() }),
+      segmented('Show', [
+        { value: 'value', label: 'By fair value' },
+        { value: 'multiple', label: 'By gross multiple' },
+      ], mode, m => { mode = m; draw() }),
+    ))
+    if (list.length === 0) {
+      nodes.push(empty(which === 'current' ? 'Nothing is held in this scope.' : 'No positions in this scope.'))
+      slot.replaceChildren(...nodes)
+      return
+    }
+    nodes.push(section(ctx.compact ? 'By company' : mode === 'value' ? 'Fair value and cost by company' : 'Gross multiple by company',
+      mode === 'value' ? byValue(list) : byMultiple(list)))
+    if (ctx.compact) {
+      const more = expandButton(ctx, `See all ${list.length} ${which === 'current' ? 'holdings' : 'companies'}`)
+      if (more) nodes.push(more)
+    } else {
+      nodes.push(holdingsTable(list))
+    }
+    slot.replaceChildren(...nodes)
+  }
+
+  const byValue = (list: PortfolioPosition[]): HTMLElement => {
+    const shown = list.slice(0, limit)
+    const rest = list.slice(shown.length)
+    const bars: BarDatum[] = shown.map(p => ({
+      label: p.company,
+      value: p.fairValue,
+      reference: p.cost,
+      valueLabel: fmt.compact(p.fairValue),
+      tooltip: [
+        { value: fmt.money(p.fairValue), label: 'fair value' },
+        { value: fmt.money(p.cost), label: 'cost' },
+        { value: multiple(p.moic), label: 'MOIC' },
+      ],
+      onActivate: () => openCompany(p),
+    }))
+    if (rest.length > 0) {
+      const fairValue = rest.reduce((s, p) => s + p.fairValue, 0)
+      const cost = rest.reduce((s, p) => s + p.cost, 0)
+      bars.push({
+        label: `${rest.length} ${rest.length === 1 ? 'other' : 'others'}`,
+        value: fairValue,
+        reference: cost,
+        valueLabel: fmt.compact(fairValue),
+        tooltip: [{ value: fmt.money(fairValue), label: 'fair value' }, { value: fmt.money(cost), label: 'cost' }],
+      })
+    }
+    return barChart(bars, { valueName: 'Fair value', referenceName: 'Cost', ariaLabel: 'Fair value and cost by company, largest first' })
+  }
+
+  const byMultiple = (list: PortfolioPosition[]): HTMLElement => {
+    // Every company in full: the multiple view is for finding the laggards, and the tail is where they are.
+    const sorted = list.filter(p => p.moic != null).sort((a, b) => (b.moic ?? 0) - (a.moic ?? 0))
+    const ranked = ctx.compact ? sorted.slice(0, limit) : sorted
+    return barChart(ranked.map(p => ({
+      label: p.company,
+      value: p.moic ?? 0,
+      reference: 1,
+      valueLabel: multiple(p.moic),
+      tone: (p.moic ?? 0) < 1 ? 'loss' as const : undefined,
+      tooltip: [
+        { value: multiple(p.moic), label: 'gross multiple' },
+        { value: fmt.money(p.fairValue), label: 'fair value' },
+        { value: fmt.money(p.cost), label: 'cost' },
+      ],
+      onActivate: () => openCompany(p),
+    })), { valueName: 'Gross multiple', referenceName: '1.0x', ariaLabel: 'Gross multiple by company, highest first' })
+  }
+
+  const holdingsTable = (list: PortfolioPosition[]): HTMLElement => {
+    const columns: Column<PortfolioPosition>[] = [
+      { header: 'Company', cell: p => p.company, sort: p => p.company.toLowerCase() },
+      { header: 'Stage', cell: p => p.stage ?? DASH, sort: p => p.stage ?? '', minWidth: 'lg' },
+      { header: 'Status', cell: p => titleCase(p.status) || DASH, sort: p => p.status ?? '', minWidth: 'lg' },
+      { header: 'Cost', numeric: true, cell: p => fmt.money(p.cost), sort: p => p.cost, minWidth: 'md' },
+      { header: 'Fair value', numeric: true, cell: p => fmt.money(p.fairValue), sort: p => p.fairValue },
+      { header: 'Unrealized', numeric: true, cell: p => fmt.money(p.unrealized), sort: p => p.unrealized, minWidth: 'md' },
+      { header: 'MOIC', numeric: true, cell: p => multiple(p.moic), sort: p => p.moic ?? -Infinity },
+      { header: '% of portfolio', numeric: true, cell: p => percent(p.pctOfPortfolio), sort: p => p.pctOfPortfolio, minWidth: 'md' },
+    ]
+    // The footer is of the rows shown, so it adds up on its own terms; the tiles above are the whole scope.
+    const sum = (k: 'cost' | 'fairValue' | 'unrealized') => list.reduce((s, p) => s + p[k], 0)
+    const showsAll = list.length === positions.length
+    return section(which === 'current' ? 'Holdings' : 'All companies', dataTable(list, columns, {
+      caption: 'Every position with cost, fair value, unrealized gain, MOIC and share of the portfolio',
+      onRow: openCompany,
+      rowLabel: p => `Open ${p.company}`,
+      initialSort: { column: 4, descending: true },
+      footer: ['Total', '', '', fmt.money(sum('cost')), fmt.money(sum('fairValue')), fmt.money(sum('unrealized')), showsAll ? multiple(totals.grossMoic) : '', ''],
+    }))
   }
 
   if (positions.length === 0) {
     out.push(empty('No positions with a cost or fair value in this scope.'))
     return out
   }
-
-  const openCompany = (p: PortfolioPosition) => ctx.open(VIEW_TOOL.company, { company: p.companyId, ...(payload.args.vehicle ? { vehicle: payload.args.vehicle } : {}) }, 'push')
-
-  const shown = positions.slice(0, ctx.compact ? 5 : 12)
-  const rest = positions.slice(shown.length)
-  const bars: BarDatum[] = shown.map(p => ({
-    label: p.company,
-    value: p.fairValue,
-    reference: p.cost,
-    valueLabel: fmt.compact(p.fairValue),
-    tooltip: [
-      { value: fmt.money(p.fairValue), label: 'fair value' },
-      { value: fmt.money(p.cost), label: 'cost' },
-      { value: multiple(p.moic), label: 'MOIC' },
-    ],
-    onActivate: () => openCompany(p),
-  }))
-  if (rest.length > 0) {
-    const fairValue = rest.reduce((s, p) => s + p.fairValue, 0)
-    const cost = rest.reduce((s, p) => s + p.cost, 0)
-    bars.push({
-      label: `${rest.length} ${rest.length === 1 ? 'other' : 'others'}`,
-      value: fairValue,
-      reference: cost,
-      valueLabel: fmt.compact(fairValue),
-      tooltip: [{ value: fmt.money(fairValue), label: 'fair value' }, { value: fmt.money(cost), label: 'cost' }],
-    })
-  }
-  out.push(section('Fair value and cost by company',
-    barChart(bars, { valueName: 'Fair value', referenceName: 'Cost', ariaLabel: 'Fair value and cost by company, largest first' })))
-
-  if (ctx.compact) {
-    const more = expandButton(ctx, `See all ${positions.length} positions`)
-    if (more) out.push(more)
-    return out
-  }
-
-  const columns: Column<PortfolioPosition>[] = [
-    { header: 'Company', cell: p => p.company, sort: p => p.company.toLowerCase() },
-    { header: 'Stage', cell: p => p.stage ?? DASH, sort: p => p.stage ?? '', minWidth: 'lg' },
-    { header: 'Status', cell: p => titleCase(p.status) || DASH, sort: p => p.status ?? '', minWidth: 'lg' },
-    { header: 'Cost', numeric: true, cell: p => fmt.money(p.cost), sort: p => p.cost, minWidth: 'md' },
-    { header: 'Fair value', numeric: true, cell: p => fmt.money(p.fairValue), sort: p => p.fairValue },
-    { header: 'Unrealized', numeric: true, cell: p => fmt.money(p.unrealized), sort: p => p.unrealized, minWidth: 'md' },
-    { header: 'MOIC', numeric: true, cell: p => multiple(p.moic), sort: p => p.moic ?? -Infinity },
-    { header: '% of portfolio', numeric: true, cell: p => percent(p.pctOfPortfolio), sort: p => p.pctOfPortfolio, minWidth: 'md' },
-  ]
-  out.push(section('Holdings', dataTable(positions, columns, {
-    caption: 'Every position with cost, fair value, unrealized gain, MOIC and share of the portfolio',
-    onRow: openCompany,
-    rowLabel: p => `Open ${p.company}`,
-    initialSort: { column: 4, descending: true },
-    footer: ['Total', '', '', fmt.money(totals.cost), fmt.money(totals.fairValue), fmt.money(totals.unrealized), multiple(totals.grossMoic), ''],
-  })))
+  draw()
+  out.push(slot)
+  if (ctx.compact) return out
 
   if (performance && performance.length > 1) {
     out.push(section('By vehicle', dataTable(performance, [
@@ -152,7 +289,9 @@ function portfolio(payload: PortfolioPayload, ctx: ViewContext): Node[] {
       { header: 'Called', numeric: true, cell: v => fmt.money(v.called), sort: v => v.called },
       { header: 'Distributed', numeric: true, cell: v => fmt.money(v.distributed), sort: v => v.distributed, minWidth: 'md' },
       { header: 'NAV', numeric: true, cell: v => fmt.money(v.nav), sort: v => v.nav },
-      { header: 'DPI', numeric: true, cell: v => multiple(v.dpi), sort: v => v.dpi ?? -Infinity, minWidth: 'md' },
+      ...(performance.some(v => v.distributed !== 0)
+        ? [{ header: 'DPI', numeric: true, cell: (v: (typeof performance)[number]) => multiple(v.dpi), sort: (v: (typeof performance)[number]) => v.dpi ?? -Infinity, minWidth: 'md' as const }]
+        : []),
       { header: 'TVPI', numeric: true, cell: v => multiple(v.tvpi), sort: v => v.tvpi ?? -Infinity },
     ], { caption: 'Committed, called, distributed and NAV for each vehicle' })))
   }
@@ -381,7 +520,7 @@ function statements(payload: StatementsPayload, ctx: ViewContext): Node[] {
       out.push(capitalTable(fmt, d.partnersCapital))
     }
     if (d.partnersCapital.carryWithheld) {
-      out.push(note('Carried interest and the General Partner are not shown, because your access does not include GP economics. The rows above therefore do not add up to total capital on the balance sheet.', 'warning'))
+      out.push(note('The carry recipients are shown as one combined row, because what each of them earns is GP economics, which your access does not include.'))
     }
   }
   return out
@@ -436,7 +575,8 @@ function lps(payload: LpPayload, ctx: ViewContext): Node[] {
     },
     { label: 'Distributions', value: fmt.compact(totals.distributions) },
     { label: 'NAV', value: fmt.compact(totals.nav) },
-    { label: 'DPI', value: multiple(totals.dpi) },
+    // No distributions yet: DPI is 0.00x everywhere and only repeats the Distributions tile.
+    ...(totals.distributions !== 0 ? [{ label: 'DPI', value: multiple(totals.dpi) }] : []),
     { label: 'TVPI', value: multiple(totals.tvpi) },
   ]))
 
@@ -480,7 +620,9 @@ function lps(payload: LpPayload, ctx: ViewContext): Node[] {
     { header: 'Paid-in', numeric: true, cell: r => fmt.money(r.paidIn), sort: r => r.paidIn },
     { header: 'Distributions', numeric: true, cell: r => fmt.money(r.distributions), sort: r => r.distributions, minWidth: 'md' },
     { header: 'NAV', numeric: true, cell: r => fmt.money(r.nav), sort: r => r.nav },
-    { header: 'DPI', numeric: true, cell: r => multiple(r.dpi), sort: r => r.dpi ?? -Infinity, minWidth: 'lg' },
+    ...(rows.some(r => r.distributions !== 0)
+      ? [{ header: 'DPI', numeric: true, cell: (r: LpRow) => multiple(r.dpi), sort: (r: LpRow) => r.dpi ?? -Infinity, minWidth: 'lg' as const }]
+      : []),
     { header: 'TVPI', numeric: true, cell: r => multiple(r.tvpi), sort: r => r.tvpi ?? -Infinity },
     { header: 'Net IRR', numeric: true, cell: r => fractionPercent(r.irr), sort: r => r.irr ?? -Infinity, minWidth: 'lg' },
   ]
@@ -489,5 +631,110 @@ function lps(payload: LpPayload, ctx: ViewContext): Node[] {
     initialSort: { column: 3, descending: true },
     footer: ['Total', '', '', fmt.money(totals.commitment), fmt.money(totals.paidIn), fmt.money(totals.distributions), fmt.money(totals.nav), multiple(totals.dpi), multiple(totals.tvpi), ''],
   })))
+  return out
+}
+
+// ---------------------------------------------------------------------------------------------
+// Capital calls
+// ---------------------------------------------------------------------------------------------
+
+const CALL_STATUS: Record<CallLineStatus, string> = {
+  paid: 'Paid',
+  partial: 'Partly paid',
+  says_wired: 'Says wired',
+  unpaid: 'Unpaid',
+}
+
+/** A line's standing in words, with a tone. Overdue outranks unpaid: it is the one to chase. */
+function callStatus(line: CallLine): HTMLElement {
+  const overdue = line.overdue && line.status !== 'paid' && line.status !== 'says_wired'
+  const label = overdue ? (line.status === 'partial' ? 'Partly paid · overdue' : 'Overdue') : CALL_STATUS[line.status]
+  const tone = line.status === 'paid' ? 'good' : overdue ? 'bad' : line.status === 'says_wired' ? 'info' : 'neutral'
+  return h('span', { class: `status status-${tone}` }, label)
+}
+
+/** Most urgent first: overdue, unpaid, partly paid, says wired, paid. */
+const URGENCY: Record<CallLineStatus, number> = { unpaid: 1, partial: 2, says_wired: 3, paid: 4 }
+const urgency = (l: CallLine) => (l.overdue && l.status !== 'paid' && l.status !== 'says_wired' ? 0 : URGENCY[l.status])
+
+function callLabel(c: CallSummary): string {
+  return `${c.number != null ? `#${c.number} · ` : ''}${shortDate(c.date)}`
+}
+
+function calls(payload: CallsPayload, ctx: ViewContext): Node[] {
+  const { fmt } = ctx
+  const d = payload.data
+  const out: Node[] = []
+  const call = d.selected
+  if (!call) {
+    out.push(empty(`No capital calls have been issued for ${d.vehicle}.`))
+    return out
+  }
+
+  // Switch calls in place: the same dashboard, another call.
+  if (d.calls.length > 1) {
+    const recent = d.calls.slice(0, ctx.compact ? 3 : 6)
+    out.push(h('div', { class: 'filters' }, segmented(
+      'Capital call',
+      recent.map(c => ({ value: c.id, label: callLabel(c) })),
+      call.id,
+      id => ctx.open('show_capital_calls', { vehicle: d.vehicle, call: id }, 'replace'),
+    )))
+  }
+
+  const lines = call.lines
+  const paid = lines.filter(l => l.status === 'paid').length
+  const saysWired = lines.filter(l => l.status === 'says_wired').length
+  const overdue = lines.filter(l => l.overdue && l.status !== 'paid' && l.status !== 'says_wired').length
+  const received = share(call.received, call.total)
+  out.push(tiles([
+    { label: 'Called', value: fmt.compact(call.total), sub: call.dueDate ? `due ${shortDate(call.dueDate)}` : call.description ?? undefined },
+    {
+      label: 'Received', value: fmt.compact(call.received),
+      meter: received === null ? null : received / 100,
+      sub: received === null ? undefined : `${percent(received, 0)} of the call`,
+    },
+    { label: 'Outstanding', value: fmt.compact(call.outstanding), sub: overdue ? `${overdue} overdue` : undefined },
+    { label: 'LPs paid', value: `${paid} of ${lines.length}`, sub: saysWired ? `${saysWired} say they wired` : undefined },
+  ]))
+  if (overdue > 0) out.push(note(`${overdue} ${overdue === 1 ? 'LP is' : 'LPs are'} past the due date with money still owed.`, 'warning'))
+
+  const ordered = lines.slice().sort((a, b) => urgency(a) - urgency(b) || b.outstanding - a.outstanding)
+  const columns: Column<CallLine>[] = [
+    { header: 'LP', cell: l => l.lp, sort: l => l.lp.toLowerCase() },
+    { header: 'Status', cell: callStatus, sort: urgency },
+    { header: 'Called', numeric: true, cell: l => fmt.money(l.called), sort: l => l.called, minWidth: 'md' },
+    { header: 'Received', numeric: true, cell: l => fmt.money(l.received), sort: l => l.received, minWidth: 'md' },
+    { header: 'Owed', numeric: true, cell: l => (l.outstanding ? fmt.money(l.outstanding) : DASH), sort: l => l.outstanding },
+    {
+      header: 'Detail', minWidth: 'lg',
+      cell: l => l.receivedOn && l.status === 'paid' ? `Paid ${shortDate(l.receivedOn)}`
+        : l.saysWired ? `Wired${l.saysWired.on ? ` ${shortDate(l.saysWired.on)}` : ''}${l.saysWired.reference ? `, ref ${l.saysWired.reference}` : ''}`
+        : DASH,
+    },
+  ]
+  out.push(section(ctx.compact ? 'Still to collect' : 'By LP', dataTable(ctx.compact ? ordered.filter(l => l.status !== 'paid') : ordered, columns, {
+    caption: 'Each LP\'s amount on this call, what has been received, and what is owed',
+    limit: ctx.compact ? 5 : undefined,
+  })))
+  if (ctx.compact) {
+    const more = expandButton(ctx, `See all ${lines.length} LPs`)
+    if (more) out.push(more)
+    return out
+  }
+
+  if (d.calls.length > 1) {
+    out.push(section('All calls', dataTable(d.calls, [
+      { header: 'Call', cell: c => callLabel(c), sort: c => c.date },
+      { header: 'Description', cell: c => c.description ?? DASH, minWidth: 'lg' },
+      { header: 'Called', numeric: true, cell: c => fmt.money(c.total), sort: c => c.total },
+      { header: 'Received', numeric: true, cell: c => fmt.money(c.received), sort: c => c.received, minWidth: 'md' },
+      { header: 'Owed', numeric: true, cell: c => (c.outstanding ? fmt.money(c.outstanding) : DASH), sort: c => c.outstanding },
+    ], {
+      caption: 'Every capital call on this vehicle; choose one to see who has paid it',
+      onRow: c => ctx.open('show_capital_calls', { vehicle: d.vehicle, call: c.id }, 'push'),
+      rowLabel: c => `Open call ${callLabel(c)}`,
+    })))
+  }
   return out
 }

@@ -7,6 +7,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { AGENT_TOOL_MANIFEST, type AgentToolMeta } from './agent-tools-manifest'
 import type { Domain } from '@/lib/access/domains'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
+import { carryRecipientIds, combineCarryRecipients, seesIndividualCarry } from '@/lib/access/carry-visibility'
 import type { FeatureKey } from '@/lib/types/features'
 import { loadPostedLedger, loadEntityNames, loadOwnership } from './load'
 import { accountIdByCode, persistEntry } from './persist'
@@ -55,6 +56,11 @@ export interface AgentToolContext {
    * route with a mixed payload does. Required, so a new tool can't quietly skip the question.
    */
   access: AccessContext
+  /**
+   * The deployment's public origin as the caller reached it, for tools that hand back a link
+   * (lib/agent/report-links.ts). Absent = the configured site origin.
+   */
+  origin?: string
 }
 
 export type AgentToolHandler = (ctx: AgentToolContext, input: any) => Promise<any>
@@ -77,15 +83,14 @@ const HANDLERS: Record<string, AgentToolHandler> = {
   capital_accounts: async ({ admin, fundId, portfolioGroup, access }) => {
     const [{ capitalPostings }, names] = await Promise.all([loadPostedLedger(admin, fundId, portfolioGroup), loadEntityNames(admin, fundId, portfolioGroup)])
     const accounts = computeCapitalAccounts(capitalPostings)
-    // Every roll-forward carries a `carriedInterest` line, and the GP's row IS the carry — so a
-    // capital-accounts read would hand over GP economics to anyone with lp_capital. Dropped
-    // rather than zeroed: 0 would read as "no carry accrued", which is a lie, not a redaction.
-    const showCarry = hasAccess(access, 'gp_economics', 'read')
-    const rows = Array.from(accounts.entries()).map(([lpEntityId, account]) => {
-      const { carriedInterest, ...rest } = account
-      return { lpEntityId, name: names.get(lpEntityId) ?? lpEntityId, ...(showCarry ? account : rest) }
-    })
-    return { rows, nav: totalNav(accounts) }
+    // Each LP's carried-interest line is the fund's carry and is shown. What each carry RECIPIENT
+    // earns is GP economics: without that grant their accounts are folded into one combined row
+    // (lib/access/carry-visibility.ts), so the rows still sum to NAV.
+    const all = Array.from(accounts.entries()).map(([lpEntityId, account]) => ({ id: lpEntityId, name: names.get(lpEntityId) ?? lpEntityId, ...account }))
+    const { rows } = seesIndividualCarry(access)
+      ? { rows: all }
+      : combineCarryRecipients(all, await carryRecipientIds(admin, fundId, portfolioGroup))
+    return { rows: rows.map(({ id, ...r }) => ({ lpEntityId: id, ...r })), nav: totalNav(accounts) }
   },
 
   financial_statements: async ({ admin, fundId, portfolioGroup }) => {

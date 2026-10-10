@@ -7,6 +7,19 @@ import { splitAdjust } from '@/lib/splits'
 // Compute summary from raw transactions
 // ---------------------------------------------------------------------------
 
+const OPENS_ROUND = new Set(['investment', 'conversion', 'share_split'])
+
+/** Date order, acquisitions first within a day — what the per-round roll-up needs. */
+export function sortForRollup(txns: InvestmentTransaction[]): InvestmentTransaction[] {
+  return txns
+    .map((t, i) => ({ t, i }))
+    .sort((a, b) =>
+      String(a.t.transaction_date ?? '').localeCompare(String(b.t.transaction_date ?? ''))
+      || (OPENS_ROUND.has(a.t.transaction_type) ? 0 : 1) - (OPENS_ROUND.has(b.t.transaction_type) ? 0 : 1)
+      || a.i - b.i)
+    .map(x => x.t)
+}
+
 export function computeSummary(
   rawTransactions: InvestmentTransaction[],
   companyStatus: CompanyStatus,
@@ -15,7 +28,12 @@ export function computeSummary(
   // Restate the history in today's shares BEFORE anything reads a share count or a per-share
   // price. Splits are applied once, here, so nothing downstream has to know they exist — see
   // lib/splits.ts for why this is a pre-pass and not a branch in the roll-up.
-  const transactions = splitAdjust(rawTransactions)
+  //
+  // Then put them in date order, acquisitions first within a day. The roll-up attributes a mark or
+  // an exit to its round by name, so a mark read before the investment that opens its round has
+  // no round to land on and is silently dropped. Several callers read the table without an order
+  // (the close, construction), so the order is fixed here rather than trusted.
+  const transactions = sortForRollup(splitAdjust(rawTransactions))
 
   let totalInvested = 0
   let totalIncomeBasis = 0
@@ -25,6 +43,8 @@ export function computeSummary(
   let totalWrittenOff = 0
   let latestSharePrice: number | null = null
   let latestSharePriceDate: string | null = null
+  let latestFromConversion = false
+  const valueMarks: { date: string; amount: number; round: string | null }[] = []
 
   const roundMap = new Map<string, InvestmentRoundSummary>()
   const roundCashFlows = new Map<string, CashFlow[]>()
@@ -111,9 +131,13 @@ export function computeSummary(
       // Also track share price for latest determination
       // Only use positive share prices (skip $0 from SAFEs, warrants, etc.)
       if (txn.share_price != null && txn.share_price > 0 && txn.transaction_date) {
-        if (!latestSharePriceDate || txn.transaction_date > latestSharePriceDate) {
+        // A conversion's price is what the SAFE or note bought in at, not what the equity is worth:
+        // on a day with both, the priced round's price is the day's price, whichever row comes first.
+        const sameDayRound = txn.transaction_date === latestSharePriceDate && latestFromConversion && !txn.converts_from_txn_id
+        if (!latestSharePriceDate || txn.transaction_date > latestSharePriceDate || sameDayRound) {
           latestSharePrice = txn.share_price
           latestSharePriceDate = txn.transaction_date
+          latestFromConversion = !!txn.converts_from_txn_id
         }
       }
     }
@@ -219,6 +243,11 @@ export function computeSummary(
         const round = roundMap.get(txn.round_name)
         if (round) round.unrealizedValueChange += txn.unrealized_value_change
       }
+      // A value-change mark with no price. Kept with its date: whether it moves a priced position
+      // depends on whether a later price already reflects it (see `valueMarks` below).
+      if (txn.unrealized_value_change != null && txn.current_share_price == null) {
+        valueMarks.push({ date: txn.transaction_date ?? '', amount: Number(txn.unrealized_value_change), round: txn.round_name ?? null })
+      }
     }
 
     if (txn.transaction_type === 'round_info') {
@@ -264,19 +293,47 @@ export function computeSummary(
     const carriedOut = carriedOutByRound.get(round.roundName) ?? 0
     const roundBasis = round.investmentCost + carriedIn
     const isPricedEquity = round.sharesAcquired > 0 && ((round.sharePrice != null && round.sharePrice > 0) || roundBasis > 0)
-    // If all cost basis has been exited (or converted away), there's no remaining unrealized position
+    // If all cost basis has been exited (or converted away), there's no remaining unrealized position.
+    // "Exited" means basis actually LEFT: a round that cost nothing (warrants received with a deal)
+    // and was never sold still holds whatever its marks say, so a zero basis alone is not gone.
     const remainingBasis = roundBasis - round.costBasisExited - carriedOut
-    if (remainingBasis <= 0) {
+    const exitedAway = round.costBasisExited + carriedOut > 0
+    if (remainingBasis <= 0 && (exitedAway || roundBasis > 0)) {
       round.currentValue = 0
-    } else if (isPricedEquity) {
-      // Equity round: prorate shares by remaining basis fraction
-      const fraction = roundBasis > 0 ? remainingBasis / roundBasis : 0
-      round.currentValue = effectiveSharePrice != null ? round.sharesAcquired * fraction * effectiveSharePrice : 0
+    } else if (isPricedEquity && effectiveSharePrice != null) {
+      // Equity round with a price: prorate shares by remaining basis fraction
+      const fraction = roundBasis > 0 ? Math.max(0, remainingBasis) / roundBasis : 1
+      round.currentValue = round.sharesAcquired * fraction * effectiveSharePrice
     } else {
+      // No price anywhere (none on the investment, none on a mark): the marks ARE the valuation.
+      // Valuing shares at a missing price gave 0 and threw away every recorded mark.
       // Convertible / warrant / no shares: remaining basis + unrealized changes
       round.currentValue = Math.max(0, remainingBasis + round.unrealizedValueChange)
     }
     unrealizedValue += round.currentValue
+  }
+
+  // Value-change marks on a priced position. A price (a round, a mark with a share price) values
+  // every share at once, so a mark recorded on or before it is already inside it; a mark AFTER the
+  // latest price moves the value on from there. That is exactly what the books hold — cost plus
+  // every mark — and why the schedule of investments ties to the ledger. Without this, a fund that
+  // marks by value change ("+$1.2M") rather than by price showed its last round price forever.
+  // Marks on an unpriced round are already in that round's value above.
+  const pricedRounds = new Set(rounds.filter(r => r.currentValue > 0 && r.sharesAcquired > 0 && r.currentSharePrice != null).map(r => r.roundName))
+  const lateMarks = valueMarks.filter(m =>
+    (m.round == null || pricedRounds.has(m.round))
+    && (latestSharePriceDate == null || m.date > latestSharePriceDate))
+  const markAdjustment = lateMarks.reduce((sum, m) => sum + m.amount, 0)
+  if (markAdjustment !== 0) {
+    // Spread over the live rounds by value, so a per-round view still adds up to the company.
+    const live = rounds.filter(r => r.currentValue > 0)
+    const base = live.reduce((sum, r) => sum + r.currentValue, 0)
+    if (base > 0) {
+      for (const r of live) r.currentValue = Math.max(0, r.currentValue + markAdjustment * (r.currentValue / base))
+      unrealizedValue = rounds.reduce((sum, r) => sum + r.currentValue, 0)
+    } else {
+      unrealizedValue = Math.max(0, unrealizedValue + markAdjustment)
+    }
   }
 
   // Compute per-round IRR
