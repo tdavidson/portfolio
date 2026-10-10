@@ -172,6 +172,26 @@ describe('forecastSchedule', () => {
     expect(net.years.at(-1)!.netIrr).toBeGreaterThan(0)
   })
 
+  it("charges carry on the LPs' share only — the GP's own stake bears none", () => {
+    const model = constructionModel(actuals(), assumptions())
+    const gross = forecastSchedule(model, assumptions(), pacing(), baseline)
+    const terms = (share: number) => ({
+      asOf: baseline.asOf,
+      kind: 'european' as const, carryRate: 0.2, prefRate: 0, catchupRate: 1, prefCompounds: true,
+      lpCommitmentShare: share, lpCalledCapital: baseline.calledCapital * share, lpDistributedCapital: 0,
+      fundDistributedCapital: 0, lpNav: baseline.nav * share, contributions: [{ date: '2024-01-01', amount: baseline.calledCapital * share }],
+    })
+    const carry = (share: number) => applyLpWaterfall(gross, terms(share)).years.reduce((s, y) => s + (y.carriedInterest ?? 0), 0)
+    // A GP with 1% of commitments: carry is 99% of what it would be on the whole fund.
+    expect(carry(0.99)).toBeCloseTo(carry(1) * 0.99, 0)
+  })
+
+  it('charges management fees on the fee-paying commitments only', () => {
+    const all = constructionModel(actuals(), assumptions())
+    const exempt = constructionModel(actuals({ feePayingShare: 0.99 }), assumptions())
+    expect(exempt.capital.feesProjected).toBeCloseTo(all.capital.feesProjected * 0.99, 0)
+  })
+
   it('a horizon shorter than the last exit leaves deals in NAV and says so', () => {
     const model = constructionModel(actuals(), assumptions())
     const s = forecastSchedule(model, assumptions(), pacing({ horizonYears: 5 }), baseline)

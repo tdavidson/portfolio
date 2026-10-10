@@ -1,3 +1,4 @@
+import { FORECASTING_PRINCIPLES } from '@/lib/forecast/principles'
 import type { Domain } from '@/lib/access/domains'
 import type { FeatureKey } from '@/lib/types/features'
 import type { ActionType, ActionDeps, PreviewResult } from './types'
@@ -191,7 +192,8 @@ export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
       'Propose a new budget or rolling forecast for a vehicle. Seeded by default with a rule per account ' +
       'suggested from 12–36 months of its own closed history (call forecast_suggest_rules first to see ' +
       'them); pass `rules` to adjust any for what the user told you (hires, price changes, new costs). ' +
-      'Stages one preview of every rule for human approval; creates a draft, never a published version.',
+      'Stages one preview of every rule for human approval; creates a draft, never a published version. ' +
+      FORECASTING_PRINCIPLES,
     inputSchema: CREATE_PLAN_SCHEMA as any,
     preview: previewCreateForecast,
     execute: executeCreateForecast,
@@ -204,7 +206,8 @@ export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
     stageAccess: 'write',
     description:
       'Propose changes to a budget or forecast draft — account rules (by account code), month overrides, ' +
-      'or its cutoff/horizon. Stages a before/after preview for human approval; nothing changes until approved.',
+      'or its cutoff/horizon. Stages a before/after preview for human approval; nothing changes until approved. ' +
+      FORECASTING_PRINCIPLES,
     inputSchema: UPDATE_PLAN_SCHEMA as any,
     preview: previewUpdateForecast,
     execute: executeUpdateForecast,

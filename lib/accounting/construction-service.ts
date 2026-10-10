@@ -8,6 +8,7 @@ import { loadPostedLedger } from './load'
 import { accountBalances, normalBalance } from './ledger'
 import { bucketForSourceType } from './capital-account'
 import { loadCarryTerms } from './carry'
+import { lpCapitalSummary } from './capital-calls'
 import { buildSoiPositions, txnsForVehicle, type SoiCompany } from './soi'
 import { resolveVehicle } from './vehicle-resolver'
 import {
@@ -262,6 +263,17 @@ async function loadConstructionActuals(
   const economics = vehicles.find(item => item.vehicle === vehicle) ?? null
   const lpEconomics = economics ? (economics.lp ?? economics.fund) : null
   const recipientIds = new Set(carryTerms.recipients.map(recipient => recipient.lpEntityId))
+  // THE GP'S OWN STAKE. The carry recipients' own commitments (the GP entity's 1%) pay no
+  // management fee and bear no carry. Their share of commitments sets both: fees are charged on the
+  // rest, and only the rest runs through the waterfall.
+  const commitments = recipientIds.size > 0 ? await lpCapitalSummary(admin, fundId, vehicle) : []
+  const totalCommitted = commitments.reduce((s, r) => s + (r.commitment ?? 0), 0)
+  const recipientCommitted = commitments.filter(r => recipientIds.has(r.lpEntityId)).reduce((s, r) => s + (r.commitment ?? 0), 0)
+  const gpStakeShare = totalCommitted > 0 ? Math.min(1, recipientCommitted / totalCommitted) : 0
+  // Carry actually paid out to date — distributions of carry, by source type, on the books.
+  const carryPaidOnBooks = (ledger?.capitalPostings ?? [])
+    .filter(p => p.sourceType === 'carry_distribution')
+    .reduce((s, p) => s + Math.max(0, p.amount), 0)
   // An undated posting is DROPPED, not dated today. These flows are the dated history the IRR is
   // computed from, and a historical contribution stamped with today's date is exactly the invented
   // cash-flow date the evidence rules refuse — it would read as a return earned in no time at all.
@@ -333,12 +345,29 @@ async function loadConstructionActuals(
     }
   })
 
+  // CARRY ALREADY PAID, WHEN THE BOOKS DO NOT SAY. A fund that kept no carry entries (its
+  // distributions were recorded net, the carry paid outside these books) still paid it. With no
+  // preferred return the waterfall is simple: once capital is back, every dollar of profit split
+  // carryRate to the GP and the rest to the LPs. So the LPs' distributions beyond their capital are
+  // (1 − rate) of the profit, and the carry paid is rate / (1 − rate) of that excess. With a hurdle
+  // the split depends on timing this cannot reconstruct, so it is left at what the books show.
+  const lpShareOfCommitments = 1 - gpStakeShare
+  const carryInferred = () => {
+    if (carryPaidOnBooks > 0 || carryTerms.kind === 'none' || carryTerms.carryRate <= 0 || carryTerms.prefRate > 0) return 0
+    const called = (economics?.fund.paidIn ?? 0) * lpShareOfCommitments
+    const distributed = (economics?.fund.distributions ?? 0) * lpShareOfCommitments
+    const excess = distributed - called
+    return excess > 0 ? Math.round((excess * carryTerms.carryRate / (1 - carryTerms.carryRate)) * 100) / 100 : 0
+  }
+  const carryPaidToDate = () => carryPaidOnBooks + carryInferred()
+
   return {
     vintageYear: economics?.vintageYear ?? null,
     vehicleId: economics?.id ?? null,
     actuals: {
       capitalAvailable: !!economics && economics.fund.paidIn != null && economics.fund.distributions != null && economics.fund.nav != null,
       committedCapital: economics?.fund.committed ?? 0,
+      feePayingShare: 1 - gpStakeShare,
       calledCapital: economics?.fund.paidIn ?? 0,
       uncalledCapital: economics?.fund.uncalled ?? 0,
       distributedCapital: economics?.fund.distributions ?? 0,
@@ -349,11 +378,26 @@ async function loadConstructionActuals(
         prefRate: carryTerms.prefRate,
         catchupRate: carryTerms.catchupRate,
         prefCompounds: carryTerms.prefCompounds,
-        lpCommitmentShare: economics.fund.committed > 0 ? (lpEconomics?.committed ?? economics.fund.committed) / economics.fund.committed : 1,
-        lpCalledCapital: lpEconomics?.paidIn ?? economics.fund.paidIn,
-        lpDistributedCapital: lpEconomics?.distributions ?? economics.fund.distributions,
-        fundDistributedCapital: economics.fund.distributions,
-        lpNav: lpEconomics?.nav ?? economics.fund.nav,
+        // The LP side excludes the GP's stake. When the books class the GP entity separately,
+        // `economics.lp` already leaves it out; otherwise take its share of commitments off.
+        ...(() => {
+          const classed = !!economics.lp && economics.fund.committed > 0 && economics.lp.committed < economics.fund.committed - 0.5
+          const lpShare = classed ? economics.lp!.committed / economics.fund.committed : 1 - gpStakeShare
+          return {
+            lpCommitmentShare: economics.fund.committed > 0 ? lpShare : 1,
+            // The fund figures are known here (the guard above); a class figure may not be.
+            lpCalledCapital: (classed ? economics.lp!.paidIn : null) ?? (economics.fund.paidIn as number) * lpShare,
+            lpDistributedCapital: (classed ? economics.lp!.distributions : null) ?? (economics.fund.distributions as number) * lpShare,
+            lpNav: (classed ? economics.lp!.nav : null) ?? (economics.fund.nav as number) * lpShare,
+          }
+        })(),
+        // fund − LP distributed is read as carry already paid (applyLpWaterfall). With the GP's
+        // stake taken off by share, that difference would be the stake's own distributions — so
+        // the fund figure is the LPs' plus the carry the books actually show paid.
+        fundDistributedCapital: !!economics.lp && economics.fund.committed > 0 && economics.lp.committed < economics.fund.committed - 0.5
+          ? economics.fund.distributions
+          : (economics.fund.distributions as number) * (1 - gpStakeShare) + carryPaidToDate(),
+        ...(carryInferred() > 0 ? { carryPaidInferred: carryInferred() } : {}),
         contributions: lpContributions,
         distributions: lpDistributions,
       } : undefined,

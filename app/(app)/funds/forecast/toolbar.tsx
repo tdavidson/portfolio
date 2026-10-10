@@ -135,13 +135,13 @@ export function MoreMenu({ items }: { items: MoreItem[] }) {
 export function NewPlanMenu({ onManual, onDraftWithAi }: { onManual: () => void; onDraftWithAi?: () => void }) {
   const [open, setOpen] = useState(false)
   if (!onDraftWithAi) {
-    return <Button onClick={onManual}><Plus className="mr-1.5 h-4 w-4" /> New plan</Button>
+    return <Button variant="outline" onClick={onManual}><Plus className="mr-1.5 h-4 w-4" /> New plan</Button>
   }
   const choose = (fn: () => void) => () => { setOpen(false); fn() }
   return (
     <Popover open={open} onOpenChange={setOpen}>
       <PopoverTrigger asChild>
-        <Button aria-haspopup="menu"><Plus className="mr-1.5 h-4 w-4" /> New plan <ChevronDown className="ml-1.5 h-3.5 w-3.5 opacity-70" /></Button>
+        <Button variant="outline" aria-haspopup="menu"><Plus className="mr-1.5 h-4 w-4" /> New plan <ChevronDown className="ml-1.5 h-3.5 w-3.5 opacity-70" /></Button>
       </PopoverTrigger>
       <PopoverContent align="end" className="w-64 p-1">
         <button type="button" className={cn(itemCls(false), 'items-start gap-2 justify-start')} onClick={choose(onManual)}>

@@ -273,6 +273,10 @@ export function ConstructionView({ vehicle, vehicleId }: { vehicle: string; vehi
               <div className="mt-2 space-y-2">
                 <div className="grid gap-3 sm:grid-cols-[minmax(0,1fr)_10rem] sm:items-center"><p className="text-xs text-muted-foreground">Annual rate</p><PercentField label="Annual rate" hideLabel value={a.feeAnnualRate} onChange={v => setA({ ...a, feeAnnualRate: v })} /></div>
                 <p className="text-xs text-muted-foreground">Forecast through the final modeled exit ({modeledA.feeTermYears} {modeledA.feeTermYears === 1 ? 'year' : 'years'}), capped at 10 years.</p>
+                {/* The GP's own commitment pays no fee (construction.ts feePayingShare). */}
+                {(actuals?.feePayingShare ?? 1) < 1 && (
+                  <p className="text-xs text-muted-foreground">Charged on {(((actuals?.feePayingShare ?? 1)) * 100).toFixed(1)}% of commitments — the GP&rsquo;s own stake pays no fee.</p>
+                )}
               </div>
             </div>
           </div>}

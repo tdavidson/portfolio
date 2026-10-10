@@ -93,6 +93,21 @@ describe('compileForecast', () => {
     expect(r.warnings.get(income.id)?.[0]).toMatch(/No receivable/)
   })
 
+  it('draws a fee paid before the plan down from prepaid, with no cash in the plan', () => {
+    // Bluefish: a 10-year fee prepaid in March 2026, expensed 2,100 a month.
+    const fund = chart(DEFAULT_CHART)
+    const fc = counterAccountsFor('fund', fund)!
+    const fee = fund.find(a => a.code === '5000')!
+    const r = compileForecast(
+      [{ account: fee, ruleId: 'r', amounts: new Map([['2026-10', { amount: 2100 }], ['2026-11', { amount: 2100 }]]), timing: validateCashTiming({ mode: 'prepaid' }) }],
+      { firstMonth: '2026-10', lastMonth: '2026-12', currency: 'USD', counters: fc },
+    )
+    expect(r.entries).toHaveLength(2)
+    expect(r.entries.every(e => e.kind === 'release')).toBe(true)
+    expect(r.entries.flatMap(e => e.postings).some(p => p.accountId === fc.cash)).toBe(false)
+    expect(r.entries[0].postings).toEqual([{ accountId: fee.id, amount: 2100, currency: 'USD' }, { accountId: fc.prepaid, amount: -2100, currency: 'USD' }])
+  })
+
   it('records the override that set a month (acceptance #4)', () => {
     const l = line('5300', 'fixed', { amount: 10 })
     l.amounts.set('2026-05', { amount: 99, overrideId: 'o1' })

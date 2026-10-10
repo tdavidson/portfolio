@@ -196,6 +196,11 @@ export interface ConstructionPositionActual {
 export interface ConstructionActuals {
   /** From the commitment events or lp_positions — does NOT require fund accounting. */
   committedCapital: number
+  /**
+   * The share of commitments that pays management fees (0–1). The GP entity's own stake pays no
+   * fee, so a fund whose GP commits 1% charges fees on 99% of its commitments. Omitted = all.
+   */
+  feePayingShare?: number
   /** From capital accounts. Optional for backwards-compatible pure-model callers. */
   calledCapital?: number
   /** Complete resolved capital figures, independent of whether journal entries exist. */
@@ -241,6 +246,12 @@ export interface ConstructionWaterfallProjection {
   lpNav: number
   contributions: { date: string; amount: number }[]
   distributions?: { date: string; amount: number }[]
+  /**
+   * Carry the GP has already been paid, worked out from the LPs' distributions because the books
+   * record none (see construction-service.ts). Present only when inferred; it is already inside
+   * fundDistributedCapital − lpDistributedCapital.
+   */
+  carryPaidInferred?: number
 }
 
 /**
@@ -501,6 +512,8 @@ function projectFeesFromFundYear(
 
 export interface CapitalBlock {
   committedCapital: number
+  /** Share of commitments charged management fees (the GP's own stake is exempt). */
+  feePayingShare?: number
   calledCapital: number
   uncalledCapital: number
   feesIncurred: number
@@ -658,7 +671,9 @@ export function constructionModel(
 
   // The entered term is always forward-looking: it is the number of years from now to forecast,
   // regardless of whether historical actuals come from the ledger or the portfolio tracker.
-  const feesProjected = projectRemainingFees(a, actuals.committedCapital, deployedTotal, actuals.nav)
+  // Only the fee-paying commitments are charged (the GP's own stake is not) — see feePayingShare.
+  const feePayingShare = Math.min(1, Math.max(0, actuals.feePayingShare ?? 1))
+  const feesProjected = r(projectRemainingFees(a, actuals.committedCapital, deployedTotal, actuals.nav) * feePayingShare)
   const lifetimeFees = r(actuals.managementFeesIncurred + feesProjected)
 
   const expenseProjectionYears = Math.max(0, a.feeTermYears)
@@ -921,6 +936,7 @@ export function constructionModel(
   return {
     capital: {
       committedCapital: r(actuals.committedCapital),
+      feePayingShare,
       calledCapital: r(actuals.calledCapital ?? 0),
       uncalledCapital: r(actuals.uncalledCapital ?? Math.max(0, actuals.committedCapital - (actuals.calledCapital ?? 0))),
       feesIncurred: r(actuals.managementFeesIncurred),

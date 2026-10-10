@@ -117,6 +117,7 @@ export function RuleDialog({ account, rule, open, saving, error, onClose, onSave
     const cashTiming =
       timing.mode === 'offset' ? { mode: 'offset', months: Number(timing.months) }
       : timing.mode === 'month' ? { mode: 'month', month: Number(timing.month), direction: timing.direction }
+      : timing.mode === 'prepaid' ? { mode: 'prepaid' }
       : { mode: 'same' }
     onSave({ method, params, cashTiming, note: note.trim() || null })
   }
@@ -225,6 +226,7 @@ export function RuleDialog({ account, rule, open, saving, error, onClose, onSave
                   <option value="same">Same month</option>
                   <option value="offset">Months later / earlier</option>
                   <option value="month">In one calendar month</option>
+                  <option value="prepaid">{isExpense ? 'Already paid (prepaid)' : 'Already received (in advance)'}</option>
                 </select>
               </Field>
               {timing.mode === 'offset' && (

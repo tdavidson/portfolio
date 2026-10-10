@@ -20,6 +20,12 @@ export type CashTiming =
   /** Paid/received N months after recognition (negative = before). */
   | { mode: 'offset'; months: number }
   /**
+   * Already paid (or received) before the plan — a prepaid fee being expensed month by month, a
+   * retainer collected up front. Each month draws down the prepaid (or deferred revenue) balance
+   * and no cash moves in the plan.
+   */
+  | { mode: 'prepaid' }
+  /**
    * Paid/received in one calendar month. 'advance' settles each recognised month in the most
    * recent payment month at or before it (an annual premium); 'arrears' in the next one at or after.
    */
@@ -42,6 +48,8 @@ export function validateCashTiming(raw: unknown): CashTiming {
   switch (t.mode) {
     case 'same':
       return SAME_MONTH
+    case 'prepaid':
+      return { mode: 'prepaid' }
     case 'offset': {
       const n = t.months
       if (typeof n !== 'number' || !Number.isInteger(n) || Math.abs(n) > 36) {
@@ -70,7 +78,7 @@ export function validateCashTiming(raw: unknown): CashTiming {
       return { mode: 'cycle', everyMonths: every, anchor, direction: t.direction, lagMonths: lag }
     }
     default:
-      throw new CashTimingError("cashTiming.mode must be 'same', 'offset', 'month' or 'cycle'")
+      throw new CashTimingError("cashTiming.mode must be 'same', 'offset', 'month', 'cycle' or 'prepaid'")
   }
 }
 
@@ -78,6 +86,8 @@ export function validateCashTiming(raw: unknown): CashTiming {
 export function cashMonth(m: MonthKey, timing: CashTiming): MonthKey {
   switch (timing.mode) {
     case 'same':
+    case 'prepaid':
+      // Prepaid has no cash month: compileForecast draws down the balance instead.
       return m
     case 'offset':
       return addMonths(m, timing.months)
@@ -209,6 +219,24 @@ export function compileForecast(lines: CompileLine[], opts: CompileOptions): Com
     for (const [month, { amount, overrideId }] of [...line.amounts].sort(([a], [b]) => a.localeCompare(b))) {
       if (!inRange(month) || amount === 0) continue
       const s = signed(amount)
+      if (line.timing.mode === 'prepaid') {
+        // Paid before the plan: release the prepaid balance; nothing settles in the window.
+        if (!earlier) {
+          warn(account.id, `No ${isExpense ? 'prepaid' : 'deferred revenue'} account in this chart — cash moves in the month it is recognised`)
+        } else {
+          entries.push({
+            accountId: account.id, ruleId: line.ruleId, overrideId: overrideId ?? null,
+            source: (overrideId ? 'override' : 'rule') as 'rule' | 'override',
+            entryDate: lastDay(month), kind: 'release',
+            memo: `${account.code} ${account.name} — ${month} (${isExpense ? 'prepaid' : 'received in advance'})`,
+            postings: [
+              { accountId: account.id, amount: s, currency },
+              { accountId: earlier, amount: roundCents(-s), currency },
+            ],
+          })
+          continue
+        }
+      }
       let pay = cashMonth(month, line.timing)
       const counter = pay > month ? later : pay < month ? earlier : counters.cash
       if (!counter) {

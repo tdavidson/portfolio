@@ -10,6 +10,7 @@ import { addMonths, firstDay, lastDay, monthKey, monthOf, monthRange, type Month
 import { evaluateRule, type RuleInput } from './rules'
 import { assertEntryBalanced, compileForecast, counterAccountsFor, type CashTiming, type CompiledEntry, type CompileLine } from './compile'
 import type { MonthlyConstruction } from './construction-adapter'
+import type { GpShareSchedule } from './linked'
 
 export type PlanKind = 'budget' | 'rolling_forecast'
 
@@ -73,6 +74,8 @@ export interface BuildPlanInput extends PlanWindowInput {
   linked?: Map<string, LinkedDriver[]>
   /** A fund's monthly construction schedule, when the plan includes its investment flows. */
   construction?: MonthlyConstruction | null
+  /** A GP entity's share of its fund's forecast (lib/forecast/linked.ts gpShareOf). */
+  gpShare?: GpShareSchedule | null
 }
 
 export interface LinkedDriver {
@@ -172,6 +175,37 @@ export function buildPlan(input: BuildPlanInput): BuiltPlan {
     outcomes.push({ ruleId: r.id, accountId: r.accountId, basis: res.basis, warnings: res.warnings })
     lines.push({ account, ruleId: r.id, amounts, timing: r.cashTiming })
   }
+  // Construction's fees and expenses, on the plan's management-fee and partnership-expense
+  // accounts, when the plan includes construction and the account has no rule of its own. A rule
+  // always wins — it is what someone decided for that account (a prepaid fee, a known invoice) —
+  // and is told what construction would have said, so a gap between the two is visible.
+  if (input.construction) {
+    const fromConstruction = (flow: 'fees' | 'expenses', subtypes: string[], label: string) => {
+      const account = input.accounts
+        .filter(a => a.type === 'expense' && subtypes.includes(a.subtype ?? '') && !a.lpEntityId && !a.companyId)
+        .sort((a, b) => a.code.localeCompare(b.code))[0]
+      if (!account) return
+      const amounts = new Map<MonthKey, { amount: number; overrideId?: string | null }>()
+      for (const e of input.construction!.events) {
+        if (e.flow !== flow || e.month < first || e.month > last) continue
+        amounts.set(e.month, { amount: roundCents((amounts.get(e.month)?.amount ?? 0) + e.amount) })
+      }
+      const total = roundCents([...amounts.values()].reduce((s, v) => s + v.amount, 0))
+      if (seen.has(account.id)) {
+        const o = outcomes.find(x => x.accountId === account.id)
+        if (o && total) o.warnings.push(`Portfolio construction has ${total.toLocaleString('en-US')} of ${label} in this window; this account's own rule is used instead`)
+        return
+      }
+      if (!total) return
+      seen.add(account.id)
+      for (const ov of overridesByAccount.get(account.id) ?? []) amounts.set(ov.month, { amount: ov.amount, overrideId: ov.id })
+      lines.push({ account, ruleId: null, amounts, timing: { mode: 'same' } as CashTiming })
+      outcomes.push({ ruleId: `construction:${flow}`, accountId: account.id, basis: `Portfolio construction ${label}, spread evenly within each construction year`, warnings: [] })
+    }
+    fromConstruction('fees', ['management_fee'], 'management fees')
+    fromConstruction('expenses', ['partnership_expense', 'operating_expense'], 'partnership expenses')
+  }
+
   // An override on an account with no rule still counts — the month was typed in on purpose.
   for (const [accountId, list] of overridesByAccount) {
     if (seen.has(accountId)) continue
@@ -192,8 +226,10 @@ export function buildPlan(input: BuildPlanInput): BuiltPlan {
   warnings.push(...opening.warnings)
   const construction = input.construction ? constructionEntries(input, input.construction, first, last, counters.cash) : { entries: [], warnings: [] }
   warnings.push(...construction.warnings)
-  for (const e of [...opening.entries, ...construction.entries]) assertEntryBalanced(e)
-  const entries = [...compiled.entries, ...opening.entries, ...construction.entries].sort((a, b) => a.entryDate.localeCompare(b.entryDate) || a.memo.localeCompare(b.memo))
+  const gp = input.gpShare ? gpShareEntries(input, input.gpShare, first, last, counters.cash) : { entries: [], warnings: [] }
+  warnings.push(...gp.warnings)
+  for (const e of [...opening.entries, ...construction.entries, ...gp.entries]) assertEntryBalanced(e)
+  const entries = [...compiled.entries, ...opening.entries, ...construction.entries, ...gp.entries].sort((a, b) => a.entryDate.localeCompare(b.entryDate) || a.memo.localeCompare(b.memo))
   return { first, last, entries, rules: outcomes, warnings }
 }
 
@@ -262,8 +298,9 @@ export function openingSettlements(
 
 /**
  * A fund's investment and capital flows from construction, as balanced entries. Fees and expenses
- * are NOT here — they reach the plan only through linked_construction / linked_fee rules on the
- * P&L accounts, so a plan can never carry construction's fees twice.
+ * are NOT here — they reach the plan as P&L lines (buildPlan's fromConstruction, or a
+ * linked_construction / linked_fee rule), one per account, so a plan can never carry construction's
+ * fees twice.
  *
  *   investment    Dr investments at cost      / Cr cash
  *   proceeds      Dr cash                     / Cr investments at cost (the deal's cost) / Cr realized gain
@@ -335,4 +372,64 @@ export function constructionEntries(
   if (mc.asOfMonth > first) warnings.push(`Construction runs from ${mc.asOfMonth}; months before it carry no investment flows`)
   warnings.push(...mc.warnings)
   return { entries, warnings }
+}
+
+/**
+ * A GP entity's flows from the fund it is GP of, as balanced entries on the GP entity's own chart:
+ *
+ *   its share of a call          Dr Investment in Fund (cost)          / Cr cash
+ *   its share of a distribution  Dr cash / Cr Investment in Fund — as a return of its cost while
+ *                                any remains, then Cr Equity in earnings of Fund for the rest
+ *   its carry                    Dr cash / Cr Carried interest income
+ *
+ * The cost it starts from is Investment in Fund on the books at the plan's start, so a distribution
+ * that returns more than was put in shows the excess as earnings, not as a negative investment.
+ */
+export function gpShareEntries(
+  input: Pick<BuildPlanInput, 'accounts' | 'currency' | 'actuals'>,
+  share: GpShareSchedule,
+  first: MonthKey,
+  last: MonthKey,
+  cashId: string,
+): { entries: CompiledEntry[]; warnings: string[] } {
+  const find = (subtype: string, type?: string) =>
+    input.accounts.filter(a => a.subtype === subtype && (!type || a.type === type) && !a.lpEntityId && !a.companyId).sort((a, b) => a.code.localeCompare(b.code))[0]
+  const inv = find('investment_in_fund')
+  const earnings = find('equity_method', 'income')
+  const carryIncome = find('carried_interest', 'income')
+  const missing = [!inv && 'Investment in Fund', !earnings && 'Equity in earnings of Fund', !carryIncome && 'Carried interest income'].filter(Boolean)
+  if (missing.length) return { entries: [], warnings: [`A GP entity's share of its fund needs ${missing.join(', ')} in its chart; none is forecast`] }
+
+  const c = input.currency
+  let cost = roundCents(input.actuals.filter(p => p.accountId === inv!.id && (p.entryDate ?? '') < `${first}-01`).reduce((s, p) => s + p.amount, 0))
+  const entries: CompiledEntry[] = []
+  for (const [month, f] of [...share.months].sort(([a], [b]) => a.localeCompare(b))) {
+    if (month < first || month > last) {
+      if (month < first) cost = roundCents(cost + f.called)
+      continue
+    }
+    const base = { entryDate: lastDay(month), ruleId: null, overrideId: null, source: 'construction' as const }
+    if (f.called > 0) {
+      entries.push({ ...base, kind: 'capital_call', accountId: inv!.id, memo: `Capital call — share of ${share.fund}`, postings: [
+        { accountId: inv!.id, amount: f.called, currency: c }, { accountId: cashId, amount: -f.called, currency: c },
+      ] })
+      cost = roundCents(cost + f.called)
+    }
+    if (f.distributed > 0) {
+      const returned = roundCents(Math.min(f.distributed, Math.max(0, cost)))
+      const gain = roundCents(f.distributed - returned)
+      cost = roundCents(cost - returned)
+      entries.push({ ...base, kind: 'distribution', accountId: earnings!.id, memo: `Distribution — share of ${share.fund}`, postings: [
+        { accountId: cashId, amount: f.distributed, currency: c },
+        { accountId: inv!.id, amount: -returned, currency: c },
+        { accountId: earnings!.id, amount: -gain, currency: c },
+      ].filter(p => p.amount !== 0) })
+    }
+    if (f.carry > 0) {
+      entries.push({ ...base, kind: 'proceeds', accountId: carryIncome!.id, memo: `Carried interest — ${share.fund}`, postings: [
+        { accountId: cashId, amount: f.carry, currency: c }, { accountId: carryIncome!.id, amount: -f.carry, currency: c },
+      ] })
+    }
+  }
+  return { entries, warnings: [] }
 }

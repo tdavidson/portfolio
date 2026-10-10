@@ -270,9 +270,14 @@ export async function applyProposal(
     const vehicleId = await vehicleIdByName(admin, fundId, group)
     if (!vehicleId) return { error: `Unknown vehicle "${group}".` }
 
+    // The Analyst quotes entries by the short id the journal shows (the first 8 characters). Take
+    // a full id as is; resolve a short one when it names exactly one entry on this entity.
+    const resolved = await resolveEntryId(admin, fundId, vehicleId, String(proposal.entryId))
+    if ('error' in resolved) return { error: resolved.error }
+    const entryId = resolved.id
     const { data: existing } = await admin.from('journal_entries' as any)
-      .select('id, status, entry_date, source_ref, reversed_by').eq('id', proposal.entryId).eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('book', ACTUAL_BOOK).maybeSingle()
-    if (!existing) return { error: 'Entry to edit not found' }
+      .select('id, status, entry_date, source_ref, reversed_by').eq('id', entryId).eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('book', ACTUAL_BOOK).maybeSingle()
+    if (!existing) return { error: `Entry ${entryId} was not found on ${group}.` }
 
     // THE GUARDS THE CREATE PATH GETS FOR FREE FROM persistEntry, AND THIS PATH USED TO SKIP.
     //
@@ -320,23 +325,23 @@ export async function applyProposal(
     const released = plan
     const gone = { removedTransactions: released.removed, unlinkedRegisterRows: released.unlinked }
     if ((existing as any).status !== 'draft') {
-      const allocation = await setGeneratedAllocationStatus(admin, fundId, proposal.entryId, 'draft')
+      const allocation = await setGeneratedAllocationStatus(admin, fundId, entryId, 'draft')
       if (allocation.error) return { error: allocation.error, ...gone }
-      const { error: unpostErr } = await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null }).eq('id', proposal.entryId).eq('fund_id', fundId)
+      const { error: unpostErr } = await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null }).eq('id', entryId).eq('fund_id', fundId)
       if (unpostErr) return { error: `The entry could not be put back to draft for editing: ${unpostErr.message}`, ...gone }
-      const { error: bankErr } = await admin.from('bank_transactions' as any).update({ status: 'drafted' }).eq('journal_entry_id', proposal.entryId).eq('fund_id', fundId)
+      const { error: bankErr } = await admin.from('bank_transactions' as any).update({ status: 'drafted' }).eq('journal_entry_id', entryId).eq('fund_id', fundId)
       if (bankErr) return { error: `The entry is a draft again, but its bank row could not be updated: ${bankErr.message}`, ...gone }
     }
 
-    const { data: oldRows } = await admin.from('journal_postings' as any).select('id').eq('book', ACTUAL_BOOK).eq('journal_entry_id', proposal.entryId)
+    const { data: oldRows } = await admin.from('journal_postings' as any).select('id').eq('book', ACTUAL_BOOK).eq('journal_entry_id', entryId)
     const { error: insErr } = await admin.from('journal_postings' as any).insert(
-      postings.map(p => ({ fund_id: fundId, portfolio_group: group, vehicle_id: vehicleId, journal_entry_id: proposal.entryId, account_id: p.accountId, amount: p.amount, currency: p.currency, lp_entity_id: p.lpEntityId }))
+      postings.map(p => ({ fund_id: fundId, portfolio_group: group, vehicle_id: vehicleId, journal_entry_id: entryId, account_id: p.accountId, amount: p.amount, currency: p.currency, lp_entity_id: p.lpEntityId }))
     )
     if (insErr) return { error: insErr.message, ...gone }
     const oldIds = ((oldRows as any[]) ?? []).map(r => r.id)
     if (oldIds.length) await admin.from('journal_postings' as any).delete().in('id', oldIds)
-    await admin.from('journal_entries' as any).update({ entry_date: proposal.entryDate, memo: proposal.memo ?? null }).eq('id', proposal.entryId).eq('fund_id', fundId)
-    return { entryId: proposal.entryId, ...gone }
+    await admin.from('journal_entries' as any).update({ entry_date: proposal.entryDate, memo: proposal.memo ?? null }).eq('id', entryId).eq('fund_id', fundId)
+    return { entryId: entryId, ...gone }
   }
 
   const entry: JournalEntry = {
@@ -349,4 +354,25 @@ export async function applyProposal(
   const result = await persistEntry(admin, fundId, group, userId, entry, 'draft')
   if ('error' in result) return { error: result.error }
   return { entryId: result.entryId }
+}
+
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
+/** A full entry id, from a full one or a unique prefix of at least 8 hex characters. */
+export async function resolveEntryId(
+  admin: SupabaseClient, fundId: string, vehicleId: string, raw: string,
+): Promise<{ id: string } | { error: string }> {
+  const id = raw.trim().toLowerCase()
+  if (UUID.test(id)) return { id }
+  const hex = id.replace(/-/g, '')
+  // Not a short id — leave it to the lookup, which says if it is not there.
+  if (!/^[0-9a-f]{8,31}$/.test(hex)) return { id: raw.trim() }
+  // uuids order byte-wise, which is the order of their hex text — so a prefix is a range.
+  const pad = (c: string) => (hex + c.repeat(32 - hex.length)).replace(/^(.{8})(.{4})(.{4})(.{4})(.{12})$/, '$1-$2-$3-$4-$5')
+  const { data } = await (admin as any).from('journal_entries').select('id')
+    .eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('book', ACTUAL_BOOK)
+    .gte('id', pad('0')).lte('id', pad('f')).limit(2)
+  const rows = (data as any[]) ?? []
+  if (rows.length === 1) return { id: rows[0].id }
+  return { error: rows.length === 0 ? `No entry starting ${raw} on this entity.` : `More than one entry starts ${raw} — use the full id.` }
 }

@@ -1,3 +1,4 @@
+import { FORECASTING_PRINCIPLES } from '@/lib/forecast/principles'
 import type { AgentToolMeta } from '@/lib/accounting/agent-tools-manifest'
 import { CREATE_PLAN_SCHEMA, PUBLISH_PLAN_SCHEMA, UPDATE_PLAN_SCHEMA } from '@/lib/forecast/actions'
 
@@ -182,7 +183,7 @@ export const FORECAST_TOOL_MANIFEST: AgentToolMeta[] = [
       'bonus), trends and step changes are recognised rather than averaged away. Each suggestion has its ' +
       'method and parameters, a confidence and the evidence. Linked sources win where they exist (fee ' +
       'links, construction). Creates nothing: pass the suggestions, adjusted for what the user said, to ' +
-      'create_forecast_plan.',
+      'create_forecast_plan. ' + FORECASTING_PRINCIPLES,
     scope: 'read',
     domain: 'portfolio',
     accessDomain: 'accounting',

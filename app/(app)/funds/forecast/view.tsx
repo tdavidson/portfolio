@@ -4,7 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { AlertTriangle, Loader2, RefreshCw } from 'lucide-react'
 import { useAnalystContext } from '@/components/analyst-context'
 import { useCurrency, formatCurrency, formatCurrencyFull } from '@/components/currency-context'
-import { useLedgerFetch } from '@/components/accounting-vehicle'
+import { useLedgerFetch, useVehicle } from '@/components/accounting-vehicle'
 import { FundSubpageChrome } from '@/components/fund-subpage-chrome'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -89,11 +89,15 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
   const [publishing, setPublishing] = useState(false)
   const [linking, setLinking] = useState(false)
   const { ask, hasAIKey } = useAnalystContext()
+  const { kind: vehicleKind } = useVehicle()
   // The Analyst drafts; a person approves. The prompt only starts the conversation — it is put in
   // the input for the user to edit (add hires, price changes) and send.
   const draftWithAi = () => ask(
     `Draft a 12-month rolling forecast for ${vehicle}. Start from forecast_suggest_rules (it reads up to 36 months of closed history), ` +
     `tell me which accounts you are unsure about and why, then stage it with create_forecast_plan. ` +
+    // Investment flows, fees and a GP's share and carry come from portfolio construction, not from
+    // rules typed by hand (lib/forecast/principles.ts) — unless this is a management company.
+    (vehicleKind === 'manco' ? '' : `Include portfolio construction flows. `) +
     `Things to factor in: `,
   )
   const [baseVersion, setBaseVersion] = useState<string>('approved')
@@ -277,12 +281,36 @@ export function ForecastView({ vehicle, vehicleId }: { vehicle: string; vehicleI
       {/* One row. What you are looking at (plan, version, view), over when (range, interval), and
           what you can do — the everyday actions as buttons, the occasional ones under More. */}
       <div className="mb-4 flex flex-wrap items-center gap-2">
-        <select className={selectCls} value={planId} onChange={e => setPlanId(e.target.value)} aria-label="Plan">
-          <option value="">No plan — actuals</option>
-          {(plans ?? []).map(p => (
-            <option key={p.id} value={p.id}>{p.name} · {p.kind === 'budget' ? `Budget ${p.fiscalYear}` : 'Rolling forecast'}</option>
-          ))}
-        </select>
+        {/* Which plan is on screen — said, not hidden in a dropdown. Nothing when there is no plan
+            (the page is the actuals); one chip for one plan; a chip each to switch between several.
+            "Actual only" is a view of any plan, below. */}
+        {(plans ?? []).length > 0 && (
+          <div className="flex flex-wrap items-center gap-1.5" role={(plans ?? []).length > 1 ? 'radiogroup' : undefined} aria-label="Plan">
+            {(plans ?? []).map(p => {
+              const active = p.id === planId
+              const kind = p.kind === 'budget' ? `Budget ${p.fiscalYear}` : 'Rolling forecast'
+              const multiple = (plans ?? []).length > 1
+              return (
+                <button
+                  key={p.id}
+                  type="button"
+                  role={multiple ? 'radio' : undefined}
+                  aria-checked={multiple ? active : undefined}
+                  disabled={!multiple}
+                  onClick={() => setPlanId(p.id)}
+                  className={cn(
+                    'inline-flex h-9 items-center gap-1.5 rounded-md border px-3 text-sm',
+                    active ? 'border-foreground/30 bg-muted text-foreground' : 'border-input bg-background text-muted-foreground hover:text-foreground',
+                    !multiple && 'cursor-default',
+                  )}
+                >
+                  <span className="font-medium">{p.name}</span>
+                  <span className="text-xs text-muted-foreground">{kind}</span>
+                </button>
+              )
+            })}
+          </div>
+        )}
         {detail && (
           <select className={selectCls} value={versionId} onChange={e => setVersionId(e.target.value)} aria-label="Version">
             <option value="">Working draft</option>

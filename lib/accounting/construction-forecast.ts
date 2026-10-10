@@ -329,7 +329,8 @@ export function forecastSchedule(
 
   for (let t = 0; t <= horizonYears; t++) {
     const fundIsOperating = t > 0 && (finalExitYear == null || t <= finalExitYear)
-    const fees = fundIsOperating ? projectFeesForYear(a, committed, deployedTotal, baseline.nav, t) : 0
+    // Fee-paying commitments only — the GP's own stake pays no fee (CapitalBlock.feePayingShare).
+    const fees = fundIsOperating ? Math.round(projectFeesForYear(a, committed, deployedTotal, baseline.nav, t) * (model.capital.feePayingShare ?? 1) * 100) / 100 : 0
     const expenses = fundIsOperating ? (t <= a.feeTermYears ? a.annualPartnershipExpense : 0) + (t === 1 ? a.remainingOrgCosts : 0) : 0
     const inv = t === 0 ? 0 : invested[t]
     const grossProceeds = t === 0 ? 0 : proceeds[t]
@@ -437,11 +438,13 @@ export function applyLpWaterfall(schedule: ForecastSchedule, projection?: Constr
       contributedCapital: called,
       preferredTarget: projection.kind === 'straight' ? 0 : preferredTarget(contributions, `${year.calendarYear}-12-31`, projection.prefRate, projection.prefCompounds),
     }
-    const split = runWaterfall(year.distributed, terms, state)
+    // Only the LPs' share runs through the waterfall. The rest belongs to the carry recipients'
+    // own stake (the GP's commitment), which is returned gross — no carry on the GP's own money.
+    const split = runWaterfall(year.distributed * share, terms, state)
     state = split.state
     distributed += split.toLP
     // Hypothetical liquidation of remaining NAV at this year end, without mutating the state.
-    const netNav = runWaterfall(year.nav, terms, state).toLP
+    const netNav = runWaterfall(year.nav * share, terms, state).toLP
     if (lpCall > 0) forward.push({ t: year.year, amount: -lpCall })
     if (split.toLP > 0) forward.push({ t: year.year, amount: split.toLP })
     const netIrr = irrOf([...history, ...forward, { t: year.year, amount: netNav }])

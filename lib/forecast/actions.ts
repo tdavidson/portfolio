@@ -44,7 +44,8 @@ export const UPDATE_PLAN_SCHEMA = {
           },
           cashTiming: {
             type: 'object',
-            description: '{mode:"same"} · {mode:"offset",months:n} (negative = in advance) · {mode:"month",month:1-12,direction:"advance"|"arrears"}',
+            description: '{mode:"same"} · {mode:"offset",months:-36..36} (negative = in advance) · {mode:"month",month:1-12,direction:"advance"|"arrears"} · ' +
+              '{mode:"prepaid"} — already paid before the plan (a prepaid fee being expensed monthly): draws down the prepaid balance, no cash in the plan.',
           },
           note: { type: 'string' },
         },
@@ -262,7 +263,12 @@ export async function describeCreate(ctx: ForecastServiceContext, input: CreateP
     })),
     ...[...adjusted.entries()].filter(([code]) => !byCode.has(code)).map(([code, r]) => ({ account: code, method: r.method, params: r.params, source: 'added' })),
   ]
-  const kind = input.kind === 'budget' ? `${input.fiscalYear} budget` : `${input.horizonMonths ?? 12}-month rolling forecast`
+  // A plan given an end month runs to it; only one with neither runs the default 12 months.
+  const end = (input as { endMonth?: string }).endMonth
+  const kind = input.kind === 'budget' ? `${input.fiscalYear} budget`
+    : input.horizonMonths ? `${input.horizonMonths}-month rolling forecast`
+    : end ? `rolling forecast through ${end}`
+    : '12-month rolling forecast'
   return {
     summary: `Create "${input.name}" — a ${kind} for ${s?.vehicle ?? input.vehicle} with ${rules.length} account rule${rules.length === 1 ? '' : 's'}${adjusted.size ? ` (${adjusted.size} adjusted)` : ''}. Draft only; nothing is published.`,
     details: {

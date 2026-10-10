@@ -214,6 +214,13 @@ export function ForecastSection({ model, actuals, a, setA, vehicle, fmt, fmtFull
               <ReturnMetric label={waterfallSchedule ? 'Net MOIC' : 'Gross MOIC'} value={multiple(netFinal?.tvpi ?? null)} detail="At fund exit" />
               <ReturnMetric label={netIrr != null ? 'Net IRR' : 'Gross IRR'} value={pctOf(displayedIrr)} detail={displayedIrr == null ? 'Insufficient dated cash flows' : 'Actual and forecast'} />
             </div>
+            {/* How the carry was measured, so the figure above can be checked by hand. */}
+            {waterfallSchedule && actuals.waterfall && (actuals.waterfall.lpCommitmentShare < 1 || (actuals.waterfall.carryPaidInferred ?? 0) > 0) && (
+              <p className="mt-2 text-xs text-muted-foreground">
+                {actuals.waterfall.lpCommitmentShare < 1 && <>Carry is charged on the LPs&rsquo; {(actuals.waterfall.lpCommitmentShare * 100).toFixed(1)}% of commitments; the GP&rsquo;s own stake bears none. </>}
+                {(actuals.waterfall.carryPaidInferred ?? 0) > 0 && <>The books record no carry paid, so {fmt(actuals.waterfall.carryPaidInferred!)} is taken as already paid on past distributions (the LPs&rsquo; return beyond their capital is the {Math.round((1 - actuals.waterfall.carryRate) * 100)}% left after carry).</>}
+              </p>
+            )}
             <div className="mt-4 grid gap-6 lg:grid-cols-2">
               <JCurveChart actual={carryConfigured ? [] : actual} schedule={schedule} simulation={simulation} netOfCarry={carryConfigured} multiple={multiple} />
               <CashFlowChart actual={actualCashFlows} schedule={schedule} simulation={simulation} accounting={accounting} fmt={fmt} fmtFull={fmtFull} />

@@ -286,6 +286,7 @@ async function compile(ctx: ForecastServiceContext, v: VehicleCtx, plan: any, ru
     openingSettlementMonths: plan.opening_settlement_months ?? 1,
     linked: drivers.linked,
     construction: drivers.construction,
+    gpShare: drivers.gpShare,
   })
   return { built, cutoff, warnings: [...new Set([...warnings, ...drivers.warnings, ...built.warnings])] }
 }
@@ -356,12 +357,21 @@ export async function getPlan(ctx: ForecastServiceContext, input: { vehicle: str
       .eq('fund_id', ctx.fundId).eq('plan_id', row.id).order('version_no', { ascending: false }),
   ])
   // Re-evaluate for the drill-down (basis, warnings); the stored draft is what the numbers read.
-  const { built, cutoff, warnings } = await compile(ctx, v, row, rules, overrides)
+  const [{ built, cutoff, warnings }, stored] = await Promise.all([
+    compile(ctx, v, row, rules, overrides),
+    loadEntries(ctx, row.id, null),
+  ])
   const outcome = new Map(built.rules.map(r => [r.ruleId, r]))
-  const stale =
+  const actualsMoved =
     row.compiled_cutoff == null ||
     monthOf(row.compiled_cutoff) !== cutoff ||
     (row.compiled_closed_through ? monthOf(row.compiled_closed_through) : null) !== v.closedThrough
+  // Anything else the draft was built from — portfolio construction (this entity's, a linked
+  // fund's for a manco's fees, the fund's for a GP entity), fee links — has no date to compare, so
+  // compare the answer: what compiling now gives against what was saved.
+  const sourcesMoved = !actualsMoved && entriesFingerprint(built.entries.map(e => ({ date: e.entryDate, postings: e.postings })))
+    !== entriesFingerprint(stored.map(e => ({ date: e.date, postings: e.postings })))
+  const stale = actualsMoved || sourcesMoved
   return {
     plan: mapPlan(row, v.name),
     vehicleKind: v.kind,
@@ -377,8 +387,20 @@ export async function getPlan(ctx: ForecastServiceContext, input: { vehicle: str
     rules: rules.map(r => ({ ...r, basis: outcome.get(r.id)?.basis ?? '', warnings: outcome.get(r.id)?.warnings ?? [] })),
     overrides,
     versions: ((versionRows.data as any[]) ?? []).map(mapVersion),
-    warnings: stale ? [...warnings, 'Actuals have moved since this draft was last saved — refresh to recompile'] : warnings,
+    warnings: actualsMoved ? [...warnings, 'Actuals have moved since this draft was last saved — refresh to recompile']
+      : sourcesMoved ? [...warnings, 'Portfolio construction or a linked fund has changed since this draft was last saved — refresh to recompile']
+      : warnings,
   }
+}
+
+/** Order-independent summary of a set of entries: per date and account, the net amount. */
+export function entriesFingerprint(entries: { date: string; postings: { accountId: string; amount: number }[] }[]): string {
+  const sums = new Map<string, number>()
+  for (const e of entries) for (const p of e.postings) {
+    const k = `${e.date.slice(0, 10)}|${p.accountId}`
+    sums.set(k, (sums.get(k) ?? 0) + Number(p.amount))
+  }
+  return [...sums].filter(([, v]) => Math.abs(v) >= 0.005).map(([k, v]) => `${k}=${v.toFixed(2)}`).sort().join(';')
 }
 
 export interface CreatePlanInput {

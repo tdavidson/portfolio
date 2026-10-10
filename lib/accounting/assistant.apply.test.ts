@@ -72,3 +72,17 @@ describe('assistant edit without investments write (security M2)', () => {
     expect(m.tables.journal_entries[0].status).toBe('posted')
   })
 })
+
+describe('resolveEntryId', () => {
+  it('turns the short id the journal shows into the entry it names, and refuses an ambiguous one', async () => {
+    const { resolveEntryId } = await import('./assistant')
+    const rows = (ids: string[]) => ({ from: () => {
+      const q: any = { select: () => q, eq: () => q, gte: () => q, lte: () => q, limit: () => Promise.resolve({ data: ids.map(id => ({ id })), error: null }) }
+      return q
+    } }) as any
+    const full = 'febb08c4-1400-407e-8323-c9aaac8a5ba2'
+    expect(await resolveEntryId(rows([full]), 'f', 'v', 'febb08c4')).toEqual({ id: full })
+    expect(await resolveEntryId(rows([full, 'febb08c4-0000-0000-0000-000000000000']), 'f', 'v', 'febb08c4')).toMatchObject({ error: expect.stringMatching(/More than one/) })
+    expect(await resolveEntryId(rows([]), 'f', 'v', full.toUpperCase())).toEqual({ id: full })
+  })
+})
