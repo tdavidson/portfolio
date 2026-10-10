@@ -148,3 +148,34 @@ describe('analyst route — tool loop vs createChat', () => {
     expect(json.reply).toBe('plain')
   })
 })
+
+describe('analyst route — streamed progress', () => {
+  it('streams each step as it starts and finishes, then the same result body', async () => {
+    memberWith({ accounting: 'read' })
+    supportsToolLoop.value = true
+    // The loop calls the executor it was given; that is where progress comes from.
+    createToolLoop.mockImplementation(async (opts: any) => {
+      await opts.executeTool({ name: 'forecast_suggest_rules', input: {} })
+      return { text: 'drafted', usage: { inputTokens: 1, outputTokens: 1 }, toolCalls: [{ name: 'forecast_suggest_rules' }] }
+    })
+    const { POST } = await import('@/app/api/analyst/route')
+    const res = await POST({ json: async () => ({ messages: [{ role: 'user', content: 'x' }], vehicle: 'Fund IV', stream: true }) } as any)
+    expect(res.headers.get('content-type')).toContain('ndjson')
+    const lines = (await res.text()).trim().split('\n').map(l => JSON.parse(l))
+    expect(lines.map(l => l.type)).toEqual(['started', 'progress', 'progress', 'result'])
+    expect(lines[1].event).toEqual({ kind: 'tool.started', tool: 'forecast_suggest_rules', label: 'Reading account history to suggest forecast rules' })
+    expect(lines[2].event).toMatchObject({ kind: 'tool.completed', isError: false })
+    expect(lines[3].data).toMatchObject({ reply: 'drafted', toolCalls: [{ name: 'forecast_suggest_rules' }] })
+  })
+
+  it('ends a failed run with an error line, not a hang', async () => {
+    memberWith({ accounting: 'read' })
+    supportsToolLoop.value = true
+    createToolLoop.mockRejectedValue(new Error('provider down'))
+    vi.spyOn(console, 'error').mockImplementation(() => {})
+    const { POST } = await import('@/app/api/analyst/route')
+    const res = await POST({ json: async () => ({ messages: [{ role: 'user', content: 'x' }], stream: true }) } as any)
+    const lines = (await res.text()).trim().split('\n').map(l => JSON.parse(l))
+    expect(lines[lines.length - 1]).toMatchObject({ type: 'error', status: 500 })
+  })
+})

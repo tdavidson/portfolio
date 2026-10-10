@@ -99,7 +99,27 @@ function withProgress(
 }
 
 /** `list_capital_calls` -> `List capital calls`. A name, not a database detail. */
+/**
+ * What a step is DOING, in words, for the ones a person waits on longest. Shown live while the
+ * Analyst works ("Reading account history…"), so a long run reads as progress, not a hang. Any tool
+ * not named here falls back to its name made readable.
+ */
+const TOOL_LABELS: Record<string, string> = {
+  forecast_suggest_rules: 'Reading account history to suggest forecast rules',
+  forecast_list_plans: 'Looking up budgets and forecasts',
+  forecast_series: 'Loading actuals and the forecast',
+  forecast_explain: 'Reading the plan’s rules and sources',
+  forecast_variance: 'Comparing against the plan',
+  forecast_fee_links: 'Looking up fee links',
+  create_forecast_plan: 'Drafting the forecast for your approval',
+  update_forecast_plan: 'Drafting changes to the forecast for your approval',
+  publish_forecast_plan: 'Preparing the plan to publish',
+  portfolio_construction: 'Loading portfolio construction',
+  update_portfolio_construction: 'Drafting construction changes for your approval',
+}
+
 export function toolLabel(name: string): string {
+  if (TOOL_LABELS[name]) return TOOL_LABELS[name]
   const words = name.replace(/[_-]+/g, ' ').trim()
   return words ? words.charAt(0).toUpperCase() + words.slice(1) : 'Working'
 }

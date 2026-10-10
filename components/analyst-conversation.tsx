@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, type ReactNode } from 'react'
 import { AI_EFFORTS, type AIEffort } from '@/lib/ai/types'
 import { supportsEffort } from '@/lib/ai/model-families'
-import { Sparkles, Send, X, Save, Clock, Plus, Trash2, ArrowLeft, Paperclip, ArrowUp, Copy, Check, ChevronDown, Upload, Pencil, Square } from 'lucide-react'
+import { Sparkles, Send, X, Save, Clock, Plus, Trash2, ArrowLeft, Paperclip, ArrowUp, Copy, Check, ChevronDown, Upload, Pencil, Square, Loader2 } from 'lucide-react'
 import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -109,6 +109,8 @@ export function AnalystConversation({
     clearPrefill,
   } = useAnalystContext()
   const appFetch = useAppFetch()
+  // What the Analyst is doing right now — streamed from the server while it works.
+  const [steps, setSteps] = useState<AnalystStep[]>([])
 
   const [input, setInput] = useState('')
   // A question a page asked us to start with (useAnalystContext().ask): into the input, unsent.
@@ -265,6 +267,7 @@ export function AnalystConversation({
     setEditingMessageIndex(null)
     setShowSuggestions(false)
     setError(null)
+    setSteps([])
     setLoading(true)
     if (editIndex !== null) {
       setProposals(prev => Object.fromEntries(Object.entries(prev).filter(([key]) => Number(key) < editIndex)))
@@ -287,13 +290,29 @@ export function AnalystConversation({
           model: selectedModel ? { id: selectedModel.id, provider: selectedModel.provider } : undefined,
           effort,
           conversationId: conversationId ?? undefined,
+          stream: true,
         }),
       })
-      const data = await res.json()
-      if (controller.signal.aborted || requestControllerRef.current !== controller) return
-      if (!res.ok) {
-        setError(data.error ?? 'Request failed')
-        return
+      // Streamed: each step as it starts and finishes, then the result. Older servers (or a proxy
+      // that buffers) answer with plain JSON, which is handled the same way below.
+      let data: any
+      if ((res.headers.get('content-type') ?? '').includes('ndjson') && res.body) {
+        data = await readAnalystStream(res.body, event => {
+          if (controller.signal.aborted || requestControllerRef.current !== controller) return
+          setSteps(prev => applyProgress(prev, event))
+        })
+        if (controller.signal.aborted || requestControllerRef.current !== controller) return
+        if (!data || data.error) {
+          setError(data?.error ?? 'The Analyst stopped without an answer. Please try again.')
+          return
+        }
+      } else {
+        data = await res.json()
+        if (controller.signal.aborted || requestControllerRef.current !== controller) return
+        if (!res.ok) {
+          setError(data.error ?? 'Request failed')
+          return
+        }
       }
       setMessages(prev => [...prev, { role: 'assistant', content: data.reply }])
       setTurnMeta(prev => ({
@@ -628,7 +647,7 @@ export function AnalystConversation({
             </div>
           )
         )}
-        {loading && <p className="text-sm text-muted-foreground animate-pulse">Thinking...</p>}
+        {loading && <AnalystWorking steps={steps} />}
         {error && <p className="text-sm text-destructive">{error}</p>}
       </div>
     </div>
@@ -894,6 +913,91 @@ export function AnalystConversation({
         )}
       </div>
       {storageNote}
+    </div>
+  )
+}
+
+
+// ---- Live progress --------------------------------------------------------------------------------
+
+interface AnalystStep {
+  tool: string
+  label: string
+  status: 'running' | 'done' | 'error'
+}
+
+type ProgressEvent =
+  | { kind: 'tool.started'; tool: string; label: string }
+  | { kind: 'tool.completed'; tool: string; label: string; isError: boolean }
+
+function applyProgress(steps: AnalystStep[], event: ProgressEvent): AnalystStep[] {
+  if (event.kind === 'tool.started') return [...steps, { tool: event.tool, label: event.label, status: 'running' }]
+  // Complete the most recent running step for this tool (the same tool can run more than once).
+  const i = steps.map(s => s.tool === event.tool && s.status === 'running').lastIndexOf(true)
+  if (i < 0) return steps
+  const next = [...steps]
+  next[i] = { ...next[i], status: event.isError ? 'error' : 'done' }
+  return next
+}
+
+/** Read the NDJSON stream from /api/analyst; resolves with the result body, or `{ error }`. */
+async function readAnalystStream(body: ReadableStream<Uint8Array>, onProgress: (event: ProgressEvent) => void): Promise<any> {
+  const reader = body.getReader()
+  const decoder = new TextDecoder()
+  let buffer = ''
+  let outcome: any = null
+  for (;;) {
+    const { value, done } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    let nl: number
+    while ((nl = buffer.indexOf('\n')) >= 0) {
+      const line = buffer.slice(0, nl).trim()
+      buffer = buffer.slice(nl + 1)
+      if (!line) continue
+      let msg: any
+      try { msg = JSON.parse(line) } catch { continue }
+      if (msg.type === 'progress' && msg.event) onProgress(msg.event)
+      else if (msg.type === 'result') outcome = msg.data
+      else if (msg.type === 'error') outcome = { error: msg.error ?? 'Request failed' }
+    }
+  }
+  return outcome
+}
+
+/**
+ * "Thinking" that visibly moves: how long it has been working, and each step it has taken — the
+ * running one spinning, finished ones ticked. Between steps the model itself is reasoning, which
+ * has no finer signal, so the timer is what shows it has not hung.
+ */
+function AnalystWorking({ steps }: { steps: AnalystStep[] }) {
+  const [seconds, setSeconds] = useState(0)
+  useEffect(() => {
+    const started = Date.now()
+    const id = window.setInterval(() => setSeconds(Math.floor((Date.now() - started) / 1000)), 1000)
+    return () => window.clearInterval(id)
+  }, [])
+  const running = steps.some(s => s.status === 'running')
+  const elapsed = seconds < 60 ? `${seconds}s` : `${Math.floor(seconds / 60)}m ${String(seconds % 60).padStart(2, '0')}s`
+  return (
+    <div className="space-y-1.5 text-sm text-muted-foreground" role="status" aria-live="polite">
+      <p className="flex items-center gap-2">
+        <Loader2 className="h-3.5 w-3.5 animate-spin" />
+        <span>{running ? 'Working' : steps.length ? 'Thinking about what it found' : 'Thinking'}</span>
+        <span className="tabular-nums text-xs">· {elapsed}</span>
+      </p>
+      {steps.length > 0 && (
+        <ul className="space-y-1 pl-5">
+          {steps.map((s, i) => (
+            <li key={i} className="flex items-center gap-2 text-xs">
+              {s.status === 'running' ? <Loader2 className="h-3 w-3 animate-spin" />
+                : s.status === 'done' ? <Check className="h-3 w-3 text-success" />
+                : <X className="h-3 w-3 text-destructive" />}
+              <span className={s.status === 'running' ? 'text-foreground' : ''}>{s.label}</span>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   )
 }

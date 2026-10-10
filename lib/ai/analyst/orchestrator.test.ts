@@ -276,7 +276,8 @@ describe('runAnalyst', () => {
 
 describe('coarse progress for streaming transports', () => {
   it('turns a tool name into a label a person reads, not a database detail', () => {
-    expect(toolLabel('portfolio_construction')).toBe('Portfolio construction')
+    expect(toolLabel('portfolio_construction')).toBe('Loading portfolio construction')
+    expect(toolLabel('forecast_suggest_rules')).toBe('Reading account history to suggest forecast rules')
     expect(toolLabel('list_capital_calls')).toBe('List capital calls')
     expect(toolLabel('company-metrics')).toBe('Company metrics')
     expect(toolLabel('')).toBe('Working')

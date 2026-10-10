@@ -16,8 +16,8 @@ import { monthlyStatement, type MonthStatus } from './statement'
 export type ReportView = 'actual' | 'plan' | 'combined'
 
 /** What moved the cash: the fund cash timeline's categories. */
-export type FlowCategory = 'operating' | 'invested' | 'proceeds' | 'called' | 'distributed' | 'borrowed'
-export const FLOW_CATEGORIES: FlowCategory[] = ['operating', 'invested', 'proceeds', 'called', 'distributed', 'borrowed']
+export type FlowCategory = 'operating' | 'invested' | 'proceeds' | 'called' | 'distributed' | 'borrowed' | 'repaid'
+export const FLOW_CATEGORIES: FlowCategory[] = ['operating', 'invested', 'proceeds', 'called', 'distributed', 'borrowed', 'repaid']
 
 export type CashSection = 'operating' | 'investing' | 'financing'
 
@@ -35,7 +35,8 @@ const CATEGORY_LINE: Record<Exclude<FlowCategory, 'operating'>, { section: CashS
   proceeds: { section: 'investing', label: 'Exit proceeds' },
   called: { section: 'financing', label: 'Capital contributions' },
   distributed: { section: 'financing', label: 'Distributions' },
-  borrowed: { section: 'financing', label: 'Borrowings and repayments' },
+  borrowed: { section: 'financing', label: 'Borrowings' },
+  repaid: { section: 'financing', label: 'Loan repayments' },
 }
 
 const BORROWING_SUBTYPES = new Set(['loan_payable', 'note_payable'])
@@ -123,14 +124,44 @@ const FORECAST_KIND: Record<string, FlowCategory> = {
  * other legs: an investment account means it bought or sold a position; partners' capital (or the
  * LP receivable a call books first) means a call or a distribution; anything else is operating.
  */
-export function classifyEntry(e: FlowEntry, byId: Map<string, Account>, cashIds: Set<string>): { category: FlowCategory; cash: number } | null {
+/**
+ * Loans that paid for an investment: a borrowing account credited in an entry that debits an
+ * investment and moves no cash — the lender paid the company directly. Repaying one is, in
+ * substance, paying for that investment, so its repayments are shown as investments.
+ */
+export function investmentFundingLoans(entries: FlowEntry[], byId: Map<string, Account>, cashIds: Set<string>): Set<string> {
+  const out = new Set<string>()
+  for (const e of entries) {
+    if (e.postings.some(p => cashIds.has(p.accountId))) continue
+    const accts = e.postings.map(p => ({ p, a: byId.get(p.accountId) }))
+    const buysInvestment = accts.some(({ p, a }) => p.amount > 0 && a?.type === 'asset' && (a.subtype === 'investment' || !!a.companyId))
+    if (!buysInvestment) continue
+    for (const { p, a } of accts) {
+      if (p.amount < 0 && a?.type === 'liability' && BORROWING_SUBTYPES.has(a.subtype ?? '')) out.add(a.id)
+    }
+  }
+  return out
+}
+
+export function classifyEntry(
+  e: FlowEntry,
+  byId: Map<string, Account>,
+  cashIds: Set<string>,
+  investmentLoans: Set<string> = new Set(),
+): { category: FlowCategory; cash: number } | null {
   const cash = e.postings.filter(p => cashIds.has(p.accountId)).reduce((s, p) => s + p.amount, 0)
   if (cash === 0) return null
   if (e.kind && FORECAST_KIND[e.kind]) return { category: FORECAST_KIND[e.kind], cash }
   if (e.kind) return { category: 'operating', cash }
   const others = e.postings.filter(p => !cashIds.has(p.accountId)).map(p => byId.get(p.accountId)).filter(Boolean) as Account[]
   if (others.some(a => a.type === 'asset' && (a.subtype === 'investment' || a.companyId))) return { category: cash < 0 ? 'invested' : 'proceeds', cash }
-  if (others.some(a => a.type === 'liability' && BORROWING_SUBTYPES.has(a.subtype ?? ''))) return { category: 'borrowed', cash }
+  // Money in from a lender is a borrowing; money out to one is a repayment — two different things,
+  // and one netted "borrowings" bar made a loan repaid with called capital read as negative borrowing.
+  const loan = others.find(a => a.type === 'liability' && BORROWING_SUBTYPES.has(a.subtype ?? ''))
+  if (loan) {
+    if (cash < 0 && investmentLoans.has(loan.id)) return { category: 'invested', cash }
+    return { category: cash > 0 ? 'borrowed' : 'repaid', cash }
+  }
   if (others.some(a => a.type === 'equity' || (a.type === 'asset' && a.subtype === 'receivable' && a.lpEntityId) || a.subtype === 'distributions_payable')) {
     return { category: cash > 0 ? 'called' : 'distributed', cash }
   }
@@ -230,10 +261,12 @@ export function buildReport(input: ReportInput): Report {
       const a = byId.get(id)
       add(id, { section: 'operating', label: a ? a.name : 'Other', code: a?.code ?? null }, m, amount)
     }
+    // Read across ALL entries, not just the range: the loan was usually drawn before the repayments.
+    const investmentLoans = investmentFundingLoans([...(input.actualEntries ?? []), ...(input.planEntries ?? [])], byId, cashIds)
     for (const e of flowEntries) {
       const m = e.date.slice(0, 7)
       if (!inRange.has(m)) continue
-      const c = classifyEntry(e, byId, cashIds)
+      const c = classifyEntry(e, byId, cashIds, investmentLoans)
       if (!c) continue
       byCat[c.category].set(m, (byCat[c.category].get(m) ?? 0) + c.cash)
       if (c.category !== 'operating') {

@@ -41,7 +41,8 @@ export interface SuggestInput {
   lookbackMonths?: number
 }
 
-const fmt = (n: number) => Math.round(n).toLocaleString('en-US')
+// Cents only where they matter: $0.49 of interest is not "1".
+const fmt = (n: number) => n.toLocaleString('en-US', { maximumFractionDigits: Math.abs(n) < 100 ? 2 : 0 })
 const mean = (xs: number[]) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0)
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const label = (m: MonthKey) => `${MONTHS[parseMonth(m).month - 1]} ${parseMonth(m).year}`
@@ -66,10 +67,27 @@ export function suggestRule(input: SuggestInput): RuleSuggestion | null {
 
   const next = addMonths(window[window.length - 1], 1)
   const short = window.length < MIN_HISTORY_MONTHS
+  // Months before an account's first activity say nothing about its level: a fee that began in
+  // March was not $0 in February, it did not exist yet. Level and density are read from the first
+  // active month on; cycle detection still uses the whole window, where those months are evidence.
+  const firstActive = window.findIndex((_, i) => values[i] !== 0)
+  const live = values.slice(firstActive)
+  const liveMonths = window.slice(firstActive)
   const shortWarning = short
     ? [`Only ${window.length} closed month${window.length === 1 ? '' : 's'} of history — annual and seasonal patterns need at least 12`]
     : []
-  const density = nonzero.length / window.length
+  const density = nonzero.length / live.length
+
+  // ---- one-off: once, in too little history to know whether it recurs --------------------------
+  if (nonzero.length === 1 && short) {
+    return {
+      method: 'manual',
+      params: { amounts: {} },
+      confidence: 'low',
+      evidence: `One-off: ${fmt(input.actuals.get(nonzero[0])!)} in ${label(nonzero[0])}, not repeated`,
+      warnings: [...shortWarning, 'Not forecast to recur — add the months if it will'],
+    }
+  }
 
   // ---- periodic: spend only on a cycle ---------------------------------------------------------
   if (!short && density <= 0.5) {
@@ -104,12 +122,12 @@ export function suggestRule(input: SuggestInput): RuleSuggestion | null {
     }
   }
 
-  const avg = mean(values)
-  const recent = mean(values.slice(-3))
+  const avg = mean(live)
+  const recent = mean(live.slice(-3))
 
   if (density >= 0.75) {
     // ---- seasonal: a repeating shape a level cannot describe --------------------------------
-    if (!short) {
+    if (!short && firstActive === 0) {
       const last12 = values.slice(-12)
       const m12 = mean(last12)
       const spikes = last12.filter(v => Math.abs(v - m12) > 0.5 * Math.abs(m12))
@@ -143,6 +161,24 @@ export function suggestRule(input: SuggestInput): RuleSuggestion | null {
       }
     }
 
+    // ---- fixed: the same amount every month, lately ---------------------------------------------
+    // An exact repeat (a fee, rent, an amortization) is a fixed amount, not an average that drifts
+    // with the months it was not yet charged.
+    {
+      const latest = live[live.length - 1]
+      let run = 0
+      for (let i = live.length - 1; i >= 0 && latest !== 0 && Math.abs(live[i] - latest) <= 0.005 * Math.abs(latest); i--) run++
+      if (run >= 3) {
+        return {
+          method: 'fixed',
+          params: { amount: roundCents(latest) },
+          confidence: run >= 6 ? 'high' : short ? 'low' : 'medium',
+          evidence: `${fmt(latest)} every month for the last ${run} months (since ${label(liveMonths[liveMonths.length - run])})`,
+          warnings: [...shortWarning, ...(run < 6 ? ['A short run — confirm the amount holds'] : [])],
+        }
+      }
+    }
+
     // ---- trending: a steady rise or fall ----------------------------------------------------
     if (!short) {
       const xs = values.map((_, i) => i)
@@ -169,22 +205,23 @@ export function suggestRule(input: SuggestInput): RuleSuggestion | null {
     }
 
     // ---- stepped: the recent level is different ---------------------------------------------
-    if (window.length >= 6 && avg !== 0 && Math.abs(recent - avg) > 0.15 * Math.abs(avg)) {
+    if (live.length >= 6 && avg !== 0 && Math.abs(recent - avg) > 0.15 * Math.abs(avg)) {
       return {
         method: 'run_rate',
         params: { window: 3 },
         confidence: 'medium',
-        evidence: `The last 3 months average ${fmt(recent)}, against ${fmt(avg)} over ${window.length} — the recent level is used`,
+        evidence: `The last 3 months average ${fmt(recent)}, against ${fmt(avg)} over ${live.length} — the recent level is used`,
         warnings: [...shortWarning, 'A step change: check whether the new level will hold'],
       }
     }
 
     // ---- steady -----------------------------------------------------------------------------
+    // Averaged from the first active month, so a cost that started mid-window is not diluted.
     return {
       method: 'run_rate',
-      params: { window: 12 },
-      confidence: short ? 'low' : 'high',
-      evidence: `Steady: ${nonzero.length} of ${window.length} months, averaging ${fmt(mean(values.slice(-12)))}`,
+      params: firstActive > 0 ? { from: liveMonths[0], to: liveMonths[liveMonths.length - 1] } : { window: 12 },
+      confidence: short ? (live.length >= 6 ? 'medium' : 'low') : 'high',
+      evidence: `Steady: ${nonzero.length} of ${live.length} months since ${label(liveMonths[0])}, averaging ${fmt(mean(live.slice(-12)))}`,
       warnings: shortWarning,
     }
   }

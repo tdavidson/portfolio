@@ -27,6 +27,27 @@ export function scheduledMonth(value: string, count: number, day: number): strin
   source.setUTCDate(Math.min(day, last))
   return iso(source)
 }
+/**
+ * Move a copied memo's dates to the month it is now for. A recurring entry's memo usually names its
+ * own period — "amortization — 2026-08", "(Period 08/01-08/31)" — and copying it verbatim files
+ * September's entry under August.
+ */
+export function shiftMemoMonth(memo: string, from: string, to: string): string {
+  const [fy, fm] = from.slice(0, 7).split('-')
+  const [ty, tm] = to.slice(0, 7).split('-')
+  const lastOf = (y: string, m: string) => String(new Date(Date.UTC(Number(y), Number(m), 0)).getUTCDate()).padStart(2, '0')
+  const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+  return memo
+    // 2026-08 → 2026-09 (and 2026-08-31 → 2026-09-30 when it is the month end)
+    .replace(new RegExp(`${fy}-${fm}-${lastOf(fy, fm)}`, 'g'), `${ty}-${tm}-${lastOf(ty, tm)}`)
+    .replace(new RegExp(`${fy}-${fm}`, 'g'), `${ty}-${tm}`)
+    // 08/01-08/31 → 09/01-09/30, and a bare 08/31
+    .replace(new RegExp(`\\b${fm}/01\\s*-\\s*${fm}/${lastOf(fy, fm)}\\b`, 'g'), `${tm}/01-${tm}/${lastOf(ty, tm)}`)
+    .replace(new RegExp(`\\b${fm}/${lastOf(fy, fm)}\\b`, 'g'), `${tm}/${lastOf(ty, tm)}`)
+    // August 2026 → September 2026
+    .replace(new RegExp(`\\b${monthNames[Number(fm) - 1]} ${fy}\\b`, 'g'), `${monthNames[Number(tm) - 1]} ${ty}`)
+}
+
 function monthDistance(left: string, right: string): number {
   const a = new Date(`${left.slice(0, 7)}-01T00:00:00Z`)
   const b = new Date(`${right.slice(0, 7)}-01T00:00:00Z`)
@@ -35,17 +56,23 @@ function monthDistance(left: string, right: string): number {
 function signature(lines: { account_id: string; amount: unknown; lp_entity_id?: string | null }[]): string {
   return lines.map(line => `${line.account_id}:${Number(line.amount).toFixed(2)}:${line.lp_entity_id ?? ''}`).sort().join('|')
 }
+/** Which accounts an entry touches, ignoring amounts — monthly interest is the same entry at 0.49 or 0.51. */
+function accountSet(lines: { account_id: string }[]): string {
+  return [...new Set(lines.map(line => line.account_id))].sort().join('|')
+}
 
 export async function loadCloseEntrySuggestions(
   admin: SupabaseClient, fundId: string, group: string, start: string, end: string,
 ): Promise<CloseEntrySuggestion[]> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
   if (!vehicleId) return []
+  // Every non-void entry in the span, draft or posted, with or without a system reference: a bank
+  // import or a hand-keyed entry is as much "this month's occurrence" as a draft the close made.
   const { data: existingRows } = await admin.from('journal_entries' as any)
     .select('source_ref, entry_date, journal_postings(account_id, amount, lp_entity_id)')
     .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('vehicle_id', vehicleId).neq('status', 'void')
-    .gte('entry_date', start).lte('entry_date', end).not('source_ref', 'is', null)
-  const existingRefs = new Set(((existingRows as any[]) ?? []).map(row => row.source_ref as string))
+    .gte('entry_date', start).lte('entry_date', end)
+  const existingRefs = new Set(((existingRows as any[]) ?? []).map(row => row.source_ref as string | null).filter((r): r is string => !!r))
   const existingSignatures = new Set(((existingRows as any[]) ?? []).map(row => `${row.entry_date}:${signature(row.journal_postings ?? [])}`))
 
   const { data: schedules } = await admin.from('accounting_schedules' as any)
@@ -96,13 +123,15 @@ export async function loadCloseEntrySuggestions(
     if (due < start || due > end) continue
     const sourceRef = `recurring:${latest.id}:${due}`
     if (existingRefs.has(sourceRef)) continue
+    // Already there if any entry that month moves the same accounts — at any amount. Recurring
+    // patterns are found by exact repeats, but the next occurrence (interest, a fee) can differ.
     const duplicate = ((existingRows as any[]) ?? []).some(entry => monthKey(entry.entry_date) === monthKey(due)
-      && signature(entry.journal_postings ?? []) === signature(latest.journal_postings ?? []))
+      && accountSet(entry.journal_postings ?? []) === accountSet(latest.journal_postings ?? []))
     if (duplicate) continue
     out.push({
-      id: sourceRef, sourceRef, basis: 'recurring_pattern', title: latest.memo || 'Recurring journal entry',
+      id: sourceRef, sourceRef, basis: 'recurring_pattern', title: shiftMemoMonth(latest.memo || 'Recurring journal entry', latest.entry_date, due),
       detail: `Suggested because matching entries were posted in ${monthKey(previous.entry_date)} and ${monthKey(latest.entry_date)}.`,
-      entryDate: due, memo: latest.memo || 'Recurring journal entry', sourceType: latest.source_type || 'adjusting', required: false,
+      entryDate: due, memo: shiftMemoMonth(latest.memo || 'Recurring journal entry', latest.entry_date, due), sourceType: latest.source_type || 'adjusting', required: false,
       postings: (latest.journal_postings ?? []).map((line: any) => ({ accountId: line.account_id, amount: Number(line.amount), currency: line.currency || 'USD', lpEntityId: line.lp_entity_id })),
       evidence: { priorEntryIds: [previous.id, latest.id] },
     })

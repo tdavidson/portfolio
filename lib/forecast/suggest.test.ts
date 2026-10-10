@@ -45,8 +45,29 @@ describe('suggestRule', () => {
     expect(r.amounts.get('2026-12')).toBe(72000)
   })
 
-  it('a steady cost is a 12-month run rate', () => {
-    expect(suggestRule({ actuals: series(() => 3000), ...closed })).toMatchObject({ method: 'run_rate', params: { window: 12 }, confidence: 'high' })
+  it('the same amount every month is a fixed amount', () => {
+    expect(suggestRule({ actuals: series(() => 3000), ...closed })).toMatchObject({ method: 'fixed', params: { amount: 3000 }, confidence: 'high' })
+  })
+
+  it('a steady but varying cost is a 12-month run rate', () => {
+    expect(suggestRule({ actuals: series((_, i) => 3000 + (i % 3) * 40 - 40), ...closed })).toMatchObject({ method: 'run_rate', params: { window: 12 }, confidence: 'high' })
+  })
+
+  it('a fee that started partway through is fixed at its own level, not averaged with the months before it (Bluefish)', () => {
+    const fee = new Map(['2026-03', '2026-04', '2026-05', '2026-06', '2026-07', '2026-08', '2026-09'].map(m => [m, 2100] as [string, number]))
+    const s = suggestRule({ actuals: fee, closedFrom: '2026-02', closedThrough: '2026-09' })!
+    expect(s).toMatchObject({ method: 'fixed', params: { amount: 2100 }, confidence: 'high' })
+  })
+
+  it('a one-off in short history is not spread forward (Bluefish loan interest)', () => {
+    const s = suggestRule({ actuals: new Map([['2026-03', 5697.31]]), closedFrom: '2026-02', closedThrough: '2026-09' })!
+    expect(s).toMatchObject({ method: 'manual', params: { amounts: {} } })
+    expect(s.evidence).toMatch(/One-off: 5,697 in Mar 2026/)
+  })
+
+  it('a small steady income since the books began is averaged from its first month', () => {
+    const interest = new Map([['2026-02', 0.96], ['2026-03', 0.56], ['2026-04', 0.49], ['2026-05', 0.51], ['2026-06', 0.5], ['2026-07', 0.51], ['2026-08', 0.51], ['2026-09', 0.49]] as [string, number][])
+    expect(suggestRule({ actuals: interest, closedFrom: '2026-02', closedThrough: '2026-09' })).toMatchObject({ method: 'run_rate', confidence: 'medium' })
   })
 
   it('a steady climb is growth', () => {
@@ -55,8 +76,14 @@ describe('suggestRule', () => {
     expect(s.params.rate).toBeCloseTo(0.02, 2)
   })
 
-  it('a step change uses the recent level and says so', () => {
+  it('a step change to a new flat level is that level, flagged as a short run', () => {
     const s = suggestRule({ actuals: series(m => (m >= '2026-07' ? 8000 : 5000)), ...closed })!
+    expect(s).toMatchObject({ method: 'fixed', params: { amount: 8000 }, confidence: 'medium' })
+    expect(s.warnings.join()).toMatch(/short run/)
+  })
+
+  it('a step change to a varying level uses the recent average and says so', () => {
+    const s = suggestRule({ actuals: series((m, i) => (m >= '2026-07' ? 8000 + (i % 2) * 300 : 5000 + (i % 2) * 200)), ...closed })!
     expect(s).toMatchObject({ method: 'run_rate', params: { window: 3 } })
     expect(s.warnings.join()).toMatch(/step change/)
   })

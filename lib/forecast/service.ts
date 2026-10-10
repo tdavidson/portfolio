@@ -552,14 +552,36 @@ async function suggestFor(ctx: ForecastServiceContext, v: VehicleCtx, lookbackMo
       suggestions.push({ ...meta, method: 'linked_fee', params: {}, confidence: 'high', evidence: `${mancoLinks.length} linked fund${mancoLinks.length === 1 ? '' : 's'}' construction fee schedules`, warnings: [] })
       continue
     }
-    if (!manco && a.subtype === 'management_fee' && (fundLink || hasSchedule)) {
-      suggestions.push(fundLink
-        ? { ...meta, method: 'linked_fee', params: {}, confidence: 'high', evidence: `Construction fee schedule, ${cycleLabel(fundLink)}`, warnings: [] }
-        : { ...meta, method: 'linked_construction', params: { flow: 'fees' }, confidence: 'high', evidence: 'Portfolio construction fee schedule', warnings: [] })
+    // A fund's fee and expenses: an explicit fee link wins. Otherwise the books' own pattern wins
+    // when it is confident — a prepaid fee amortized at exactly $2,100 a month is the fact, and
+    // construction's assumptions may differ — and construction fills in where history is thin.
+    const fromHistory = () => suggestRule({ actuals: history.get(a.id) ?? new Map(), closedFrom: closedFrom!, closedThrough: closedThrough!, lookbackMonths })
+    if (!manco && a.subtype === 'management_fee' && fundLink) {
+      suggestions.push({ ...meta, method: 'linked_fee', params: {}, confidence: 'high', evidence: `Construction fee schedule, ${cycleLabel(fundLink)}`, warnings: [] })
       continue
     }
-    if (!manco && a.subtype === 'partnership_expense' && hasSchedule) {
-      suggestions.push({ ...meta, method: 'linked_construction', params: { flow: 'expenses' }, confidence: 'medium', evidence: 'Portfolio construction partnership expenses (annual, spread by month)', warnings: [] })
+    if (!manco && (a.subtype === 'management_fee' || a.subtype === 'partnership_expense') && hasSchedule) {
+      const h = fromHistory()
+      if (!h || h.confidence !== 'high') {
+        const flow = a.subtype === 'management_fee' ? 'fees' : 'expenses'
+        suggestions.push({
+          ...meta, method: 'linked_construction', params: { flow }, confidence: 'medium',
+          evidence: `Portfolio construction ${flow === 'fees' ? 'fee schedule' : 'partnership expenses (annual, spread by month)'}${h ? ` — history was ${h.confidence} confidence: ${h.evidence}` : ''}`,
+          warnings: [],
+        })
+        continue
+      }
+    }
+    if (MARK_SUBTYPES.has(a.subtype ?? '')) {
+      // A mark or a gain is an event, not a run rate: one revaluation in February is not a monthly
+      // gain. Left at zero, visibly — portfolio construction is where investment outcomes are forecast.
+      if (history.get(a.id)?.size) {
+        suggestions.push({
+          ...meta, method: 'manual', params: { amounts: {} }, confidence: 'high',
+          evidence: 'Investment marks and gains are not forecast from history',
+          warnings: manco ? [] : ['Include portfolio construction flows (⋯ menu) to forecast exits and their realized gains'],
+        })
+      }
       continue
     }
     const s = suggestRule({ actuals: history.get(a.id) ?? new Map(), closedFrom, closedThrough, lookbackMonths })
@@ -570,6 +592,9 @@ async function suggestFor(ctx: ForecastServiceContext, v: VehicleCtx, lookbackMo
   }
   return { suggestions, window: window.length ? { first: window[0], last: window[window.length - 1] } : null, warnings }
 }
+
+/** Income accounts that record investment outcomes — marks, gains, currency — never forecast from history. */
+const MARK_SUBTYPES = new Set(['unrealized', 'realized_gain', 'fx_translation', 'fx_revaluation'])
 
 export async function suggestRules(ctx: ForecastServiceContext, input: { vehicle: string; lookbackMonths?: number }) {
   const v = await loadVehicle(ctx, input.vehicle, 'read')

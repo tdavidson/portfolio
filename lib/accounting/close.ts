@@ -24,7 +24,8 @@ import { loadResolvedCommitments } from './terms'
 // without hand-unwinding fifteen capital postings.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { loadPostedLedger, loadOwnership, loadEntityNames } from './load'
+import { loadPostedLedger, loadOwnership, loadEntityNames, fetchAllRows } from './load'
+import { summarizeBankRec } from './bank'
 import type { FundPosition } from '@/lib/portfolio/fof-metrics'
 import { loadFofData, ledgerCarryingByHolding } from '@/lib/portfolio/fof-load'
 import { fofCloseIssues, companiesWithPendingNotices } from '@/lib/portfolio/fof-valuation'
@@ -151,6 +152,12 @@ export interface ClosePreview {
    * in owner mode.
    */
   mode: 'partners' | 'owner'
+  /**
+   * P&L in the period that was already allocated when its entries were POSTED (continuous
+   * allocation). The close does not allocate it again; shown so a month whose entries were all
+   * allocated on posting doesn't read as "no activity".
+   */
+  allocatedOnPosting: { entries: number; netIncome: number }
   warnings: string[]
 }
 
@@ -299,7 +306,15 @@ export async function previewClose(
   }
 
   const netIncome = roundCents(categories.reduce((s, c) => s + c.capitalEffect, 0))
-  if (categories.length === 0) warnings.push('No P&L activity in this period — closing will lock the books without allocating anything.')
+  const allocatedInPeriod = postingsInPeriod(sourcedPostings.filter(p => allocatedSourceIds.has(p.entryId)), periodStart, periodEnd)
+    .filter(p => pnlById.has(p.accountId))
+  const allocatedOnPosting = {
+    entries: new Set(allocatedInPeriod.map(p => p.entryId)).size,
+    netIncome: roundCents(-allocatedInPeriod.reduce((s, p) => s + p.amount, 0)),
+  }
+  if (categories.length === 0 && allocatedOnPosting.entries === 0) {
+    warnings.push('No P&L activity in this period — closing will lock the books without allocating anything.')
+  }
 
   // Closing out of order strands P&L: any income or expense dated BEFORE this period
   // that isn't inside a closed period will never be allocated to anyone, because the
@@ -319,7 +334,7 @@ export async function previewClose(
     )
   }
 
-  return { periodStart, periodEnd, netIncome, categories, basis, mode: ownerMode ? 'owner' : 'partners', warnings }
+  return { periodStart, periodEnd, netIncome, categories, basis, mode: ownerMode ? 'owner' : 'partners', allocatedOnPosting, warnings }
 }
 
 // ---------------------------------------------------------------------------
@@ -396,9 +411,13 @@ export async function nextCloseStart(
  * knowingly accept, and it doesn't corrupt the allocation.
  */
 export interface CloseReadiness {
-  draftEntries: { count: number; earliest: string | null }
+  draftEntries: { count: number; earliest: string | null; items?: { id: string; entryDate: string; memo: string | null; amount: number }[] }
   unpostedBankTxns: { count: number; total: number }
-  bank: { tiesOut: boolean; difference: number } | null
+  /**
+   * Ledger cash (1000) against the imported bank feed, both as of the period end — the same
+   * reconciliation the bank page runs, cut at the close date. Null only when no bank feed exists.
+   */
+  bank: { tiesOut: boolean; difference: number; ledgerCashBalance: number; bankEndingBalance: number; unmatchedCount: number } | null
   blockers: string[]
   /** Blocker text → the page that clears it (a quoted holding's page). Absent on older reviews. */
   blockerLinks?: Record<string, string>
@@ -429,7 +448,13 @@ async function persistCloseReview(
     { key: 'trial_balance', section: 'Ledger integrity', label: 'Trial balance', status: tb.balanced ? 'passed' : 'blocked', detail: tb.balanced ? 'Debits equal credits.' : 'The trial balance is out of balance.', evidence: tb },
     { key: 'draft_entries', section: 'Ledger integrity', label: 'No draft journal entries', status: readiness.draftEntries.count === 0 ? 'passed' : 'blocked', detail: readiness.draftEntries.count === 0 ? 'No drafts fall inside the period.' : `${readiness.draftEntries.count} draft entries remain.`, evidence: readiness.draftEntries },
     { key: 'bank_completeness', section: 'Cash reconciliation', label: 'Bank activity recorded', status: readiness.unpostedBankTxns.count === 0 ? 'passed' : 'blocked', detail: readiness.unpostedBankTxns.count === 0 ? 'No unmatched or unposted bank activity remains.' : `${readiness.unpostedBankTxns.count} bank transactions remain.`, evidence: readiness.unpostedBankTxns },
-    { key: 'bank_reconciliation', section: 'Cash reconciliation', label: 'Bank reconciliation', status: readiness.bank == null ? 'not_applicable' : readiness.bank.tiesOut ? 'passed' : 'needs_review', detail: readiness.bank == null ? 'No statement balance was supplied for this close.' : `Difference: ${readiness.bank.difference.toFixed(2)}.`, evidence: readiness.bank ?? {} },
+    { key: 'bank_reconciliation', section: 'Cash reconciliation', label: 'Bank reconciliation', status: readiness.bank == null ? 'not_applicable' : readiness.bank.tiesOut ? 'passed' : 'needs_review',
+      detail: readiness.bank == null
+        ? 'No bank transactions are imported for this entity, so there is nothing to reconcile.'
+        : readiness.bank.tiesOut
+          ? `Ledger cash equals the bank feed at the period end (${readiness.bank.ledgerCashBalance.toFixed(2)}).`
+          : `Ledger cash ${readiness.bank.ledgerCashBalance.toFixed(2)} vs bank feed ${readiness.bank.bankEndingBalance.toFixed(2)} at the period end — difference ${readiness.bank.difference.toFixed(2)}${readiness.bank.unmatchedCount ? `, ${readiness.bank.unmatchedCount} unmatched transaction${readiness.bank.unmatchedCount === 1 ? '' : 's'}` : ''}.`,
+      evidence: readiness.bank ?? {} },
     { key: 'allocation_completeness', section: 'Partner capital', label: 'Partner allocations complete', status: 'passed', detail: 'Posted P&L entries have transaction-date allocation evidence; legacy activity was caught up by this close.', evidence: {} },
     { key: 'valuation_and_cutoff', section: 'Investments and cutoff', label: 'Valuation and cutoff review', status: readiness.warnings.length === 0 ? 'passed' : 'needs_review', detail: readiness.warnings.length === 0 ? 'No valuation or cutoff exceptions were reported.' : readiness.warnings.join(' '), evidence: { warnings: readiness.warnings } },
   ] as const
@@ -649,6 +674,30 @@ async function loadLotIssues(
   return out
 }
 
+/**
+ * The bank page's reconciliation (app/api/accounting/bank/reconcile), cut at the period end: ledger
+ * cash on 1000 through `end` against every non-ignored bank transaction dated through `end`. Null
+ * when the entity has no bank feed — there is then genuinely nothing to reconcile against.
+ */
+async function bankRecAsOf(
+  admin: SupabaseClient, fundId: string, group: string, vehicleId: string | null, end: string,
+): Promise<CloseReadiness['bank']> {
+  const txnRows = await fetchAllRows((f, t) => admin.from('bank_transactions' as any)
+    .select('amount, status')
+    .eq('fund_id', fundId).eq('vehicle_id', vehicleId)
+    .lte('txn_date', end).neq('status', 'ignored')
+    .range(f, t))
+  if ((txnRows as any[]).length === 0) return null
+  const { accounts, postings } = await loadPostedLedger(admin, fundId, group, end)
+  const cash = accounts.find(a => a.code === '1000')
+  const ledgerCash = cash ? (accountBalances(postings).get(cash.id) ?? 0) : 0
+  const rec = summarizeBankRec((txnRows as any[]).map(t => ({ amount: Number(t.amount), matched: t.status === 'reconciled' })), ledgerCash)
+  return {
+    tiesOut: rec.tiesOut, difference: rec.difference, ledgerCashBalance: rec.ledgerCashBalance,
+    bankEndingBalance: rec.bankEndingBalance, unmatchedCount: rec.unmatchedCount,
+  }
+}
+
 /** Pre-close checks over the whole span. */
 /** @internal Exported for tests only. */
 export async function checkReadiness(
@@ -662,11 +711,12 @@ export async function checkReadiness(
 
   const [{ data: drafts }, { data: bankTxns }] = await Promise.all([
     admin.from('journal_entries' as any)
-      .select('id, entry_date')
+      .select('id, entry_date, memo, journal_postings(amount)')
       .eq('book', ACTUAL_BOOK)
       .eq('fund_id', fundId).eq('vehicle_id', vehicleId)
       .eq('status', 'draft')
-      .gte('entry_date', start).lte('entry_date', end),
+      .gte('entry_date', start).lte('entry_date', end)
+      .order('entry_date'),
     admin.from('bank_transactions' as any)
       .select('id, amount, status')
       .eq('fund_id', fundId).eq('vehicle_id', vehicleId)
@@ -770,12 +820,20 @@ export async function checkReadiness(
   }
 
   return {
-    draftEntries: { count: draftRows.length, earliest: draftRows.map(d => d.entry_date).sort()[0] ?? null },
+    draftEntries: {
+      count: draftRows.length,
+      earliest: draftRows.map(d => d.entry_date).sort()[0] ?? null,
+      // Listed so the close page can post them where the blocker is, not send you to the journal.
+      items: draftRows.slice(0, 50).map(d => ({
+        id: d.id, entryDate: d.entry_date, memo: d.memo ?? null,
+        amount: ((d.journal_postings as any[]) ?? []).filter(p => Number(p.amount) > 0).reduce((s, p) => s + Number(p.amount), 0),
+      })),
+    },
     unpostedBankTxns: {
       count: bankRows.length,
       total: roundCents(bankRows.reduce((s, t) => s + Number(t.amount), 0)),
     },
-    bank: null,
+    bank: await bankRecAsOf(admin, fundId, group, vehicleId, end),
     blockers,
     warnings,
     blockerLinks,
@@ -874,8 +932,12 @@ export async function previewCloseThrough(
   }
 
   const withActivity = months.filter(m => m.categories.length > 0)
-  if (withActivity.length === 0) {
+  const allocatedAlready = months.reduce((n, m) => n + m.allocatedOnPosting.entries, 0)
+  if (withActivity.length === 0 && allocatedAlready === 0) {
     warnings.push('No P&L activity in this span — closing will lock the books without allocating anything.')
+  } else if (withActivity.length === 0) {
+    // Not a warning: every entry was allocated to partners when it was posted.
+    warnings.push(`All ${allocatedAlready} P&L entr${allocatedAlready === 1 ? 'y in this span was' : 'ies in this span were'} allocated to partners when posted — the close has nothing further to allocate and will review and lock the period.`)
   }
   const basis = months[0]?.basis ?? 'commitment'
   const mode = months[0]?.mode ?? 'partners'
@@ -1551,6 +1613,8 @@ export interface CloseEntry {
   entryDate: string
   memo: string | null
   sourceType: string | null
+  /** 'posting' = allocated when its source entry was posted; 'close' = posted by the close itself. */
+  allocatedOn: 'close' | 'posting'
   lines: CloseEntryLine[]
 }
 
@@ -1569,13 +1633,32 @@ export async function loadCloseEntries(
 ): Promise<CloseEntry[]> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
   if (!vehicleId) return []
-  const { data: entries } = await admin
-    .from('journal_entries' as any)
-    .select('id, entry_date, memo, source_type')
-    .eq('book', ACTUAL_BOOK)
-    .eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('source_ref', `close:${periodId}`).eq('status', 'posted')
-    .order('entry_date', { ascending: true })
-  const entryRows = (entries as any[]) ?? []
+  const { data: period } = await admin.from('fiscal_periods' as any)
+    .select('period_start, period_end').eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('id', periodId).maybeSingle()
+  const [{ data: entries }, { data: onPosting }] = await Promise.all([
+    admin
+      .from('journal_entries' as any)
+      .select('id, entry_date, memo, source_type')
+      .eq('book', ACTUAL_BOOK)
+      .eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('source_ref', `close:${periodId}`).eq('status', 'posted')
+      .order('entry_date', { ascending: true }),
+    // Most P&L is allocated when it is posted, not at close (continuous-allocation.ts). Those
+    // allocation entries are part of what the period's partners received, so they are listed too.
+    period
+      ? admin
+        .from('journal_entries' as any)
+        .select('id, entry_date, memo, source_type')
+        .eq('book', ACTUAL_BOOK)
+        .eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('status', 'posted')
+        .like('source_ref', 'allocation:%')
+        .gte('entry_date', (period as any).period_start).lte('entry_date', (period as any).period_end)
+        .order('entry_date', { ascending: true })
+      : Promise.resolve({ data: [] as any[] }),
+  ])
+  const kindById = new Map<string, 'close' | 'posting'>()
+  for (const e of (entries as any[]) ?? []) kindById.set(e.id, 'close')
+  for (const e of (onPosting as any[]) ?? []) kindById.set(e.id, 'posting')
+  const entryRows = [...((onPosting as any[]) ?? []), ...((entries as any[]) ?? [])]
   if (entryRows.length === 0) return []
 
   const [{ data: postings }, { data: accts }, { data: ents }] = await Promise.all([
@@ -1604,6 +1687,7 @@ export async function loadCloseEntries(
     entryDate: e.entry_date as string,
     memo: (e.memo ?? null) as string | null,
     sourceType: (e.source_type ?? null) as string | null,
+    allocatedOn: kindById.get(e.id) ?? 'close',
     lines: linesByEntry.get(e.id) ?? [],
   }))
 }

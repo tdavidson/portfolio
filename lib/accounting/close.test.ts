@@ -286,3 +286,43 @@ describe('the snapshot-time readiness check', () => {
       .toBe('Not ready to close, so nothing was locked. The quoted positions could not be checked: boom. Try again before closing.')
   })
 })
+
+describe('the bank reconciliation check', () => {
+  const seed = (bank: any[]) => ({
+    fund_vehicles: [{ id: 'v1', fund_id: 'f', name: 'Fund I', kind: 'fund' }],
+    fund_settings: [{ fund_id: 'f', currency: 'USD' }],
+    chart_of_accounts: [
+      { id: 'cash', fund_id: 'f', vehicle_id: 'v1', code: '1000', name: 'Cash', type: 'asset', subtype: 'cash' },
+      { id: 'inc', fund_id: 'f', vehicle_id: 'v1', code: '4100', name: 'Interest income', type: 'income', subtype: 'interest_income' },
+    ],
+    journal_entries: [
+      { id: 'e1', fund_id: 'f', vehicle_id: 'v1', book: 'actual', status: 'posted', entry_date: '2026-09-30', source_type: 'income' },
+      { id: 'e2', fund_id: 'f', vehicle_id: 'v1', book: 'actual', status: 'posted', entry_date: '2026-10-05', source_type: 'income' },
+    ],
+    journal_postings: [
+      { journal_entry_id: 'e1', fund_id: 'f', vehicle_id: 'v1', book: 'actual', account_id: 'cash', amount: 100, currency: 'USD' },
+      { journal_entry_id: 'e1', fund_id: 'f', vehicle_id: 'v1', book: 'actual', account_id: 'inc', amount: -100, currency: 'USD' },
+      { journal_entry_id: 'e2', fund_id: 'f', vehicle_id: 'v1', book: 'actual', account_id: 'cash', amount: 50, currency: 'USD' },
+      { journal_entry_id: 'e2', fund_id: 'f', vehicle_id: 'v1', book: 'actual', account_id: 'inc', amount: -50, currency: 'USD' },
+    ],
+    bank_transactions: bank,
+  })
+  const txn = (date: string, amount: number, status = 'reconciled') => ({ fund_id: 'f', vehicle_id: 'v1', txn_date: date, amount, status })
+
+  it('reconciles ledger cash to the bank feed AS OF the period end, ignoring later activity', async () => {
+    const m = memoryAdmin(seed([txn('2026-09-30', 100), txn('2026-10-05', 50)]))
+    const r = await checkReadiness(m.admin as any, 'f', 'Fund I', '2026-09-01', '2026-09-30')
+    expect(r.bank).toMatchObject({ tiesOut: true, difference: 0, ledgerCashBalance: 100, bankEndingBalance: 100 })
+  })
+
+  it('says how far apart they are when they do not tie', async () => {
+    const m = memoryAdmin(seed([txn('2026-09-30', 100), txn('2026-09-15', 25, 'unmatched')]))
+    const r = await checkReadiness(m.admin as any, 'f', 'Fund I', '2026-09-01', '2026-09-30')
+    expect(r.bank).toMatchObject({ tiesOut: false, difference: -25, unmatchedCount: 1 })
+  })
+
+  it('is not applicable only when there is no bank feed at all', async () => {
+    const m = memoryAdmin(seed([]))
+    expect((await checkReadiness(m.admin as any, 'f', 'Fund I', '2026-09-01', '2026-09-30')).bank).toBeNull()
+  })
+})

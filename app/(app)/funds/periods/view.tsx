@@ -6,13 +6,13 @@ import { Loader2, Lock, Unlock, AlertTriangle, ChevronRight } from 'lucide-react
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { useCurrency, formatCurrencyPrice } from '@/components/currency-context'
-import { useLedgerFetch } from '@/components/accounting-vehicle'
+import { useLedgerFetch, useVehicleBase } from '@/components/accounting-vehicle'
 
 interface CloseCheck { check_key: string; section: string; label: string; status: string; detail: string | null; sort_order: number }
 interface CloseReview { id: string; status: string; approved_at: string | null; attestation: string | null; close_review_checks: CloseCheck[] }
 interface Period { id: string; period_start: string; period_end: string; label: string | null; status: string; closed_at: string | null; close_review?: CloseReview | null }
 interface CloseEntryLine { accountCode: string; accountName: string; lpName: string | null; amount: number }
-interface CloseEntry { id: string; entryDate: string; memo: string | null; sourceType: string | null; lines: CloseEntryLine[] }
+interface CloseEntry { id: string; entryDate: string; memo: string | null; sourceType: string | null; allocatedOn?: 'close' | 'posting'; lines: CloseEntryLine[] }
 interface CloseLine { lpEntityId: string; name: string; amount: number }
 interface CloseCategory {
   sourceType: string
@@ -26,10 +26,11 @@ interface MonthPreview {
   periodEnd: string
   netIncome: number
   categories: CloseCategory[]
+  allocatedOnPosting?: { entries: number; netIncome: number }
   warnings: string[]
 }
 interface Readiness {
-  draftEntries: { count: number; earliest: string | null }
+  draftEntries: { count: number; earliest: string | null; items?: { id: string; entryDate: string; memo: string | null; amount: number }[] }
   unpostedBankTxns: { count: number; total: number }
   blockers: string[]
   blockerLinks?: Record<string, string>
@@ -88,6 +89,8 @@ export function PeriodsView() {
   const [openId, setOpenId] = useState<string | null>(null)
   const [entriesById, setEntriesById] = useState<Record<string, CloseEntry[] | 'loading'>>({})
   const lf = useLedgerFetch()
+  const vehicleBase = useVehicleBase()
+  const fundJournalHref = vehicleBase ? `${vehicleBase}/journal` : '/funds/journal'
 
   const load = useCallback(() => {
     setLoading(true)
@@ -114,13 +117,40 @@ export function PeriodsView() {
     setSelectedSuggestions(new Set((data.suggestedEntries ?? []).map((item: SuggestedEntry) => item.id)))
   }
 
-  async function createDrafts() {
+  /**
+   * Post draft entries from here, through the journal's own bulk-post — so the same guards apply
+   * (balanced, not in a closed period, investment access) and anything refused comes back with why.
+   */
+  async function postDrafts(ids: string[]): Promise<boolean> {
+    if (ids.length === 0) return true
+    const res = await lf('/api/accounting/journal/bulk-post', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ids }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) { setError(data.error ?? 'Could not post'); return false }
+    const skipped = (data.skipped ?? []) as { id?: string; reason?: string }[]
+    if (skipped.length) setError(`${skipped.length} not posted: ${skipped.map(s => s.reason ?? 'refused').join('; ')}`)
+    return skipped.length === 0
+  }
+
+  /** Create the selected suggestions — and post them too, unless you asked for drafts. */
+  async function createSuggested(postNow: boolean) {
     if (!preview || selectedSuggestions.size === 0) return
     setBusy(true); setError(null)
     const through = preview.end
     const { ok, data } = await post({ action: 'createSuggestedDrafts', endDate: through, ids: Array.from(selectedSuggestions) })
+    if (!ok) { setBusy(false); setError(data.error ?? 'Could not create the entries'); return }
+    if (postNow) await postDrafts(data.created ?? [])
     setBusy(false)
-    if (!ok) { setError(data.error ?? 'Could not create drafts'); return }
+    await previewThrough(through)
+  }
+
+  async function postExistingDrafts(ids: string[]) {
+    if (!preview) return
+    setBusy(true); setError(null)
+    const through = preview.end
+    await postDrafts(ids)
+    setBusy(false)
     await previewThrough(through)
   }
 
@@ -198,6 +228,33 @@ export function PeriodsView() {
 
           {/* Blockers, not warnings: closing over unposted work silently strands its
               P&L, and the lock then prevents posting it into the period. */}
+          {/* The drafts inside the span, postable here — the blocker below says why they matter. */}
+          {(preview.readiness.draftEntries.items?.length ?? 0) > 0 && (
+            <div className="border-b">
+              <div className="px-4 py-2.5 bg-muted/20 flex flex-wrap items-center justify-between gap-2">
+                <div>
+                  <p className="text-sm font-medium">Draft entries in this span</p>
+                  <p className="text-[11px] text-muted-foreground">Post them to bring them into the close, or open the journal to edit or void one.</p>
+                </div>
+                <span className="flex items-center gap-2">
+                  <Button size="sm" onClick={() => postExistingDrafts(preview.readiness.draftEntries.items!.map(d => d.id))} disabled={busy}>
+                    Post all {preview.readiness.draftEntries.items!.length}
+                  </Button>
+                  <Button size="sm" variant="outline" asChild><Link href={fundJournalHref}>Open journal</Link></Button>
+                </span>
+              </div>
+              {preview.readiness.draftEntries.items!.map(d => (
+                <div key={d.id} className="px-4 py-2 border-t flex items-center justify-between gap-3 text-sm">
+                  <span className="min-w-0 truncate"><span className="tabular-nums text-muted-foreground mr-2">{d.entryDate}</span>{d.memo ?? 'Untitled entry'}</span>
+                  <span className="flex items-center gap-3 shrink-0">
+                    <span className="tabular-nums">{fmt(d.amount)}</span>
+                    <Button size="sm" variant="outline" onClick={() => postExistingDrafts([d.id])} disabled={busy}>Post</Button>
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+
           {preview.readiness.blockers.map((b, i) => (
             <p key={`b${i}`} className="px-4 py-2 text-sm text-destructive flex items-start gap-1.5 border-b bg-destructive/5">
               <AlertTriangle className="h-3.5 w-3.5 shrink-0 mt-0.5" />
@@ -220,7 +277,7 @@ export function PeriodsView() {
             <div className="border-b">
               <div className="px-4 py-2.5 bg-muted/20">
                 <p className="text-sm font-medium">Suggested closing entries</p>
-                <p className="text-[11px] text-muted-foreground">Create drafts, review and post them in the journal, then preview the close again. Nothing posts automatically.</p>
+                <p className="text-[11px] text-muted-foreground">Post the ones you want straight from here, or save them as drafts to edit in the journal first. Nothing posts until you choose.</p>
               </div>
               {preview.suggestedEntries.map(item => {
                 const amount = item.postings.filter(line => line.amount > 0).reduce((sum, line) => sum + line.amount, 0)
@@ -237,8 +294,9 @@ export function PeriodsView() {
                   </label>
                 )
               })}
-              <div className="px-4 py-2.5 border-t">
-                <Button size="sm" variant="outline" onClick={createDrafts} disabled={busy || selectedSuggestions.size === 0}>Create selected drafts</Button>
+              <div className="px-4 py-2.5 border-t flex flex-wrap items-center gap-2">
+                <Button size="sm" onClick={() => createSuggested(true)} disabled={busy || selectedSuggestions.size === 0}>Post selected</Button>
+                <Button size="sm" variant="outline" onClick={() => createSuggested(false)} disabled={busy || selectedSuggestions.size === 0}>Save as drafts</Button>
               </div>
             </div>
           )}
@@ -248,10 +306,21 @@ export function PeriodsView() {
               <div className="px-4 py-2 flex items-center justify-between bg-muted/20">
                 <span className="text-sm font-medium">
                   {m.periodStart} → {m.periodEnd}
-                  {m.categories.length === 0 && <span className="ml-2 text-xs font-normal text-muted-foreground">no activity</span>}
+                  {m.categories.length === 0 && !m.allocatedOnPosting?.entries && <span className="ml-2 text-xs font-normal text-muted-foreground">no activity</span>}
                 </span>
-                <span className="tabular-nums text-sm">{fmt(m.netIncome)}</span>
+                <span className="tabular-nums text-sm">{fmt(m.netIncome + (m.allocatedOnPosting?.netIncome ?? 0))}</span>
               </div>
+              {/* Entries are allocated to partners when they are posted; the close only allocates what
+                  was never allocated. Say so, or a fully-allocated month reads as empty. */}
+              {(m.allocatedOnPosting?.entries ?? 0) > 0 && (
+                <div className="px-4 py-2 border-t flex items-center justify-between text-xs">
+                  <span>
+                    <span className="font-medium">Already allocated when posted</span>
+                    <span className="text-muted-foreground"> · {m.allocatedOnPosting!.entries} entr{m.allocatedOnPosting!.entries === 1 ? 'y' : 'ies'} — the close leaves {m.allocatedOnPosting!.entries === 1 ? 'it' : 'them'} as allocated</span>
+                  </span>
+                  <span className="tabular-nums">{fmt(m.allocatedOnPosting!.netIncome)}</span>
+                </div>
+              )}
 
               {m.categories.map(cat => (
                 <button
@@ -461,14 +530,19 @@ export function PeriodsView() {
                           {entries === undefined || entries === 'loading' ? (
                             <div className="flex items-center gap-2 text-xs text-muted-foreground"><Loader2 className="h-3.5 w-3.5 animate-spin" />Loading transactions…</div>
                           ) : entries.length === 0 ? (
-                            <p className="text-xs text-muted-foreground">No period-end adjusting transactions were posted by this close.</p>
+                            <p className="text-xs text-muted-foreground">No allocations in this period: nothing was allocated when entries were posted, and the close posted none.</p>
                           ) : (
                             <div className="space-y-2">
-                              <p className="text-[11px] text-muted-foreground">Period-end accruals and adjusting transactions generated during close.</p>
+                              <p className="text-[11px] text-muted-foreground">
+                                Partner allocations for this period — made when each entry was posted, and any the close itself posted.
+                              </p>
                               {entries.map(en => (
                                 <div key={en.id} className="rounded border bg-background overflow-hidden">
                                   <div className="flex items-center justify-between px-2.5 py-1.5 border-b bg-muted/30">
-                                    <span className="text-xs font-medium">{en.memo ?? en.sourceType ?? 'Transaction'}</span>
+                                    <span className="text-xs font-medium">
+                                      {en.memo ?? en.sourceType ?? 'Transaction'}
+                                      <span className="ml-2 font-normal text-muted-foreground">{en.allocatedOn === 'posting' ? 'allocated when posted' : 'posted by the close'}</span>
+                                    </span>
                                     <span className="text-[11px] text-muted-foreground tabular-nums">{en.entryDate}</span>
                                   </div>
                                   <table className="w-full text-xs">

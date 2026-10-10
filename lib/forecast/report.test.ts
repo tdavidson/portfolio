@@ -35,6 +35,37 @@ describe('cash-flow statement (actuals)', () => {
     expect(r.cashDetail!.find(l => l.key === 'borrowed')).toMatchObject({ section: 'financing', values: [20_000] })
   })
 
+  it('splits money borrowed from money repaid', () => {
+    const repay = e('2026-01-29', [['loan', 5_000], ['op', -5_000]])
+    const r2 = buildReport({
+      view: 'actual', accounts: A, actuals: [...ENTRIES, repay].flatMap(x => x.postings), plan: [], planFirst: null, cutoff: null,
+      actualsAvailableThrough: '2026-01', closedThrough: '2026-01', start: '2026-01', end: '2026-01', interval: 'month',
+      actualEntries: [...ENTRIES, repay], planEntries: [],
+    })
+    expect(r2.cashDetail!.find(l => l.key === 'borrowed')).toMatchObject({ label: 'Borrowings', values: [20_000] })
+    expect(r2.cashDetail!.find(l => l.key === 'repaid')).toMatchObject({ label: 'Loan repayments', section: 'financing', values: [-5_000] })
+    expect(r2.cashFlows!.repaid[0]).toBe(-5_000)
+  })
+
+  it('shows repaying a loan that bought an investment as investing in it', () => {
+    const inv: Account = { id: 'inv', fundId: 'f', code: '1100', name: 'Investment — Acme', type: 'asset', subtype: 'investment', companyId: 'c1' }
+    const cap: Account = { id: 'cap', fundId: 'f', code: '3100', name: 'LP capital', type: 'equity', subtype: 'lp_capital' }
+    const accts = [...A, inv, cap]
+    const flows = [
+      e('2026-01-02', [['inv', 2_750_000], ['loan', -2_750_000]]), // lender paid the company directly
+      e('2026-01-20', [['op', 2_400_000], ['cap', -2_400_000]]),
+      e('2026-01-24', [['loan', 2_380_000], ['op', -2_380_000]]),
+    ]
+    const r3 = buildReport({
+      view: 'actual', accounts: accts, actuals: flows.flatMap(x => x.postings), plan: [], planFirst: null, cutoff: null,
+      actualsAvailableThrough: '2026-01', closedThrough: '2026-01', start: '2026-01', end: '2026-01', interval: 'month',
+      actualEntries: flows, planEntries: [],
+    })
+    expect(r3.cashFlows!.invested[0]).toBe(-2_380_000)
+    expect(r3.cashFlows!.repaid[0]).toBe(0)
+    expect(r3.cashFlows!.called[0]).toBe(2_400_000)
+  })
+
   it('a sweep to the reserve moves no cash in total, but shows on each account', () => {
     expect(r.cashDetail!.some(l => l.key === 'res')).toBe(false)
     expect(r.cashAccounts.map(a => [a.code, a.ending[0]])).toEqual([['1000', 49_000], ['1050', 10_000]])

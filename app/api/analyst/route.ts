@@ -8,6 +8,7 @@ import {
   AnalystRequestError,
   type AnalystDocument,
   type AnalystDomain,
+  type AnalystProgressEvent,
 } from '@/lib/ai/analyst/types'
 import { AI_EFFORTS, type AIEffort, type ChatMessage } from '@/lib/ai/types'
 
@@ -21,6 +22,13 @@ interface LegacyAnalystBody {
   model?: { id: string; provider: string }
   effort?: AIEffort
   conversationId?: string
+  /**
+   * Stream progress as newline-delimited JSON: `{type:'progress', event}` per step as it starts and
+   * finishes, then one `{type:'result', data}` (the same body the plain response returns) or
+   * `{type:'error', error, status}`. The panel uses it to show what the Analyst is doing and for
+   * how long, instead of a static "Thinking…".
+   */
+  stream?: boolean
 }
 
 /** Cookie-authenticated web adapter over the shared, transport-neutral Analyst service. */
@@ -43,14 +51,15 @@ export async function POST(req: NextRequest) {
   }
 
   const admin = createAdminClient()
-  try {
-    const principal = await resolveAnalystPrincipal(admin, user.id)
-    if (!principal) return NextResponse.json({ error: 'No fund found' }, { status: 404 })
 
+  const run = async (onProgress?: (event: AnalystProgressEvent) => void) => {
+    const principal = await resolveAnalystPrincipal(admin, user.id)
+    if (!principal) throw new AnalystRequestError('No fund found', 404, 'NO_FUND')
     const result = await runAnalyst(principal, {
-      messages: body.messages,
+      messages: body.messages!,
       conversationId: body.conversationId,
       signal: req.signal,
+      onProgress,
       scope: {
         companyId: body.companyId,
         dealId: body.dealId,
@@ -64,9 +73,8 @@ export async function POST(req: NextRequest) {
       admin,
       isRateLimited: async spec => !!(await rateLimit(spec)),
     })
-
     // Preserve the web contract while extending it with safely ignorable versioned blocks.
-    return NextResponse.json({
+    return {
       reply: result.reply,
       // Which model actually answered (Auto resolves server-side), for the transcript's meta line.
       model: result.usage ? { id: result.usage.model, provider: result.usage.provider } : null,
@@ -81,17 +89,50 @@ export async function POST(req: NextRequest) {
         preview: action.preview,
       })),
       blocks: result.blocks,
+    }
+  }
+
+  const failure = (error: unknown): { status: number; error: string; retryAfter?: number } => {
+    if (error instanceof AnalystRequestError) return { status: error.status, error: error.message, retryAfter: error.retryAfter }
+    console.error('[analyst] request failed:', error)
+    return { status: 500, error: 'Analyst request failed. Check your API key in Settings.' }
+  }
+
+  if (body.stream) {
+    const encoder = new TextEncoder()
+    const stream = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        // The run is paid for and persisted whether or not anyone is still listening, so a closed
+        // connection must not turn into a failed run.
+        let open = true
+        const send = (line: Record<string, unknown>) => {
+          if (!open) return
+          try { controller.enqueue(encoder.encode(JSON.stringify(line) + '\n')) } catch { open = false }
+        }
+        send({ type: 'started' })
+        try {
+          // Name and label only — tool arguments and results stay on the server.
+          const data = await run(event => send({ type: 'progress', event }))
+          send({ type: 'result', data })
+        } catch (error) {
+          if (!req.signal?.aborted) send({ type: 'error', ...failure(error) })
+        } finally {
+          if (open) controller.close()
+        }
+      },
     })
+    return new Response(stream, {
+      status: 200,
+      headers: { 'Content-Type': 'application/x-ndjson; charset=utf-8', 'Cache-Control': 'no-cache, no-transform', 'X-Accel-Buffering': 'no' },
+    })
+  }
+
+  try {
+    return NextResponse.json(await run())
   } catch (error) {
     if (req.signal?.aborted) return new NextResponse(null, { status: 499 })
-    if (error instanceof AnalystRequestError) {
-      const headers = error.retryAfter ? { 'Retry-After': String(error.retryAfter) } : undefined
-      return NextResponse.json({ error: error.message }, { status: error.status, headers })
-    }
-    console.error('[analyst] request failed:', error)
-    return NextResponse.json(
-      { error: 'Analyst request failed. Check your API key in Settings.' },
-      { status: 500 },
-    )
+    const f = failure(error)
+    const headers = f.retryAfter ? { 'Retry-After': String(f.retryAfter) } : undefined
+    return NextResponse.json({ error: f.error }, { status: f.status, headers })
   }
 }

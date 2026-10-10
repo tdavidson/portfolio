@@ -90,7 +90,7 @@ export const ACCOUNTING_SECTIONS: AccountingSection[] = [
   // you when it's wrong.
   {
     href: '/funds/periods',
-    label: 'Period close',
+    label: 'Close',
     icon: Lock,
     desc: "Close a period: allocate its income and expenses to each partner's capital account, snapshot the ledger, and lock the books. Reopen to reverse.",
   },

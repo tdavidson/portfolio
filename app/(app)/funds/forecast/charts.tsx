@@ -134,6 +134,7 @@ const FLOW_META = [
   { key: 'distributed', label: 'Distributions', hue: 'var(--chart-4)' },
   { key: 'operating', label: 'Fees and operating', hue: 'var(--chart-5)' },
   { key: 'borrowed', label: 'Borrowings', hue: 'var(--cat-6)' },
+  { key: 'repaid', label: 'Loan repayments', hue: 'var(--cat-7)' },
 ] as const
 
 export function CashFlowTimeline({ series, fmt }: { series: SeriesResult; fmt: Fmt }) {
