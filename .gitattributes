@@ -1,2 +1,10 @@
 # Auto detect text files and perform LF normalization
 * text=auto
+
+# Generated modules that a unit test compares byte-for-byte with a rebuild of their sources
+# (lib/mcp-apps/generated.test.ts). The sources and the output keep LF on every platform, or a
+# Windows checkout would fail that test without anything having changed.
+*.generated.ts text eol=lf linguist-generated=true
+plugin/** text eol=lf
+lib/mcp-apps/app/** text eol=lf
+app/globals.css text eol=lf

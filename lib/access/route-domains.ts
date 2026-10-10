@@ -484,6 +484,11 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // Same reasoning: this is the member authorizing an MCP client to act AS THEM. `grantableScope`
   // already caps what the token may carry, and the demo is refused in the handler.
   'api/oauth/consent': { domain: 'portfolio', level: 'any' },
+  // The plugin a member installs in Claude or ChatGPT to reach this deployment: static skills and
+  // this deployment's own connector address, no credential and no fund data. Membership is the
+  // test because any member may connect an assistant (see api/accounting/keys above); what the
+  // assistant can then read is decided per tool, per call, by that member's grants.
+  'api/plugin': { domain: 'portfolio', level: 'any' },
 }
 
 /**

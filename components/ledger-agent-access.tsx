@@ -1,13 +1,14 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Loader2, Copy, Check, Trash2, Lock } from 'lucide-react'
+import { Loader2, Copy, Check, Trash2, Lock, Download } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { AGENT_TOOL_MANIFEST } from '@/lib/accounting/agent-tools-manifest'
 import { PORTFOLIO_TOOL_MANIFEST } from '@/lib/agent/portfolio-tools-manifest'
 import { DILIGENCE_TOOL_MANIFEST } from '@/lib/agent/diligence-tools-manifest'
 import { DEALS_TOOL_MANIFEST } from '@/lib/agent/deals-tools-manifest'
 import { LP_TOOL_MANIFEST } from '@/lib/agent/lp-tools-manifest'
+import { DASHBOARD_TOOL_MANIFEST } from '@/lib/agent/dashboard-tools-manifest'
 
 // One surface, one key, the whole firm — deal flow at the top of the funnel, the deals
 // under diligence, what the fund ended up owning, what the LPs hold, and what the books
@@ -19,6 +20,8 @@ const TOOL_GROUPS = [
   { label: 'Portfolio, companies and performance', tools: PORTFOLIO_TOOL_MANIFEST },
   { label: 'LP reporting and capital accounts', tools: LP_TOOL_MANIFEST },
   { label: 'Ledger and accounting', tools: AGENT_TOOL_MANIFEST },
+  // Served over MCP only: the REST endpoint has nowhere to draw a view.
+  { label: 'Dashboards in the conversation (MCP only)', tools: DASHBOARD_TOOL_MANIFEST },
 ]
 const TOOL_COUNT = TOOL_GROUPS.reduce((n, g) => n + g.tools.length, 0)
 
@@ -182,6 +185,40 @@ export function LedgerAgentAccess({ isAdmin, section = 'keys' }: { isAdmin: bool
             <code className="block bg-background rounded px-2 py-1 mt-1 font-mono text-[11px] whitespace-pre-wrap break-all">
               claude mcp add --transport http fund {mcpUrl} --header &quot;Authorization: Bearer YOUR_KEY&quot;
             </code>
+          </li>
+        </ul>
+      </div>
+
+      {/* The plugin: the same connector plus the skills that tell an assistant when to open a
+          dashboard and how to save one. Built by this deployment for this address, because a
+          plugin's connector URL is fixed inside the package (lib/plugin/build.ts). */}
+      <div className="rounded-card border bg-muted/30 p-3 space-y-2">
+        <p className="text-xs font-medium">Dashboards in Claude and ChatGPT</p>
+        <p className="text-xs text-muted-foreground">
+          Open the portfolio, a company, the financial statements or LP capital as a dashboard inside
+          the conversation, ask questions about what you see, and save a dashboard to reopen it any
+          time. Saved dashboards are kept here, so they open on current figures in either assistant.
+          The plugin is built for this address and contains no key: you sign in when you connect it.
+        </p>
+        <div className="flex flex-wrap gap-2">
+          <Button asChild size="sm" variant="outline">
+            <a href="/api/plugin?target=claude" download><Download className="h-3.5 w-3.5" />Plugin for Claude</a>
+          </Button>
+          <Button asChild size="sm" variant="outline">
+            <a href="/api/plugin?target=chatgpt" download><Download className="h-3.5 w-3.5" />Plugin for ChatGPT</a>
+          </Button>
+        </div>
+        <ul className="text-xs text-muted-foreground space-y-1.5 list-disc ml-4">
+          <li>
+            <strong>Claude</strong> — in Customize, open Plugins, choose Add, then Upload plugin, and
+            select the file. Open the plugin&rsquo;s Connectors tab, connect it and sign in. Then ask
+            Claude to &ldquo;show me the portfolio&rdquo;.
+          </li>
+          <li>
+            <strong>ChatGPT</strong> — in Plugins, choose the plus button, then Add custom MCP server,
+            paste the MCP URL above and create it as a plugin. That is all the dashboards need. The
+            download adds the skills for the ChatGPT desktop app: unzip it into a plugin marketplace
+            folder (DOCS.md has the steps).
           </li>
         </ul>
       </div>
