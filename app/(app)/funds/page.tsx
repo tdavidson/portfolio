@@ -1,4 +1,5 @@
 import type { Metadata } from 'next'
+import Link from 'next/link'
 import { requireAccountingAccess } from './guard'
 import { FirmOverview } from './firm-overview'
 import { MancoOverview } from './manco-overview'
@@ -32,7 +33,8 @@ export default async function AccountingPage() {
     <div className="pt-4 md:pt-8 pb-8 w-full">
       <AccountingPageHeader title="Financials">
         Every entity the firm keeps books for: what it holds, what is waiting on its books, and the
-        firm&rsquo;s own operating entities below it.
+        firm&rsquo;s own operating entities below it. Quarter-end work is on the{' '}
+        <Link href="/funds/close-checklist" className="underline underline-offset-4 hover:text-foreground">close checklist</Link>.
       </AccountingPageHeader>
 
       <AccountingBody>

@@ -36,6 +36,7 @@ const NOT_IN_DEMO: Record<string, string> = {
   'funds/[id]/migrate': 'reached from Admin, not the nav; an import flow',
   'funds/[id]/opening-balances': 'reached from Admin, not the nav; a setup flow',
   'funds/[id]/tax': 'tax_reporting ships off',
+  'funds/close-checklist': 'a working checklist the demo dataset has none of; the demo fund has no quarter in close',
 }
 
 function pages(dir = APP_DIR, prefix = ''): string[] {

@@ -86,6 +86,7 @@ export const PAGE_DOMAINS: Record<string, PageDomain> = {
   // every accounting API and redirected off every accounting page — pinned against now by
   // tests/route-gates-honour-grants.test.ts.
   'funds': { domain: 'accounting', gate: 'requireAccountingAccess' },
+  'funds/close-checklist': { domain: 'accounting', gate: 'requireAccountingAccess' },
   // Three pages in one route, and the domain recorded here is what they share — `accounting`,
   // the minimum to open any of them:
   //   - a section slug in the `[id]` slot is the firm-wide landing (requireAccountingAccess),

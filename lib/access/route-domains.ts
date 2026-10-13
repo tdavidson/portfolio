@@ -67,6 +67,11 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/investment-bank-match': { domain: 'accounting' },
   // GET reads the plan, PUT writes it — `requiredLevel` derives read/write from the method.
   'api/accounting/construction': { domain: 'accounting' },
+  // Quarter-end close checklists (lib/close-checklist). The service re-checks accounting at the
+  // operation's level and the checklist's entity against the caller's own.
+  'api/accounting/close-checklists': { domain: 'accounting' },
+  'api/accounting/close-checklists/[id]': { domain: 'accounting' },
+  'api/accounting/close-checklists/[id]/tasks': { domain: 'accounting' },
   // Forecast (plans/plan-budget-forecast.md). Each route file is its own key. The service
   // re-checks accounting at the operation's level (forecast has no feature switch of its own since
   // 20261010400000 — it is part of accounting) and the management_company grant for a manco

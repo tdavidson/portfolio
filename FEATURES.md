@@ -183,6 +183,8 @@ Accounting gives each of your entities — a fund, an SPV, a direct deal, a GP e
 
 **AI assistant.** An assistant scoped to the accounting section — read the books, interpret a statement, reconcile an account, draft an entry. It proposes; it never posts. Everything it produces lands as a draft for you to review. External agents reach the same books over MCP and the REST agent API — see *Claude, ChatGPT and other agents* below.
 
+**Quarter-end close checklist.** Ask for one in chat, or build it on the Close checklist page, from the fund's kind, its number of portfolio companies, its administrator and the LP delivery date. Tasks are grouped by owner — fund administrator, portfolio companies, internal team — each due a set number of days before delivery, and the checklist names the task that blocks the most downstream work. **Tied out** is a separate column from done: a second person agrees a task's numbers to source, never the person who completed it, so a finished task is not mistaken for a verified number. Move the delivery date and every task moves with it.
+
 ## Forecast
 
 Forecast is budgeting and rolling forecasting for every entity — a fund, an SPV, a management company — built on the posted books and kept apart from them: a forecast never posts to the ledger. Switch it on under Settings → Feature visibility (**Forecast**, part of Fund Operations); it then appears in each entity's accounting navigation.
@@ -269,7 +271,7 @@ Open the fund's dashboards inside the assistant you already use. Ask Claude or C
 
 Each dashboard expands to full screen, follows the assistant's light or dark theme, carries the fund's own accent colour, and works on a phone. The assistant has the same figures as text, so "which of these is marked below cost?" is answered from what is on screen.
 
-**Start at home.** Ask "what can you do?" and the **home dashboard** opens: tiles for the dashboards your access allows — the portfolio, statements for each entity you can see, LP capital — the dashboards you and your colleagues saved, and example questions for each area you can read, which you click to ask. The assistant's **prompt menu** lists ready-made requests from your deployment — Get started, Portfolio review, Company check-in, Quarter-end review, LP capital status, Draft a forecast, Budget variance — again only the ones your access covers.
+**Start at home.** Ask "what can you do?" and the **home dashboard** opens: tiles for the dashboards your access allows — the portfolio, statements for each entity you can see, LP capital — the dashboards you and your colleagues saved, and example questions for each area you can read, which you click to ask. The assistant's **prompt menu** lists ready-made requests from your deployment — Get started, Portfolio review, Company check-in, Quarter-end review, Quarter-end close checklist, LP capital status, Draft a forecast, Budget variance — again only the ones your access covers.
 
 **Capital calls dashboard.** "Who still owes us on the latest call?" opens a call's dashboard: called, received and outstanding, how many LPs have paid, and each LP's standing — paid, partly paid, says wired (their word from the LP portal, not yet received), unpaid, overdue — most urgent first, with the fund's other calls to switch between. Saveable like the others.
 

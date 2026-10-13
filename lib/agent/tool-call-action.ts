@@ -26,6 +26,7 @@ import {
 import { resolveVehicleWithAccess } from '@/lib/accounting/http-vehicle'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import type { ActionDeps, PreviewResult } from '@/lib/pending-actions/types'
+import { describeTaskUpdates } from '@/lib/close-checklist/template'
 
 export const AGENT_TOOL_CALL = 'agent_tool_call'
 
@@ -125,6 +126,11 @@ export async function previewToolCall(deps: ActionDeps, raw: unknown): Promise<P
     const plan = parseSetupPlan(args.input)
     const lines = 'error' in plan ? [plan.error] : describeSetupPlan(plan)
     return { summary: `Set up the fund: ${lines.join('; ')}`, details: { tool: tool.name, vehicle: null, plan: lines, input: args.input } }
+  }
+  // A tie-out batch names each task and what happens to it; the generic summary drops the list.
+  if (tool.name === 'close_checklist_update_tasks') {
+    const lines = describeTaskUpdates(args.input.updates)
+    return { summary: `Close checklist: ${lines.join('; ')}`, details: { tool: tool.name, vehicle: null, changes: lines, input: args.input } }
   }
   // Files travel inline; the approver needs their names and sizes, not the bytes.
   const described = describeFiles(args.input.files)

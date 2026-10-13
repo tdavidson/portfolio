@@ -35,6 +35,7 @@ import { AGENT_TOOL_CALL, stageToolCall } from './tool-call-action'
 import { AGENT_RUN, runAdminOnlyLabel, stageRun, type RunArgs } from './run-action'
 import { notifyAdminsOfStagedChange } from '@/lib/pending-actions/notify'
 import { adminOnlyMessage, adminOnlyToolLabel } from '@/lib/access/admin-only'
+import { touchesTieOut } from '@/lib/close-checklist/template'
 
 /** Which door a call came through. Recorded on every write, as `source` (lib/audit/source.ts). */
 export type AgentChannel = Extract<ChangeSource, 'mcp' | 'api'>
@@ -86,6 +87,14 @@ const DRAFT_ONLY: Record<string, (input: Record<string, unknown>) => boolean> = 
   // Filling a saved template makes a draft document for the person to read before sending; it
   // changes nothing else. Saving the template itself still stages.
   document_generate: () => true,
+  // A close checklist plans work: building one, adding a task, moving a date or marking a task done
+  // changes no books and no figure anyone relies on, and asking for approval to tick a box would
+  // make the checklist unusable from chat. A tie-out is different — it attests that a number was
+  // checked — so a call that sets one stages like any other write.
+  close_checklist_create: () => true,
+  close_checklist_add_task: () => true,
+  close_checklist_update: () => true,
+  close_checklist_update_tasks: input => !touchesTieOut(input.updates),
 }
 
 export function isDraftOnlyCall(tool: Pick<AgentTool, 'name'>, input: Record<string, unknown>): boolean {

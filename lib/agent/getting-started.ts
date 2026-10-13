@@ -47,6 +47,8 @@ export const AREAS: Area[] = [
       'Pull up the balance sheet for our main fund, last quarter.',
       'What were our largest expenses this year?',
       'Does cash in the books tie to the bank?',
+      'Build our quarter-end close checklist with owners and due dates.',
+      'What is blocking the close, and which done tasks are not tied out yet?',
     ],
   },
   {
@@ -168,6 +170,35 @@ export const PROMPT_TEMPLATES: PromptTemplate[] = [
     ],
     domain: 'accounting',
     text: a => `For ${a.vehicle || 'the fund'}: show the financial statements for ${a.period || 'last_quarter'}, then the LP capital dashboard. List anything that needs attention before the quarter-end report — whether the balance sheet balances, unfunded calls, unusual expense changes, and the variance against the approved budget if there is one.`,
+  },
+  {
+    // From the prompts people already paste into an assistant ("Quarter-End Close Checklist"): the
+    // same arguments, but the checklist is built and saved by the app, so the team works it
+    // afterwards — on the page or in chat — instead of copying a table out of a conversation.
+    name: 'quarter_end_close_checklist',
+    title: 'Quarter-end close checklist',
+    description: 'A close checklist that fits the fund: tasks by owner, due dates counted back from LP delivery, the critical blocking task, and a separate "Tied out" column.',
+    arguments: [
+      { name: 'lp_delivery_date', description: 'When LP reporting is due (YYYY-MM-DD).', required: true },
+      { name: 'fund_type', description: 'venture (default) or pe.' },
+      { name: 'portfolio_companies', description: 'How many portfolio companies report.' },
+      { name: 'administrator', description: 'The fund administrator\'s name, "outsourced", or "in-house".' },
+    ],
+    domain: 'accounting',
+    text: a => {
+      const kind = /^(pe|private equity|buyout)$/i.test((a.fund_type ?? '').trim()) ? 'private equity' : 'venture'
+      return [
+        `Build a quarter-end close checklist for our ${kind} fund`,
+        opt(a.portfolio_companies, n => ` with ${n} portfolio companies`),
+        opt(a.administrator, x => `, administrator ${x}`),
+        `, and LP reporting due ${a.lp_delivery_date || 'on the date I give you'}. `,
+        'Build and save it with close_checklist_create, then show it as one table per owner group (fund administrator, portfolio companies, internal) ',
+        'with the columns Task, Assignee, Due, Status and Tied out. Every due date is counted back from the LP delivery date. ',
+        'Name the one task that blocks the most downstream work and say what waits on it. ',
+        'Keep "Tied out" separate from status: a completed task is not a verified number. ',
+        'Then ask whether to change any owners, dates or tasks to match how we actually work.',
+      ].join('')
+    },
   },
   {
     name: 'lp_capital_status',

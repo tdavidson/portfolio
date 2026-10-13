@@ -12,6 +12,7 @@ import { REPORT_TOOL_MANIFEST } from '@/lib/agent/report-tools-manifest'
 import { LETTER_TOOL_MANIFEST } from '@/lib/agent/letter-tools-manifest'
 import { DOCUMENT_TOOL_MANIFEST } from '@/lib/agent/document-tools-manifest'
 import { QUERY_TOOL_MANIFEST } from '@/lib/agent/query-tools-manifest'
+import { CLOSE_TOOL_MANIFEST } from '@/lib/agent/close-tools-manifest'
 import { DASHBOARD_TOOL_MANIFEST } from '@/lib/agent/dashboard-tools-manifest'
 import { areasFor, DASHBOARD_TIPS, promptsFor } from '@/lib/agent/getting-started'
 import { useAccess } from '@/components/access-context'
@@ -28,6 +29,7 @@ const TOOL_GROUPS = [
   { label: 'LP letters', tools: LETTER_TOOL_MANIFEST },
   { label: "LP letters from the fund's own templates", tools: DOCUMENT_TOOL_MANIFEST },
   { label: 'Ledger and accounting', tools: AGENT_TOOL_MANIFEST },
+  { label: 'Quarter-end close checklist', tools: CLOSE_TOOL_MANIFEST },
   { label: 'Documents (PDF and ZIP links)', tools: REPORT_TOOL_MANIFEST },
   { label: 'Questions across the data (query)', tools: QUERY_TOOL_MANIFEST },
   // Served over MCP only: the REST endpoint has nowhere to draw a view.

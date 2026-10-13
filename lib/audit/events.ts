@@ -20,6 +20,7 @@ export type AuditAction =
   | 'tax.adjustments' | 'pending_action.approve' | 'pending_action.reject' | 'pending_action.stage'
   | 'pending_action.undo'
   | 'agent.write'
+  | 'close_checklist.create' | 'close_checklist.update' | 'close_checklist.task_update' | 'close_checklist.tie_out'
 
 export interface AuditEvent {
   fundId: string

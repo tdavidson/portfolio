@@ -30,6 +30,18 @@ describe('getting-started catalog', () => {
     expect(promptsFor(accountingOnly).map(p => p.name)).toContain('draft_forecast')
   })
 
+  it('turns the close checklist prompt people paste into chat into the app building one', () => {
+    const p = promptsFor(d => d === 'accounting').find(t => t.name === 'quarter_end_close_checklist')!
+    expect(p).toBeTruthy()
+    const text = renderPrompt(p, { lp_delivery_date: '2026-11-16', fund_type: 'pe', portfolio_companies: '12', administrator: 'Juniper' })
+      .messages[0].content.text
+    expect(text).toContain('private equity fund with 12 portfolio companies, administrator Juniper, and LP reporting due 2026-11-16')
+    expect(text).toContain('close_checklist_create')
+    expect(text).toMatch(/Tied out/)
+    expect(() => renderPrompt(p, {})).toThrow(PromptArgumentError)
+    expect(promptsFor(only('portfolio')).map(t => t.name)).not.toContain('quarter_end_close_checklist')
+  })
+
   it('renders a template with its arguments, and refuses a missing required one', () => {
     const p = PROMPT_TEMPLATES.find(t => t.name === 'company_check_in')!
     expect(renderPrompt(p, { company: 'Meridian' }).messages[0].content.text).toContain('Open the dashboard for Meridian')
