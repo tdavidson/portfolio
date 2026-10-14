@@ -77,6 +77,17 @@ describe('POST /api/portal/activate', () => {
     }))
   })
 
+  it('refuses to re-enable an account a GP disabled, whether bound or still unbound', async () => {
+    accounts = [{ id: 'a1', status: 'disabled', auth_user_id: 'u1', email: 'lp@example.com' }]
+    getUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'lp@example.com', email_confirmed_at: '2026-09-01T00:00:00Z' } } })
+    expect((await POST()).status).toBe(403)
+
+    accounts = [{ id: 'a2', status: 'disabled', auth_user_id: null, email: 'lp2@example.com' }]
+    getUser.mockResolvedValue({ data: { user: { id: 'u2', email: 'lp2@example.com', email_confirmed_at: '2026-09-01T00:00:00Z' } } })
+    expect((await POST()).status).toBe(403)
+    expect(updates).toHaveLength(0)
+  })
+
   it('refuses to take over an account bound to a different user', async () => {
     accounts = [{ id: 'a1', status: 'invited', auth_user_id: 'someone-else', email: 'lp@example.com' }]
     getUser.mockResolvedValue({ data: { user: { id: 'u1', email: 'lp@example.com', email_confirmed_at: '2026-09-01T00:00:00Z' } } })

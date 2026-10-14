@@ -277,9 +277,12 @@ async function gateApiRequest(
   // hunt down and no cache to wait out) — which is exactly why the one call has to be cheap.
   const access = await resolveAccessContext(supabase as never, userId)
 
-  // Not a fund member: an LP-portal-only user, or a pending join request. The route's own
-  // membership lookup returns the right error; nothing here to gate.
-  if (!access) return null
+  // No access context: not a fund member (an LP-portal-only user, a pending join request), a member
+  // whose access_expires_at has passed (the RPC returns NULL before the hourly sweep deletes the
+  // row), or an RPC error. Every route that serves non-members is UNGATED or `level: 'any'` and has
+  // returned above, so a domain route has nothing to offer here — and letting it through would hand
+  // an expired member to handlers that only check fund_members and rely on this gate for the domain.
+  if (!access) return NextResponse.json({ error: 'No fund access' }, { status: 403 })
 
   // Domains say WHAT; entities say WHOSE. A route about one company also needs that company to be
   // linked to one of the caller's entities (lib/access/entity-gate.ts).

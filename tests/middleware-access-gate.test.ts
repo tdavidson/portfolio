@@ -170,9 +170,14 @@ describe('middleware API gate — what it must not break', () => {
     expect((await middleware(req('/api/accounting/journal'))).status).not.toBe(403)
   })
 
-  it('does not gate someone with no fund membership — the route answers', async () => {
+  it('refuses a domain route when access_context is empty: no membership, or access that has expired', async () => {
+    // access_context returns NULL once fund_members.access_expires_at passes, while the row itself
+    // survives until the hourly sweep. Handlers only check fund_members and rely on this gate for the
+    // domain, so letting a NULL through handed an expired member every route this gate protects.
+    // Routes that serve non-members are UNGATED or `level: 'any'` and never reach this check.
     member = false
-    expect((await middleware(req('/api/accounting/journal'))).status).not.toBe(403)
+    expect((await middleware(req('/api/accounting/journal'))).status).toBe(403)
+    expect((await middleware(req('/api/portal/overview'))).status).not.toBe(403)
   })
 
   it('resolves access in ONE round trip — this runs on every API request', async () => {

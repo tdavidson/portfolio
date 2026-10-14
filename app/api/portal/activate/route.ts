@@ -46,6 +46,12 @@ export async function POST() {
     return NextResponse.json({ error: 'This invitation is linked to a different account.' }, { status: 409 })
   }
 
+  // A GP disabled this account. Activation is invited → active only; letting a disabled LP call
+  // this would let them re-enable their own portal access (and every authorized user's with it).
+  if (account.status === 'disabled') {
+    return NextResponse.json({ error: 'Portal access for this account has been turned off.' }, { status: 403 })
+  }
+
   // Already activated for this same user — idempotent no-op.
   if (account.status === 'active' && account.auth_user_id === user.id) {
     return NextResponse.json({ ok: true })
