@@ -630,17 +630,23 @@ export async function getDefaultAIProvider(supabase: Supabase, fundId: string): 
   return 'anthropic'
 }
 
+const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
+
 export async function getOpenRouterApiKey(supabase: Supabase, fundId: string): Promise<string> {
   const { data, error } = await (supabase as any)
     .from('fund_settings')
-    .select('openrouter_api_key_encrypted, encryption_key_encrypted')
+    .select('openrouter_api_key_encrypted, encryption_key_encrypted, openrouter_base_url')
     .eq('fund_id', fundId)
     .single()
 
   if (error || !data?.openrouter_api_key_encrypted || !data?.encryption_key_encrypted) {
     // None saved in Settings: the deployment's environment, if it sets one (lib/credentials/env.ts).
+    // Only for the default endpoint. The base URL is a fund admin's setting, so honouring it with the
+    // deployment's key would send that key to whatever host the admin names.
     const fromEnv = envCredential('openrouter')
-    if (fromEnv) return fromEnv
+    const customBase = data?.openrouter_base_url && data.openrouter_base_url !== DEFAULT_OPENROUTER_BASE_URL
+    if (fromEnv && !customBase) return fromEnv
+    if (fromEnv) throw new Error('A custom OpenRouter base URL needs its own API key, saved in Settings')
     throw new Error(`OpenRouter API key not configured for fund ${fundId}`)
   }
 
@@ -655,7 +661,7 @@ export async function getOpenRouterConfig(supabase: Supabase, fundId: string): P
     .single()
 
   return {
-    baseUrl: data?.openrouter_base_url || 'https://openrouter.ai/api/v1',
+    baseUrl: data?.openrouter_base_url || DEFAULT_OPENROUTER_BASE_URL,
     model: data?.openrouter_model || 'openai/gpt-4o-mini',
   }
 }

@@ -431,7 +431,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/diligence/[id]/notes': { domain: 'diligence' },
   'api/diligence/[id]/notes/[noteId]': { domain: 'diligence' },
   // The Q&A chat reads evidence and answers; it doesn't change the deal.
-  'api/diligence/[id]/qa-chat': { domain: 'diligence', level: 'read' },
+  'api/diligence/[id]/qa-chat': { domain: 'diligence', level: { GET: 'read', POST: 'read', DELETE: 'write' } },
   'api/diligence/[id]/usage': { domain: 'diligence' },
   'api/diligence/analytics': { domain: 'diligence' },
   'api/diligence/checklist-template': { domain: 'diligence' },

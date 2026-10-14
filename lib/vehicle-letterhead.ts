@@ -31,8 +31,17 @@ export interface VehicleLetterhead {
   email: string | null
 }
 
+// A base64 image data URI and nothing else. Every PDF template interpolates the logo straight into
+// `<img src="…">`, so a prefix check alone let a value like `data:image/png"><iframe src=…>` inject
+// markup into the server's headless Chromium. The upload UI always produces base64 (readAsDataURL).
+const LOGO_DATA_URI = /^data:image\/[a-z0-9.+-]+;base64,[A-Za-z0-9+/]*={0,2}$/i
+
+export function isSafeLogoDataUri(v: unknown): v is string {
+  return typeof v === 'string' && LOGO_DATA_URI.test(v)
+}
+
 export function safeLogo(v: unknown): string | null {
-  return typeof v === 'string' && v.startsWith('data:image/') ? v : null
+  return isSafeLogoDataUri(v) ? v : null
 }
 
 const text = (v: unknown): string | null => (typeof v === 'string' && v.trim() ? v.trim() : null)

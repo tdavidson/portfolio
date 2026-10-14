@@ -142,14 +142,14 @@ export async function sendNoteNotifications(
         const reason = isMentioned
           ? 'You were @mentioned in this note.'
           : isSubscribed
-          ? `You follow ${note.companyName}.`
+          ? `You follow ${escapeHtml(note.companyName ?? '')}.`
           : 'You receive all note notifications.'
 
         const html = `
           <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px;">
-            <p style="margin: 0 0 12px;"><strong>${note.authorName}</strong>${note.companyName ? ` on <strong>${note.companyName}</strong>` : ''}:</p>
-            <blockquote style="margin: 0 0 16px; padding: 12px 16px; background: #f5f5f5; border-left: 3px solid #ddd; border-radius: 4px; white-space: pre-wrap;">${truncatedContent}</blockquote>
-            <p style="margin: 0 0 16px;"><a href="${siteUrl}/notes" style="color: #2563eb;">View in ${fromName}</a></p>
+            <p style="margin: 0 0 12px;"><strong>${escapeHtml(note.authorName)}</strong>${note.companyName ? ` on <strong>${escapeHtml(note.companyName)}</strong>` : ''}:</p>
+            <blockquote style="margin: 0 0 16px; padding: 12px 16px; background: #f5f5f5; border-left: 3px solid #ddd; border-radius: 4px; white-space: pre-wrap;">${escapeHtml(truncatedContent)}</blockquote>
+            <p style="margin: 0 0 16px;"><a href="${siteUrl}/notes" style="color: #2563eb;">View in ${escapeHtml(fromName)}</a></p>
             <p style="margin: 0; color: #888; font-size: 12px;">${reason} <a href="${siteUrl}/settings" style="color: #888;">Manage preferences</a></p>
           </div>
         `.trim()
@@ -167,4 +167,10 @@ export async function sendNoteNotifications(
   } catch (err) {
     console.error('[notes-notify] Error in sendNoteNotifications:', err)
   }
+}
+
+// Note text, author and company names are member-written; the email is HTML sent from the fund's
+// own system address, so unescaped they let a note carry links or markup that read as the system's.
+function escapeHtml(s: string): string {
+  return s.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;')
 }

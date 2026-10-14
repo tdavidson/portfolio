@@ -18,6 +18,7 @@ import type { FeatureKey, FeatureVisibility, FeatureVisibilityMap } from '@/lib/
 import { AUTH_TITLE_MAX } from '@/lib/auth-brand-shared'
 import { isAIMode } from '@/lib/ai/capabilities'
 import { portalSwitchUpdates } from '@/lib/lps/portal-access'
+import { isSafeLogoDataUri } from '@/lib/vehicle-letterhead'
 
 // GET — returns fund settings (safe fields only)
 export async function GET() {
@@ -212,8 +213,8 @@ export async function PATCH(req: NextRequest) {
   // Update fund logo
   if (fundLogo !== undefined) {
     if (fundLogo !== null) {
-      if (typeof fundLogo !== 'string' || !fundLogo.startsWith('data:image/')) {
-        return NextResponse.json({ error: 'Logo must be a data:image/ URL' }, { status: 400 })
+      if (!isSafeLogoDataUri(fundLogo)) {
+        return NextResponse.json({ error: 'Logo must be a base64 data:image/ URL' }, { status: 400 })
       }
       if (fundLogo.length > 200 * 1024) {
         return NextResponse.json({ error: 'Logo must be under 200KB' }, { status: 400 })
@@ -242,7 +243,7 @@ export async function PATCH(req: NextRequest) {
   // logo shows Hemrock's mark, no text shows none.
   if (signInLogo !== undefined) {
     if (signInLogo !== null) {
-      if (typeof signInLogo !== 'string' || !signInLogo.startsWith('data:image/')) {
+      if (!isSafeLogoDataUri(signInLogo)) {
         return NextResponse.json({ error: 'Sign-in logo must be a data:image/ URL' }, { status: 400 })
       }
       if (signInLogo.length > 200 * 1024) {
