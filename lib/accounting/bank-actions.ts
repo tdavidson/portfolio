@@ -11,7 +11,7 @@ import { ESCROW_VIA_HOLDING, counterPosting } from './bank'
 import { ESCROW_CODE } from './adopt'
 import { closedPeriodRanges, dateInAnyClosedPeriod } from './periods'
 import { ACTUAL_BOOK } from './books'
-import { postExistingEntryWithAllocation } from './continuous-allocation'
+import { postExistingEntryWithAllocation, setGeneratedAllocationStatus } from './continuous-allocation'
 import { underReview } from './bank-review'
 import { entryCarriesInvestments, BANK_ROW_IS_AN_INVESTMENT } from './ownership'
 import { NEEDS_INVESTMENTS_WRITE } from './investment-access'
@@ -103,7 +103,13 @@ export async function setBankTransactionAccount(
   admin: SupabaseClient, fundId: string, group: string, id: string, accountCode: unknown,
   /** Who is choosing: a person on the bank page, or an agent. Only a person's choice is learned from as a draft. */
   chosenBy: 'user' | 'ai' = 'user',
-): Promise<{ ok: true; suggested_account_code: string } | BankActionError> {
+  /**
+   * A draft split across several accounts (a distribution spread pro rata over every partner,
+   * say) has no single posting to re-point. With this, the split is replaced by one posting to
+   * the chosen account. Drafts only: a posted entry is never rewritten here.
+   */
+  opts: { replaceSplit?: boolean } = {},
+): Promise<{ ok: true; suggested_account_code: string; replacedSplit?: number } | BankActionError> {
   const loaded = await loadActionableTxn(admin, fundId, group, id)
   if ('error' in loaded) return loaded
   const { txn, entryId, vehicleId } = loaded
@@ -153,11 +159,18 @@ export async function setBankTransactionAccount(
     .eq('book', ACTUAL_BOOK)
     .eq('journal_entry_id', entryId)
   const counter = counterPosting((postings as any[]) ?? [], cashId, Number(txn.amount))
-  if (!counter) return { error: 'This entry has a custom allocation — edit it in the Journal.', status: 400 }
-
-  await admin.from('journal_postings' as any)
-    .update({ account_id: newAccountId, lp_entity_id: newLpEntityId })
-    .eq('id', counter.id)
+  let replacedSplit: number | undefined
+  if (counter) {
+    await admin.from('journal_postings' as any)
+      .update({ account_id: newAccountId, lp_entity_id: newLpEntityId })
+      .eq('id', counter.id)
+  } else if (!opts.replaceSplit) {
+    return { error: 'This entry has a custom allocation — edit it in the Journal, or pass replaceSplit to replace it with one posting.', status: 400 }
+  } else {
+    const replaced = await replaceSplitWithOne(admin, fundId, group, vehicleId, entryId, (postings as any[]) ?? [], cashId, newAccountId, newLpEntityId)
+    if ('error' in replaced) return replaced
+    replacedSplit = replaced.replaced
+  }
   // The entry's source type was set from the first suggestion. Left alone, an interest receipt
   // first suggested as LP capital posted as a capital call, and statements that classify by
   // source counted it there. It follows the account now.
@@ -173,7 +186,80 @@ export async function setBankTransactionAccount(
   await admin.from('bank_transactions' as any)
     .update({ suggested_account_code: code, raw: { ...(txn.raw ?? {}), categorization } })
     .eq('id', id).eq('fund_id', fundId)
-  return { ok: true, suggested_account_code: code }
+  return { ok: true, suggested_account_code: code, ...(replacedSplit !== undefined ? { replacedSplit } : {}) }
+}
+
+/**
+ * Replace a draft's non-cash postings with one posting to `accountId` for the whole amount.
+ * The new set (the cash lines again, plus the one counter line) is inserted before the old set is
+ * deleted: each set balances on its own, so the entry balances after every statement and the
+ * deferred balance trigger (20260714000004_ledger_db_enforcement.sql) never sees it out.
+ */
+async function replaceSplitWithOne(
+  admin: SupabaseClient, fundId: string, group: string, vehicleId: string | null, entryId: string,
+  postings: { id: string; account_id: string; amount: number | string }[], cashId: string | undefined,
+  accountId: string, lpEntityId: string | null,
+): Promise<{ replaced: number } | BankActionError> {
+  const { data: entry } = await admin.from('journal_entries' as any).select('status')
+    .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', entryId).maybeSingle()
+  if ((entry as any)?.status !== 'draft') return { error: 'Only a draft entry can have its split replaced.', status: 400 }
+  const cash = postings.filter(p => p.account_id === cashId)
+  if (cash.length === 0) return { error: 'This entry has no cash line to keep, so its split cannot be replaced here. Edit it in the Journal.', status: 400 }
+  const cashTotal = Math.round(cash.reduce((sum, p) => sum + Number(p.amount), 0) * 100) / 100
+  const row = (account: string, amount: number, lp: string | null) => ({
+    fund_id: fundId, portfolio_group: group, vehicle_id: vehicleId, journal_entry_id: entryId,
+    account_id: account, amount, currency: 'USD', lp_entity_id: lp,
+  })
+  const { error: insErr } = await admin.from('journal_postings' as any).insert([
+    ...cash.map(p => row(p.account_id, Number(p.amount), null)),
+    row(accountId, -cashTotal, lpEntityId),
+  ])
+  if (insErr) return { error: `The split could not be replaced: ${insErr.message}`, status: 400 }
+  const { error: delErr } = await admin.from('journal_postings' as any).delete().in('id', postings.map(p => p.id))
+  if (delErr) return { error: `The new posting was added but the old split could not be removed: ${delErr.message}. Edit the entry in the Journal.`, status: 500 }
+  return { replaced: postings.length - cash.length }
+}
+
+/**
+ * Set aside a bank row that is not the vehicle's cash movement (a money-market sweep, a
+ * duplicate): the bank page's Ignore, for rows that are not posted. Its draft entry is voided.
+ * A posted row is refused: voiding what is on the books needs a reason and stays on the bank
+ * page. A row whose entry belongs to an investment transaction is only unlinked, as on the page.
+ */
+export async function ignoreBankTransaction(
+  admin: SupabaseClient, fundId: string, group: string, userId: string | null, id: string,
+): Promise<{ ok: true; status: 'ignored'; note?: string } | BankActionError> {
+  const loaded = await loadActionableTxn(admin, fundId, group, id)
+  if ('error' in loaded) return loaded
+  const { txn, entryId, vehicleId } = loaded
+  if (txn.status === 'ignored') return { error: 'That transaction is already ignored.', status: 400 }
+  if (txn.status === 'reconciled') return { error: 'That transaction is posted. Ignoring it voids a posted entry, which needs a reason: do it on the bank page.', status: 400 }
+
+  if (entryId) {
+    let investment = false
+    try {
+      const { data: e, error: eErr } = await admin.from('journal_entries' as any).select('id, status, reversed_by, source_ref')
+        .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('id', entryId).maybeSingle()
+      if (eErr) throw new Error(eErr.message)
+      investment = !!e && !!vehicleId && await entryCarriesInvestments(admin, fundId, vehicleId, e as any)
+    } catch (e) {
+      console.error('[bank-entry-ownership]', e instanceof Error ? e.message : e)
+      return { error: 'Could not check whether this row is an investment payment, so nothing was changed. Try again.', status: 500 }
+    }
+    if (investment) {
+      await admin.from('bank_transactions' as any).update({ status: 'ignored', journal_entry_id: null }).eq('id', id).eq('fund_id', fundId)
+      return { ok: true, status: 'ignored', note: 'The bank row was set aside. Its journal entry belongs to an investment transaction and was left as it is.' }
+    }
+    const problem = await guardBankEntries(admin, fundId, group, [entryId], ['draft'])
+    if (problem) return { error: problem, status: 400 }
+    const linked = await setGeneratedAllocationStatus(admin, fundId, entryId, 'void')
+    if (linked.error) return { error: linked.error, status: 400 }
+    const { error } = await admin.from('journal_entries' as any).update({ status: 'void', posted_at: null }).eq('id', entryId).eq('fund_id', fundId)
+    if (error) return { error: `The draft entry could not be voided: ${error.message}`, status: 500 }
+    await recordAudit(admin, { fundId, vehicleId, actorId: userId, action: 'entry.void', subjectType: 'journal_entry', subjectId: entryId, details: { bankTransactionId: id, priorStatus: 'draft' } })
+  }
+  await admin.from('bank_transactions' as any).update({ status: 'ignored' }).eq('id', id).eq('fund_id', fundId)
+  return { ok: true, status: 'ignored' }
 }
 
 /** Post one drafted transaction's entry and mark the row reconciled. */

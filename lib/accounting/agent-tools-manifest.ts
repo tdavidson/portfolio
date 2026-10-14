@@ -397,12 +397,26 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
   },
   {
     name: 'set_bank_transaction_account',
-    description: "Re-point one drafted bank transaction's draft entry to a chart account by code (the bank page's account picker). A per-partner capital account (3100-<partner>) carries that partner onto the posting.",
+    description: "Re-point one drafted bank transaction's draft entry to a chart account by code (the bank page's account picker). A per-partner capital account (3100-<partner>) carries that partner onto the posting. A draft split across several accounts (e.g. a distribution spread over every partner) is refused unless replaceSplit is true, which replaces the split with one posting to this account.",
     scope: 'write',
     inputSchema: {
       type: 'object',
       required: ['bankTransactionId', 'accountCode'],
-      properties: { bankTransactionId: { type: 'string' }, accountCode: { type: 'string' } },
+      properties: {
+        bankTransactionId: { type: 'string' },
+        accountCode: { type: 'string' },
+        replaceSplit: { type: 'boolean', description: 'replace a multi-account split on the draft with one posting to accountCode (drafts only)' },
+      },
+    },
+  },
+  {
+    name: 'ignore_bank_transaction',
+    description: "Set aside a bank row that is not a cash movement of the vehicle, such as a money-market sweep or reinvestment, or a duplicate (the bank page's Ignore). Its draft entry is voided. Refuses a posted row: voiding a posted entry needs a reason and is done on the bank page.",
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      required: ['bankTransactionId'],
+      properties: { bankTransactionId: { type: 'string' } },
     },
   },
   {

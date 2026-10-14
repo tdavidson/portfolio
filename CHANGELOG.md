@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Bank rows from chat: ignore a sweep, re-point a split draft
+- **`ignore_bank_transaction`.** The bank page's Ignore, for rows that are not posted: a money-market reinvestment, a sweep or a duplicate. The draft entry is voided and the row set aside. A posted row is refused, since voiding a posted entry needs a reason and stays on the bank page. A row whose entry belongs to an investment is only unlinked, as on the page. Staged from chat (`ignoreBankTransaction` in `lib/accounting/bank-actions.ts`).
+- **`set_bank_transaction_account` can replace a split.** A draft spread over several accounts (a distribution allocated pro rata to every partner when it went to one) used to be refused with "edit it in the Journal". With `replaceSplit: true` the split is replaced by one posting to the chosen account, drafts only. The new lines go in before the old ones come out, so the entry balances at every step.
+
 ### Reopen and preview period closes from chat
 - **`reopen_period`.** An assistant can reopen a closed period, as the Periods page's Reopen does, by `period_id` or `from_date` with a required `reason`. It is always offered, not behind `AGENT_DESTRUCTIVE_ACTIONS`: closing again re-allocates. It is admin-only, so from chat it is staged for an admin to approve, with the periods it would reopen in the preview. It shares `lib/accounting/reopen.ts` with the Periods page so both write the same `period.reopen` audit event.
 - **`preview_close`.** A read-only preview of closing through a date (`previewCloseThrough`): the months covered, what each would allocate, and what blocks it.
