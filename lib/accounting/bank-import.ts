@@ -35,14 +35,14 @@ export async function importBankTransactions(
   source = 'csv',
   reviewToken?: string,
   includeLp = false,
-): Promise<ImportResult | { error: string; errors?: string[]; importReview?: ImportReview }> {
+): Promise<ImportResult | { error: string; errors?: string[]; reviewRequired?: boolean; importReview?: ImportReview }> {
   const { rows, errors } = parseTransactionsCsv((csv ?? '').toString())
   if (rows.length === 0) return { error: errors[0] ?? 'No transactions found', errors }
 
   let importReview: ImportReview
   try { importReview = await reviewImport(admin, fundId, group, { bankRows: rows, includeLp }) }
   catch (e) { return { error: `Could not compare existing records: ${(e as Error).message ?? 'Read failed'}` } }
-  if (importReview.differences.length && reviewToken !== importReview.token) return { error: 'Review the differences with investment and LP records before importing.', importReview }
+  if (importReview.differences.length && reviewToken !== importReview.token) return { error: 'Review the differences with investment and LP records before importing.', reviewRequired: true, importReview }
   await ensureVehicleAccounts(admin, fundId, group)
   const codes = await accountIdByCode(admin, fundId, group)
   const cashId = codes.get('1000')
