@@ -27,7 +27,7 @@ import { importQbJournal, proposeQbAccounts, saveQbMappings } from './quickbooks
 import { journalSource } from './quickbooks/sources'
 import { addChartAccount } from './chart-add'
 import { addPartner, parseAddPartnerInput } from './add-partner'
-import { postBankTransaction, setBankTransactionAccount } from './bank-actions'
+import { ignoreBankTransaction, postBankTransaction, setBankTransactionAccount } from './bank-actions'
 import { mayTouchInvestments } from './investment-access'
 import { runCategorization } from './categorize-run'
 import { bookCapitalCallFromInflow } from './bank-match'
@@ -354,7 +354,13 @@ const HANDLERS: Record<string, AgentToolHandler> = {
   },
 
   set_bank_transaction_account: async ({ admin, fundId, portfolioGroup }, input) => {
-    const result = await setBankTransactionAccount(admin, fundId, portfolioGroup, String(input?.bankTransactionId ?? ''), input?.accountCode, 'ai')
+    const result = await setBankTransactionAccount(admin, fundId, portfolioGroup, String(input?.bankTransactionId ?? ''), input?.accountCode, 'ai', { replaceSplit: input?.replaceSplit === true })
+    if ('error' in result) throw new Error(result.error)
+    return result
+  },
+
+  ignore_bank_transaction: async ({ admin, fundId, portfolioGroup, userId }, input) => {
+    const result = await ignoreBankTransaction(admin, fundId, portfolioGroup, userId ?? null, String(input?.bankTransactionId ?? ''))
     if ('error' in result) throw new Error(result.error)
     return result
   },
