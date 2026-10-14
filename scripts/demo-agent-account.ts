@@ -62,9 +62,13 @@ async function main() {
   }
 
   // 2. A MEMBER, not a viewer — consent refuses viewers, and that refusal is what keeps visitors out.
-  await admin
+  //    `all_entities`, because a member sees only the entities they're granted, and a new member
+  //    is granted none: without it every tool answers from an empty fund (show_home still renders,
+  //    since it carries no data). Viewers and admins get every entity by role; members don't.
+  const { error: memberError } = await (admin as any)
     .from('fund_members')
-    .upsert({ fund_id: fundId, user_id: agentUserId, role: 'member' }, { onConflict: 'fund_id,user_id' })
+    .upsert({ fund_id: fundId, user_id: agentUserId, role: 'member', all_entities: true }, { onConflict: 'fund_id,user_id' })
+  if (memberError) { console.error('Could not add the agent to the fund:', memberError.message); process.exit(1) }
 
   // 3. Read-only everywhere, explicitly. THIS is what makes the account safe — not its role.
   //    `admin` is excluded: it's role-governed and can never be granted.
@@ -82,9 +86,10 @@ async function main() {
   if (grantError) { console.error('Could not set the read-only grants:', grantError.message); process.exit(1) }
 
   // 4. The fund's agent surface, or every call 403s.
-  await (admin as any).from('fund_settings').update({ agent_api_enabled: true }).eq('fund_id', fundId)
+  const { error: settingsError } = await (admin as any).from('fund_settings').update({ agent_api_enabled: true }).eq('fund_id', fundId)
+  if (settingsError) { console.error('Could not turn on Agent access:', settingsError.message); process.exit(1) }
 
-  console.log('\n✅ Demo agent account ready — read-only on all', grantable.length, 'domains.\n')
+  console.log('\n✅ Demo agent account ready — read-only on all', grantable.length, 'domains, every entity.\n')
   console.log(`   email:    ${AGENT_EMAIL}`)
   console.log(`   password: ${password}\n`)
   console.log('   1. Sign in as it in a private window (it belongs to the demo fund).')
