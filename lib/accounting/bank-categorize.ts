@@ -269,8 +269,9 @@ export function learnedAccount(
 }
 
 /** The source type an account implies when history, not a rule, chose it. */
-function sourceTypeForAccount(a: ChartAccountRef, inflow: boolean): string {
+export function sourceTypeForAccount(a: ChartAccountRef, inflow: boolean): string {
   switch (a.subtype) {
+    case 'investment': return inflow ? 'realized_gain' : 'manual'
     case 'lp_capital': return inflow ? 'capital_call' : 'distribution'
     case 'members_capital': return inflow ? 'capital_call' : 'distribution'
     case 'member_distributions': return 'distribution'

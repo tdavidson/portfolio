@@ -15,7 +15,7 @@ import { postExistingEntryWithAllocation } from './continuous-allocation'
 import { underReview } from './bank-review'
 import { entryCarriesInvestments, BANK_ROW_IS_AN_INVESTMENT } from './ownership'
 import { NEEDS_INVESTMENTS_WRITE } from './investment-access'
-import { categorizationRecord } from './bank-categorize'
+import { categorizationRecord, sourceTypeForAccount } from './bank-categorize'
 
 export type BankActionError = { error: string; status: number }
 
@@ -141,7 +141,7 @@ export async function setBankTransactionAccount(
   // moving to a general account so a stale partner can't linger on a re-categorized row.
   const { data: acct } = await admin
     .from('chart_of_accounts' as any)
-    .select('lp_entity_id')
+    .select('lp_entity_id, code, type, subtype')
     .eq('id', newAccountId)
     .maybeSingle()
   const newLpEntityId = (acct as any)?.lp_entity_id ?? null
@@ -158,6 +158,14 @@ export async function setBankTransactionAccount(
   await admin.from('journal_postings' as any)
     .update({ account_id: newAccountId, lp_entity_id: newLpEntityId })
     .eq('id', counter.id)
+  // The entry's source type was set from the first suggestion. Left alone, an interest receipt
+  // first suggested as LP capital posted as a capital call, and statements that classify by
+  // source counted it there. It follows the account now.
+  if (acct) {
+    await admin.from('journal_entries' as any)
+      .update({ source_type: sourceTypeForAccount(acct as any, Number(txn.amount) > 0) })
+      .eq('id', entryId).eq('fund_id', fundId)
+  }
   // Recorded as a choice: the AI pass leaves a person's alone, and the next import learns from it.
   const categorization = categorizationRecord(chosenBy === 'user'
     ? { by: 'user', confidence: 'high', reason: 'Chosen by hand' }
