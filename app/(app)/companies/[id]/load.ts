@@ -8,7 +8,7 @@ import { scopeGroups } from '@/lib/access/scope'
 import { holdingEntities } from '@/lib/portfolio/holding-entities'
 import { needsEntities, type HoldingKind } from './holding-panels'
 
-interface CompanySettings {
+type CompanySettings = {
   claude_api_key_encrypted: string | null
   openai_api_key_encrypted: string | null
   default_ai_provider: string | null
