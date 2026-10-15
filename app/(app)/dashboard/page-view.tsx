@@ -17,7 +17,7 @@ export function DashboardPageView({ companies, entityOptions, initialExcluded, h
   const excludedNames = entityOptions.filter(o => excluded.includes(o.id)).map(o => o.name)
   return (
     <DashboardNotesLayout userId={userId} isAdmin={isAdmin} companies={companies.map(c => ({ id: c.id, name: c.name }))}>
-    <div className="p-4 md:py-8 md:pl-8 md:pr-4">
+    <div className="p-4 md:py-8 md:pl-8 md:pr-4" data-page-ready="portfolio" data-metrics-ready="portfolio">
       <GettingStartedBanner isAdmin={isAdmin} className="mb-4 max-w-page" />
       {/* Changes staged from a connected chat or a script, here as on Start: a member who lands on
           the dashboard should not have to go looking for them. */}

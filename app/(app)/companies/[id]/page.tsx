@@ -10,7 +10,7 @@ export async function generateMetadata(props: { params: Promise<{ id: string }> 
   // member without `portfolio` would otherwise read it off the browser tab on their way to being
   // redirected. Falls back to the generic title rather than 404ing — metadata is not the place to
   // decide whether the page exists.
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getUser()
   const page = user ? await resolvePageAccess(user.id) : null
   if (!page || !canViewPage(page, 'portfolio')) return { title: 'Company' }
 

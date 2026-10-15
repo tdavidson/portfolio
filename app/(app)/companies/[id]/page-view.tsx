@@ -1,5 +1,7 @@
 'use client'
 
+import { lazy } from 'react'
+import { DeferredPanel } from '@/components/deferred-panel'
 import Link from 'next/link'
 import { ArrowLeft } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -12,15 +14,16 @@ import { CompanyPanelProvider } from './company-panel-context'
 import { ChatButton, CompanyNotesPanel } from './company-notes'
 import { AnalystButton } from './company-analyst'
 import { AnalystPanel } from '@/components/analyst-panel'
-import { CompanyDocuments } from './company-documents'
-import { CompanyUpdates } from './company-updates'
 import { CompanyInvestments } from './company-investments'
-import { CompanyInteractions } from './company-interactions'
 import { FundRegisterSection } from './fund-register-section'
 import { holdingPanels } from './holding-panels'
 import { HoldingPriceFeed } from './holding-price-feed'
 import { HoldingWallets } from './holding-wallets'
 import type { CompanyPageData } from './load'
+
+const CompanyDocuments = lazy(() => import('./company-documents').then(module => ({ default: module.CompanyDocuments })))
+const CompanyUpdates = lazy(() => import('./company-updates').then(module => ({ default: module.CompanyUpdates })))
+const CompanyInteractions = lazy(() => import('./company-interactions').then(module => ({ default: module.CompanyInteractions })))
 
 function formatHighlightValue(value: number, metric: Metric, fundCurrency: string) {
   let formatted: string
@@ -60,7 +63,7 @@ export function CompanyPageView({
 
   return (
     <CompanyPanelProvider companyId={company.id} userId={userId} isAdmin={isAdmin}>
-    <div className="p-4 md:p-8">
+    <div className="p-4 md:p-8" data-page-ready="company">
       {/* Header */}
       <div className="mb-6 max-w-page">
         <Link
@@ -156,20 +159,24 @@ export function CompanyPageView({
             />
           )}
 
-          <div id="updates">
+          <DeferredPanel id="updates" label="Company updates">
             <CompanyUpdates companyId={company.id} />
-          </div>
+          </DeferredPanel>
 
-          <CompanyDocuments
-            companyId={company.id}
-            fundId={company.fund_id}
-            storageProvider={storageProvider}
-            googleDriveFolderId={googleDriveFolderId}
-            includeEmailHistory={!hasCapturedUpdates}
-          />
+          <DeferredPanel id="documents" label="Documents">
+            <CompanyDocuments
+              companyId={company.id}
+              fundId={company.fund_id}
+              storageProvider={storageProvider}
+              googleDriveFolderId={googleDriveFolderId}
+              includeEmailHistory={!hasCapturedUpdates}
+            />
+          </DeferredPanel>
 
           {showInteractions && (
-            <CompanyInteractions companyId={company.id} adminOnly={featureVisibility.interactions === 'admin'} />
+            <DeferredPanel id="interactions" label="Interactions">
+              <CompanyInteractions companyId={company.id} adminOnly={featureVisibility.interactions === 'admin'} />
+            </DeferredPanel>
           )}
 
           {panels.companyProfile && (company.founders || (company.contact_email && company.contact_email.length > 0) || company.overview || company.why_invested || company.current_update) && (

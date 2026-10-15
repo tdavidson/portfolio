@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useMemo, useEffect, useCallback, useRef } from 'react'
+import { useState, useMemo } from 'react'
 import Link from 'next/link'
 import { ArrowDownAZ, ArrowUpZA, ArrowDown, ArrowUp, LayoutGrid, Table2, CalendarDays } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
@@ -19,6 +19,7 @@ interface ActiveMetric {
   unit_position: string
   value_type: string
   currency: string | null
+  latestValue?: number | null
 }
 
 interface Company {
@@ -218,13 +219,8 @@ export function DashboardCompanies({ companies, canAdd, entities }: Props) {
 
 function CompanyGrid({ companies }: { companies: Company[] }) {
   const fundCurrency = useCurrency()
-  // Cache of fetched metric values: { [metricId]: number | null }
-  const [metricValues, setMetricValues] = useState<Record<string, number | null>>({})
-  const [loadingMetrics, setLoadingMetrics] = useState<Set<string>>(new Set())
-  const fetchedRef = useRef<Set<string>>(new Set())
-
   // Get display metrics for a company: cash first, then first non-cash
-  const getSelectedMetrics = useCallback((c: Company): [ActiveMetric | null, ActiveMetric | null] => {
+  const getSelectedMetrics = (c: Company): [ActiveMetric | null, ActiveMetric | null] => {
     const cashMetric = c.activeMetrics.find(m => m.name.toLowerCase() === 'cash' || /\bcash\b/i.test(m.name)) ?? null
     if (cashMetric) {
       const nonCashMetric = c.activeMetrics.find(m => m !== cashMetric) ?? null
@@ -232,51 +228,7 @@ function CompanyGrid({ companies }: { companies: Company[] }) {
     }
     // No cash metric — show first two by display order
     return [c.activeMetrics[0] ?? null, c.activeMetrics[1] ?? null]
-  }, [])
-
-  // Fetch metric values for visible cards
-  useEffect(() => {
-    const metricsToFetch: { companyId: string; metricId: string }[] = []
-    for (const c of companies) {
-      if (c.status === 'exited' || c.status === 'written-off') continue
-      const [m1, m2] = getSelectedMetrics(c)
-      for (const m of [m1, m2]) {
-        if (m && !fetchedRef.current.has(m.id)) {
-          metricsToFetch.push({ companyId: c.id, metricId: m.id })
-          fetchedRef.current.add(m.id)
-        }
-      }
-    }
-
-    if (metricsToFetch.length === 0) return
-
-    setLoadingMetrics(prev => {
-      const next = new Set(prev)
-      metricsToFetch.forEach(({ metricId }) => next.add(metricId))
-      return next
-    })
-
-    for (const { companyId, metricId } of metricsToFetch) {
-      fetch(`/api/companies/${companyId}/metrics/${metricId}/values`)
-        .then(res => res.ok ? res.json() : [])
-        .then((values: { value_number: number | null }[]) => {
-          const lastVal = values.length > 0 ? values[values.length - 1].value_number : null
-          setMetricValues(prev => ({ ...prev, [metricId]: lastVal }))
-          setLoadingMetrics(prev => {
-            const next = new Set(prev)
-            next.delete(metricId)
-            return next
-          })
-        })
-        .catch(() => {
-          setLoadingMetrics(prev => {
-            const next = new Set(prev)
-            next.delete(metricId)
-            return next
-          })
-        })
-    }
-  }, [companies, getSelectedMetrics])
+  }
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -314,10 +266,7 @@ function CompanyGrid({ companies }: { companies: Company[] }) {
                 </div>
               ) : (
                 <ActiveMetricDisplay
-                  company={c}
                   metrics={getSelectedMetrics(c)}
-                  metricValues={metricValues}
-                  loadingMetrics={loadingMetrics}
                   fundCurrency={fundCurrency}
                 />
               )}
@@ -337,11 +286,8 @@ function CompanyGrid({ companies }: { companies: Company[] }) {
   )
 }
 
-function ActiveMetricDisplay({ company, metrics, metricValues, loadingMetrics, fundCurrency }: {
-  company: Company
+function ActiveMetricDisplay({ metrics, fundCurrency }: {
   metrics: [ActiveMetric | null, ActiveMetric | null]
-  metricValues: Record<string, number | null>
-  loadingMetrics: Set<string>
   fundCurrency: string
 }) {
   const [m1, m2] = metrics
@@ -350,17 +296,12 @@ function ActiveMetricDisplay({ company, metrics, metricValues, loadingMetrics, f
     <div className="grid grid-cols-2 gap-3 mt-3">
       {[m1, m2].map((metric, i) => {
         if (!metric) return <div key={i} />
-        const isLoading = loadingMetrics.has(metric.id)
-        const value = metricValues[metric.id] ?? null
+        const value = metric.latestValue ?? null
         return (
           <div key={metric.id} className="min-w-0">
             <div className="text-[10px] text-muted-foreground truncate mb-0.5">{metric.name}</div>
             <div className="text-xl font-semibold tabular-nums truncate">
-              {isLoading ? (
-                <span className="text-muted-foreground text-sm">...</span>
-              ) : (
-                formatMetricValue(value, metric, fundCurrency)
-              )}
+              {formatMetricValue(value, metric, fundCurrency)}
             </div>
           </div>
         )

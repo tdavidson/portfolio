@@ -1,3 +1,5 @@
+import { dedupeMetricValues } from '@/lib/metric-values'
+import type { MetricValue } from '@/lib/types/database'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -26,18 +28,7 @@ export async function GET(
 
   if (error) return dbError(error, 'metric-values')
 
-  // Deduplicate: keep the latest entry per period
-  const rows = (data ?? []) as unknown as Array<Record<string, unknown>>
-  const seen = new Map<string, Record<string, unknown>>()
-  for (const row of rows) {
-    const key = `${row.period_year}-${row.period_quarter ?? ''}-${row.period_month ?? ''}`
-    const existing = seen.get(key)
-    if (!existing || (row.created_at as string) > (existing.created_at as string)) {
-      seen.set(key, row)
-    }
-  }
-
-  return NextResponse.json(Array.from(seen.values()))
+  return NextResponse.json(dedupeMetricValues((data ?? []) as unknown as MetricValue[]))
 }
 
 export async function POST(

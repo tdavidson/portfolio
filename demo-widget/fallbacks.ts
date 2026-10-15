@@ -55,7 +55,7 @@ function dashboard(snapshot: DemoSnapshot) {
       id: c.id, name: c.name, stage: c.stage, status: c.status, tags: [] as string[], industry: c.industry, portfolioGroup: c.portfolio_group,
       lastReportAt: last ? periodLabel(last) : null,
       openReviews: 0,
-      activeMetrics: c.metrics.map(m => ({ id: m.id, name: m.name, unit: m.unit, unit_position: m.unit_position, value_type: m.value_type, currency: null })),
+      activeMetrics: c.metrics.map(m => ({ id: m.id, name: m.name, unit: m.unit, unit_position: m.unit_position, value_type: m.value_type, currency: null, latestValue: m.values.at(-1)?.number ?? null })),
       latestCash,
       firstInvestmentDate: txns[0]?.date ?? null,
       moic: null, grossIrr: null, totalInvested: null, totalRealized: null, unrealizedValue: null,

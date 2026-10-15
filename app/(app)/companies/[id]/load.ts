@@ -8,6 +8,16 @@ import { scopeGroups } from '@/lib/access/scope'
 import { holdingEntities } from '@/lib/portfolio/holding-entities'
 import { needsEntities, type HoldingKind } from './holding-panels'
 
+interface CompanySettings {
+  claude_api_key_encrypted: string | null
+  openai_api_key_encrypted: string | null
+  default_ai_provider: string | null
+  currency: string | null
+  file_storage_provider: string | null
+  google_drive_folder_id: string | null
+  feature_visibility: Record<string, string> | null
+}
+
 export type CompanyPageData = NonNullable<Awaited<ReturnType<typeof loadCompanyPage>>>
 
 /**
@@ -33,21 +43,19 @@ export async function loadCompanyPage({ supabase, admin, user, page }: PageConte
   // follows the kind (holding-panels.ts). `holding_type` is not on the generated Company type.
   const rawType = (found as { holding_type?: string | null }).holding_type
   const holdingType: HoldingKind = rawType === 'fund' || rawType === 'crypto' ? rawType : 'company'
-  // The viewer's entities that hold it — the fund register and the wallets are kept per entity, and
-  // nothing else on the page reads them. So a company's page skips the read: a failed read there
-  // would take down a page that never needed it.
-  const entities = needsEntities(holdingType)
-    ? await holdingEntities(admin, company.fund_id, company.id, page.access)
-    : []
-
   const isAdmin = page.isAdmin
 
-  // Fetch AI provider settings for the summary component
-  const { data: fundSettings } = await supabase
-    .from('fund_settings')
-    .select('claude_api_key_encrypted, openai_api_key_encrypted, default_ai_provider, currency, file_storage_provider, google_drive_folder_id, feature_visibility')
-    .eq('fund_id', company.fund_id)
-    .maybeSingle() as { data: { claude_api_key_encrypted: string | null; openai_api_key_encrypted: string | null; default_ai_provider: string | null; currency: string | null; file_storage_provider: string | null; google_drive_folder_id: string | null; feature_visibility: Record<string, string> | null } | null }
+  // These reads depend only on the authorised company, so run them together. Ordinary company
+  // pages need no entity register; captured updates need an existence check, not a full count.
+  const [entities, { data: fundSettings }, { data: metrics }, { data: capturedUpdates }] = await Promise.all([
+    needsEntities(holdingType) ? holdingEntities(admin, company.fund_id, company.id, page.access) : Promise.resolve([]),
+    supabase.from('fund_settings')
+      .select('claude_api_key_encrypted, openai_api_key_encrypted, default_ai_provider, currency, file_storage_provider, google_drive_folder_id, feature_visibility')
+      .eq('fund_id', company.fund_id).returns<CompanySettings[]>().maybeSingle(),
+    supabase.from('metrics').select('*').eq('company_id', params.id).eq('is_active', true)
+      .order('display_order').returns<Metric[]>(),
+    supabase.from('company_updates').select('id').eq('company_id', params.id).limit(1),
+  ])
 
   const fundCurrency = fundSettings?.currency ?? 'USD'
   const featureVisibility = { ...DEFAULT_FEATURE_VISIBILITY, ...(fundSettings?.feature_visibility as Partial<FeatureVisibilityMap> | null) }
@@ -59,13 +67,6 @@ export async function loadCompanyPage({ supabase, admin, user, page }: PageConte
   const showNotes = canViewPage(page, 'relationships', 'notes')
   const showInvestments = canViewPage(page, 'portfolio', 'investments')
   const showInteractions = canViewPage(page, 'relationships', 'interactions')
-
-  const { data: metrics } = await supabase
-    .from('metrics')
-    .select('*')
-    .eq('company_id', params.id)
-    .eq('is_active', true)
-    .order('display_order') as { data: Metric[] | null }
 
   // Find highlight metrics (MRR and Cash)
   const mrrMetric = metrics?.find(m =>
@@ -90,15 +91,11 @@ export async function loadCompanyPage({ supabase, admin, user, page }: PageConte
     return data?.[0] ?? null
   }
 
-  const [mrrRow, cashRow, capturedUpdates] = await Promise.all([
+  const [mrrRow, cashRow] = await Promise.all([
     mrrMetric ? getLatestValue(mrrMetric.id) : null,
     cashMetric ? getLatestValue(cashMetric.id) : null,
-    // Once the company has captured Company Updates, that section owns reporting mail and the
-    // documents panel drops its legacy email listing. Until the backfill reaches a company, the
-    // legacy listing is still how its email history is reachable.
-    supabase.from('company_updates').select('id', { count: 'exact', head: true }).eq('company_id', params.id),
   ])
-  const hasCapturedUpdates = (capturedUpdates?.count ?? 0) > 0
+  const hasCapturedUpdates = (capturedUpdates?.length ?? 0) > 0
 
   if (mrrRow && mrrMetric) {
     latestMrr = { value: mrrRow.value_number!, period: mrrRow.period_label, metric: mrrMetric }

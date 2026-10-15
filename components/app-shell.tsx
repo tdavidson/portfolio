@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo } from 'react'
+import { ShellStatusProvider, useShellStatus } from '@/components/shell-status'
 import { usePathname, useRouter } from 'next/navigation'
 import { AppRuntimeProvider } from '@/components/app-runtime'
 import { SidebarProvider, useSidebar } from '@/components/sidebar-context'
@@ -45,7 +46,22 @@ interface AppShellProps {
   children: React.ReactNode
 }
 
-export function AppShell({ fundName, fundLogo, userEmail, reviewBadge, approvalsBadge, settingsBadge, notesBadge, isAdmin, currency, hasAIKey, configuredProviders, defaultAIProvider, updateAvailable, featureVisibility, domainAccess, lpPortalEnabled, fofActive, children }: AppShellProps) {
+export function AppShell(props: AppShellProps) {
+  return (
+    <ShellStatusProvider initial={{
+      reviewBadge: props.reviewBadge,
+      approvalsBadge: props.approvalsBadge ?? 0,
+      settingsBadge: props.settingsBadge ?? 0,
+      notesBadge: props.notesBadge ?? 0,
+      updateAvailable: props.updateAvailable ?? false,
+    }}>
+      <AppShellContent {...props} />
+    </ShellStatusProvider>
+  )
+}
+
+function AppShellContent({ fundName, fundLogo, userEmail, isAdmin, currency, hasAIKey, configuredProviders, defaultAIProvider, featureVisibility, domainAccess, lpPortalEnabled, fofActive, children }: AppShellProps) {
+  const { reviewBadge, approvalsBadge, settingsBadge, notesBadge, updateAvailable } = useShellStatus()
   const router = useRouter()
   const navigate = useMemo(
     () => (href: string, opts?: { replace?: boolean }) => (opts?.replace ? router.replace(href) : router.push(href)),

@@ -68,6 +68,24 @@ export function createDemoFetch({ snapshot, answers, api, onMiss, onWrite }: Dem
     const hit = recorded[key] ?? recorded[closest(`${method} ${path}`, key) ?? '']
     if (hit) return json(expand(hit.body, recorded), hit.status)
 
+    // Older recordings store one chart response per metric. Assemble the new batch endpoint from
+    // those exact responses so a widget upgrade does not require re-recording synthetic data.
+    const chartMatch = url.pathname.match(/^\/api\/companies\/([^/]+)\/metrics\/values$/)
+    if (method === 'GET' && chartMatch) {
+      const company = snapshot.companies.find(c => c.id === chartMatch[1])
+      if (!company) return json({ error: 'Not found' }, 404)
+      return json(Object.fromEntries(company.metrics.map(m => {
+        const prior = recorded[`GET /api/companies/${company.id}/metrics/${m.id}/values`]
+        return [m.id, prior ? expand(prior.body, recorded) : m.values.map((v, i) => ({
+          id: `${m.id}-${i}`, metric_id: m.id, period_label: v.period_label,
+          period_year: v.year, period_quarter: v.quarter, period_month: v.month,
+          value_number: v.number, value_text: null, confidence: 'high', source_email_id: null,
+          notes: null, is_manually_entered: false, created_at: snapshot.generatedAt,
+          inbound_emails: null,
+        }))]
+      })))
+    }
+
     const generic = fromSnapshot(path, snapshot)
     if (generic) return generic
 
