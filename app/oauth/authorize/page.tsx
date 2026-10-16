@@ -52,12 +52,13 @@ export default async function AuthorizePage(props: Props) {
   // Require a signed-in human BEFORE anything else, and come back here afterwards.
   const supabase = await createClient()
   const user = await getUser()
+  // This same request, to come back to after signing in, or after switching account.
+  const self = `/oauth/authorize?${new URLSearchParams(
+    Object.entries(searchParams).flatMap(([k, v]) =>
+      typeof v === 'string' ? [[k, v] as [string, string]] : []
+    )
+  ).toString()}`
   if (!user) {
-    const self = `/oauth/authorize?${new URLSearchParams(
-      Object.entries(searchParams).flatMap(([k, v]) =>
-        typeof v === 'string' ? [[k, v] as [string, string]] : []
-      )
-    ).toString()}`
     redirect(`/auth?next=${encodeURIComponent(self)}`)
   }
 
@@ -130,6 +131,8 @@ export default async function AuthorizePage(props: Props) {
     if (refusal) return <Problem title="No fund" detail={refusal} />
     return (
       <ConsentForm
+        userEmail={user!.email ?? ''}
+        returnTo={self}
         clientName={client.client_name ?? 'An external application'}
         fundName=""
         newFund
@@ -172,6 +175,8 @@ export default async function AuthorizePage(props: Props) {
 
   return (
     <ConsentForm
+        userEmail={user!.email ?? ''}
+        returnTo={self}
       clientName={client.client_name ?? 'An external application'}
       fundName={(fund as { name?: string } | null)?.name ?? 'your fund'}
       willWrite={willWrite}
