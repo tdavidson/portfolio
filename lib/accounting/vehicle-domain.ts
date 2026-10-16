@@ -1,6 +1,7 @@
+import { loadGateAccess } from '@/lib/access/request-context'
 import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { hasAccess, loadAccessContext } from '@/lib/access/effective'
+import { hasAccess } from '@/lib/access/effective'
 import { isManagementCompany, type VehicleKind } from '@/lib/vehicle-kinds'
 import type { Domain } from '@/lib/access/domains'
 
@@ -95,7 +96,7 @@ export async function assertVehicleDomain(
   const kind = await vehicleKindByName(admin, gate.fundId, group)
   if (!isManagementCompany(kind)) return null
 
-  const ctx = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  const ctx = await loadGateAccess(admin, gate)
   if (hasAccess(ctx, 'management_company', gate.need)) return null
 
   return NextResponse.json(

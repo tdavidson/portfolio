@@ -155,6 +155,15 @@ export function assembleLoadedLedger(fundId: string, rows: LedgerRows): LoadedLe
  * that date. Pass `rows` (a slice from `loadLedgerRowsBatch`) to assemble from pre-batched
  * rows and skip the queries — the report paths do this to avoid 3 queries per vehicle.
  */
+/** Chart-only register landing: no journal history is needed until an account is selected. */
+export async function loadLedgerChart(admin: SupabaseClient, fundId: string, group: string) {
+  const vehicleId = await vehicleIdByName(admin, fundId, group)
+  const acctRows = await fetchAllRows<any>((f, t) => admin.from('chart_of_accounts' as any)
+    .select('id, code, name, type, subtype, lp_entity_id, company_id')
+    .eq('fund_id', fundId).eq('vehicle_id', vehicleId).order('id').range(f, t))
+  return assembleLoadedLedger(fundId, { acctRows, entryRows: [], postingRows: [] }).accounts
+}
+
 export async function loadPostedLedger(
   admin: SupabaseClient,
   fundId: string,

@@ -1,8 +1,11 @@
+import { loadGateAccess } from '@/lib/access/request-context'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertReadAccess } from '@/lib/api-helpers'
-import { hasAccess, loadAccessContext } from '@/lib/access/effective'
+import { hasAccess } from '@/lib/access/effective'
+import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
+import { listVehiclesWithId } from '@/lib/accounting/load'
 import { fundEconomics } from '@/lib/accounting/fund-economics'
 import { canSeeVehicle } from '@/lib/access/scope'
 
@@ -19,7 +22,7 @@ export async function GET(req: NextRequest) {
   const gate = await assertReadAccess(admin, user.id)
   if (gate instanceof NextResponse) return gate
 
-  const access = await loadAccessContext(admin, gate.fundId, user.id, gate.role)
+  const access = await loadGateAccess(admin, gate)
 
   const asOf = req.nextUrl.searchParams.get('asOf') ?? undefined
   if (asOf && !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
@@ -28,7 +31,17 @@ export async function GET(req: NextRequest) {
 
   try {
     // Only the caller's entities.
-    const vehicles = (await fundEconomics(admin, gate.fundId, asOf)).filter(v => canSeeVehicle(access, v.id))
+    const requested = req.nextUrl.searchParams.get('group')
+    let groups: string[]
+    if (requested) {
+      const group = await resolveGroupOr400(admin, gate, requested)
+      if (group instanceof NextResponse) return group
+      groups = [group]
+    } else {
+      groups = (await listVehiclesWithId(admin, gate.fundId))
+        .filter(v => canSeeVehicle(access, v.id)).map(v => v.name)
+    }
+    const vehicles = (await fundEconomics(admin, gate.fundId, asOf, groups)).filter(v => canSeeVehicle(access, v.id))
 
     // `carryAccrued` and the GP-class block are gp_economics. The fund overview is otherwise
     // ordinary accounting, and the `lp` metrics are already net-to-LP with the carry removed —

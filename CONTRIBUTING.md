@@ -40,6 +40,37 @@ Open reviews use an aggregate count. Updates, documents, and interactions mount 
 they approach the viewport, with button and anchor activation as alternatives.
 No database migration is required for these paths.
 
+Fund subpages provide their URL-resolved vehicle through `VehiclePageScope` before
+children render. Keep this scope independent of sidebar/local-storage hydration;
+otherwise mounted report effects can issue a request for the old vehicle and then
+repeat it. The switcher consumes the provider's vehicle index instead of fetching
+another copy. Server API authorization remains authoritative.
+
+Fund economics accepts a gated `group` filter. Its heavy preload covers only the
+selected/visible vehicles; single-vehicle timeseries uses the same scoped preload.
+Names, ownership metadata, and investment price signals retain their existing
+semantics. The ledger landing loads only the chart until an account is selected.
+Fund detail, tax, bank, and capital accounts update independent sections as their
+requests finish, with generation checks preventing superseded results from being
+displayed after a vehicle/date change. Do not make the primary table wait for
+secondary history, distributions, reconciliation, or chart sections.
+
+Forecast's `initial=1` list response includes the default plan so the first view
+does not need another gated detail request. Statement consumers needing only the
+schedule use `section=soi`; full statements and exports keep their existing shape.
+Accounting helpers reuse access on a server-created gate object only for that
+request. Never retain those gate objects across requests.
+
+Usage and diligence analytics require
+`20261016004405_compact_reporting_views.sql` **before deploying the application
+changes**. The additive, security-invoker views are readable only by `service_role`;
+the existing admin gates remain in the routes. They summarize usage by UTC day
+and replace memo JSON with presence flags, respectively. Missing views produce an
+error, not false zero totals. The repository owner applies remote migrations.
+`scripts/check-reporting-views.mjs` validates the migration in an isolated PGlite
+database with synthetic fixtures; pass the path to an installed
+`@electric-sql/pglite/dist/index.js` to run it without adding an app dependency.
+
 For performance comparisons, use a production build and measure cold and warm
 loads for an admin and an entity-scoped member. Record document/RSC response times,
 API request counts, transferred bytes, and time until metrics appear. Confirm that

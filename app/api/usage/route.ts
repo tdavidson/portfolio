@@ -1,3 +1,4 @@
+import { fetchAllRows } from '@/lib/accounting/load'
 import { NextResponse } from 'next/server'
 import { parseChangeSource } from '@/lib/audit/source-labels'
 import { createClient } from '@/lib/supabase/server'
@@ -58,12 +59,12 @@ export async function GET() {
   const fundId = membership.fund_id
 
   const now = new Date()
-  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+  const monthStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)).toISOString()
+  const monthStartTime = Date.parse(monthStart)
 
   interface UsageLog {
     provider: string
     model: string
-    feature: string
     input_tokens: number
     output_tokens: number
     audio_seconds: number
@@ -71,14 +72,16 @@ export async function GET() {
     created_at: string
   }
 
-  // Single query: fetch all usage logs (all time) for monthly summary + current month daily
-  const { data: allLogs, error } = await admin
-    .from('ai_usage_logs' as any)
-    .select('provider, model, feature, input_tokens, output_tokens, audio_seconds, web_searches, created_at')
-    .eq('fund_id', fundId)
-    .order('created_at', { ascending: false }) as { data: UsageLog[] | null; error: any }
-
-  if (error) {
+  // Compact daily totals preserve the existing linear cost calculation without transferring
+  // every invocation. Page the summary too: long histories must not silently lose months.
+  let allLogs: UsageLog[]
+  try {
+    allLogs = await fetchAllRows<UsageLog>((from, to) => (admin as any)
+      .from('reporting_usage_daily')
+      .select('provider, model, input_tokens, output_tokens, audio_seconds, web_searches, created_at')
+      .eq('fund_id', fundId).order('created_at', { ascending: false }).order('provider').order('model')
+      .range(from, to))
+  } catch {
     return NextResponse.json({ error: 'Failed to fetch usage data' }, { status: 500 })
   }
 
@@ -104,7 +107,7 @@ export async function GET() {
     const date = log.created_at.slice(0, 10)
     const month = log.created_at.slice(0, 7)
     const cost = estimateCost(log.provider, log.model, log.input_tokens, log.output_tokens, log.audio_seconds, log.web_searches)
-    const isCurrentMonth = log.created_at >= monthStart
+    const isCurrentMonth = Date.parse(log.created_at) >= monthStartTime
 
     // Monthly summary (all time)
     const monthEntry = monthlyMap.get(month)
@@ -210,9 +213,11 @@ export async function GET() {
 
   // Resolve emails
   const emailMap: Record<string, string> = {}
-  for (const uid of activityUserIds) {
-    const { data: { user: activityUser } } = await admin.auth.admin.getUserById(uid)
-    emailMap[uid] = activityUser?.email ?? 'Unknown'
+  for (let offset = 0; offset < activityUserIds.length; offset += 5) {
+    await Promise.all(activityUserIds.slice(offset, offset + 5).map(async uid => {
+      const { data: { user: activityUser } } = await admin.auth.admin.getUserById(uid)
+      emailMap[uid] = activityUser?.email ?? 'Unknown'
+    }))
   }
 
   const userSummary = Array.from(userActionMap.entries()).map(([userId, actions]) => ({

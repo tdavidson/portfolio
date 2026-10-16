@@ -24,7 +24,6 @@ import { roundCents } from './ledger'
 import { loadCapitalPostings } from './capital-source'
 import { loadFundPreload, vehicleCapitalPreload } from './fund-preload'
 import { bucketForSourceType, computeCapitalAccounts } from './capital-account'
-import { loadEntityClasses } from './load'
 import { txnsForVehicle } from './soi'
 import { computeSummary } from '@/lib/investments'
 import { xirr, type CashFlow } from '@/lib/xirr'
@@ -252,7 +251,7 @@ export async function fundTimeseries(
 ): Promise<FundTimeseries> {
   const endDate = asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : new Date().toISOString().slice(0, 10)
 
-  const preload = await loadFundPreload(admin, fundId, endDate)
+  const preload = await loadFundPreload(admin, fundId, endDate, [group])
   const [{ postings }, { data: txnRows }, { data: companyRows }] = await Promise.all([
     loadCapitalPostings(admin, fundId, group, endDate, preload.idMap, vehicleCapitalPreload(preload, group)),
     admin.from('investment_transactions' as any).select('*').eq('fund_id', fundId),
@@ -261,7 +260,7 @@ export async function fundTimeseries(
 
   // Net IRR splits by partner class, so we need the LP/GP map — but only ledger vehicles carry a
   // meaningful net view (a tracking vehicle has no called capital), so skip the read otherwise.
-  const classes = await loadEntityClasses(admin, fundId, group)
+  const classes = preload.entityClasses
 
   const txns = ((txnRows as InvestmentTransaction[]) ?? [])
   const companies = ((companyRows as any[]) ?? [])

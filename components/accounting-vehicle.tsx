@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, Fragment, useCallback, useContext, useEffect, useState } from 'react'
+import { createContext, Fragment, useCallback, useContext, useEffect, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { Check, ChevronsUpDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -21,6 +21,7 @@ import {
 export interface VehicleOption { name: string; id: string | null; kind?: string | null }
 
 interface VehicleCtx {
+  vehicles: VehicleOption[]
   /** The selected vehicle's name (portfolio_group). */
   group: string | null
   /** The selected vehicle's registry id (UUID), or null for a legacy name-only vehicle. */
@@ -34,7 +35,7 @@ interface VehicleCtx {
   setGroup: (name: string) => void
 }
 const VehicleContext = createContext<VehicleCtx>({
-  group: null, vehicleId: null, kind: null, setVehicle: () => {}, setGroup: () => {},
+  vehicles: [], group: null, vehicleId: null, kind: null, setVehicle: () => {}, setGroup: () => {},
 })
 
 const NAME_KEY = 'acct_vehicle'
@@ -56,8 +57,10 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
   // The fund's vehicles with their kinds, loaded once; the current kind is looked up from it.
   const [index, setIndex] = useState<VehicleOption[]>([])
   const appFetch = useAppFetch()
+  const selectionVersion = useRef(0)
 
   const setVehicle = useCallback((name: string, id: string | null) => {
+    selectionVersion.current++
     setGroupState(name)
     setVehicleIdState(id)
     try {
@@ -69,6 +72,7 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
 
   // Back-compat: set the name, leave the id as-is.
   const setGroup = useCallback((name: string) => {
+    selectionVersion.current++
     setGroupState(name)
     try { localStorage.setItem(NAME_KEY, name) } catch { /* ignore */ }
   }, [])
@@ -82,7 +86,8 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
       name = localStorage.getItem(NAME_KEY)
       id = localStorage.getItem(ID_KEY)
     } catch { /* ignore */ }
-    if (name) { setGroupState(name); setVehicleIdState(id) }
+    if (name && selectionVersion.current === 0) { setGroupState(name); setVehicleIdState(id) }
+    const version = selectionVersion.current
     // Always fetched, even when a vehicle is saved: the kind of the saved one comes from here.
     appFetch('/api/accounting/vehicle-index')
       .then(r => (r.ok ? r.json() : []))
@@ -90,7 +95,7 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
         if (!Array.isArray(vs)) return
         setIndex(vs)
         const first = vs[0]
-        if (!name && first) setVehicle(first.name, first.id ?? null)
+        if (!name && first && version === 0 && selectionVersion.current === version) setVehicle(first.name, first.id ?? null)
       })
       .catch(() => { /* non-accounting user or no vehicles — leave unset */ })
   }, [setVehicle, appFetch])
@@ -98,7 +103,7 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
   const kind = index.find(v => (vehicleId && v.id === vehicleId) || (!vehicleId && v.name === group))?.kind ?? null
 
   return (
-    <VehicleContext.Provider value={{ group, vehicleId, kind, setVehicle, setGroup }}>
+    <VehicleContext.Provider value={{ group, vehicleId, kind, setVehicle, setGroup, vehicles: index }}>
       {children}
     </VehicleContext.Provider>
   )
@@ -106,6 +111,14 @@ export function VehicleProvider({ children }: { children: React.ReactNode }) {
 
 export function useVehicle() {
   return useContext(VehicleContext)
+}
+
+/** The URL's server-authorised scope is available on the very first render. Shared sidebar
+ * selection still updates through FundScopeSync, but cannot temporarily scope page requests. */
+export function VehiclePageScope({ name, id, children }: { name: string; id: string | null; children: React.ReactNode }) {
+  const parent = useVehicle()
+  const kind = parent.vehicles.find(v => id ? v.id === id : v.name === name)?.kind ?? null
+  return <VehicleContext.Provider value={{ ...parent, group: name, vehicleId: id, kind }}>{children}</VehicleContext.Provider>
 }
 
 /**
@@ -162,17 +175,9 @@ export function useLedgerFetch() {
 export function FundSwitcher() {
   const pathname = usePathname()
   const router = useRouter()
-  const { group, setVehicle } = useVehicle()
-  const [vehicles, setVehicles] = useState<VehicleOption[]>([])
+  const { group, setVehicle, vehicles } = useVehicle()
   const [open, setOpen] = useState(false)
   const vehicleGroups = useVehicleGroups()
-
-  useEffect(() => {
-    fetch('/api/accounting/vehicle-index')
-      .then(r => (r.ok ? r.json() : []))
-      .then(v => setVehicles(Array.isArray(v) ? v : []))
-      .catch(() => setVehicles([]))
-  }, [])
 
   if (vehicles.length <= 1) return null
 

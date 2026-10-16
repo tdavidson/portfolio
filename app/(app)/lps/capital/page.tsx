@@ -3,6 +3,9 @@ import { redirect } from 'next/navigation'
 import { getUser } from '@/lib/supabase/server'
 import { resolvePageAccess, canViewPage } from '@/lib/access/page-gate'
 import { LpCapitalView } from './view'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { listVehiclesWithId } from '@/lib/accounting/load'
+import { canSeeVehicle } from '@/lib/access/scope'
 
 export const metadata: Metadata = { title: 'LP capital accounts' }
 
@@ -26,11 +29,17 @@ export default async function LpCapitalPage() {
   const page = await resolvePageAccess(user.id)
   if (!page || !canViewPage(page, 'lp_capital', 'lp_tracking')) redirect('/dashboard')
 
+  // Resolve the picker before hydration, using this request's already-checked access. The
+  // browser can start loading capital immediately instead of waiting for another gated API.
+  const vehicles = (await listVehiclesWithId(createAdminClient(), page.fundId))
+    .filter(vehicle => canSeeVehicle(page.access, vehicle.id))
+    .map(({ id, name }) => ({ id, name }))
+
   return (
     <div className="px-4 md:pl-8 md:pr-4 pt-4 md:pt-6 pb-8 w-full">
       {/* The LP statement (and its PDF) lives under /funds, which is gated on accounting — link to
           it only for a member who can open it, rather than a link that bounces to the dashboard. */}
-      <LpCapitalView isAdmin={page.isAdmin} canOpenStatement={canViewPage(page, 'accounting')} />
+      <LpCapitalView isAdmin={page.isAdmin} canOpenStatement={canViewPage(page, 'accounting')} initialVehicles={vehicles} />
     </div>
   )
 }

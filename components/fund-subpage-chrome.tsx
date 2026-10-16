@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useVehicle, FundSwitcher } from '@/components/accounting-vehicle'
+import { useVehicle, FundSwitcher, VehiclePageScope } from '@/components/accounting-vehicle'
 import { AccountingBody, AccountingPageHeader } from '@/components/accounting-chrome'
 
 /**
@@ -34,10 +34,10 @@ export function FundSubpageChrome({
   children: React.ReactNode
 }) {
   return (
-    <>
+    <VehiclePageScope name={vehicle} id={vehicleId}>
       <FundScopeSync vehicle={vehicle} vehicleId={vehicleId} />
       <AccountingPageHeader title={title} actions={<FundSwitcher />}>{description}</AccountingPageHeader>
       <AccountingBody>{children}</AccountingBody>
-    </>
+    </VehiclePageScope>
   )
 }

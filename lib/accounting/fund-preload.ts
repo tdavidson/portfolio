@@ -40,7 +40,7 @@ export interface FundPreload {
   commitmentEventsByVehicleId: Map<string, CommitmentEvent[]>
 }
 
-export async function loadFundPreload(admin: SupabaseClient, fundId: string, asOf?: string): Promise<FundPreload> {
+export async function loadFundPreload(admin: SupabaseClient, fundId: string, asOf?: string, groups?: string[]): Promise<FundPreload> {
   const [vehRes, entRes, invRes, periodRes] = await Promise.all([
     (admin as any).from('fund_vehicles').select('id, name, aliases, vintage_year').eq('fund_id', fundId),
     (admin as any).from('lp_entities').select('id, entity_name, partner_class').eq('fund_id', fundId),
@@ -94,7 +94,9 @@ export async function loadFundPreload(admin: SupabaseClient, fundId: string, asO
   // The heavy per-vehicle data, batched once by `vehicle_id IN (...)` now that the id set is
   // known. Ledger vehicles have journal rows and no positions; tracking vehicles the reverse —
   // an IN(...) query simply returns rows only for those that have them, so we load both for all.
-  const vehicleIds = Array.from(new Set(idMap.values()))
+  const vehicleIds = Array.from(new Set(groups === undefined
+    ? idMap.values()
+    : groups.flatMap(group => { const id = idMap.get(group); return id ? [id] : [] })))
   const [ledgerByVehicleId, positionsByVehicleId, commitmentEventsByVehicleId, openingLinksByVehicleId] = await Promise.all([
     loadLedgerRowsBatch(admin, fundId, vehicleIds, asOf),
     loadPositionsBatch(admin, fundId, vehicleIds, asOf),

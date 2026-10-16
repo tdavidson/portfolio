@@ -1,3 +1,4 @@
+import { fetchAllRows } from '@/lib/accounting/load'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -17,22 +18,23 @@ export async function GET(_req: NextRequest) {
   if ((membership as any).role !== 'admin') return NextResponse.json({ error: 'Admin only' }, { status: 403 })
   const fundId = (membership as any).fund_id as string
 
-  // Pull every deal + relevant draft timing. For a fund with hundreds of deals
-  // this is fine; aggregation client-side keeps the API simple.
-  const [{ data: dealsRaw }, { data: draftsRaw }, { data: members }] = await Promise.all([
-    admin
-      .from('diligence_deals')
-      .select('id, name, sector, deal_status, current_memo_stage, lead_partner_id, created_at, updated_at')
-      .eq('fund_id', fundId),
-    admin
-      .from('diligence_memo_drafts')
-      .select('deal_id, ingestion_output, research_output, qa_answers, memo_draft_output, is_draft, finalized_at, created_at')
-      .eq('fund_id', fundId),
-    admin
-      .from('fund_members')
-      .select('user_id, display_name, role')
-      .eq('fund_id', fundId),
-  ])
+  // The view exposes presence flags rather than large research/memo JSON documents.
+  // All reads remain fund-scoped and complete beyond the Data API's page size.
+  let dealsRaw: any[], draftsRaw: any[], members: any[]
+  try {
+    [dealsRaw, draftsRaw, members] = await Promise.all([
+      fetchAllRows<any>((from, to) => admin.from('diligence_deals')
+        .select('id, name, sector, deal_status, current_memo_stage, lead_partner_id, created_at, updated_at')
+        .eq('fund_id', fundId).order('id').range(from, to)),
+      fetchAllRows<any>((from, to) => (admin as any).from('reporting_diligence_drafts')
+        .select('id, deal_id, has_ingestion, has_research, has_qa, has_memo_draft, is_draft, finalized_at, created_at')
+        .eq('fund_id', fundId).order('id').range(from, to)),
+      fetchAllRows<any>((from, to) => admin.from('fund_members')
+        .select('user_id, display_name, role').eq('fund_id', fundId).order('user_id').range(from, to)),
+    ])
+  } catch {
+    return NextResponse.json({ error: 'Could not load diligence analytics' }, { status: 500 })
+  }
 
   const deals = (dealsRaw ?? []) as Array<{
     id: string
@@ -46,10 +48,10 @@ export async function GET(_req: NextRequest) {
   }>
   const drafts = (draftsRaw ?? []) as Array<{
     deal_id: string
-    ingestion_output: any
-    research_output: any
-    qa_answers: any
-    memo_draft_output: any
+    has_ingestion: boolean
+    has_research: boolean
+    has_qa: boolean
+    has_memo_draft: boolean
     is_draft: boolean
     finalized_at: string | null
     created_at: string | null
@@ -111,10 +113,10 @@ export async function GET(_req: NextRequest) {
     if (d.deal_status === 'won') funnel.won++
     const dDrafts = draftsByDeal.get(d.id) ?? []
     if (dDrafts.length === 0) continue
-    if (dDrafts.some(x => !!x.ingestion_output)) funnel.has_ingestion++
-    if (dDrafts.some(x => !!x.research_output)) funnel.has_research++
-    if (dDrafts.some(x => Array.isArray(x.qa_answers) && x.qa_answers.length > 0)) funnel.has_qa++
-    if (dDrafts.some(x => !!x.memo_draft_output)) funnel.has_memo_draft++
+    if (dDrafts.some(x => x.has_ingestion)) funnel.has_ingestion++
+    if (dDrafts.some(x => x.has_research)) funnel.has_research++
+    if (dDrafts.some(x => x.has_qa)) funnel.has_qa++
+    if (dDrafts.some(x => x.has_memo_draft)) funnel.has_memo_draft++
     if (dDrafts.some(x => !x.is_draft && !!x.finalized_at)) funnel.finalized++
   }
 
@@ -133,7 +135,7 @@ export async function GET(_req: NextRequest) {
     if (!d.created_at) continue
     const dDrafts = draftsByDeal.get(d.id) ?? []
     const earliestMemoDraft = dDrafts
-      .filter(x => !!x.memo_draft_output && !!x.created_at)
+      .filter(x => x.has_memo_draft && !!x.created_at)
       .map(x => new Date(x.created_at!).getTime())
       .reduce<number | null>((min, t) => min === null ? t : Math.min(min, t), null)
     if (earliestMemoDraft) {

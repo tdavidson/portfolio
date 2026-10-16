@@ -5,7 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // grant; this resolves identity and the vehicle.
 import { assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
-import { loadPostedLedger } from '@/lib/accounting/load'
+import { loadPostedLedger, loadLedgerChart } from '@/lib/accounting/load'
 import { accountRegister, findAccount } from '@/lib/accounting/register'
 import { resolvePeriod, customPeriod, type PeriodPreset } from '@/lib/accounting/statement-period'
 import { booksForBasis, basisFromParam } from '@/lib/accounting/statement-package'
@@ -38,14 +38,14 @@ export async function GET(req: NextRequest) {
     : customPeriod(sp.get('start'), sp.get('end') ?? asOf)
 
   // ?basis=tax reads the ledger plus the book-to-tax overlay, as the statements do.
-  const { accounts, sourcedPostings } = await loadPostedLedger(
+  const ref = sp.get('account')
+  const { accounts, sourcedPostings } = ref ? await loadPostedLedger(
     admin, gate.fundId, group, undefined, undefined, undefined, booksForBasis(basisFromParam(sp.get('basis'))),
-  )
+  ) : { accounts: await loadLedgerChart(admin, gate.fundId, group), sourcedPostings: [] }
   const chart = accounts
     .map(a => ({ id: a.id, code: a.code, name: a.name, type: a.type, subtype: a.subtype ?? null, lpEntityId: a.lpEntityId ?? null, companyId: a.companyId ?? null }))
     .sort((a, b) => a.code.localeCompare(b.code))
 
-  const ref = sp.get('account')
   if (!ref) return NextResponse.json({ period, accounts: chart, register: null })
 
   const account = findAccount(accounts, ref)

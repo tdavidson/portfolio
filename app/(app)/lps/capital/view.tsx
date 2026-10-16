@@ -27,13 +27,17 @@ interface Position {
   irr: number | null
 }
 
-export function LpCapitalView({ isAdmin, canOpenStatement = false }: { isAdmin: boolean; canOpenStatement?: boolean }) {
+export function LpCapitalView({ isAdmin, canOpenStatement = false, initialVehicles }: {
+  isAdmin: boolean
+  canOpenStatement?: boolean
+  initialVehicles?: { id: string | null; name: string }[]
+}) {
   const currency = useCurrency()
   const fmt = (v: number) => formatCurrencyFull(v, currency)
   const confirm = useConfirm()
 
-  const [vehicles, setVehicles] = useState<string[]>([])
-  const [group, setGroup] = useState<string>('')
+  const [vehicles, setVehicles] = useState<string[]>(() => initialVehicles?.map(v => v.name) ?? [])
+  const [group, setGroup] = useState<string>(() => initialVehicles?.[0]?.name ?? '')
   const [acct, setAcct] = useState<AcctResp | null>(null)
   const [positions, setPositions] = useState<Position[]>([])
   const [dates, setDates] = useState<string[]>([]) // most-recent first
@@ -45,13 +49,20 @@ export function LpCapitalView({ isAdmin, canOpenStatement = false }: { isAdmin: 
   const [asOf, setAsOf] = useState('') // report date; '' = Latest
   const [search, setSearch] = useState('')
   const [delErr, setDelErr] = useState<string | null>(null)
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(initialVehicles === undefined || initialVehicles.length > 0)
+  const [historyLoading, setHistoryLoading] = useState(initialVehicles === undefined || initialVehicles.length > 0)
+  const [loadError, setLoadError] = useState(false)
+  const [historyError, setHistoryError] = useState(false)
+  const [revision, setRevision] = useState(0)
+  const load = useCallback(() => setRevision(value => value + 1), [])
 
   // Registry ids by vehicle name, for the statement links: `/funds/<name>` resolves only for a
   // member who sees every entity, so a member granted some of them needs the id (as FundSwitcher).
-  const [vehicleIds, setVehicleIds] = useState<Record<string, string>>({})
+  const [vehicleIds, setVehicleIds] = useState<Record<string, string>>(() =>
+    Object.fromEntries((initialVehicles ?? []).filter(v => v.id).map(v => [v.name, v.id!]))
+  )
   useEffect(() => {
-    if (!canOpenStatement) return
+    if (!canOpenStatement || initialVehicles !== undefined) return
     fetch('/api/accounting/vehicle-index')
       .then(r => (r.ok ? r.json() : []))
       .then((v: { id: string | null; name: string }[]) => {
@@ -59,36 +70,63 @@ export function LpCapitalView({ isAdmin, canOpenStatement = false }: { isAdmin: 
         setVehicleIds(Object.fromEntries(v.filter(o => o.id).map(o => [o.name, o.id as string])))
       })
       .catch(() => {})
-  }, [canOpenStatement])
+  }, [canOpenStatement, initialVehicles])
 
   useEffect(() => {
-    fetch('/api/accounting/vehicles')
-      .then(r => (r.ok ? r.json() : []))
-      .then((v: string[]) => { setVehicles(Array.isArray(v) ? v : []); if (v?.length) setGroup(g => g || v[0]) })
-  }, [])
-
-  const load = useCallback(() => {
-    if (!group) return
+    if (group || initialVehicles !== undefined) return
+    const controller = new AbortController()
     setLoading(true)
-    // Same period params as /funds: the API re-derives the roll-forward to the window, so a paste
-    // history yields real period activity (the deltas between snapshots).
+    setLoadError(false)
+    fetch('/api/accounting/vehicles', { signal: controller.signal })
+      .then(r => { if (!r.ok) throw new Error('vehicles'); return r.json() })
+      .then((v: string[]) => {
+        if (controller.signal.aborted) return
+        const names = Array.isArray(v) ? v : []
+        setVehicles(names)
+        if (names.length) setGroup(names[0])
+        else { setLoading(false); setHistoryLoading(false) }
+      })
+      .catch(() => { if (!controller.signal.aborted) { setLoadError(true); setLoading(false) } })
+    return () => controller.abort()
+  }, [group, revision, initialVehicles])
+
+  // Position history depends on the vehicle, not the selected reporting period. Refresh both
+  // resources after edits, but let the statement render as soon as its own request completes.
+  useEffect(() => {
+    if (!group) return
+    const controller = new AbortController()
+    setHistoryLoading(true)
+    setHistoryError(false)
+    setPositions([])
+    setDates([])
+    fetch(`/api/accounting/positions?group=${encodeURIComponent(group)}`, { signal: controller.signal })
+      .then(r => { if (!r.ok) throw new Error('history'); return r.json() })
+      .then(p => {
+        if (controller.signal.aborted) return
+        setPositions(p?.positions ?? [])
+        setDates(p?.dates ?? [])
+      })
+      .catch(() => { if (!controller.signal.aborted) setHistoryError(true) })
+      .finally(() => { if (!controller.signal.aborted) setHistoryLoading(false) })
+    return () => controller.abort()
+  }, [group, revision])
+
+  useEffect(() => {
+    if (!group) return
+    const controller = new AbortController()
+    setLoading(true)
+    setLoadError(false)
     const qs = new URLSearchParams({ group })
     if (preset === 'custom') { if (start) qs.set('start', start); if (end) qs.set('end', end) }
     else qs.set('preset', preset)
     if (asOf) qs.set('asOf', asOf)
-    Promise.all([
-      fetch(`/api/accounting/capital-accounts?${qs}`).then(r => (r.ok ? r.json() : null)),
-      fetch(`/api/accounting/positions?group=${encodeURIComponent(group)}`).then(r => (r.ok ? r.json() : null)),
-    ]).then(([a, p]) => {
-      setAcct(a)
-      setPositions(p?.positions ?? [])
-      setDates(p?.dates ?? [])
-    }).finally(() => setLoading(false))
-  }, [group, preset, start, end, asOf])
-  useEffect(() => { load() }, [load])
-
-  // Switching vehicles resets the period back to inception-to-date.
-  useEffect(() => { setPreset('itd'); setStart(''); setEnd(''); setAsOf('') }, [group])
+    fetch(`/api/accounting/capital-accounts?${qs}`, { signal: controller.signal })
+      .then(r => { if (!r.ok) throw new Error('accounts'); return r.json() })
+      .then(a => { if (!controller.signal.aborted) setAcct(a) })
+      .catch(() => { if (!controller.signal.aborted) { setAcct(null); setLoadError(true) } })
+      .finally(() => { if (!controller.signal.aborted) setLoading(false) })
+    return () => controller.abort()
+  }, [group, preset, start, end, asOf, revision])
 
   // The snapshot an edit writes to: the latest stored position on-or-before the report date (or the
   // latest overall when no date is picked). dates is most-recent-first.
@@ -168,7 +206,7 @@ export function LpCapitalView({ isAdmin, canOpenStatement = false }: { isAdmin: 
           ) : (
             <select
               value={group}
-              onChange={e => setGroup(e.target.value)}
+              onChange={e => { setGroup(e.target.value); setPreset('itd'); setStart(''); setEnd(''); setAsOf('') }}
               className="rounded border bg-transparent px-2 py-1 text-sm"
             >
               {vehicles.map(v => <option key={v} value={v}>{v}</option>)}
@@ -207,6 +245,8 @@ export function LpCapitalView({ isAdmin, canOpenStatement = false }: { isAdmin: 
 
       {loading ? (
         <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+      ) : loadError ? (
+        <p role="alert" className="text-sm text-muted-foreground">Could not load capital accounts. <button type="button" onClick={load} className="underline">Retry</button></p>
       ) : (
         <>
           {/* One table for both producers — the roll-forward plus performance ratios. A pasted
@@ -228,7 +268,7 @@ export function LpCapitalView({ isAdmin, canOpenStatement = false }: { isAdmin: 
             lpHref={canOpenStatement && acct?.source === 'ledger' && group
               ? (id) => `/funds/${vehicleIds[group] ?? encodeURIComponent(group)}/capital-accounts/${id}?from=lps`
               : undefined}
-            editable={isAdmin && preset === 'itd' ? { onSave: savePosition, onDelete: deleteLp } : undefined}
+            editable={isAdmin && !historyLoading && !historyError && preset === 'itd' ? { onSave: savePosition, onDelete: deleteLp } : undefined}
           />
           {isAdmin && preset !== 'itd' && (
             <p className="text-xs text-muted-foreground">
@@ -244,6 +284,8 @@ export function LpCapitalView({ isAdmin, canOpenStatement = false }: { isAdmin: 
 
           {(
             <>
+              {historyLoading && <p role="status" className="text-sm text-muted-foreground">Loading position history…</p>}
+              {historyError && <p role="alert" className="text-sm text-muted-foreground">Could not load position history. <button type="button" onClick={load} className="underline">Retry</button></p>}
               {/* The tracked history — one row per stored date; click to view/edit that snapshot. */}
               {dates.length > 0 && (
                 <HistoryTable

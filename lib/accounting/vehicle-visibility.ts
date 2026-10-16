@@ -1,6 +1,6 @@
+import { loadGateAccess } from '@/lib/access/request-context'
 import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { loadAccessContext } from '@/lib/access/effective'
 import { canSeeVehicle, visibleVehicleIds } from '@/lib/access/scope'
 import { vehicleIdByName } from './vehicle-id'
 import type { VehicleGate } from './vehicle-domain'
@@ -19,7 +19,7 @@ export async function assertVehicleVisible(
   gate: VehicleGate,
   name: string,
 ): Promise<NextResponse | null> {
-  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  const access = await loadGateAccess(admin, gate)
   if (access.vehicles.all) return null
   // A failed registry read is an error, not "no such entity" (which would read as a 403).
   let id: string | null
@@ -40,7 +40,7 @@ export async function visibleVehicleNames(
   admin: SupabaseClient,
   gate: Pick<VehicleGate, 'fundId' | 'userId' | 'role'>,
 ): Promise<string[] | null> {
-  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  const access = await loadGateAccess(admin, gate)
   const ids = visibleVehicleIds(access)
   if (ids === null) return null
   if (ids.length === 0) return []
@@ -55,7 +55,7 @@ export async function assertK1PackageVisible(
   packageId: string,
 ): Promise<NextResponse | null> {
   const { data } = await (admin as any).from('k1_packages').select('vehicle_id').eq('id', packageId).eq('fund_id', gate.fundId).maybeSingle()
-  const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+  const access = await loadGateAccess(admin, gate)
   if (data && canSeeVehicle(access, (data as any).vehicle_id ?? null)) return null
   return NextResponse.json({ error: 'Package not found' }, { status: 404 })
 }

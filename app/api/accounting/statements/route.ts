@@ -34,6 +34,10 @@ export async function GET(req: NextRequest) {
   // is reading partner capital — so `accounting` now implies `lp_capital` outright
   // (see DOMAIN_META.lp_capital.impliedBy) and this package is whole again.
 
-  const pkg = await buildStatementPackage(admin, gate.fundId, group, req.nextUrl.searchParams)
+  const params = new URLSearchParams(req.nextUrl.searchParams)
+  const scheduleOnly = params.get('section') === 'soi'
+  if (scheduleOnly) params.delete('compare')
+  const pkg = await buildStatementPackage(admin, gate.fundId, group, params)
+  if (scheduleOnly) return NextResponse.json({ scheduleOfInvestments: pkg.payload.scheduleOfInvestments })
   return NextResponse.json(pkg.comparisons ? { ...pkg.payload, comparisons: pkg.comparisons } : pkg.payload)
 }
