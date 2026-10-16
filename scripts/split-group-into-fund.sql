@@ -30,12 +30,14 @@
 -- What is shared, and so is COPIED rather than moved:
 --   * an LP investor, LP entity or vendor that both funds use. The new fund gets its own copy and
 --     its rows are pointed at the copy; the source fund keeps the original untouched. One that
---     only the moved rows use is moved instead. An LP's portal login is linked to the copy too, so
---     they still see these entities in the portal.
---   * an LP report holding positions in both funds' entities. The new fund gets a report of the same
---     name with the group's positions. If the original is shared with investors it is left exactly
---     as it was (positions in a shared report cannot change); otherwise the group's positions move
---     into the copy.
+--     only the moved rows use is moved instead. A copy keeps its original's name and email, and an
+--     LP's portal login is linked to the copy too. Nothing joins the copy to its original: report
+--     cards combine funds only through a cross-fund connection both funds' admins approve.
+--
+-- LP reports (snapshots): the group's current positions (in no report) move. A report holding the
+-- group's positions is split: they move into a report of the same name in the new fund, the rest
+-- stay. A report shared with investors is unshared first, since positions in a shared report cannot
+-- change (the investor portal is not in use).
 --
 -- What does not move: the source fund's settings, API keys, Google Drive, email routing and members.
 -- The new fund gets a fresh settings row (no keys, no Drive; the app mints the fund's encryption
@@ -94,8 +96,8 @@ declare
   n          bigint;
   v_sql      text;
   v_bad      text;
+    v_moved    bigint;
   v_snap     uuid;
-  v_moved    bigint;
 begin
   select * into p from split_params;
   v_src := p.source_fund;
@@ -299,35 +301,33 @@ begin
    where fund_id = v_src and snapshot_id is null and portfolio_group = any(v_names);
   get diagnostics n = row_count;
   insert into split_summary values (3, 'lp_investments', 'moved (current positions, in no report)', n);
-  for r in select s.id, s.name, public.lp_report_is_shared(s.id) shared,
+  -- Reports (snapshots) holding the group's positions are split: the group's positions move into a
+  -- report of the same name in the new fund, the rest stay. A report shared with investors cannot
+  -- change, so its shares are removed first (the investor portal is not in use).
+  for r in select s.id, s.name,
                   bool_and(i.portfolio_group = any(v_names)) only_group
              from lp_snapshots s join lp_investments i on i.snapshot_id = s.id
             where s.fund_id = v_src
             group by s.id
            having bool_or(i.portfolio_group = any(v_names)) loop
-    if r.only_group and not r.shared then
+    delete from lp_snapshot_shares where snapshot_id = r.id;
+    get diagnostics n = row_count;
+    if n > 0 then insert into split_summary values (3, 'lp_snapshot_shares', format('unshared "%s"', r.name), n); end if;
+    if r.only_group then
       update lp_snapshots set fund_id = v_new where id = r.id;
       update lp_investments set fund_id = v_new where snapshot_id = r.id;
       get diagnostics n = row_count;
-      insert into split_summary values (3, 'lp_snapshots', format('moved "%s" (%s positions)', r.name, n), 1);
+      insert into split_summary values (3, 'lp_snapshots', format('moved "%s"', r.name), n);
       continue;
     end if;
     insert into lp_snapshots
     select (jsonb_populate_record(null::lp_snapshots, to_jsonb(s) || jsonb_build_object('id', gen_random_uuid(), 'fund_id', v_new))).*
       from lp_snapshots s where s.id = r.id
     returning id into v_snap;
-    if r.shared then
-      insert into lp_investments
-      select (jsonb_populate_record(null::lp_investments, to_jsonb(i) || jsonb_build_object('id', gen_random_uuid(), 'fund_id', v_new, 'snapshot_id', v_snap))).*
-        from lp_investments i where i.snapshot_id = r.id and i.portfolio_group = any(v_names);
-      get diagnostics n = row_count;
-      insert into split_summary values (3, 'lp_snapshots', format('copied "%s" (%s positions; the shared original is unchanged)', r.name, n), 1);
-    else
-      update lp_investments set fund_id = v_new, snapshot_id = v_snap
-       where snapshot_id = r.id and portfolio_group = any(v_names);
-      get diagnostics n = row_count;
-      insert into split_summary values (3, 'lp_snapshots', format('split "%s" (%s positions moved to the copy)', r.name, n), 1);
-    end if;
+    update lp_investments set fund_id = v_new, snapshot_id = v_snap
+     where snapshot_id = r.id and portfolio_group = any(v_names);
+    get diagnostics n = row_count;
+    insert into split_summary values (3, 'lp_snapshots', format('split "%s" (positions moved to its copy)', r.name), n);
   end loop;
 
   ------------------------------------------------------------------------------------------------
@@ -456,7 +456,7 @@ begin
   end loop;
 
   select count(*) into n from lp_investments i
-   where i.fund_id = v_src and i.portfolio_group = any(v_names) and not public.lp_report_is_shared(i.snapshot_id);
+   where i.fund_id = v_src and i.portfolio_group = any(v_names);
   if n > 0 then
     raise exception '% LP report position(s) for moved entities are still in the source fund', n;
   end if;
