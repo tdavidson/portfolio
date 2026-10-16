@@ -449,7 +449,13 @@ export async function buildEntryForTransaction(
   fundId: string,
   txn: any,
   companyName: string,
-  opts: { excludeEntryIds?: string[] } = {},
+  /**
+   * `recordsTrueUp: false` leaves out the records-gap revaluation folded into a purchase or exit
+   * (a mark's own value is still its gap). Splitting an adopted entry needs the entry each
+   * transaction itself implies, to compare against what was adopted; the true-up is the edited
+   * transaction's business once it is re-derived, not part of what the old entry recorded.
+   */
+  opts: { excludeEntryIds?: string[]; recordsTrueUp?: boolean } = {},
 ): Promise<BuiltEntry | { skip: LedgerDraftResult }> {
   const group: string | null = txn?.portfolio_group ?? null
   const companyId: string | null = txn?.company_id ?? null
@@ -754,7 +760,8 @@ export async function buildEntryForTransaction(
   // Book whatever still separates the books from the records for this holding (recordsGap).
   // Not on an FX mark: a currency move books to 1250/4300 and is not the holding's own value.
   const fxMark = txn.transaction_type === 'unrealized_gain_change' && txn.valuation_change_source === 'fx'
-  if (!fxMark && ['investment', 'unrealized_gain_change', 'proceeds'].includes(txn.transaction_type)) {
+  const trueUp = opts.recordsTrueUp !== false || txn.transaction_type === 'unrealized_gain_change'
+  if (trueUp && !fxMark && ['investment', 'unrealized_gain_change', 'proceeds'].includes(txn.transaction_type)) {
     const unrealizedIncomeId = codes.get(UNREALIZED_INCOME)
     const gap = unrealizedIncomeId ? await recordsGap(admin, fundId, group, vehicleId, txn, a, entry.postings, opts.excludeEntryIds ?? []) : null
     if (gap) {

@@ -79,8 +79,10 @@ async function split(
   const { data: companies } = await admin.from('companies' as any).select('id, name').eq('fund_id', fundId).in('id', companyIds)
   const nameOf = (id: string) => ((companies as any[]) ?? []).find(c => c.id === id)?.name ?? 'Investment'
 
-  // 1. Build, writing nothing.
-  const without = { excludeEntryIds: [args.entryId] }
+  // 1. Build, writing nothing. Without the records true-up: an adopted entry that disagrees with
+  // the records (a distribution credited to a cost the records say is already returned) would
+  // otherwise leave the true-up's 1200 line in the remainder and refuse the very edit that fixes it.
+  const without = { excludeEntryIds: [args.entryId], recordsTrueUp: false }
   const rebuilt: { txn: any; entry: any }[] = []
   for (const t of siblings) {
     const b = await buildEntryForTransaction(admin, fundId, { ...t, portfolio_group: group }, nameOf(t.company_id), without)
