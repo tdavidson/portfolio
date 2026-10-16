@@ -49,9 +49,12 @@ export async function resolveGroupOr400(
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 })
   }
-  const hidden = await assertVehicleVisible(admin, gate, group)
+  // Independent reads, so they run together; the visibility answer still wins when both refuse.
+  const [hidden, denied] = await Promise.all([
+    assertVehicleVisible(admin, gate, group),
+    assertVehicleDomain(admin, gate, group),
+  ])
   if (hidden) return hidden
-  const denied = await assertVehicleDomain(admin, gate, group)
   if (denied) return denied
   return group
 }

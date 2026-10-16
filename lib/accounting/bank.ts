@@ -430,6 +430,20 @@ export interface BankRecSummary {
 }
 
 /**
+ * The bank feed's opening balance: ledger cash before its first transaction. A feed rarely starts
+ * on the day the books do, so without this a vehicle with years of history can never tie. The
+ * cash it held before the feed began is taken from the ledger, and only activity from the feed's
+ * first day on is compared.
+ */
+export function openingCashBefore(postings: Posting[], cashAccountId: string | undefined, txnDates: string[]): number {
+  if (!cashAccountId || txnDates.length === 0) return 0
+  const first = txnDates.reduce((a, b) => (b < a ? b : a))
+  return roundCents(postings
+    .filter(p => p.accountId === cashAccountId && p.entryDate && p.entryDate < first)
+    .reduce((s, p) => s + p.amount, 0))
+}
+
+/**
  * Reconcile the ledger's cash against the bank feed. The bank's ending balance
  * is the opening balance plus every imported transaction; it should equal the
  * ledger cash balance once every transaction is matched to a posted entry. The

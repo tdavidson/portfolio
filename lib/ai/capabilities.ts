@@ -14,6 +14,8 @@
 //
 // It describes what is true NOW. When a feature gains a keyless path, move it in the same change.
 
+import { hasAnyAIKeyFrom } from '@/lib/credentials/env'
+
 export type KeylessSupport =
   /** Works with no server key: ask your assistant, and it uses the tools listed. */
   | 'assistant'
@@ -82,7 +84,7 @@ export const AI_CAPABILITIES: AICapability[] = [
     key: 'imports',
     label: 'Importing companies, investments and LPs from a paste or spreadsheet',
     keyless: 'assistant',
-    why: 'Your assistant parses the rows and records each one.',
+    why: 'Your assistant parses the rows and records each one. With a server key, portfolio_import_preview has the app\'s model read them into a proposal first, which your assistant then applies.',
     prompt: 'Import these investments.',
     tools: ['create_company', 'record_metric_value', 'record_investment', 'lp_create_investor', 'lp_record_commitment'],
   },
@@ -164,7 +166,7 @@ export const AI_CAPABILITIES: AICapability[] = [
     key: 'company_summary',
     label: 'Saving an AI summary on a company page',
     keyless: 'assistant',
-    why: 'Your assistant reads the company\'s metrics and updates, writes the summary and saves it to the company.',
+    why: 'Your assistant reads the company\'s metrics and updates, writes the summary and saves it to the company. With a server key, company_generate_summary has the app\'s model write it, as the Summarise button does.',
     prompt: 'Write and save a summary for Acme.',
     tools: ['company_detail', 'company_metrics', 'get_updates', 'company_save_summary'],
   },
@@ -197,8 +199,9 @@ export function effectiveAIMode(hasKey: boolean, stored: unknown): AIMode | null
 /** The fund_settings columns that hold a provider key. */
 export const AI_KEY_COLUMNS = ['claude_api_key_encrypted', 'openai_api_key_encrypted', 'openrouter_api_key_encrypted'] as const
 
+/** Any server AI key: one saved in Settings, or one set in the deployment's environment (lib/credentials/env.ts). */
 export function hasAnyAIKey(settings: Record<string, unknown> | null | undefined): boolean {
-  return !!settings && AI_KEY_COLUMNS.some(c => !!settings[c])
+  return (!!settings && AI_KEY_COLUMNS.some(c => !!settings[c])) || hasAnyAIKeyFrom(null)
 }
 
 export interface AIStatus {

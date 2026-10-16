@@ -1,4 +1,5 @@
 import type { PageContext } from '@/lib/pages/context'
+import { hasCredential } from '@/lib/credentials/env'
 import { canViewPage } from '@/lib/access/page-gate'
 import type { Company, Metric } from '@/lib/types/database'
 import { DEFAULT_FEATURE_VISIBILITY } from '@/lib/types/features'
@@ -112,8 +113,8 @@ export async function loadCompanyPage({ supabase, admin, user, page }: PageConte
     userId: user.id,
     isAdmin,
     fundCurrency,
-    hasClaudeKey: !!fundSettings?.claude_api_key_encrypted,
-    hasOpenAIKey: !!fundSettings?.openai_api_key_encrypted,
+    hasClaudeKey: hasCredential(fundSettings, 'anthropic'),
+    hasOpenAIKey: hasCredential(fundSettings, 'openai'),
     defaultAIProvider: fundSettings?.default_ai_provider ?? 'anthropic',
     storageProvider: fundSettings?.file_storage_provider ?? null,
     googleDriveFolderId: fundSettings?.google_drive_folder_id ?? null,

@@ -17,11 +17,13 @@ import { done, fail, type Outcome } from '@/lib/service-outcome'
  */
 export async function publishCallNotices(
   admin: SupabaseClient, ctx: ProposedCallContext & { userId: string }, callId: string,
-): Promise<{ published: number; errors: string[] }> {
+): Promise<{ published: number; reused: number; errors: string[] }> {
   const reg = await loadNoticeRegister(admin, ctx.fundId, ctx.group, 'capital_call', callId)
-  if ('error' in reg) return { published: 0, errors: [reg.error] }
+  if ('error' in reg) return { published: 0, reused: 0, errors: [reg.error] }
   const out = await publishNotices(admin, { fundId: ctx.fundId, group: ctx.group, userId: ctx.userId }, reg)
-  return { published: out.published.length, errors: out.errors }
+  // `published` counts every notice now in a portal (the app's Approve response); `reused`, those
+  // that already were, for a chat that wants to say which.
+  return { published: out.published.length, reused: out.published.filter(p => p.reused).length, errors: out.errors }
 }
 
 /** One partner's notice as the proposal stands, marked DRAFT. The caller authorizes. */

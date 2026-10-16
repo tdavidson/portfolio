@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { hasCredential } from '@/lib/credentials/env'
 import { accessMap, canWriteAnywhere, effectiveAccess, hasAccess } from '@/lib/access/effective'
 import { credentialKindOf, isRestrictedCredential } from '@/lib/ai/analyst/types'
 import { DOMAINS } from '@/lib/access/domains'
@@ -56,8 +57,8 @@ export async function GET(req: Request) {
     // A fund with no provider configured is a real state the app has to render: chat will fail,
     // and saying so up front beats a mystery error on the first message.
     const configured = (settings?.default_ai_provider ?? 'anthropic') === 'openai'
-      ? !!settings?.openai_api_key_encrypted
-      : !!settings?.claude_api_key_encrypted
+      ? hasCredential(settings, 'openai')
+      : hasCredential(settings, 'anthropic')
     const aiProvider = {
       displayName: PROVIDER_DISPLAY_NAMES[settings?.default_ai_provider ?? 'anthropic'] ?? 'AI provider',
       configured,

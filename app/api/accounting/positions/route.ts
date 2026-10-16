@@ -8,6 +8,8 @@ import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { loadPositions } from '@/lib/accounting/lp-positions'
+import { deleteLpPositions } from '@/lib/accounting/positions-delete'
+import { outcomeResponse } from '@/lib/service-outcome'
 
 // Dated LP positions for a vehicle — the capital-tracking store.
 //
@@ -95,15 +97,6 @@ export async function DELETE(req: NextRequest) {
   if (gate instanceof NextResponse) return gate
   const group = await resolveGroupOr400(admin, gate, req.nextUrl.searchParams.get('group'))
   if (group instanceof NextResponse) return group
-  const asOfDate = req.nextUrl.searchParams.get('asOfDate') ?? ''
-  if (!ISO.test(asOfDate)) return NextResponse.json({ error: 'asOfDate required' }, { status: 400 })
-
-  const vehicleId = await vehicleIdByName(admin, gate.fundId, group)
-  if (!vehicleId) return NextResponse.json({ error: 'Unknown vehicle' }, { status: 400 })
-
-  const { error } = await (admin as any)
-    .from('lp_positions').delete()
-    .eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId).eq('as_of_date', asOfDate)
-  if (error) return dbError(error, 'accounting-positions')
-  return NextResponse.json({ ok: true })
+  // Shared with the delete_lp_positions tool.
+  return outcomeResponse(await deleteLpPositions(admin, gate.fundId, group, req.nextUrl.searchParams.get('asOfDate') ?? ''))
 }

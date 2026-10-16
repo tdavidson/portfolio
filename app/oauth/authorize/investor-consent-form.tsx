@@ -7,6 +7,7 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AuthShell } from '@/components/auth-shell'
 import { Label } from '@/components/ui/label'
+import { RedirectHost } from './redirect-host'
 
 /**
  * The approve/deny screen for the investor connector: an LP connecting an assistant to their own
@@ -77,6 +78,7 @@ export function InvestorConsentForm({ clientName, funds, willWrite, params }: Pr
         </CardHeader>
 
         <CardContent className="space-y-4">
+          <RedirectHost redirectUri={params.redirect_uri} />
           {funds.length > 1 && (
             <div className="space-y-1.5">
               <Label htmlFor="lp-fund">Fund</Label>

@@ -8,12 +8,15 @@ import { AgentCallError, idempotencyKeyOf, runAgentTool } from '@/lib/agent/disp
 import { withChangeSource } from '@/lib/audit/source'
 import { isGatewayTool } from '@/lib/mcp-apps/gateway-names'
 import { hasAccess } from '@/lib/access/effective'
+import { isToolOffered } from '@/lib/agent/destructive'
 import { rateLimit } from '@/lib/rate-limit'
 
 export const runtime = 'nodejs'
 // A submitted company update runs the extraction pipeline in the call (submit_company_update), as
-// an emailed one does in /api/inbound-email.
-export const maxDuration = 120
+// an emailed one does in /api/inbound-email. And a send with PDF attachments, or approving a capital
+// call, waits on a Chromium-bundled route to render them (lib/agent/self-request.ts), whose own
+// limit is 300: this one must outlast it, or the work completes after the chat was told it failed.
+export const maxDuration = 300
 export const dynamic = 'force-dynamic'
 
 // Plain REST agent endpoint (for non-MCP agents / simple HTTP), same tool
@@ -47,7 +50,8 @@ export async function GET(req: NextRequest) {
   const access = await loadCredentialAccess(admin, auth)
   return NextResponse.json({
     tools: AGENT_TOOLS
-      .filter(t => hasAccess(access, accessDomainFor(t), t.scope, accessFeatureFor(t)))
+      // Destructive tools only where the deployment turned them on (lib/agent/destructive.ts).
+      .filter(t => isToolOffered(t) && hasAccess(access, accessDomainFor(t), t.scope, accessFeatureFor(t)))
       .map(t => ({ name: t.name, description: t.description, scope: t.scope, inputSchema: t.inputSchema })),
   })
 }
@@ -115,7 +119,7 @@ async function handlePost(req: NextRequest) {
     // Don't leak internals to an API-key caller — log the detail, return the message only.
     console.error('[accounting-agent]', body?.tool, e)
     // A permission refusal is a 403, as the same operation is from the web.
-    if (e instanceof AgentCallError && e.code === 'ADMIN_ONLY') {
+    if (e instanceof AgentCallError && (e.code === 'ADMIN_ONLY' || e.code === 'DESTRUCTIVE_DISABLED')) {
       return NextResponse.json({ error: e.message, code: e.code }, { status: 403 })
     }
     return NextResponse.json({ error: (e as Error).message }, { status: 400 })

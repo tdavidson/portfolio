@@ -8,6 +8,7 @@ import { useLedgerFetch } from '@/components/accounting-vehicle'
 import { AccountPicker, type PickerAccount } from '@/components/accounting/account-picker'
 import { ENTRY_SOURCE_TYPES, ENTRY_SOURCE_TYPE_LABELS, isEntrySourceType } from '@/lib/accounting/source-types'
 import { reversedEntryId } from '@/lib/accounting/reversal'
+import { EntryReceipts } from '@/components/accounting/entry-receipts'
 
 interface Acct { id: string; code: string; name: string; type?: string; lp_entity_id: string | null; is_active?: boolean }
 interface PostingRow { id: string; account_id: string; amount: number; lp_entity_id: string | null }
@@ -396,6 +397,9 @@ export function EntryModal({
                 </tr>
               </tfoot>
             </table>
+
+            {/* The evidence, once the entry exists (and not on the tax book). */}
+            {id && !taxBook && <EntryReceipts key={id} entryId={id} />}
 
             {(editable || adjusting) && (
               <label className="flex items-center gap-2 text-xs text-muted-foreground">

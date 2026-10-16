@@ -182,10 +182,12 @@ const CAP_LABELS: Record<string, string> = {
   unclassified: 'Unclassified', ending: 'Ending',
 }
 
+const holderWord = (p: StatementPayload) => (equityLabelOf(p) === "Members' capital" ? 'Member' : 'Partner')
+
 function capitalSheet(payloads: StatementPayload[]): XLSX.WorkSheet {
   if (payloads.length === 1) {
     const c = payloads[0].changesInPartnersCapital
-    const header: Row = ['Partner', ...CAP_FIELDS.map(f => CAP_LABELS[f] ?? f)]
+    const header: Row = [holderWord(payloads[0]), ...CAP_FIELDS.map(f => CAP_LABELS[f] ?? f)]
     const rows: Row[] = [[`Statement of changes in ${equityLabelOf(payloads[0]).toLowerCase()}`], [], header]
     for (const p of c.partners) rows.push([p.name, ...CAP_FIELDS.map(f => money(p[f] as number))])
     rows.push(['Total', ...CAP_FIELDS.map(f => money(c.totals[f] as number))])
@@ -198,7 +200,7 @@ function capitalSheet(payloads: StatementPayload[]): XLSX.WorkSheet {
   for (const p of payloads) for (const partner of p.changesInPartnersCapital.partners) {
     if (!seen.has(partner.id)) { seen.add(partner.id); partnerRows.push({ id: partner.id, name: partner.name }) }
   }
-  const header: Row = ['Partner', ...payloads.map(p => p.period.label)]
+  const header: Row = [holderWord(payloads[0]), ...payloads.map(p => p.period.label)]
   const rows: Row[] = [[`Statement of changes in ${equityLabelOf(payloads[0]).toLowerCase()}`], [], header]
   for (const { id, name } of partnerRows) {
     rows.push([name, ...payloads.map(p => {

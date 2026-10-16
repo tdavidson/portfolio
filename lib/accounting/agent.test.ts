@@ -200,3 +200,17 @@ describe('agent tool registry', () => {
     expect(res.toLP + res.toGP).toBe(12_000_000)
   })
 })
+
+describe('period tools', () => {
+  // Refusals that come before any database call: no admin client is needed to reach them.
+  const run = (name: string, input: any) =>
+    getTool(name)!.handler({ admin: {} as any, fundId: 'f', portfolioGroup: 'Fund I', userId: 'u' } as any, input)
+
+  it('reads a close preview', () => {
+    expect(getTool('preview_close')?.scope).toBe('read')
+  })
+
+  it('needs a date to preview a close through', async () => {
+    await expect(run('preview_close', {})).rejects.toThrow(/periodEnd/)
+  })
+})

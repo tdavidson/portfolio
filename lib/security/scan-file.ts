@@ -107,7 +107,10 @@ export async function scanFileAsync(buffer: Buffer, filename: string, contentTyp
 
   // Zip bomb detection for ZIP-based content types
   const ext = filename.toLowerCase().split('.').pop() ?? ''
-  const isZipBased = ZIP_BASED_TYPES.has(contentType) ||
+  // By the bytes too: the parsers dispatch on the declared type, and .xls/.doc/.ppt routes open a
+  // zip container just as happily — so an xlsx bomb named a.xls skipped this check by its name alone.
+  const startsLikeZip = buffer.length >= 4 && buffer[0] === 0x50 && buffer[1] === 0x4b && buffer[2] === 0x03 && buffer[3] === 0x04
+  const isZipBased = startsLikeZip || ZIP_BASED_TYPES.has(contentType) ||
     ['zip', 'docx', 'xlsx', 'pptx'].includes(ext)
 
   if (isZipBased && buffer.length > 0) {

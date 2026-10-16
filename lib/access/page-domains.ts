@@ -100,6 +100,7 @@ export const PAGE_DOMAINS: Record<string, PageDomain> = {
   'funds/[id]/forecast': { domain: 'accounting', gate: 'requireVehicleAccess' },
   'funds/[id]/capital-accounts/[lpEntityId]': { domain: 'accounting', gate: 'requireVehicleAccess' },
   'funds/[id]/journal': { domain: 'accounting', gate: 'requireVehicleAccess' },
+  'funds/[id]/receipts': { domain: 'accounting', gate: 'requireVehicleAccess' },
   'funds/[id]/ledger': { domain: 'accounting', gate: 'requireVehicleAccess' },
   // The Tax area, and the tax_reporting feature: every route behind it is gated on both, so the
   // page must not render without them. `tax` requires reading the books, so the entity gate's

@@ -44,10 +44,13 @@ export interface WriteAction {
   description: string
   inputSchema: Record<string, unknown>
   /**
-   * Approved only in the app, with a second confirmation there: the browser's approve route
-   * supplies the real executor and `execute` here refuses (lib/pending-actions/call-notices.ts).
+   * Approved only where a person confirms it: in the app, confirming twice, or from their own chat
+   * on their explicit yes. Each of those doors supplies the real executor (the browser's approve
+   * route in-process, a chat's approve_action through a Chromium-bundled route); `execute` here
+   * refuses, so a door that supplies none — a script's key — cannot approve it
+   * (lib/pending-actions/call-notices.ts).
    */
-  confirmInApp?: true
+  personConfirms?: true
   preview: (deps: ActionDeps, input: any) => Promise<PreviewResult>
   execute: (deps: ActionDeps, input: any) => Promise<Record<string, unknown>>
 }
@@ -159,11 +162,11 @@ export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
     domain: 'lp_relations',
     accessFeature: 'lp_portal',
     stageAccess: 'write',
-    confirmInApp: true,
+    personConfirms: true,
     description:
       "Publish an issued capital call's notices to the partners' LP portals. Call preview_call_notices first, show the user " +
-      'every partner and figure it lists, and stage this only once they confirm, passing its previewToken. A person then ' +
-      'approves it in the app, confirming twice; it does not email anyone.',
+      'every partner and figure it lists, and stage this only once they confirm, passing its previewToken. An admin then ' +
+      'approves it: in the app, confirming twice, or from their chat on an explicit yes. It does not email anyone.',
     inputSchema: {
       type: 'object',
       required: ['callId', 'previewToken'],

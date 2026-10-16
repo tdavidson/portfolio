@@ -110,6 +110,29 @@ describe('admin-only operations, at the API boundary', () => {
     }
   })
 
+  it('refuses deleting a deal room, removing a member and merging entities to a member with write, as the tools are', async () => {
+    grants = { diligence: 'write', accounting: 'write', admin: 'write' }
+    for (const [p, m, b] of [
+      ['/api/diligence/d1', 'DELETE', undefined],
+      ['/api/settings/members/m1', 'DELETE', undefined],
+      ['/api/vehicles', 'PATCH', { id: 'v2', mergeIntoId: 'v1' }],
+    ] as const) {
+      expect((await proxy(req(p, m, b))).status, `${m} ${p}`).toBe(403)
+    }
+    // Renaming an entity is not a merge.
+    expect((await proxy(req('/api/vehicles', 'PATCH', { id: 'v2', name: 'Fund II' })))?.status).not.toBe(403)
+    expect(adminOnlyRule('api/vehicles', 'PATCH', { id: 'v2', mergeIntoId: 'v1' })?.label).toBe('merge entities')
+    expect(adminOnlyRule('api/vehicles', 'PATCH', { id: 'v2', name: 'x' })).toBeUndefined()
+    // The same words as the tools'.
+    for (const [route, method, tool] of [
+      ['api/diligence/[id]', 'DELETE', 'diligence_delete_deal'],
+      ['api/settings/members/[id]', 'DELETE', 'remove_member'],
+      ['api/vehicles', 'PATCH', 'merge_vehicles'],
+    ] as const) {
+      expect(adminOnlyRule(route, method, { mergeIntoId: 'v1' })?.label, route).toBe(ADMIN_ONLY_TOOLS[tool].label)
+    }
+  })
+
   it('lets a tax preparer post adjustments but not finalize K-1s or reopen the tax year', async () => {
     grants = { accounting: 'read', tax: 'write', gp_economics: 'read' }
     expect((await proxy(req('/api/accounting/tax-adjustments', 'POST', { taxYear: 2026 })))?.status).not.toBe(403)
@@ -142,8 +165,9 @@ describe('the admin-only list', () => {
   })
 
   it('checks voiding a posted entry in the journal handler, where the database can say it is posted', () => {
-    const src = read('app/api/accounting/journal/route.ts')
-    expect(src).toContain('HANDLER_CHECKED.voidPostedEntry')
+    // The handler's state change lives in lib/accounting/journal-state.ts, shared with the void_entry tool.
+    expect(read('app/api/accounting/journal/route.ts')).toContain('changeEntryState')
+    expect(read('lib/accounting/journal-state.ts')).toContain('HANDLER_CHECKED.voidPostedEntry')
     expect(adminOnlyDenial('member', HANDLER_CHECKED.voidPostedEntry)).toBe('Only an admin can void a posted entry.')
     expect(adminOnlyDenial('admin', HANDLER_CHECKED.voidPostedEntry)).toBeNull()
   })

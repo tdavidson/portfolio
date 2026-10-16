@@ -5,9 +5,12 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // caller's grant for this route + method; these resolve identity and keep the demo out of writes.
 import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { retagPortfolioGroup } from '@/lib/vehicles'
+import { mergeVehicles } from '@/lib/vehicles-merge'
+import { outcomeResponse } from '@/lib/service-outcome'
 import { dbError } from '@/lib/api-error'
 import { ensureVehicleAccounts } from '@/lib/accounting/provision-accounts'
 import { VEHICLE_KINDS } from '@/lib/vehicle-kinds'
+import { isSafeLogoDataUri } from '@/lib/vehicle-letterhead'
 import { loadAccessContext } from '@/lib/access/effective'
 import { canSeeVehicle, entityIdentityChangeDenial } from '@/lib/access/scope'
 import { safeLogo, fundLetterhead, loadFundEmail } from '@/lib/vehicle-letterhead'
@@ -173,62 +176,8 @@ export async function PATCH(req: NextRequest) {
   // the target keeps its own name while absorbing the source's data + aliases. Handled first and
   // returns early; the normal field-update path below is for non-merge PATCHes only.
   if (body.mergeIntoId) {
-    const fromId = body.id
-    const intoId = body.mergeIntoId
-    if (fromId === intoId) return NextResponse.json({ error: 'Cannot merge a vehicle into itself' }, { status: 400 })
-
-    const { data: fromRow } = await (admin as any)
-      .from('fund_vehicles').select('id, name, aliases').eq('id', fromId).eq('fund_id', gate.fundId).maybeSingle()
-    if (!fromRow) return NextResponse.json({ error: 'Vehicle not found' }, { status: 404 })
-    const { data: intoRow } = await (admin as any)
-      .from('fund_vehicles').select('id, name, aliases').eq('id', intoId).eq('fund_id', gate.fundId).maybeSingle()
-    if (!intoRow) return NextResponse.json({ error: 'Target vehicle not found' }, { status: 404 })
-
-    // Rows that name the source by ID move to the target first: notes (whose entity reference
-    // blocks the delete), deals, diligence and staged actions (which would otherwise fall back to
-    // admin-only), and members' grants (who would otherwise lose the merged entity).
-    for (const table of ['company_notes', 'inbound_deals', 'diligence_deals', 'pending_actions']) {
-      const { error: moveErr } = await (admin as any).from(table).update({ vehicle_id: intoId })
-        .eq('fund_id', gate.fundId).eq('vehicle_id', fromId)
-      // A table this install does not have (or a column not yet migrated) has nothing to move.
-      if (moveErr && !/does not exist|schema cache/i.test(moveErr.message ?? '')) return dbError(moveErr, `vehicles-merge-${table}`)
-    }
-    const { data: sourceGrants } = await (admin as any).from('fund_member_vehicles').select('user_id')
-      .eq('fund_id', gate.fundId).eq('vehicle_id', fromId)
-    if (((sourceGrants as any[]) ?? []).length > 0) {
-      const { error: grantErr } = await (admin as any).from('fund_member_vehicles').upsert(
-        ((sourceGrants as any[]) ?? []).map(g => ({ fund_id: gate.fundId, user_id: g.user_id, vehicle_id: intoId, granted_by: gate.userId })),
-        { onConflict: 'fund_id,user_id,vehicle_id', ignoreDuplicates: true })
-      if (grantErr) return dbError(grantErr, 'vehicles-merge-grants')
-    }
-
-    // Rewrite every portfolio_group-keyed row from the source's name to the target's name.
-    await retagPortfolioGroup(admin, gate.fundId, (fromRow as any).name, (intoRow as any).name)
-
-    // Delete the source BEFORE the target takes its name as an alias: a name denotes one entity
-    // (fund_vehicles_names_unique), so while the source exists the alias would clash.
-    const { error: deleteErr } = await (admin as any)
-      .from('fund_vehicles').delete().eq('id', fromId).eq('fund_id', gate.fundId)
-    if (deleteErr) return dbError(deleteErr, 'vehicles')
-
-    // The target absorbs the source's name and aliases as its own aliases, so any legacy string
-    // (including the source's old name) still resolves to the target going forward.
-    const mergedAliases = Array.from(new Set([
-      ...(((intoRow as any).aliases ?? []) as string[]),
-      (fromRow as any).name,
-      ...(((fromRow as any).aliases ?? []) as string[]),
-    ].filter(Boolean)))
-
-    const { data: updatedInto, error: updateErr } = await (admin as any)
-      .from('fund_vehicles')
-      .update({ aliases: mergedAliases, updated_at: new Date().toISOString() })
-      .eq('id', intoId).eq('fund_id', gate.fundId)
-      .select('id, name, kind, aliases, active')
-      .single()
-    if ((updateErr as any)?.code === '23505') return NextResponse.json({ error: 'Another entity already uses one of those names' }, { status: 409 })
-    if (updateErr) return dbError(updateErr, 'vehicles')
-
-    return NextResponse.json(updatedInto)
+    // Shared with the merge_vehicles tool (lib/vehicles-merge.ts).
+    return outcomeResponse(await mergeVehicles(admin, { fundId: gate.fundId, userId: gate.userId, access }, body.id, body.mergeIntoId))
   }
 
   const { data: current } = await (admin as any)
@@ -248,8 +197,8 @@ export async function PATCH(req: NextRequest) {
   // fund logo in api/settings.
   if (body.logo !== undefined) {
     if (body.logo !== null) {
-      if (typeof body.logo !== 'string' || !body.logo.startsWith('data:image/')) {
-        return NextResponse.json({ error: 'Logo must be a data:image/ URL' }, { status: 400 })
+      if (!isSafeLogoDataUri(body.logo)) {
+        return NextResponse.json({ error: 'Logo must be a base64 data:image/ URL' }, { status: 400 })
       }
       if (body.logo.length > 200 * 1024) {
         return NextResponse.json({ error: 'Logo must be under 200KB' }, { status: 400 })

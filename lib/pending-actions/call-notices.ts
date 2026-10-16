@@ -1,12 +1,15 @@
 // Publishing an issued capital call's notices, staged from a chat (the Analyst, or a connected
-// assistant through publish_call_notices) and approved in the app.
+// assistant through publish_call_notices) and approved by an admin.
 //
-// Two confirmations, by design. The chat must show the review first (preview_call_notices) and
-// stage with its preview token, so the person has read what would go out before asking for it.
-// Then a person approves it in the app, where each partner's notice can be opened as a DRAFT PDF,
-// and confirms the approval a second time. The approval runs only from the browser route, which
-// supplies the real executor (call-notices-publish.ts); anywhere else (approve_action over MCP,
-// /api/v1) it is refused, because nothing there can show the notices or ask twice.
+// Two confirmations, by design. The chat must show the review first (preview_call_notices, with a
+// DRAFT PDF link per partner) and stage with its preview token, so the person has read what would
+// go out before asking for it. Then an admin approves it: in the app, where each notice opens as a
+// DRAFT PDF and the approval is confirmed a second time, or from their own chat with approve_action
+// on their explicit yes. Each of those doors supplies the real executor: the browser's approve
+// route runs call-notices-publish.ts in-process, and approve_action has
+// app/api/agent/call-notices/publish run it (lib/agent/notice-publish-link.ts), since the chat's
+// function ships no Chromium. A script's key (/api/v1, a static key over MCP) supplies none and is
+// refused, because no person stands behind it.
 
 import type { ActionDeps, PreviewResult } from './types'
 import { resolveVehicle } from '@/lib/accounting/vehicle-resolver'
@@ -22,8 +25,8 @@ export interface PublishCallNoticesInput {
 }
 
 export const CONFIRM_IN_APP_MESSAGE =
-  'Publishing notices to LPs is approved in the app, under Approvals, where each notice can be previewed ' +
-  'and the approval is confirmed twice. It cannot be approved from here.'
+  'Publishing notices to LPs is approved by an admin: in the app, under Approvals, where each notice can be previewed ' +
+  'and the approval is confirmed twice, or from their own chat on their explicit yes. A script\'s key cannot approve it.'
 
 export const STALE_PREVIEW_MESSAGE =
   'These notices have changed since they were previewed (an amount, a date, the purposes, the wire instructions or a ' +
@@ -59,7 +62,7 @@ export async function previewPublishCallNotices(deps: ActionDeps, input: Publish
   }
 }
 
-/** Off the browser route there is no executor: refuse, saying where it is approved. */
+/** A door that supplies no executor (a script's key): refuse, saying where it is approved. */
 export async function executePublishCallNoticesElsewhere(): Promise<Record<string, unknown>> {
   throw new Error(CONFIRM_IN_APP_MESSAGE)
 }

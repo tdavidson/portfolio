@@ -128,6 +128,7 @@ export function memoryAdmin(seed: Record<string, Row[]> = {}, opts: MemoryAdminO
         filters.push(r => (r[k] ?? null) !== v); return q
       },
       like: (k: string, p: string) => { filters.push(r => like(r[k], p)); return q },
+      ilike: (k: string, p: string) => { filters.push(r => like(String(r[k] ?? '').toLowerCase(), p.toLowerCase())); return q },
       contains: (k: string, vs: unknown[]) => { filters.push(r => Array.isArray(r[k]) && vs.every(v => r[k].includes(v))); return q },
       gt: (k: string, v: any) => { filters.push(r => r[k] > v); return q },
       gte: (k: string, v: any) => { filters.push(r => r[k] >= v); return q },

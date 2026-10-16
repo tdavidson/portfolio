@@ -31,6 +31,7 @@ Fund operations run on real double-entry books that keep themselves: every entit
 > Detailed feature descriptions at [FEATURES](./FEATURES.md)  
 > Fund accounting, forecasting and the double-entry reference at [ACCOUNTING](./ACCOUNTING.md)  
 > Connecting Claude and ChatGPT at [DOCS](./DOCS.md#connecting-claude-chatgpt-and-other-agents)  
+> What the app can do that MCP and the API can't yet, and why, at [PARITY](./PARITY.md)  
 > Setting up a fund from chat or a script, with no web app at [DOCS](./DOCS.md#setting-up-a-fund-with-claude-chatgpt-or-a-script)  
 > Bringing data in from QuickBooks, Carta and other systems with connectors at [DOCS](./DOCS.md#data-connectors)
 

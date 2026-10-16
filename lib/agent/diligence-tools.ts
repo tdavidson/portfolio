@@ -25,7 +25,7 @@ import { canSeeVehicle, visibleVehicleIds } from '@/lib/access/scope'
 import { parseUpdateFiles } from '@/lib/company-updates/submit'
 import {
   addChecklistItem, addDiligenceNote, createDiligenceDeal, finalizeMemo, updateAttentionItem, updateChecklistItem,
-  updateDiligenceDeal, uploadDiligenceDocument, writeMemoParagraph,
+  registerUploadedDiligenceDocument, updateDiligenceDeal, uploadDiligenceDocument, writeMemoParagraph,
 } from '@/lib/diligence/service'
 import { enqueueMemoStage, MEMO_AGENT_STAGES, type MemoAgentStage } from '@/lib/memo-agent/enqueue'
 import { advanceAssistantJobs, assistantCallAttachment, readAssistantCall, submitAssistantAnswers, waitingJobId } from '@/lib/memo-agent/assistant-jobs'
@@ -33,7 +33,8 @@ import { ASSISTANT_RUNNER } from '@/lib/memo-agent/assistant-runner'
 import type { McpContentResult } from '@/lib/mcp-apps/server'
 import { MAX_PAGE_IMAGE_BYTES, renderPdfPage } from '@/lib/pdf-page-image'
 import { jobHandle, jobRecordId } from './jobs'
-import { unwrap } from '@/lib/service-outcome'
+import { unwrap, type Outcome } from '@/lib/service-outcome'
+import { contentTypeFor } from '@/lib/uploads/signed-upload'
 import { requireUser } from './deals-tools'
 import { fundMemberId, visibleVehicleId } from './refs'
 
@@ -473,14 +474,22 @@ export const DILIGENCE_HANDLERS: Record<string, AgentToolHandler> = {
   diligence_add_documents: async ({ admin, fundId, access, userId }: AgentToolContext, input: any) => {
     const deal = await resolveDeal(admin, fundId, str(input?.deal), access)
     const files = parseUpdateFiles(input?.files)
-    if (files.length === 0) throw new Error('Send at least one file.')
+    const uploaded = parseUploadedDocuments(input?.uploaded_files)
+    if (files.length === 0 && uploaded.length === 0) throw new Error('Send at least one file (uploaded_files, or files).')
     const actor = requireUser(userId)
     const added: unknown[] = []
     const refused: string[] = []
-    for (const f of files) {
-      const r = await uploadDiligenceDocument(admin, { fundId, userId: actor }, deal.id, { name: f.name, mime: f.type, bytes: f.bytes })
+    const record = (name: string, r: Outcome<Record<string, unknown>>) => {
       if (r.ok) added.push({ documentId: r.value.id, file: r.value.file_name, type: r.value.detected_type })
-      else refused.push(`${f.name}: ${r.error}`)
+      else refused.push(`${name}: ${r.error}`)
+    }
+    for (const f of files) {
+      record(f.name, await uploadDiligenceDocument(admin, { fundId, userId: actor }, deal.id, { name: f.name, mime: f.type, bytes: f.bytes }))
+    }
+    // PUT straight to the deal's folder (diligence_document_upload_url): registered as the browser's
+    // signed-URL upload is, by the same function.
+    for (const u of uploaded) {
+      record(u.fileName ?? u.storagePath.split('/').pop() ?? 'file', await registerUploadedDiligenceDocument(admin, { fundId, userId: actor }, deal.id, u))
     }
     return {
       deal: deal.name, added, refused,
@@ -594,6 +603,19 @@ export const DILIGENCE_HANDLERS: Record<string, AgentToolHandler> = {
 }
 
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
+
+/** The uploaded_files of a data-room upload, as registerUploadedDiligenceDocument takes them. */
+function parseUploadedDocuments(v: unknown): { storagePath: string; fileName: string | null; contentType: string | null }[] {
+  if (v == null) return []
+  if (!Array.isArray(v)) throw new Error('uploaded_files must be a list of { storage_path, filename }.')
+  if (v.length > 20) throw new Error('At most 20 uploaded files per call.')
+  return v.map((u: any) => {
+    const storagePath = str(u?.storage_path)
+    if (!storagePath) throw new Error('Each uploaded file needs its storage_path (from diligence_document_upload_url).')
+    const fileName = str(u?.filename) || null
+    return { storagePath, fileName, contentType: str(u?.content_type) || (fileName ? contentTypeFor(fileName) : null) }
+  })
+}
 
 /** A checklist item by id, or by its exact label when that names one item. */
 async function resolveChecklistItem(admin: SupabaseClient, fundId: string, dealId: string, ref: string): Promise<any> {

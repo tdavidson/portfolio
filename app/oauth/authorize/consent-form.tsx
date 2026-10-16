@@ -8,6 +8,7 @@ import { Alert, AlertDescription } from '@/components/ui/alert'
 import { AuthShell } from '@/components/auth-shell'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
+import { RedirectHost } from './redirect-host'
 
 /**
  * The approve/deny screen. Deliberately blunt about what is being handed over:
@@ -84,6 +85,7 @@ export function ConsentForm({ clientName, fundName, willWrite, downgraded, newFu
         </CardHeader>
 
         <CardContent className="space-y-4">
+          <RedirectHost redirectUri={params.redirect_uri} />
           {newFund && (
             <div className="space-y-1.5">
               <Label htmlFor="fund-name">Fund or firm name</Label>

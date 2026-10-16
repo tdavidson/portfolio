@@ -18,6 +18,7 @@ import {
 } from '@/lib/accounting/agent-tools'
 import { DASHBOARD_TOOLS, type DashboardTool } from '@/lib/agent/dashboard-tools'
 import { PENDING_TOOLS, type PendingTool } from '@/lib/agent/pending-tools'
+import { isToolOffered } from '@/lib/agent/destructive'
 import { DASHBOARD_HTML, DASHBOARD_HTML_HASH } from './dashboard-html.generated'
 import { isDashboardPayload } from './payload'
 
@@ -141,6 +142,8 @@ const DESTRUCTIVE: Record<string, boolean> = {
 export function describeTool(tool: McpTool) {
   const annotations: Record<string, boolean> = { readOnlyHint: tool.scope === 'read', openWorldHint: false }
   if (tool.name in DESTRUCTIVE) annotations.destructiveHint = DESTRUCTIVE[tool.name]
+  // Deletes, merges and undoing posted books (lib/agent/destructive.ts).
+  if ((tool as AgentTool).destructive) annotations.destructiveHint = true
 
   const described: Record<string, unknown> = {
     name: tool.name,
@@ -175,6 +178,9 @@ export function listableTools(access: AccessContext): McpTool[] {
     // A member's own saved dashboards: every member lists and opens them; changing them needs a
     // role that may change things, which the read-only demo (`viewer`) is not.
     if (isPersonal(tool)) return tool.scope === 'read' || access.role !== 'viewer'
+    // Destructive tools only where the deployment turned them on (AGENT_DESTRUCTIVE_ACTIONS). This
+    // list feeds tools/list, search_tools and call_tool's suggestions alike.
+    if (!isToolOffered(tool as AgentTool)) return false
     return hasAccess(access, accessDomainFor(tool), tool.scope, accessFeatureFor(tool))
   })
 }

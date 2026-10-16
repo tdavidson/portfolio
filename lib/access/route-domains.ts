@@ -124,6 +124,12 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/realized-gains': { domain: 'accounting' },
   // Vendors (the payee dimension) and cash paid per vendor — the 1099 worksheet.
   'api/accounting/vendors': { domain: 'accounting' },
+  // Receipts, the partnership-expense tag and the quarterly invoices. Each handler also resolves the
+  // entity through resolveGroupOr400, so a management company's side needs management_company too.
+  'api/accounting/receipts': { domain: 'accounting' },
+  'api/accounting/receipts/[id]': { domain: 'accounting' },
+  'api/accounting/partnership-invoices': { domain: 'accounting' },
+  'api/accounting/partnership-invoices/[id]/pdf': { domain: 'accounting' },
   'api/accounting/vendor-payments': { domain: 'accounting' },
   // Every entity's books at a glance: closed through, trial balance, drafts, unmatched bank rows.
   // Management companies appear only for a caller holding that grant — checked in the handler.
@@ -426,7 +432,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/diligence/[id]/notes': { domain: 'diligence' },
   'api/diligence/[id]/notes/[noteId]': { domain: 'diligence' },
   // The Q&A chat reads evidence and answers; it doesn't change the deal.
-  'api/diligence/[id]/qa-chat': { domain: 'diligence', level: 'read' },
+  'api/diligence/[id]/qa-chat': { domain: 'diligence', level: { GET: 'read', POST: 'read', DELETE: 'write' } },
   'api/diligence/[id]/usage': { domain: 'diligence' },
   'api/diligence/analytics': { domain: 'diligence' },
   'api/diligence/checklist-template': { domain: 'diligence' },
@@ -566,6 +572,7 @@ export const UNGATED_ROUTES: Record<string, string> = {
 
   'api/mcp': 'MCP: authenticates by API key/OAuth token; gated per tool by domain.',
   'api/agent/reports/[token]': 'Signed, one-hour link an agent tool issued (lib/agent/report-links.ts); re-checks the member\'s live membership, lp_capital grant and entities in-handler; an investor connector link (portal_statement) re-checks the LP account and the fund\'s portal and connector switches instead.',
+  'api/agent/call-notices/publish': 'Called by this deployment\'s own agent functions, not a browser: authenticated by a signed five-minute token naming the fund, the member and the exact publish (lib/agent/notice-publish-link.ts); re-checks in-handler that the member is still an admin of the fund with agent access on and lp_relations/lp_portal write (a staged publish_call_notices) or lp_capital write (a proposed call\'s notices), and the vehicle within their entities.',
   'api/accounting/mcp': 'MCP (legacy path): as api/mcp.',
   'api/agent': 'Agent REST: as api/mcp.',
 

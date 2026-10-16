@@ -148,6 +148,62 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
     inputSchema: { type: 'object', properties: { vehicle: VEHICLE }, required: ['vehicle'] },
   },
   {
+    name: 'issue_capital_call',
+    description:
+      'Ask for a fund-wide capital call to be issued in a vehicle, split across its partners pro-rata by commitment. ' +
+      'Always staged, from any connection: an admin reviews the preview (each partner\'s share, the purposes, the due date ' +
+      'against the LPA notice period) and approves it in the app. Give the purposes with amounts that add up to total, and ' +
+      'a dueDate only if the user stated one. Once issued, preview_call_notices and publish_call_notices put the notices in ' +
+      'the partners\' portals.',
+    scope: 'write',
+    domain: 'lp',
+    accessDomain: 'lp_capital',
+    stagesAs: 'issue_capital_call',
+    // The pending action's own schema (lib/pending-actions/registry.ts), with the vehicle required
+    // here because a non-ledger tool must declare it; registry.test.ts keeps the two in step.
+    inputSchema: {
+      type: 'object',
+      required: ['vehicle', 'callDate', 'total'],
+      properties: {
+        vehicle: VEHICLE,
+        callDate: { type: 'string', description: 'YYYY-MM-DD.' },
+        description: { type: 'string' },
+        total: { type: 'number', description: 'Fund-wide amount to split pro-rata by commitment.' },
+        dueDate: { type: 'string', description: 'YYYY-MM-DD the capital is due. Never assumed: omit it if the user gave none.' },
+        purposes: {
+          type: 'array',
+          description: 'What the call is for, with amounts that add up to total. Shown on each LP notice.',
+          items: {
+            type: 'object',
+            required: ['category', 'amount'],
+            properties: {
+              category: { type: 'string', enum: ['investment', 'management_fee', 'fund_expense', 'other'] },
+              amount: { type: 'number' },
+              description: { type: 'string' },
+              basis: { type: 'string', description: 'Management fee: rate, base and period, as the user stated them. Never invented.' },
+              date: { type: 'string', description: 'YYYY-MM-DD the money is needed for this purpose, e.g. a closing.' },
+            },
+          },
+        },
+        noticePeriodDays: { type: 'number', description: "The LPA notice period the user stated. The vehicle's recorded term is checked as well." },
+        noticePeriodBasis: { type: 'string', enum: ['calendar', 'business'] },
+        statedPartners: {
+          type: 'array',
+          description: 'LP figures the user stated (a commitment, or a % of the fund). Checked against the register and flagged when they differ; never used for the split.',
+          items: {
+            type: 'object',
+            required: ['lp'],
+            properties: {
+              lp: { type: 'string', description: 'LP entity id or name.' },
+              commitment: { type: 'number' },
+              sharePct: { type: 'number', description: 'Percent of the fund, 0 to 100.' },
+            },
+          },
+        },
+      },
+    },
+  },
+  {
     name: 'preview_call_notices',
     description:
       "What publishing an issued capital call's notices would do, before anything goes out: each partner's amount and share " +
@@ -173,7 +229,9 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
     description:
       "Ask for an issued capital call's notices to be published to the partners' LP portals. Call preview_call_notices first, " +
       'show the user what it returns, and call this only after they confirm, with its previewToken. Always staged, from any ' +
-      'connection: an admin approves it in the app, opening the notices and confirming twice. It emails no one.',
+      'connection. An admin approves it: from their chat with approve_action, only on their explicit yes to the staged change, ' +
+      'or in the app, opening the notices and confirming twice. Approving returns published, reused and errors. A script\'s ' +
+      'key cannot approve it. It emails no one.',
     scope: 'write',
     domain: 'lp',
     accessDomain: 'lp_relations',

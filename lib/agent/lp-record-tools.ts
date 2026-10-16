@@ -35,7 +35,7 @@ export async function resolveInvestor(admin: SupabaseClient, fundId: string, ref
 }
 
 /** Exactly one LP entity the caller can see. */
-async function resolveEntity(ctx: AgentToolContext, ref: unknown): Promise<EntityIdentity> {
+export async function resolveEntity(ctx: Pick<AgentToolContext, 'admin' | 'fundId' | 'access'>, ref: unknown): Promise<EntityIdentity> {
   const scope = await lpToolScope(ctx.admin, ctx.access)
   const matches = resolveLp(await loadIdentities(ctx.admin, ctx.fundId, scope.entityIds), String(ref ?? ''))
   if (matches.length > 1) {

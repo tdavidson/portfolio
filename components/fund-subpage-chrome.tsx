@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect } from 'react'
-import { useVehicle, FundSwitcher, VehiclePageScope } from '@/components/accounting-vehicle'
+import { useVehicle, FundSwitcher, VehicleScope } from '@/components/accounting-vehicle'
 import { AccountingBody, AccountingPageHeader } from '@/components/accounting-chrome'
 
 /**
@@ -22,7 +22,9 @@ export function FundScopeSync({ vehicle, vehicleId }: { vehicle: string; vehicle
  *  - renders the shared accounting header (AccountingPageHeader) with the fund switcher in
  *    its action group, so it lays out on a phone the way every other page does,
  *  - wraps the page body in <AccountingBody>, so the Analyst panel slides in UNDERNEATH the
- *    header rather than squeezing it.
+ *    header rather than squeezing it,
+ *  - scopes the body to the URL's vehicle from the first render (VehicleScope), so the view's
+ *    first request is for this fund rather than whatever was selected before.
  */
 export function FundSubpageChrome({
   title, description, vehicle, vehicleId, children,
@@ -34,10 +36,10 @@ export function FundSubpageChrome({
   children: React.ReactNode
 }) {
   return (
-    <VehiclePageScope name={vehicle} id={vehicleId}>
+    <VehicleScope vehicle={vehicle} vehicleId={vehicleId}>
       <FundScopeSync vehicle={vehicle} vehicleId={vehicleId} />
       <AccountingPageHeader title={title} actions={<FundSwitcher />}>{description}</AccountingPageHeader>
       <AccountingBody>{children}</AccountingBody>
-    </VehiclePageScope>
+    </VehicleScope>
   )
 }

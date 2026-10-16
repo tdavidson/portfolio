@@ -10,6 +10,7 @@ import { customPeriod } from '@/lib/accounting/statement-period'
 import { generateLpStatementPdf } from '@/lib/accounting/lp-statement-pdf'
 import { generateInvestorReportPdf, generateLetterPdf, generateLiveInvestorReportPdf } from '@/lib/lp-report-pdf'
 import { isExpiredReportLink, verifyReportLink, type ReportLinkClaims } from '@/lib/agent/report-links'
+import { SEND_ATTACHMENT_PURPOSE } from '@/lib/agent/remote-pdf'
 import { PERFORMANCE_GROUPINGS, type PerformanceGrouping } from '@/lib/accounting/fund-performance'
 import {
   DocumentBuildError, financialStatementsDocument, fundPerformanceDocument, k1Document, taxPackageDocument, type FundDocument,
@@ -43,7 +44,14 @@ export async function GET(req: NextRequest, props: { params: Promise<{ token: st
   const claims = verifyReportLink(token)
   if (!claims) return isExpiredReportLink(token) ? expired() : notFound()
 
-  const limited = await rateLimit({ key: `agent-report:${claims.userId}`, limit: 30, windowSeconds: 60 })
+  // A link minted for an email attachment (lib/agent/remote-pdf.ts) is fetched once per recipient by
+  // this deployment, not clicked by a person: a send to forty LPs is forty renders in a minute. Its
+  // own bucket, so a send neither trips the click limit nor spends it. The purpose is in the signed
+  // claims, so only this deployment can mint one.
+  const forSend = claims.args.for === SEND_ATTACHMENT_PURPOSE
+  const limited = await rateLimit(forSend
+    ? { key: `agent-report-send:${claims.userId}`, limit: 300, windowSeconds: 60 }
+    : { key: `agent-report:${claims.userId}`, limit: 30, windowSeconds: 60 })
   if (limited) return limited
 
   const admin = createAdminClient()
@@ -156,13 +164,17 @@ async function fundDocument(admin: ReturnType<typeof createAdminClient>, claims:
         break
       }
       // /api/lps/preview/snapshot/[id]/pdf — lp_capital (lp_portal), and every entity: the report
-      // shows the investor everything they hold.
+      // shows the investor everything they hold. `investor` is one investor's (lp_snapshot's link);
+      // `investors` is one email recipient's investors together, as the send route renders them
+      // (lib/agent/remote-pdf.ts). Every one must be the fund's.
       case 'lp_snapshot': {
         if (!hasAccess(access, 'lp_capital', 'read', 'lp_portal') || !canSeeVehicle(access, null)) return notFound()
-        if (!a.snapshot || !a.investor) return notFound()
-        const { data: inv } = await (admin as any).from('lp_investors').select('id').eq('id', a.investor).eq('fund_id', fundId).maybeSingle()
-        if (!inv) return notFound()
-        const result = await generateInvestorReportPdf(admin, { fundId, snapshotId: a.snapshot, investorIds: [a.investor] })
+        const many = claims.args.investors
+        const investorIds = Array.isArray(many) ? Array.from(new Set(many.map(String))) : a.investor ? [a.investor] : []
+        if (!a.snapshot || investorIds.length === 0) return notFound()
+        const { data: invs } = await (admin as any).from('lp_investors').select('id').eq('fund_id', fundId).in('id', investorIds)
+        if (((invs ?? []) as unknown[]).length !== investorIds.length) return notFound()
+        const result = await generateInvestorReportPdf(admin, { fundId, snapshotId: a.snapshot, investorIds })
         doc = result ? { body: result.pdf, fileName: result.fileName, contentType: 'application/pdf' } : null
         break
       }

@@ -5,7 +5,7 @@ import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
 import { loadLpScopeForUser, lpVisible } from '@/lib/access/lp-scope'
 import { outcomeResponse } from '@/lib/service-outcome'
-import { createInvestor, updateInvestor } from '@/lib/lps/records'
+import { createInvestor, deleteInvestor, mergeInvestors, updateInvestor } from '@/lib/lps/records'
 
 // ---------------------------------------------------------------------------
 // GET — all investors for this fund, with their entities
@@ -110,49 +110,8 @@ export async function PATCH(req: NextRequest) {
 
   const body = await req.json()
   const { sourceId, targetId } = body
-
-  if (!sourceId || !targetId) return NextResponse.json({ error: 'sourceId and targetId are required' }, { status: 400 })
-  if (sourceId === targetId) return NextResponse.json({ error: 'Cannot merge investor into itself' }, { status: 400 })
-
-  // Verify source investor belongs to this fund
-  const { data: sourceInvestor } = await admin
-    .from('lp_investors' as any)
-    .select('id')
-    .eq('id', sourceId)
-    .eq('fund_id', writeCheck.fundId)
-    .maybeSingle()
-
-  if (!sourceInvestor) return NextResponse.json({ error: 'Source investor not found' }, { status: 404 })
-
-  // Verify target investor belongs to this fund
-  const { data: targetInvestor } = await admin
-    .from('lp_investors' as any)
-    .select('id')
-    .eq('id', targetId)
-    .eq('fund_id', writeCheck.fundId)
-    .maybeSingle()
-
-  if (!targetInvestor) return NextResponse.json({ error: 'Target investor not found' }, { status: 404 })
-
-  // Reassign all entities from source investor to target investor
-  const { error: reassignErr } = await admin
-    .from('lp_entities' as any)
-    .update({ investor_id: targetId })
-    .eq('investor_id', sourceId)
-    .eq('fund_id', writeCheck.fundId)
-
-  if (reassignErr) return dbError(reassignErr, 'lp-investors-merge-reassign')
-
-  // Delete the source investor (now has no entities)
-  const { error: deleteErr } = await admin
-    .from('lp_investors' as any)
-    .delete()
-    .eq('id', sourceId)
-    .eq('fund_id', writeCheck.fundId)
-
-  if (deleteErr) return dbError(deleteErr, 'lp-investors-merge-delete')
-
-  return NextResponse.json({ ok: true, merged: { from: sourceId, into: targetId } })
+  // Shared with the lp_merge_investors tool (lib/lps/records.ts).
+  return outcomeResponse(await mergeInvestors(admin, writeCheck.fundId, sourceId, targetId))
 }
 
 // ---------------------------------------------------------------------------
@@ -169,16 +128,6 @@ export async function DELETE(req: NextRequest) {
   if (writeCheck instanceof NextResponse) return writeCheck
   if (writeCheck.role !== 'admin') return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
 
-  const id = req.nextUrl.searchParams.get('id')
-  if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
-
-  const { error } = await admin
-    .from('lp_investors' as any)
-    .delete()
-    .eq('id', id)
-    .eq('fund_id', writeCheck.fundId)
-
-  if (error) return dbError(error, 'lp-investors-delete')
-
-  return NextResponse.json({ ok: true })
+  // Shared with the lp_delete_investor tool (lib/lps/records.ts).
+  return outcomeResponse(await deleteInvestor(admin, writeCheck.fundId, req.nextUrl.searchParams.get('id')))
 }

@@ -1,9 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { dbError } from '@/lib/api-error'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
-import { updateDiligenceDeal } from '@/lib/diligence/service'
+import { deleteDiligenceDeal, updateDiligenceDeal } from '@/lib/diligence/service'
 import { outcomeResponse } from '@/lib/service-outcome'
 
 export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
@@ -74,15 +73,8 @@ export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: s
   if ('error' in guard) return guard.error
   const { admin, fundId } = guard
 
-  // ON DELETE CASCADE handles documents, drafts, attention items, sessions, notes.
-  // Storage objects under {dealId}/* will dangle; cleaning them is async (TODO).
-  const { error } = await admin
-    .from('diligence_deals')
-    .delete()
-    .eq('id', params.id)
-    .eq('fund_id', fundId)
-  if (error) return dbError(error, 'diligence-deal-delete')
-  return NextResponse.json({ ok: true })
+  // The cascade is the database's; shared with the diligence_delete_deal tool (lib/diligence/service.ts).
+  return outcomeResponse(await deleteDiligenceDeal(admin, fundId, params.id))
 }
 
 // ---------------------------------------------------------------------------

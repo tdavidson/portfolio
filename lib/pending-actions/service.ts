@@ -161,17 +161,30 @@ function authorizeDecision(principal: AnalystPrincipal, row: PendingActionRow, d
   if (decision === 'approve' && action.adminOnly && principal.role !== 'admin') {
     throw new PendingActionServiceError(adminOnlyMessage(action.adminOnly), 403, 'ADMIN_ONLY')
   }
-  // Approval is a person's, not the proposer's. Rejecting stays open to the stager: withdrawing a
-  // proposal changes nothing.
-  if (decision === 'approve' && stagedBySameCredential(principal, row)) {
+  // A script's key cannot approve what it staged: no person stands behind that approval. A chat
+  // may, since it asks its person in the conversation and approves only on their yes (the
+  // approve_action tool says so). Rejecting stays open to the stager: withdrawing changes nothing.
+  if (decision === 'approve' && selfApprovalRefused(principal, row)) {
     throw new PendingActionServiceError(SELF_APPROVAL_MESSAGE, 403, 'SELF_APPROVAL')
   }
   return action
 }
 
 export const SELF_APPROVAL_MESSAGE =
-  'This change was staged from this connection, so this connection cannot approve it. ' +
-  'A person approves it in the app, under Approvals.'
+  'This change was staged with this key, so this key cannot approve it. ' +
+  'A person approves it in the app, under Approvals, or from their own chat.'
+
+/**
+ * Whether this approval is the stager approving itself with nothing behind it: a script's key
+ * approving what that key staged. A chat (an `oauth:` credential) approving its own proposal is
+ * allowed, because it acts for a person who confirmed the change in the conversation.
+ */
+export function selfApprovalRefused(
+  principal: Pick<AnalystPrincipal, 'userId' | 'credentialId'>,
+  row: Pick<PendingActionRow, 'created_by' | 'created_via' | 'created_credential'>,
+): boolean {
+  return stagedBySameCredential(principal, row) && !principal.credentialId?.startsWith('oauth:')
+}
 
 /**
  * Is the approver the very credential (and person) that staged the action? A chat approving its
@@ -199,16 +212,20 @@ export function stagedBySameCredential(
  */
 export interface ApproveOptions {
   /**
-   * The second confirmation an action marked `confirmInApp` needs (publishing notices to LPs). Only
-   * the browser's approve route sets it, after the person confirmed the approval a second time.
+   * The person's confirmation an action marked `personConfirms` needs (publishing notices to LPs).
+   * The browser's approve route sets it after the person confirmed the approval a second time; a
+   * chat's approve_action sets it because it runs only on its person's explicit yes.
    */
   confirmed?: boolean
   /**
-   * The executors for `confirmInApp` actions, supplied by the browser's approve route, which is the
-   * only one that ships what they need (headless Chromium, lib/pdf-routes.mjs). Every other door
-   * passes none, and those actions are refused there.
+   * The executors for `personConfirms` actions, supplied by the doors a person stands behind: the
+   * browser's approve route (in-process: it ships headless Chromium, lib/pdf-routes.mjs) and a chat's
+   * approve_action (through app/api/agent/call-notices/publish, which ships it). A script's key
+   * (/api/v1, or a static key over MCP) passes none, and those actions are refused there.
    */
   executors?: Partial<Record<string, StagedAction['execute']>>
+  /** The origin the approver reached the app at, for an executor that calls back into it. */
+  origin?: string
 }
 
 export async function approvePendingAction(
@@ -230,9 +247,9 @@ export async function approvePendingAction(
     throw new PendingActionServiceError('Pending action is no longer available.', 409, 'ACTION_NOT_PENDING')
   }
   // Checked before anything is claimed, so a refusal leaves the row pending for the app.
-  const execute = action.confirmInApp ? opts.executors?.[existing.action_type] : action.execute
+  const execute = action.personConfirms ? opts.executors?.[existing.action_type] : action.execute
   if (!execute) throw new PendingActionServiceError(CONFIRM_IN_APP_MESSAGE, 409, 'CONFIRM_IN_APP')
-  if (action.confirmInApp && opts.confirmed !== true) {
+  if (action.personConfirms && opts.confirmed !== true) {
     throw new PendingActionServiceError('Confirm the approval a second time to publish.', 428, 'CONFIRMATION_REQUIRED')
   }
 
@@ -263,6 +280,7 @@ export async function approvePendingAction(
       fundId: principal.fundId,
       userId: principal.userId,
       access: principal.access,
+      ...(opts.origin ? { origin: opts.origin } : {}),
     }, existing.args)
     const appliedAt = new Date().toISOString()
     const { data: applied, error } = await (admin as any)
@@ -278,7 +296,11 @@ export async function approvePendingAction(
     await recordAudit(admin, {
       fundId: principal.fundId, vehicleId: existing.vehicle_id ?? null, actorId: principal.userId, action: 'pending_action.approve',
       subjectType: 'pending_action', subjectId: id,
-      details: { actionType: existing.action_type, stagedBy: existing.created_by, stagedVia: existing.created_via ?? null, args: existing.args },
+      details: {
+        actionType: existing.action_type, stagedBy: existing.created_by, stagedVia: existing.created_via ?? null, args: existing.args,
+        // The chat that staged it approved it, on its person's word in the conversation.
+        ...(stagedBySameCredential(principal, existing) ? { approvedFromChat: true, credentialId: principal.credentialId } : {}),
+      },
     })
     return { ok: true, replayed: false, result, action: actionDto(applied as PendingActionRow) }
   } catch (error) {

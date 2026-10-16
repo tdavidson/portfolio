@@ -47,7 +47,13 @@ export async function resolveVehicle(
     access?: Pick<AccessContext, 'vehicles'>
   },
 ): Promise<string> {
-  let vehicles = await listVehicles(admin, fundId)
+  // The manco list is only needed for a named lookup that opts in, but when it is, it is read
+  // alongside the fund list rather than after it.
+  const [fundVehicles, mancos] = await Promise.all([
+    listVehicles(admin, fundId),
+    requested && opts?.includeManagementCompanies ? listMancoVehicles(admin, fundId) : [],
+  ])
+  let vehicles = fundVehicles
   let visibleNames: string[] | null = null
   if (opts?.access && !opts.access.vehicles.all) {
     const ids = opts.access.vehicles.ids
@@ -64,7 +70,7 @@ export async function resolveVehicle(
     // not suddenly have two candidates and start getting "specify a vehicle" from every page that
     // used to resolve on its own.
     const candidates = opts?.includeManagementCompanies
-      ? vehicles.concat((await listMancoVehicles(admin, fundId)).map(m => m.name)
+      ? vehicles.concat(mancos.map(m => m.name)
           .filter(n => visibleNames === null || visibleNames.includes(n)))
       : vehicles
     const match = candidates.find(vehicle => vehicle === requested)

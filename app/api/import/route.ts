@@ -2,38 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
-import { createFundAIProvider } from '@/lib/ai'
-import { logAIUsage } from '@/lib/ai/usage'
+import { parsePortfolioImport } from '@/lib/portfolio/ai-import'
 import { logActivity } from '@/lib/activity'
 import { rateLimit } from '@/lib/rate-limit'
 import { loadEntityScope } from '@/lib/access/entity-scope'
-
-interface ParsedMetric {
-  name: string
-  unit?: string
-  unit_position?: 'prefix' | 'suffix'
-  value_type?: 'number' | 'currency' | 'percentage' | 'text'
-  cadence?: 'monthly' | 'quarterly' | 'annual'
-  historical_values?: Array<{
-    period: string
-    value: number | string
-  }>
-}
-
-interface ParsedCompany {
-  name: string
-  tags?: string[]
-  sender_emails?: string[]
-  summary?: string
-  stage?: string
-  industry?: string
-  overview?: string
-  founders?: string
-  why_invested?: string
-  current_update?: string
-  contact_email?: string
-  metrics?: ParsedMetric[]
-}
 
 // ---------------------------------------------------------------------------
 // Security helpers
@@ -141,123 +113,11 @@ export async function POST(req: NextRequest) {
   const body = await req.json()
   const { text } = body
 
-  // --- Input validation ---
-  if (typeof text !== 'string' || !text.trim()) {
-    return NextResponse.json({ error: 'No text provided' }, { status: 400 })
-  }
-
-  if (text.length > 500_000) {
-    return NextResponse.json({ error: 'Input too large. Maximum 500KB of text allowed.' }, { status: 400 })
-  }
-
-  // Get AI provider + model
-  let provider: Awaited<ReturnType<typeof createFundAIProvider>>['provider']
-  let claudeModel: string
-  let aiProviderType: string
-  try {
-    const result = await createFundAIProvider(admin, fundId)
-    provider = result.provider
-    claudeModel = result.model
-    aiProviderType = result.providerType
-  } catch {
-    return NextResponse.json({ error: 'Claude API key not configured. Add one in Settings.' }, { status: 400 })
-  }
-
-  // Parse with AI
-  let responseText: string
-  try {
-    const aiResult = await provider.createMessage({
-      model: claudeModel,
-      maxTokens: 8192,
-      content: `Parse the following spreadsheet/CSV data into structured JSON. Extract companies with their details and metrics.
-
-Return ONLY valid JSON in this exact format (no markdown, no explanation):
-{
-  "companies": [
-    {
-      "name": "Company Name",
-      "tags": ["Fund I"],
-      "sender_emails": ["email@example.com"],
-      "summary": "Brief business description",
-      "stage": "Series A",
-      "industry": "SaaS",
-      "overview": "Company overview paragraph",
-      "founders": "Jane Doe, John Smith",
-      "why_invested": "Investment thesis",
-      "current_update": "Latest business update",
-      "contact_email": "founder@company.com",
-      "metrics": [
-        {
-          "name": "MRR",
-          "unit": "$",
-          "unit_position": "prefix",
-          "value_type": "currency",
-          "cadence": "monthly",
-          "historical_values": [
-            { "period": "Q1 2025", "value": 50000 }
-          ]
-        }
-      ]
-    }
-  ]
-}
-
-Rules:
-- Each row likely represents a company
-- Look for columns like: company name, fund, email, industry/sector, stage, description/summary, founders, contact email, overview, investment thesis
-- Look for metric columns with values (revenue, MRR, ARR, headcount, burn rate, etc.)
-- The "fund" column maps to tags (e.g. "Fund I", "Fund II")
-- value_type: use "currency" for dollar amounts, "percentage" for percentages, "number" for counts
-- unit_position: "prefix" for currency ($), "suffix" for percent (%)
-- If a column header looks like a period (Q1 2025, Jan 2025, 2024), those are historical metric values
-- Infer the metric name from the row label or column group header
-- If two columns represent the same metric with different names (e.g. "Revenue" and "Rev"), combine them under one metric
-- If the data has free-form text describing metrics, extract numeric values and create appropriate metrics
-- Infer the reporting period from context (column headers, dates, labels)
-- Map "sector" fields to "industry"
-- If you can't parse something, skip it rather than guessing wrong
-
-Data to parse:
-${text}`,
-    })
-    responseText = aiResult.text
-
-    logAIUsage(admin, {
-      fundId,
-      userId: user.id,
-      provider: aiProviderType,
-      model: claudeModel,
-      feature: 'import',
-      usage: aiResult.usage,
-    })
-  } catch (err) {
-    const message = err instanceof Error ? err.message : String(err)
-    console.error('[import] Claude API error:', message)
-    return NextResponse.json({
-      error: 'AI API call failed. Check your API key in Settings.',
-    }, { status: 500 })
-  }
-
-  let parsed: { companies: ParsedCompany[] }
-  try {
-    // Try to extract JSON from the response (handle possible markdown wrapping)
-    const jsonMatch = responseText.match(/\{[\s\S]*\}/)
-    if (!jsonMatch) throw new Error('No JSON found in response')
-    parsed = JSON.parse(jsonMatch[0])
-  } catch {
-    return NextResponse.json({
-      error: 'Failed to parse AI response as JSON. Try importing fewer rows at a time.',
-    }, { status: 500 })
-  }
-
-  // --- Structure validation ---
-  if (!parsed.companies || !Array.isArray(parsed.companies)) {
-    return NextResponse.json({ error: 'Invalid response structure' }, { status: 500 })
-  }
-
-  if (parsed.companies.length > 1000) {
-    return NextResponse.json({ error: 'Too many companies in parsed result (max 1000)' }, { status: 400 })
-  }
+  // The model reads the paste into companies and metrics: lib/portfolio/ai-import.ts, which
+  // `portfolio_import_preview` runs from chat too (as a preview that writes nothing).
+  const parsedOutcome = await parsePortfolioImport(admin, fundId, user.id, text)
+  if (!parsedOutcome.ok) return NextResponse.json({ error: parsedOutcome.error }, { status: parsedOutcome.status })
+  const parsed = parsedOutcome.value
 
   // Get existing companies for matching
   const { data: existingCompanies } = await admin

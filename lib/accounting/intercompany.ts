@@ -323,6 +323,12 @@ export interface PostChargeArgs {
   memo?: string | null
   payer: { vehicleId: string; name: string }
   payee: { vehicleId: string; name: string }
+  /**
+   * The payee's receivable is already on its books, line by line: a management company that paid
+   * a fund's expenses booked each one to "Due from <fund>" as it paid. Only the payer's side is
+   * posted, and the charge has no payee entry. Its settlement still clears both sides.
+   */
+  payeeAlreadyBooked?: boolean
 }
 
 /**
@@ -376,7 +382,7 @@ export async function postIntercompanyCharge(
     await cleanup()
     return { error: (e as Error).message }
   }
-  if ('error' in payeeAccts) { await cleanup(); return payeeAccts }
+  if ('error' in payeeAccts && !args.payeeAlreadyBooked) { await cleanup(); return payeeAccts }
   if ('error' in payerAccts) { await cleanup(); return payerAccts }
 
   const input: ChargeInput = {
@@ -384,10 +390,14 @@ export async function postIntercompanyCharge(
     amount, memo: args.memo, chargeId,
   }
 
-  const payeeRes = await persistEntry(
-    admin, args.fundId, args.payee.name, args.userId, buildPayeeEntry(input, payeeAccts),
-  )
-  if ('error' in payeeRes) { await cleanup(); return { error: `${args.payee.name}: ${payeeRes.error}` } }
+  let payeeEntryId: string | null = null
+  if (!args.payeeAlreadyBooked) {
+    const payeeRes = await persistEntry(
+      admin, args.fundId, args.payee.name, args.userId, buildPayeeEntry(input, payeeAccts as SideAccounts),
+    )
+    if ('error' in payeeRes) { await cleanup(); return { error: `${args.payee.name}: ${payeeRes.error}` } }
+    payeeEntryId = payeeRes.entryId
+  }
 
   const payerRes = await persistEntry(
     admin, args.fundId, args.payer.name, args.userId, buildPayerEntry(input, payerAccts),
@@ -395,8 +405,10 @@ export async function postIntercompanyCharge(
   if ('error' in payerRes) {
     // Both sides or neither. A charge that exists on one ledger only is exactly the drift this
     // module was written to prevent, so unwind rather than report a partial success.
-    await admin.from('journal_postings' as any).delete().eq('journal_entry_id', payeeRes.entryId)
-    await admin.from('journal_entries' as any).delete().eq('id', payeeRes.entryId)
+    if (payeeEntryId) {
+      await admin.from('journal_postings' as any).delete().eq('journal_entry_id', payeeEntryId)
+      await admin.from('journal_entries' as any).delete().eq('id', payeeEntryId)
+    }
     await cleanup()
     return { error: `${args.payer.name}: ${payerRes.error}` }
   }
@@ -404,7 +416,7 @@ export async function postIntercompanyCharge(
   await admin
     .from('intercompany_transactions' as any)
     .update({
-      to_entry_id: payeeRes.entryId,
+      to_entry_id: payeeEntryId,
       from_entry_id: payerRes.entryId,
       // A cash kind moves the money as it is recorded; there is nothing left to settle.
       ...(isAccruingKind(args.kind) ? {} : { status: 'settled', settled_date: args.chargeDate }),

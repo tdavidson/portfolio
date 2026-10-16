@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { envCredential, hasCredential } from '@/lib/credentials/env'
 import {
   extractAttachmentText,
   type ExtractionResult,
@@ -71,6 +72,25 @@ export async function runPipeline(
 
   // Step 4: Extract text from email body and attachments
   const extracted = await extractAttachmentText(payload)
+
+  // Step 4.2: A receipt a member sent in (lib/pipeline/processReceipt.ts). Decided before the
+  // classifier and whatever deal intake is set to: a receipt is a member's own paperwork, and none
+  // of the portfolio destinations below is the right home for it.
+  if (!options?.forcedRoute) {
+    const { looksLikeReceipt, receiptSignal, processReceiptEmail } = await import('@/lib/pipeline/processReceipt')
+    if (looksLikeReceipt(receiptSignal(payload, extracted.emailBody, !!fundMember))) {
+      await removeCompanyUpdate(supabase, { emailId, fundId })
+      await supabase.from('inbound_emails').update({ routed_to: 'receipts' } as any).eq('id', emailId)
+      const res = await processReceiptEmail(supabase as any, {
+        emailId, fundId, payload, emailBody: extracted.emailBody, userId: fundMember?.userId ?? null,
+      })
+      await finalizeEmail(supabase, emailId, {
+        status: res.stored > 0 ? 'success' : 'failed',
+        warnings: res.warnings,
+      })
+      return
+    }
+  }
 
   // Step 4.5: Routing classifier. Settings determine whether the result is
   // acted on (active routing) or merely recorded (shadow mode — when
@@ -545,6 +565,9 @@ export async function getClaudeApiKey(supabase: Supabase, fundId: string): Promi
     .single()
 
   if (error || !data?.claude_api_key_encrypted || !data?.encryption_key_encrypted) {
+    // None saved in Settings: the deployment's environment, if it sets one (lib/credentials/env.ts).
+    const fromEnv = envCredential('anthropic')
+    if (fromEnv) return fromEnv
     throw new Error(`Claude API key not configured for fund ${fundId}`)
   }
 
@@ -569,6 +592,9 @@ export async function getOpenAIApiKey(supabase: Supabase, fundId: string): Promi
     .single()
 
   if (error || !data?.openai_api_key_encrypted || !data?.encryption_key_encrypted) {
+    // None saved in Settings: the deployment's environment, if it sets one (lib/credentials/env.ts).
+    const fromEnv = envCredential('openai')
+    if (fromEnv) return fromEnv
     throw new Error(`OpenAI API key not configured for fund ${fundId}`)
   }
 
@@ -586,26 +612,41 @@ export async function getOpenAIModel(supabase: Supabase, fundId: string): Promis
 }
 
 export async function getDefaultAIProvider(supabase: Supabase, fundId: string): Promise<'anthropic' | 'openai' | 'openrouter'> {
-  const { data } = await supabase
+  const { data } = await (supabase as any)
     .from('fund_settings')
-    .select('default_ai_provider')
+    .select('default_ai_provider, claude_api_key_encrypted, openai_api_key_encrypted, openrouter_api_key_encrypted')
     .eq('fund_id', fundId)
     .single()
 
   const provider = data?.default_ai_provider
   // A fund still set to the removed 'gemini' provider falls through to the Claude default.
   if (provider === 'openai' || provider === 'openrouter') return provider
+  if (provider === 'anthropic') return 'anthropic'
+  // Nobody chose: the first provider with a key, saved or from the environment, so a deployment
+  // that sets only OPENAI_API_KEY in its .env works without a visit to Settings.
+  for (const p of ['anthropic', 'openai', 'openrouter'] as const) {
+    if (hasCredential(data, p)) return p
+  }
   return 'anthropic'
 }
+
+const DEFAULT_OPENROUTER_BASE_URL = 'https://openrouter.ai/api/v1'
 
 export async function getOpenRouterApiKey(supabase: Supabase, fundId: string): Promise<string> {
   const { data, error } = await (supabase as any)
     .from('fund_settings')
-    .select('openrouter_api_key_encrypted, encryption_key_encrypted')
+    .select('openrouter_api_key_encrypted, encryption_key_encrypted, openrouter_base_url')
     .eq('fund_id', fundId)
     .single()
 
   if (error || !data?.openrouter_api_key_encrypted || !data?.encryption_key_encrypted) {
+    // None saved in Settings: the deployment's environment, if it sets one (lib/credentials/env.ts).
+    // Only for the default endpoint. The base URL is a fund admin's setting, so honouring it with the
+    // deployment's key would send that key to whatever host the admin names.
+    const fromEnv = envCredential('openrouter')
+    const customBase = data?.openrouter_base_url && data.openrouter_base_url !== DEFAULT_OPENROUTER_BASE_URL
+    if (fromEnv && !customBase) return fromEnv
+    if (fromEnv) throw new Error('A custom OpenRouter base URL needs its own API key, saved in Settings')
     throw new Error(`OpenRouter API key not configured for fund ${fundId}`)
   }
 
@@ -620,7 +661,7 @@ export async function getOpenRouterConfig(supabase: Supabase, fundId: string): P
     .single()
 
   return {
-    baseUrl: data?.openrouter_base_url || 'https://openrouter.ai/api/v1',
+    baseUrl: data?.openrouter_base_url || DEFAULT_OPENROUTER_BASE_URL,
     model: data?.openrouter_model || 'openai/gpt-4o-mini',
   }
 }

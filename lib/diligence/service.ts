@@ -132,6 +132,24 @@ export async function updateDiligenceDeal(
   return done({ updated: Object.keys(updates) })
 }
 
+/** The tables a deal room's delete takes with it (ON DELETE CASCADE on deal_id). */
+export const DILIGENCE_CASCADE_TABLES = [
+  'diligence_documents', 'diligence_memo_drafts', 'diligence_notes', 'diligence_attention_items',
+  'diligence_checklist_items', 'diligence_agent_sessions', 'diligence_qa_chats', 'diligence_call_transcripts', 'memo_agent_jobs',
+] as const
+
+/**
+ * Delete a deal room. Admin-only on every surface (the route's own admin check; the
+ * `diligence_delete_deal` tool through lib/access/admin-only.ts). ON DELETE CASCADE handles
+ * documents, drafts, attention items, sessions, notes. Storage objects under {dealId}/* will
+ * dangle; cleaning them is async (TODO).
+ */
+export async function deleteDiligenceDeal(admin: SupabaseClient, fundId: string, dealId: string): Promise<Outcome<{ ok: true }>> {
+  const { error } = await (admin as any).from('diligence_deals').delete().eq('id', dealId).eq('fund_id', fundId)
+  if (error) return dbFail(error, 'diligence-deal-delete')
+  return done({ ok: true })
+}
+
 /** One partner-added checklist item, under a section found by name or created for it. */
 export async function addChecklistItem(
   admin: SupabaseClient, fundId: string, dealId: string, input: { label: unknown; sectionLabel?: unknown },
@@ -322,6 +340,72 @@ export async function recordDiligenceDocument(
     }
   }
   return done(row as Record<string, unknown>)
+}
+
+/** The data room's bucket caps an object at 100 MB. */
+export const MAX_DILIGENCE_DOCUMENT_BYTES = 100 * 1024 * 1024
+
+/** Where a new file for this deal goes: inside the deal's folder, at a path the server picks. */
+export function diligenceUploadPath(dealId: string, rawName: string): string {
+  return `${dealId}/${Date.now()}_${safeDocumentName(rawName)}`
+}
+
+/**
+ * A signed URL to upload one file straight into the deal's folder (POST .../documents/upload-url,
+ * and `diligence_document_upload_url` from chat). The caller has checked the deal is the fund's.
+ */
+export async function createDiligenceUploadUrl(
+  admin: SupabaseClient, dealId: string, rawName: string,
+): Promise<Outcome<{ storagePath: string; token: string; signedUrl: string }>> {
+  if (!rawName) return fail(400, 'file_name is required')
+  const storagePath = diligenceUploadPath(dealId, rawName)
+  const { data, error } = await (admin as any).storage.from('diligence-documents').createSignedUploadUrl(storagePath)
+  if (error || !data) return fail(500, error?.message ?? 'Failed to create upload URL')
+  return done({ storagePath, token: data.token as string, signedUrl: data.signedUrl as string })
+}
+
+/**
+ * A file already PUT to a signed URL in the deal's folder, made a data-room document: the path is
+ * re-checked to be inside the deal, the object must exist (and be under the bucket cap), and its
+ * bytes are read back so recordDiligenceDocument can scan them. The browser's JSON registration
+ * (POST .../documents with storage_path) and `diligence_add_documents` with uploaded files both end here.
+ */
+export async function registerUploadedDiligenceDocument(
+  admin: SupabaseClient,
+  ctx: { fundId: string; userId: string },
+  dealId: string,
+  file: { storagePath: string; fileName?: string | null; contentType?: string | null },
+): Promise<Outcome<Record<string, unknown>>> {
+  const db = admin as any
+  const storagePath = file.storagePath
+  // The upload URL was minted inside this deal's folder, but re-check: the caller sends the path.
+  if (!storagePath.startsWith(`${dealId}/`) || storagePath.includes('..')) return fail(400, 'storage_path outside deal folder')
+  const name = safeDocumentName(file.fileName || (storagePath.split('/').pop() ?? ''))
+  const mime = file.contentType || 'application/octet-stream'
+
+  // The object must exist: the client could register before (or without) finishing the upload.
+  const folder = storagePath.split('/').slice(0, -1).join('/')
+  const fileBase = storagePath.split('/').pop()
+  const { data: listing, error: listErr } = await db.storage
+    .from('diligence-documents')
+    .list(folder, { search: fileBase ?? undefined, limit: 1 })
+  if (listErr || !listing || listing.length === 0) return fail(400, 'Uploaded file not found in storage')
+  const size = (listing[0] as any).metadata?.size ?? 0
+  if (size === 0) return fail(400, 'Empty file')
+  if (size > MAX_DILIGENCE_DOCUMENT_BYTES) {
+    // Defensive: the bucket already enforces 100 MB.
+    await db.storage.from('diligence-documents').remove([storagePath]).catch(() => {})
+    return fail(400, 'File exceeds 100 MB limit')
+  }
+
+  // Pushed straight to the bucket, so the bytes come back here to be scanned before the row exists.
+  const { data: blob, error: dlErr } = await db.storage.from('diligence-documents').download(storagePath)
+  if (dlErr || !blob) {
+    await db.storage.from('diligence-documents').remove([storagePath]).catch(() => {})
+    return fail(400, 'Uploaded file could not be read for scanning.')
+  }
+  const bytes = Buffer.from(await blob.arrayBuffer())
+  return recordDiligenceDocument(admin, ctx, dealId, { storagePath, name, mime, size, bytes })
 }
 
 /** Store bytes the server already holds in the deal's folder, then record them. */

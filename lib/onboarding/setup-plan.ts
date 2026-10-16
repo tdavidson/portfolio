@@ -153,7 +153,7 @@ export function parseSetupPlan(raw: unknown, now: Date = new Date()): SetupPlan 
   if (r.aiMode !== undefined) {
     // Only the no-key choice is made here: a server key is a secret, added in Settings or by the
     // bootstrap script, and saving one is what makes a fund 'server_key'.
-    if (r.aiMode !== 'assistant') return { error: 'aiMode can only be "assistant" (no server key). Add a server key in Settings.' }
+    if (r.aiMode !== 'assistant') return { error: 'aiMode can only be "assistant" (no server key). A server key goes in the deployment\'s environment (ANTHROPIC_API_KEY, OPENAI_API_KEY or OPENROUTER_API_KEY) or in Settings.' }
     plan.aiMode = 'assistant'
   }
 

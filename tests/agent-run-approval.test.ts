@@ -62,7 +62,7 @@ import { POST as mcpPost } from '@/app/api/mcp/route'
 import { POST as webApprove } from '@/app/api/pending-actions/[id]/approve/route'
 import { POST as webUndo } from '@/app/api/pending-actions/[id]/undo/route'
 import { GET as webList } from '@/app/api/pending-actions/route'
-import { stagedBySameCredential } from '@/lib/pending-actions/service'
+import { selfApprovalRefused, stagedBySameCredential } from '@/lib/pending-actions/service'
 import { parseChecks } from '@/lib/agent/run-checks'
 import { schemaProblems } from '@/lib/agent/run-action'
 import { AGENT_TOOLS } from '@/lib/accounting/agent-tools'
@@ -129,7 +129,9 @@ describe('staging a run', () => {
     })
     expect(out.isError).toBe(false)
     expect(out.json).toMatchObject({ staged: true, steps: 2, approveUrl: expect.stringMatching(/\/pending-actions$/) })
-    expect(out.json.next).toMatch(/cannot approve its own changes/)
+    // A chat asks its person here and approves on their yes.
+    expect(out.json.next).toMatch(/ask them to approve it here/)
+    expect(out.json.next).toContain(`approve_action with id "${out.json.pendingActionId}"`)
     expect(store.tables.pending_actions).toHaveLength(1)
     expect(row()).toMatchObject({ action_type: 'agent_run', status: 'pending', vehicle_id: 'v1', created_credential: 'oauth:claude', created_via: 'mcp' })
     // Each step's entity is pinned at staging, as a single staged call's is.
@@ -193,14 +195,12 @@ describe('staging a run', () => {
 })
 
 describe('approving a run', () => {
-  it('cannot be approved by the chat that staged it, which is handed the link instead', async () => {
+  it('can be approved by the chat that staged it, once its person says yes', async () => {
     const staged = await callTool('stage_run', { title: 'T', rationale: 'R', steps: [entry(100)] })
     const out = await callTool('approve_action', { id: staged.json.pendingActionId })
-    expect(out.isError).toBe(true)
-    expect(out.text).toMatch(/staged from this connection, so this connection cannot approve it/)
-    expect(out.text).toContain('https://fund.test/pending-actions')
-    expect(row().status).toBe('pending')
-    expect(store.tables.journal_entries).toHaveLength(0)
+    expect(out.isError).toBe(false)
+    expect(row().status).toBe('applied')
+    expect(store.tables.journal_entries).toHaveLength(1)
   })
 
   it('runs every step in order from the app, then reads the expected checks', async () => {
@@ -320,17 +320,21 @@ describe('undoing a run', () => {
 })
 
 describe('self-approval of single staged changes', () => {
-  it('refuses approve_action from the chat that staged the change; the app approves it', async () => {
+  it('lets the chat that staged the change approve it once its person says yes', async () => {
     const staged = await callTool('add_account', { code: '6100', name: 'Legal', type: 'expense' })
-    expect(staged.json.next).toContain(`approve it in the app at ${staged.json.approveUrl}`)
-    const refused = await callTool('approve_action', { id: staged.json.pendingActionId })
-    expect(refused.isError).toBe(true)
-    expect(refused.text).toContain(staged.json.approveUrl)
-    expect(row().status).toBe('pending')
-
-    const web = await approveInApp(staged.json.pendingActionId)
-    expect(web.status).toBe(200)
+    expect(staged.json.next).toMatch(/ask them to approve it here/)
+    const approved = await callTool('approve_action', { id: staged.json.pendingActionId })
+    expect(approved.isError).toBe(false)
+    expect(approved.json).toMatchObject({ applied: true })
     expect(row().status).toBe('applied')
+  })
+
+  it('still refuses a script key approving what it staged', () => {
+    const key = { userId: 'u', credentialId: 'key_script' }
+    const row = { created_by: 'u', created_via: 'api', created_credential: 'key_script' }
+    expect(selfApprovalRefused(key, row)).toBe(true)
+    expect(selfApprovalRefused({ userId: 'u', credentialId: 'oauth:c' }, { ...row, created_credential: 'oauth:c' })).toBe(false)
+    expect(selfApprovalRefused({ userId: 'u' }, row)).toBe(false)
   })
 
   it('compares credential and person, falling back to the channel for older rows', () => {

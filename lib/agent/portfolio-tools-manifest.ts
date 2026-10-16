@@ -9,6 +9,7 @@
 // ledger tools.
 
 import type { AgentToolMeta } from '@/lib/accounting/agent-tools-manifest'
+import { UPLOADED_FILES_SCHEMA } from './upload-tools-manifest'
 import { KEYLESS_TOOL_MANIFEST } from './keyless-tools-manifest'
 
 const EMPTY_SCHEMA = { type: 'object', properties: {}, additionalProperties: false }
@@ -250,7 +251,9 @@ export const PORTFOLIO_TOOL_MANIFEST: AgentToolMeta[] = [
     name: 'submit_company_update',
     description:
       "Hand the fund a portfolio company's update: a quarterly letter, board deck or KPI sheet. Pass the text you have, " +
-      'and/or small files (up to 5, 3 MB each: PDF, Word, Excel, PowerPoint, CSV, text, images) as base64. It runs the same ' +
+      'and/or files (up to 5: PDF, Word, Excel, PowerPoint, CSV, text, images): upload each with company_update_upload_url and ' +
+      'pass uploaded_files (up to 25 MB each; never ask the person to paste a file into chat), or send one under 3 MB you ' +
+      'already hold as base64 in files. It runs the same ' +
       'pipeline as an emailed update: matched to the company (name it if you know it), kept on the company\'s Updates, ' +
       'its KPIs recorded as metric values, and anything uncertain sent to the review queue. Returns what was recorded and what needs review.',
     scope: 'write',
@@ -269,6 +272,7 @@ export const PORTFOLIO_TOOL_MANIFEST: AgentToolMeta[] = [
             required: ['filename', 'content_base64'],
           },
         },
+        uploaded_files: UPLOADED_FILES_SCHEMA('company_update_upload_url', 'up to 25 MB each'),
       },
     },
   },

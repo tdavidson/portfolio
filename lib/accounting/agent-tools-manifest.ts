@@ -50,10 +50,24 @@ export interface AgentToolMeta {
   domain?: 'ledger' | 'portfolio' | 'diligence' | 'deals' | 'lp'
   /**
    * A write that is ALWAYS staged as this pending action (lib/pending-actions/registry.ts), from
-   * any credential, a script's key included, and approved in the app. Its handler never runs.
-   * For what goes out to LPs, where a person confirms in the app (publish_call_notices).
+   * any credential, a script's key included, and approved by a person. Its handler never runs.
+   * For what goes out to LPs (publish_call_notices): an admin approves it in the app or from their
+   * own chat, never a script's key.
    */
   stagesAs?: string
+  /**
+   * Deletes, merges or undoes posted books. Offered only when the deployment sets
+   * AGENT_DESTRUCTIVE_ACTIONS=true, and then ALWAYS staged for an admin's approval, from any
+   * credential (lib/agent/destructive.ts). Every such tool is also in ADMIN_ONLY_TOOLS.
+   */
+  destructive?: true
+  /**
+   * A write that changes no record, so it runs directly even from a chat that stages writes:
+   * minting a signed upload URL (the file is only taken in by the register tool, which stages), or
+   * a preview the assistant applies with tools that stage. Still gated at write, like its route.
+   * Staging it would only lose its result: the URL or preview would reach the approver, not the chat.
+   */
+  runsDirectly?: true
   inputSchema: Record<string, any>
 }
 
@@ -97,7 +111,7 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
   // LP identities + commitments — the lp_capital tier, not plain bookkeeping.
   { name: 'list_entities', description: 'List LP entities with committed capital.', scope: 'read', accessDomain: 'lp_capital', inputSchema: EMPTY_SCHEMA },
   { name: 'capital_accounts', description: 'Per-LP capital-account roll-forward (beginning, contributions, distributions, fees, gains, ending) plus fund NAV.', scope: 'read', accessDomain: 'lp_capital', inputSchema: EMPTY_SCHEMA },
-  { name: 'financial_statements', description: 'Trial balance, balance sheet, and income statement derived from posted entries.', scope: 'read', inputSchema: EMPTY_SCHEMA },
+  { name: 'financial_statements', description: 'Trial balance, balance sheet, and income statement derived from posted entries. For a management company, also each member\'s capital roll-forward since inception (changesInMembersCapital).', scope: 'read', inputSchema: EMPTY_SCHEMA },
   {
     name: 'list_journal',
     description: 'List journal entries with their postings, newest first, one page at a time. Returns { rows, total, hasMore, nextCursor }: when hasMore is true the list is INCOMPLETE — call again with cursor = nextCursor before drawing any conclusion from the whole journal.',
@@ -199,17 +213,50 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
     inputSchema: EMPTY_SCHEMA,
   },
   {
+    name: 'preview_close',
+    description: 'Preview closing a vehicle THROUGH a date without changing anything: the months the close would cover (it starts the day after the last closed period, so there are no gaps), what each month would allocate to each partner, and anything blocking it, such as drafts still sitting inside the window. Run this before close_period.',
+    scope: 'read',
+    inputSchema: {
+      type: 'object',
+      required: ['periodEnd'],
+      properties: {
+        periodEnd: { type: 'string', description: 'ISO date to close through (YYYY-MM-DD), usually a month-end' },
+      },
+    },
+  },
+  {
     name: 'close_period',
-    description: 'Close and lock a fiscal period: snapshot the ledger text and block new postings dated in the range. Body: periodStart, periodEnd, label?.',
+    description: 'Close the books THROUGH a date: every open month from the day after the last closed period up to periodEnd is closed in order, allocating its P&L to the partners and locking it against new postings. Stops at the first month that fails and leaves the earlier ones closed; calling again picks up from there. Run preview_close (or close_status) first. periodStart is ignored: a close cannot leave gaps.',
     scope: 'write',
     inputSchema: {
       type: 'object',
-      required: ['periodStart', 'periodEnd'],
+      required: ['periodEnd'],
       properties: {
-        periodStart: { type: 'string' },
-        periodEnd: { type: 'string' },
-        label: { type: 'string' },
+        periodEnd: { type: 'string', description: 'YYYY-MM-DD to close through.' },
+        periodStart: { type: 'string', description: 'Ignored: closing runs through periodEnd from the first open period. Accepted for older callers.' },
+        label: { type: 'string', description: 'Ignored. Accepted for older callers.' },
       },
+    },
+  },
+  {
+    name: 'reopen_period',
+    description:
+      'Reopen closed fiscal period(s) so entries can be posted or changed in them: the period named (or every closed period covering ' +
+      'or after from_date) and every closed period after it, newest first, voiding each one\'s close allocation entries. Close again ' +
+      'afterwards to re-allocate. A reason is required and goes on the audit trail. Refused inside a closed tax year. The voided ' +
+      'allocation entries stay void (closing again books new ones), and K-1s already issued for those years are named in the result ' +
+      'but not withdrawn. Find periods with list_periods. Admin only: from chat it is staged for an admin to approve; show the ' +
+      'person the staged preview, which lists the periods it would reopen.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      required: ['reason'],
+      properties: {
+        period_id: { type: 'string', description: 'A closed period id from list_periods. Or pass from_date.' },
+        from_date: { type: 'string', description: 'YYYY-MM-DD: reopen every closed period covering or after this date.' },
+        reason: { type: 'string', description: 'Why, in a sentence. Recorded in the audit trail.' },
+      },
+      additionalProperties: false,
     },
   },
   {
@@ -350,12 +397,26 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
   },
   {
     name: 'set_bank_transaction_account',
-    description: "Re-point one drafted bank transaction's draft entry to a chart account by code (the bank page's account picker). A per-partner capital account (3100-<partner>) carries that partner onto the posting.",
+    description: "Re-point one drafted bank transaction's draft entry to a chart account by code (the bank page's account picker). A per-partner capital account (3100-<partner>) carries that partner onto the posting. A draft split across several accounts (e.g. a distribution spread over every partner) is refused unless replaceSplit is true, which replaces the split with one posting to this account.",
     scope: 'write',
     inputSchema: {
       type: 'object',
       required: ['bankTransactionId', 'accountCode'],
-      properties: { bankTransactionId: { type: 'string' }, accountCode: { type: 'string' } },
+      properties: {
+        bankTransactionId: { type: 'string' },
+        accountCode: { type: 'string' },
+        replaceSplit: { type: 'boolean', description: 'replace a multi-account split on the draft with one posting to accountCode (drafts only)' },
+      },
+    },
+  },
+  {
+    name: 'ignore_bank_transaction',
+    description: "Set aside a bank row that is not a cash movement of the vehicle, such as a money-market sweep or reinvestment, or a duplicate (the bank page's Ignore). Its draft entry is voided. Refuses a posted row: voiding a posted entry needs a reason and is done on the bank page.",
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      required: ['bankTransactionId'],
+      properties: { bankTransactionId: { type: 'string' } },
     },
   },
   {
@@ -381,6 +442,21 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
         sourceType: { type: 'string', description: "only drafts with this source_type, e.g. 'quickbooks'" },
         afterId: { type: 'string', description: 'cursor from the previous call' },
         allocate: { type: 'boolean', description: 'default true; false skips the partner allocation' },
+      },
+    },
+  },
+  {
+    name: 'discard_drafts',
+    description: "Void DRAFT journal entries in bulk (the journal's Discard): drafts the user does not want, such as a duplicate import or a wrong categorization. Drafts only: a posted entry is never touched, and an entry in a closed period is skipped with its reason. Give ids for exactly those drafts, or a window (start/end, sourceType) for every draft in it; pages: repeat with afterId = the returned cursor while hasMore.",
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        ids: { type: 'array', items: { type: 'string' }, description: 'discard exactly these drafts (one shot)' },
+        start: { type: 'string', description: 'ISO date; only drafts on or after it' },
+        end: { type: 'string', description: 'ISO date; only drafts on or before it' },
+        sourceType: { type: 'string', description: "only drafts with this source_type, e.g. 'quickbooks'" },
+        afterId: { type: 'string', description: 'cursor from the previous call' },
       },
     },
   },
@@ -440,8 +516,11 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
   },
   {
     name: 'entity_document_upload_url',
-    description: 'Start uploading a governing document of any size up to 25 MB: returns a signed URL to PUT the file bytes to, and the storagePath to pass to add_entity_document afterwards.',
+    description: 'Start uploading a governing document of any size up to 25 MB: returns a signed URL to PUT the file bytes to, and the storagePath to pass to add_entity_document afterwards. ' +
+      'Never ask the person to paste or attach the file in chat: ask them for its path in a folder, PUT it from there ' +
+      '(curl -X PUT -H "Content-Type: <type>" --data-binary @"<path>" "<signedUrl>"), then call add_entity_document. The URL expires in 2 hours.',
     scope: 'write',
+    runsDirectly: true,
     inputSchema: {
       type: 'object',
       required: ['fileName'],

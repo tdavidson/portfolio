@@ -34,7 +34,7 @@ export interface AnalystPrincipal {
   /**
    * The credential this request presented, when it is one (`oauth:<clientId>`, or an API key's id).
    * Absent for a cookie session: a person in the app. The pending-actions service compares it with
-   * the credential that staged an action, so a chat cannot approve its own change.
+   * the credential that staged an action, so a script's key cannot approve its own change.
    */
   credentialId?: string
 }

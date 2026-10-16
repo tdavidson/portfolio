@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { createDiligenceUploadUrl } from '@/lib/diligence/service'
 
 /**
  * Issue a signed upload URL for a diligence document. The browser uses this
@@ -10,7 +11,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
  * file_size_bytes, content_type }` to record the row.
  *
  * Server picks the storage path so the browser can't write outside the
- * deal's folder.
+ * deal's folder. `diligence_document_upload_url` mints the same URL from chat.
  */
 export async function POST(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -38,21 +39,12 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
 
   const body = await req.json().catch(() => ({}))
   const rawName = typeof body.file_name === 'string' ? body.file_name : ''
-  if (!rawName) return NextResponse.json({ error: 'file_name is required' }, { status: 400 })
-
-  const safeName = rawName.replace(/[\/\\:*?"<>|]/g, '_').replace(/\.\./g, '_').slice(0, 200)
-  const storagePath = `${params.id}/${Date.now()}_${safeName}`
-
-  const { data: signed, error } = await admin.storage
-    .from('diligence-documents')
-    .createSignedUploadUrl(storagePath)
-  if (error || !signed) {
-    return NextResponse.json({ error: error?.message ?? 'Failed to create upload URL' }, { status: 500 })
-  }
+  const minted = await createDiligenceUploadUrl(admin, params.id, rawName)
+  if (!minted.ok) return NextResponse.json({ error: minted.error }, { status: minted.status })
 
   return NextResponse.json({
-    storage_path: storagePath,
-    token: signed.token,
-    signed_url: signed.signedUrl,
+    storage_path: minted.value.storagePath,
+    token: minted.value.token,
+    signed_url: minted.value.signedUrl,
   })
 }

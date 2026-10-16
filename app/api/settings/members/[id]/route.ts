@@ -7,6 +7,8 @@ import { sendApprovalEmail } from '@/lib/email'
 import { dbError } from '@/lib/api-error'
 import { parseApprovalEntities } from '@/lib/access/entity-grants'
 import { logActivity } from '@/lib/activity'
+import { removeMember } from '@/lib/access/remove-member'
+import { outcomeResponse } from '@/lib/service-outcome'
 
 export async function PATCH(req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -123,43 +125,6 @@ export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: s
     return NextResponse.json({ error: 'Only fund administrators can remove members' }, { status: 403 })
   }
 
-  // Get the member to remove — must be in the same fund
-  const { data: target } = await admin
-    .from('fund_members')
-    .select('id, user_id, role')
-    .eq('id', params.id)
-    .eq('fund_id', membership.fund_id)
-    .single()
-
-  if (!target) {
-    return NextResponse.json({ error: 'Member not found' }, { status: 404 })
-  }
-
-  // Prevent removing yourself
-  if (target.user_id === user.id) {
-    return NextResponse.json({ error: 'You cannot remove yourself' }, { status: 400 })
-  }
-
-  // Prevent removing other admins
-  if (target.role === 'admin') {
-    return NextResponse.json({ error: 'Cannot remove an admin' }, { status: 400 })
-  }
-
-  const { error } = await admin
-    .from('fund_members')
-    .delete()
-    .eq('id', params.id)
-
-  if (error) {
-    return dbError(error, 'settings-members')
-  }
-
-  // Their entity grants go with the membership: someone re-added later starts with none, rather
-  // than quietly regaining entities an admin granted them before.
-  await (admin as any).from('fund_member_vehicles').delete()
-    .eq('fund_id', membership.fund_id).eq('user_id', target.user_id)
-
-  expireTag('membership')
-
-  return NextResponse.json({ ok: true })
+  // Not yourself, not another admin: lib/access/remove-member.ts, shared with the remove_member tool.
+  return outcomeResponse(await removeMember(admin, { fundId: membership.fund_id, userId: user.id }, params.id), () => ({ ok: true }))
 }

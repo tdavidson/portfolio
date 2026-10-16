@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { envCredential } from '@/lib/credentials/env'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { verifyMailgunWebhook } from '@/lib/mailgun/verify'
 import { normalizeMailgunPayload, toPostmarkPayload } from '@/lib/pipeline/normalizePayload'
@@ -87,6 +88,8 @@ async function handleMailgunInbound(req: NextRequest) {
   const fundId = fundSettings.fund_id
 
   // Verify webhook signature
+  // The signing key saved in Settings, else MAILGUN_WEBHOOK_SIGNING_KEY (lib/credentials/env.ts).
+  let signingKey: string | null = null
   if (fundSettings.mailgun_signing_key_encrypted && fundSettings.encryption_key_encrypted) {
     const kek = process.env.ENCRYPTION_KEY
     if (!kek) {
@@ -94,8 +97,11 @@ async function handleMailgunInbound(req: NextRequest) {
       return
     }
     const dek = decrypt(fundSettings.encryption_key_encrypted, kek)
-    const signingKey = decrypt(fundSettings.mailgun_signing_key_encrypted, dek)
-
+    signingKey = decrypt(fundSettings.mailgun_signing_key_encrypted, dek)
+  } else {
+    signingKey = envCredential('mailgun_signing')
+  }
+  if (signingKey) {
     const timestamp = fields.timestamp || ''
     const token = fields.token || ''
     const signature = fields.signature || ''

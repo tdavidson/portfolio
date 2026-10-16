@@ -11,8 +11,10 @@ import { canSeeVehicle } from '@/lib/access/scope'
 
 // Fund-level performance per vehicle, derived from the ledger.
 //
-// FUND-WIDE — it reports every vehicle, so there is no `group` to resolve. `asOf` is a real
-// as-of: the terminal value in the IRR lands on that date, not on today.
+// FUND-WIDE by default — it reports every vehicle. `?group=` narrows it to that one vehicle (the
+// entity's lead page shows one, and deriving every fund's economics to pick out one was most of
+// that page's load time); the response keeps the same `{ vehicles: [...] }` shape either way.
+// `asOf` is a real as-of: the terminal value in the IRR lands on that date, not on today.
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()

@@ -18,6 +18,7 @@
 // a connected chat each is staged, and applied when the person approves it in the chat.
 
 import type { AgentToolMeta } from '@/lib/accounting/agent-tools-manifest'
+import { UPLOADED_FILES_SCHEMA } from './upload-tools-manifest'
 
 export const DEALS_TOOL_MANIFEST: AgentToolMeta[] = [
   {
@@ -57,8 +58,9 @@ export const DEALS_TOOL_MANIFEST: AgentToolMeta[] = [
     description:
       'Add a deal to INBOUND deal flow by hand: a pitch the user heard about outside the fund\'s inbox. It runs through the same ' +
       'analyzer as an emailed pitch, so it lands on the Deals page scored against the thesis (with no server AI key it is saved ' +
-      'unanalysed, and you write the analysis with deals_update_inbound). Attach the deck as files if the user ' +
-      'has it. Confirm the company, founder and pitch with the user first.',
+      'unanalysed, and you write the analysis with deals_update_inbound). Attach the deck if the user has it: ' +
+      'upload it first with deals_deck_upload_url and pass uploaded_files (never ask the person to paste the file into chat; ' +
+      'files is only for something under 3 MB you already hold). Confirm the company, founder and pitch with the user first.',
     scope: 'write',
     domain: 'deals',
     inputSchema: {
@@ -78,6 +80,7 @@ export const DEALS_TOOL_MANIFEST: AgentToolMeta[] = [
           description: 'Optional: up to 5 files (a deck, a one-pager), each up to 3 MB, as { filename, content_base64 }.',
           items: { type: 'object', properties: { filename: { type: 'string' }, content_base64: { type: 'string' } }, required: ['filename', 'content_base64'] },
         },
+        uploaded_files: UPLOADED_FILES_SCHEMA('deals_deck_upload_url', 'up to 10 MB each, 10 per deal'),
       },
       required: ['company_name', 'founder_name', 'founder_email', 'pitch'],
     },

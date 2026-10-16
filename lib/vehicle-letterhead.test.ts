@@ -41,6 +41,11 @@ describe('pickLetterhead', () => {
   it('never returns a remote logo URL, which headless Chrome cannot render', () => {
     expect(fundLetterhead({ name: 'X', logo_url: 'https://example.com/logo.png' }).logo).toBeNull()
     expect(safeLogo('https://example.com/logo.png')).toBeNull()
+    expect(safeLogo('data:image/png;base64,iVBORw0KGgo=')).toBe('data:image/png;base64,iVBORw0KGgo=')
+    expect(safeLogo('data:image/svg+xml;base64,PHN2Zz4=')).toBe('data:image/svg+xml;base64,PHN2Zz4=')
+    // Interpolated into <img src="…"> in every PDF template: nothing that can close the attribute.
+    expect(safeLogo('data:image/png"><iframe src="http://169.254.169.254/"></iframe><img x="')).toBeNull()
+    expect(safeLogo('data:image/svg+xml;utf8,<svg onload=alert(1)>')).toBeNull()
   })
 })
 

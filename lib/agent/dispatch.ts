@@ -32,6 +32,7 @@ import {
   IDEMPOTENCY_MAX_KEY_LENGTH, type IdempotencyOutcome, type IdempotencyScope,
 } from '@/lib/api-v1/idempotency'
 import { AGENT_TOOL_CALL, stageToolCall } from './tool-call-action'
+import { destructiveRefusal } from './destructive'
 import { AGENT_RUN, runAdminOnlyLabel, stageRun, type RunArgs } from './run-action'
 import { notifyAdminsOfStagedChange } from '@/lib/pending-actions/notify'
 import { ADMIN_ONLY_ACTIONS, adminOnlyMessage, adminOnlyToolLabel } from '@/lib/access/admin-only'
@@ -97,6 +98,15 @@ const DRAFT_ONLY: Record<string, (input: Record<string, unknown>) => boolean> = 
   // Always a NEW letter, status draft, shared with no one (lib/lp-letters/draft-from-brief.ts). Editing,
   // completing and sharing a letter still stage.
   lp_draft_letter: () => true,
+  // The LP portal tools' previews and dry runs (lib/agent/lp-portal-tools.ts): they send and change
+  // nothing, and exist so the person sees the recipients and the email before saying yes. The send
+  // or commit itself stages. Admin-only like the rest of these tools: the handler checks the role.
+  lp_portal_invite: input => input.preview === true,
+  lp_portal_resend_invite: input => input.preview === true,
+  lp_authorized_user_add: input => input.preview === true,
+  lp_announce: input => input.preview === true,
+  lp_send_item: input => input.preview === true,
+  lp_portal_invite_bulk: input => input.commit !== true,
 }
 
 export function isDraftOnlyCall(tool: Pick<AgentTool, 'name'>, input: Record<string, unknown>): boolean {
@@ -110,11 +120,15 @@ export function hasDraftMode(name: string): boolean {
 
 /**
  * Whether this write waits for a person. Reads never do. A tool that `stagesAs` a pending action
- * (what goes out to LPs) always does, from a script's key too: a person confirms it in the app.
+ * (what goes out to LPs) always does, from a script's key too: a person approves it, in the app or
+ * from their own chat. So does a `destructive` tool (a delete, a merge, undoing posted books), from
+ * any credential, an admin's own API key included: it is staged as the ordinary tool call, and an
+ * admin approves it (lib/agent/destructive.ts).
  */
 export function shouldStage(tool: AgentTool, input: Record<string, unknown>, auth: Pick<ResolvedKey, 'keyId'>): boolean {
   if (tool.scope !== 'write') return false
-  if (tool.stagesAs) return true
+  if (tool.stagesAs || tool.destructive) return true
+  if (tool.runsDirectly) return false
   return isAssistantCredential(auth) && !isDraftOnlyCall(tool, input)
 }
 
@@ -230,6 +244,10 @@ export class AgentCallError extends Error {
  */
 export async function runAgentTool(call: AgentCall): Promise<unknown> {
   const { admin, tool, input, auth, access, origin } = call
+  // Destructive tools exist only where the deployment turned them on (AGENT_DESTRUCTIVE_ACTIONS).
+  // Every door reaches here: a direct MCP call, call_tool, and POST /api/agent.
+  const disabled = destructiveRefusal(tool)
+  if (disabled) throw new AgentCallError(disabled, 'DESTRUCTIVE_DISABLED')
   if (tool.scope === 'read') {
     const portfolioGroup = await resolveVehicleForTool(tool, admin, auth.fundId, input.vehicle as string | undefined, access)
     return tool.handler({ admin, fundId: auth.fundId, portfolioGroup, userId: auth.userId, access, origin }, input)
@@ -311,17 +329,24 @@ function approveUrlFor(origin: string | undefined): string | undefined {
 }
 
 /**
- * What the assistant is told to do with a staged change. It cannot approve it itself (the service
- * refuses an approval from the credential that staged it), so it hands the person the link.
+ * What the assistant is told to do with a staged change. A chat asks its person in the
+ * conversation and approves on their explicit yes; a script's key cannot approve what it staged
+ * (the service refuses it), so it hands over the link.
  */
-function nextStep(opts: { id: string; approveUrl?: string; adminLabel?: string | null; emailed: number; isAdmin: boolean }): string {
+function nextStep(opts: { id: string; approveUrl?: string; adminLabel?: string | null; emailed: number; isAdmin: boolean; chat: boolean }): string {
   const inApp = opts.approveUrl ? `in the app at ${opts.approveUrl}` : 'in the app, under Approvals'
   if (opts.adminLabel && !opts.isAdmin) {
     return `Nothing has changed yet. ${adminOnlyMessage(opts.adminLabel)}${opts.emailed ? " The fund's admins have been emailed." : ''} ` +
       `Tell the user it is waiting for an admin, who approves it ${inApp}.`
   }
+  if (opts.chat) {
+    return 'Nothing has changed yet. Show the user this change in plain words and ask them to approve it here. ' +
+      `Only after they explicitly say yes, call approve_action with id "${opts.id}"; if they decline, call reject_action. ` +
+      `They can also approve it ${inApp}. When a fix needs several changes, stage them together with stage_run so they are approved once. ` +
+      'If a tool named here is not in your tool list (a stale list), run it through call_tool.'
+  }
   return 'Nothing has changed yet. Show the user this change in plain words, then give them the link to approve it ' +
-    `${inApp}. This connection cannot approve its own changes: approve_action on id "${opts.id}" from here is refused. ` +
+    `${inApp}. This key cannot approve its own changes: approve_action on id "${opts.id}" from here is refused. ` +
     'If they decline, call reject_action. When a fix needs several changes, stage them together with stage_run so they are approved once. ' +
     'If a tool named here is not in your tool list (a stale list), run it through call_tool.'
 }
@@ -382,7 +407,7 @@ async function stage(call: AgentCall): Promise<StagedResult> {
     summary: preview.summary,
     preview: preview.details,
     ...(approveUrl ? { approveUrl } : {}),
-    next: nextStep({ id, approveUrl, adminLabel, emailed, isAdmin: auth.role === 'admin' }),
+    next: nextStep({ id, approveUrl, adminLabel, emailed, isAdmin: auth.role === 'admin', chat: isAssistantCredential(auth) }),
   }
 }
 
@@ -405,7 +430,8 @@ export async function stageAgentRun(call: RunCall, input: unknown): Promise<Stag
   const deps = { admin, fundId: auth.fundId, userId: auth.userId, access }
   const { args, vehicleId, preview } = await stageRun(deps, input, (name, stepInput) => {
     const tool = getTool(name)!
-    return authorizeToolUse(tool.scope, auth, access, accessDomainForCall(tool, stepInput), accessFeatureFor(tool))
+    return destructiveRefusal(tool)
+      ?? authorizeToolUse(tool.scope, auth, access, accessDomainForCall(tool, stepInput), accessFeatureFor(tool))
       ?? adminOnlyRefusal(tool, stepInput, auth)
   })
   const first = getTool(args.steps[0].tool)!
@@ -438,7 +464,7 @@ export async function stageAgentRun(call: RunCall, input: unknown): Promise<Stag
     summary: preview.summary,
     preview: preview.details,
     ...(approveUrl ? { approveUrl } : {}),
-    next: nextStep({ id, approveUrl, adminLabel, emailed, isAdmin: auth.role === 'admin' }),
+    next: nextStep({ id, approveUrl, adminLabel, emailed, isAdmin: auth.role === 'admin', chat: isAssistantCredential(auth) }),
   }
 }
 

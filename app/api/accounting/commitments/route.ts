@@ -1,4 +1,3 @@
-import { auditReason, recordAudit } from '@/lib/audit/events'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -10,7 +9,7 @@ import { loadEntityNames } from '@/lib/accounting/load'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { commitmentsAsOf } from '@/lib/accounting/terms'
 import { outcomeResponse } from '@/lib/service-outcome'
-import { addCommitmentChange, correctCommitmentEvent } from '@/lib/lps/records'
+import { addCommitmentChange, correctCommitmentEvent, deleteCommitmentEvent } from '@/lib/lps/records'
 
 // GET ?asOf=YYYY-MM-DD — commitment history, plus each partner's commitment as of a date.
 // Queries commitment_events directly (rather than the loadCommitmentEvents loader) because the
@@ -124,43 +123,9 @@ export async function DELETE(req: NextRequest) {
   const group = await resolveGroupOr400(admin, gate, body?.group ?? req.nextUrl.searchParams.get('group'))
   if (group instanceof NextResponse) return group
 
-  const id = body?.id
-  if (!id) return NextResponse.json({ error: 'id is required' }, { status: 400 })
-
-  const vehicleId = await vehicleIdByName(admin, gate.fundId, group)
-  const { data: existing, error: fetchError } = await admin
-    .from('commitment_events' as any)
-    .select('*')
-    .eq('fund_id', gate.fundId)
-    .eq('vehicle_id', vehicleId)
-    .eq('id', id)
-    .maybeSingle()
-  if (fetchError) return NextResponse.json({ error: fetchError.message }, { status: 500 })
-  const row = existing as any
-  if (!row) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-  const reason = auditReason(body?.reason)
-  if (!reason) return NextResponse.json({ error: 'A reason is required to delete a recorded commitment.' }, { status: 400 })
-
-  if (row.transfer_id) {
-    const { error } = await admin
-      .from('commitment_events' as any)
-      .delete()
-      .eq('fund_id', gate.fundId)
-      .eq('transfer_id', row.transfer_id)
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  } else {
-    const { error } = await admin
-      .from('commitment_events' as any)
-      .delete()
-      .eq('id', id)
-      .eq('fund_id', gate.fundId)
-      .eq('vehicle_id', vehicleId)
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  }
-  // The deleted event, whole, is the record that it ever existed.
-  await recordAudit(admin, {
-    fundId: gate.fundId, vehicleId, actorId: user.id, action: 'commitment.delete', subjectType: 'commitment_event', subjectId: id, reason,
-    details: { deleted: { effectiveDate: row.effective_date, amount: Number(row.amount), memo: row.memo ?? null, kind: row.kind, lpEntityId: row.lp_entity_id, transferId: row.transfer_id ?? null } },
-  })
-  return NextResponse.json({ ok: true })
+  // Shared with the lp_delete_commitment tool (lib/lps/records.ts).
+  return outcomeResponse(
+    await deleteCommitmentEvent(admin, { fundId: gate.fundId, userId: user.id }, group, body?.id, body?.reason),
+    () => ({ ok: true }),
+  )
 }

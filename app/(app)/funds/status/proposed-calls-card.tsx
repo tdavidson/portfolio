@@ -139,26 +139,22 @@ function DraftRow({ d, fmt, pdfHref, canWrite, isAdmin, lf, onChange }: {
         </div>
       )}
 
-      {canWrite && (
+      {canWrite && !isAdmin && <p className="text-xs text-muted-foreground">An admin proposes, revises and approves capital calls.</p>}
+      {canWrite && isAdmin && (
         <div className="flex flex-wrap items-center gap-2">
-          {isAdmin && (
-            <>
-              {d.approvable && d.needsAcknowledgement && (
-                <label className="flex items-center gap-1.5 text-xs">
-                  <input type="checkbox" checked={ack} onChange={e => setAck(e.target.checked)} />
-                  I have read the items above and accept them
-                </label>
-              )}
-              <Button size="sm" onClick={() => act('approve')} disabled={!d.approvable || (d.needsAcknowledgement && !ack) || busy !== null}>
-                {busy === 'approve' && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}Approve and issue
-              </Button>
-            </>
+          {d.approvable && d.needsAcknowledgement && (
+            <label className="flex items-center gap-1.5 text-xs">
+              <input type="checkbox" checked={ack} onChange={e => setAck(e.target.checked)} />
+              I have read the items above and accept them
+            </label>
           )}
+          <Button size="sm" onClick={() => act('approve')} disabled={!d.approvable || (d.needsAcknowledgement && !ack) || busy !== null}>
+            {busy === 'approve' && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}Approve and issue
+          </Button>
           <Button size="sm" variant="outline" onClick={() => act('discard')} disabled={busy !== null}>
             {busy === 'discard' && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}Discard
           </Button>
-          {!isAdmin && <span className="text-xs text-muted-foreground">An admin approves capital calls.</span>}
-          {!d.approvable && isAdmin && <span className="text-xs text-muted-foreground">Resolve the items marked in red before approving.</span>}
+          {!d.approvable && <span className="text-xs text-muted-foreground">Resolve the items marked in red before approving.</span>}
           {err && <span className="text-sm text-destructive">{err}</span>}
         </div>
       )}

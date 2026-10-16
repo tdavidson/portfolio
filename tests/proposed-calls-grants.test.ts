@@ -28,11 +28,11 @@ describe('proposed_capital_calls reach', () => {
     expect(hits).toBe('')
   })
 
-  it('is served through lp_capital routes, and only an admin approves', () => {
+  it('is served through lp_capital routes, and only an admin proposes, revises, discards or approves', () => {
     expect(ROUTE_DOMAINS['api/accounting/proposed-calls']).toEqual({ domain: 'lp_capital' })
     expect(ROUTE_DOMAINS['api/accounting/proposed-calls/pdf']).toEqual({ domain: 'lp_capital' })
     expect(adminOnlyRule('api/accounting/proposed-calls', 'POST', { action: 'approve' })).toBeDefined()
-    expect(adminOnlyRule('api/accounting/proposed-calls', 'POST', { action: 'propose' })).toBeUndefined()
+    for (const a of ['propose', 'revise', 'discard']) expect(adminOnlyRule('api/accounting/proposed-calls', 'POST', { action: a }), a).toBeDefined()
     expect(adminOnlyRule('api/accounting/vehicle-settings', 'PATCH', { callNoticeDays: 10 })).toBeDefined()
     expect(adminOnlyRule('api/accounting/vehicle-settings', 'PATCH', { wireInstructions: 'x' })).toBeUndefined()
   })

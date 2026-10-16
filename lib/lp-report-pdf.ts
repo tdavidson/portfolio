@@ -6,6 +6,7 @@ import { lpRatios } from '@/lib/lp-metrics'
 import { generateLiveReport } from '@/lib/accounting/live-report'
 import { lastDataDates } from '@/lib/accounting/lp-positions'
 import { documentLetterhead, contactBlock } from '@/lib/vehicle-letterhead'
+import { letterPdfFileName, snapshotPdfFileName } from '@/lib/lps/attachment-names'
 
 // Shared LP investor-report rendering: HTML template + PDF rendering, used by the
 // GP batch export (zip of PDFs), the LP portal (single download), and the admin
@@ -480,9 +481,7 @@ export async function generateInvestorReportPdf(
   })
 
   const pdf = await renderHtmlToPdf(html)
-  const safeName = investorName.replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'Report'
-  const safeSnap = String(snapshot.name || 'Report').replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'Report'
-  return { pdf, fileName: `${safeName} - ${safeSnap}.pdf` }
+  return { pdf, fileName: snapshotPdfFileName(investorName, snapshot.name) }
 }
 
 /**
@@ -666,7 +665,5 @@ export async function generateLetterPdf(
   })
 
   const pdf = await renderHtmlToPdf(html)
-  const safeFund = String(fund?.name || 'Letter').replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'Letter'
-  const safePeriod = String(letter.period_label || 'Letter').replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'Letter'
-  return { pdf, fileName: `${safeFund} - ${safePeriod}.pdf` }
+  return { pdf, fileName: letterPdfFileName(fund?.name, letter.period_label) }
 }

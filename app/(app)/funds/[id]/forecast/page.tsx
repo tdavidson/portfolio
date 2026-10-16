@@ -1,6 +1,7 @@
 import type { Metadata } from 'next'
 import { requireVehicleAccess } from '../../guard'
 import { ForecastView, type ForecastTab } from '../../forecast/view'
+import { VehicleScope } from '@/components/accounting-vehicle'
 
 export const metadata: Metadata = { title: 'Forecast' }
 
@@ -18,7 +19,12 @@ export default async function ForecastPage(props: { params: Promise<{ id: string
   const params = await props.params
   const sp = await props.searchParams
   const { vehicle, vehicleId, kind } = await requireVehicleAccess(params.id)
-  return <ForecastView vehicle={vehicle} vehicleId={vehicleId} kind={kind} initialTab={tabParam(sp.tab)} />
+  // Scoped above the view, not just its body: ForecastView loads through useLedgerFetch itself.
+  return (
+    <VehicleScope vehicle={vehicle} vehicleId={vehicleId}>
+      <ForecastView vehicle={vehicle} vehicleId={vehicleId} kind={kind} initialTab={tabParam(sp.tab)} />
+    </VehicleScope>
+  )
 }
 
 /** ?tab=… — the four tabs, and the old Portfolio / Fund forecast names. */

@@ -155,13 +155,14 @@ export function buildStatementsHtml(pkg: StatementPackage, meta: StatementsPdfMe
 
   // 4. Changes in partners' capital — the roll-forward for one period, an ending matrix for several.
   const cap = primary.changesInPartnersCapital
+  const holderWord = equityLabel === "Members' capital" ? 'Member' : 'Partner'
   const capFields: (keyof CapitalAccount)[] = ['beginning', ...ACTIVITY_FIELDS.filter(f =>
     cap.partners.some(p => Math.abs(p[f] as number) > 0.004) || Math.abs(cap.totals[f] as number) > 0.004), 'ending']
   // An owner's-equity vehicle has no partners to roll forward; the statement is left out.
   const capital = cap.partners.length === 0 && equityLabel !== "Partners' capital" ? '' : statement(
     `Statement of changes in ${equityWord}`, `${overLabel} — beginning capital is the balance carried into the period`,
     payloads.length === 1
-      ? `<table><thead><tr><th>Partner</th>${capFields.map(f => `<th style="text-align:right;">${esc(CAPITAL_ACCOUNT_LABELS[f] ?? String(f))}</th>`).join('')}</tr></thead>
+      ? `<table><thead><tr><th>${holderWord}</th>${capFields.map(f => `<th style="text-align:right;">${esc(CAPITAL_ACCOUNT_LABELS[f] ?? String(f))}</th>`).join('')}</tr></thead>
         <tbody>
           ${cap.partners.map(p => `<tr><td style="${TD}">${esc(p.name)}</td>${capFields.map(f => `<td style="${NUM}${f === 'ending' ? 'font-weight:600;' : ''}">${m(p[f] as number)}</td>`).join('')}</tr>`).join('')}
           <tr style="font-weight:600;background:#fafafa;"><td style="${TD}">Total</td>${capFields.map(f => `<td style="${NUM}">${m(cap.totals[f] as number)}</td>`).join('')}</tr>
@@ -172,7 +173,7 @@ export function buildStatementsHtml(pkg: StatementPackage, meta: StatementsPdfMe
           for (const p of payloads) for (const partner of p.changesInPartnersCapital.partners) {
             if (!seen.has(partner.id)) { seen.add(partner.id); rows.push({ id: partner.id, name: partner.name }) }
           }
-          return `<table><thead><tr><th>Partner</th>${payloads.map(p => `<th style="text-align:right;">${esc(p.period.label)}<div style="font-weight:400;color:#888;font-size:9px;">ending capital</div></th>`).join('')}</tr></thead>
+          return `<table><thead><tr><th>${holderWord}</th>${payloads.map(p => `<th style="text-align:right;">${esc(p.period.label)}<div style="font-weight:400;color:#888;font-size:9px;">ending capital</div></th>`).join('')}</tr></thead>
             <tbody>
               ${rows.map(r => `<tr><td style="${TD}">${esc(r.name)}</td>${payloads.map(p => `<td style="${NUM}">${m(p.changesInPartnersCapital.partners.find(x => x.id === r.id)?.ending)}</td>`).join('')}</tr>`).join('')}
               <tr style="font-weight:600;background:#fafafa;"><td style="${TD}">Total</td>${payloads.map(p => `<td style="${NUM}">${m(p.changesInPartnersCapital.totals.ending)}</td>`).join('')}</tr>

@@ -26,7 +26,7 @@ import { loadResolvedCommitments } from './terms'
 import { recordAudit } from '@/lib/audit/events'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadPostedLedger, loadOwnership, loadEntityNames, fetchAllRows } from './load'
-import { summarizeBankRec } from './bank'
+import { openingCashBefore, summarizeBankRec } from './bank'
 import type { FundPosition } from '@/lib/portfolio/fof-metrics'
 import { loadFofData, ledgerCarryingByHolding } from '@/lib/portfolio/fof-load'
 import { fofCloseIssues, companiesWithPendingNotices } from '@/lib/portfolio/fof-valuation'
@@ -799,7 +799,7 @@ async function bankRecAsOf(
   admin: SupabaseClient, fundId: string, group: string, vehicleId: string | null, end: string,
 ): Promise<CloseReadiness['bank']> {
   const txnRows = await fetchAllRows((f, t) => admin.from('bank_transactions' as any)
-    .select('amount, status')
+    .select('txn_date, amount, status')
     .eq('fund_id', fundId).eq('vehicle_id', vehicleId)
     .lte('txn_date', end).neq('status', 'ignored')
     .range(f, t))
@@ -807,7 +807,10 @@ async function bankRecAsOf(
   const { accounts, postings } = await loadPostedLedger(admin, fundId, group, end)
   const cash = accounts.find(a => a.code === '1000')
   const ledgerCash = cash ? (accountBalances(postings).get(cash.id) ?? 0) : 0
-  const rec = summarizeBankRec((txnRows as any[]).map(t => ({ amount: Number(t.amount), matched: t.status === 'reconciled' })), ledgerCash)
+  const rec = summarizeBankRec(
+    (txnRows as any[]).map(t => ({ amount: Number(t.amount), matched: t.status === 'reconciled' })), ledgerCash,
+    openingCashBefore(postings, cash?.id, (txnRows as any[]).map(t => t.txn_date)),
+  )
   return {
     tiesOut: rec.tiesOut, difference: rec.difference, ledgerCashBalance: rec.ledgerCashBalance,
     bankEndingBalance: rec.bankEndingBalance, unmatchedCount: rec.unmatchedCount,

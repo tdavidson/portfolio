@@ -116,7 +116,7 @@ export async function vehicleStatus(
   const postedCount = entries.filter(e => e.status === 'posted').length
   const bankNeedsAttention = bank.filter(t => t.status === 'unmatched' || t.status === 'drafted').length
 
-  const bs = balanceSheet(accounts, postingsAsOf(postings, null), { equityLabel: equityLabel(kind) })
+  const bs = balanceSheet(accounts, postingsAsOf(postings, null), { equityLabel: equityLabel(kind), itemizeEquity: ownerEquity })
   const capitalAccounts = computeCapitalAccounts(capitalPostings)
   const nav = totalNav(capitalAccounts)
 

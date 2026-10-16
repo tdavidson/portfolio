@@ -198,7 +198,7 @@ describe('approving a capital call notice', () => {
   it('publishes each LP\'s own notice for the issued call', async () => {
     const { admin } = db()
     const out = await publishCallNotices(admin, ctx, 'call-1')
-    expect(out).toEqual({ published: 2, errors: [] })
+    expect(out).toEqual({ published: 2, reused: 0, errors: [] })
     expect(publish).toHaveBeenCalledWith(admin, { fundId: 'f1', group: 'Fund II', userId: 'u1' }, expect.objectContaining({ id: 'call-1' }))
   })
 

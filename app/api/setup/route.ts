@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server'
+import { hasCredential } from '@/lib/credentials/env'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { effectiveAIMode, hasAnyAIKey, type AIMode } from '@/lib/ai/capabilities'
@@ -146,7 +147,7 @@ export async function GET() {
 
       const hasInboundProvider = !!s?.inbound_email_provider
       const hasInboundKey =
-        !!s?.postmark_webhook_token || !!s?.postmark_webhook_token_encrypted || !!s?.mailgun_signing_key_encrypted
+        !!s?.postmark_webhook_token || !!s?.postmark_webhook_token_encrypted || hasCredential(s, 'mailgun_signing')
       inboundEmail = {
         providerConfigured: hasInboundProvider,
         keyConfigured: hasInboundKey,
@@ -154,9 +155,9 @@ export async function GET() {
 
       const hasOutboundProvider = !!s?.outbound_email_provider
       const hasOutboundKey =
-        !!s?.postmark_server_token_encrypted ||
-        !!s?.resend_api_key_encrypted ||
-        !!s?.mailgun_api_key_encrypted
+        hasCredential(s, 'postmark_server') ||
+        hasCredential(s, 'resend') ||
+        hasCredential(s, 'mailgun_api')
       outboundEmail = {
         providerConfigured: hasOutboundProvider,
         keyConfigured: hasOutboundKey,

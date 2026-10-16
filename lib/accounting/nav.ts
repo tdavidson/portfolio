@@ -4,7 +4,7 @@
 
 import {
   Landmark, Users, ScrollText, Gauge,
-  Lock, Layers, FileText, Table2, Upload, ClipboardList, Settings2, TrendingUp, LineChart,
+  Lock, Layers, FileText, Table2, Upload, ClipboardList, Settings2, TrendingUp, LineChart, Receipt,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Domain } from '@/lib/access/domains'
@@ -53,6 +53,12 @@ export const ACCOUNTING_SECTIONS: AccountingSection[] = [
     label: 'Bank transactions',
     icon: Landmark,
     desc: 'Import a transaction feed (XLSX, CSV, Ramp, QuickBooks), auto-draft entries, and create journal entries.',
+  },
+  {
+    href: '/funds/receipts',
+    label: 'Receipts',
+    icon: Receipt,
+    desc: 'Receipts emailed in or uploaded, attached to the entries they support, and the quarterly invoices that bill partnership expenses to the funds.',
   },
   {
     href: '/funds/capital-accounts',

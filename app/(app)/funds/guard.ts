@@ -1,5 +1,5 @@
 import { notFound, redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
+import { getUser } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolvePageAccess, canViewPage } from '@/lib/access/page-gate'
 import { isManagementCompany } from '@/lib/vehicle-kinds'
@@ -35,8 +35,8 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
  * asks this question and then one more.
  */
 export async function requireAccountingAccess(): Promise<{ fundId: string; role: string }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // The request-memoised lookup the (app) layout already made, not a second Auth round trip.
+  const user = await getUser()
   if (!user) redirect('/auth')
 
   const page = await resolvePageAccess(user.id)
@@ -78,8 +78,8 @@ export async function requireVehicleAccess(
   rawParam: string,
   opts: { feature?: FeatureKey; domain?: Domain } = {},
 ): Promise<{ fundId: string; role: string; vehicle: string; vehicleId: string | null; kind: string | null; active: boolean }> {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  // The request-memoised lookup the (app) layout already made, not a second Auth round trip.
+  const user = await getUser()
   if (!user) redirect('/auth')
 
   const page = await resolvePageAccess(user.id)

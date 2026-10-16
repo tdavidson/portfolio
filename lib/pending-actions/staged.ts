@@ -37,8 +37,8 @@ export interface StagedAction {
    * the first of them. Read through `stagedGates`, never `domain` alone.
    */
   gates?: StagedGate[]
-  /** Approved only from the browser, with a second confirmation (WriteAction.confirmInApp). */
-  confirmInApp?: true
+  /** Approved only where a person confirms it, by a door that supplies the executor (WriteAction.personConfirms). */
+  personConfirms?: true
   preview: (deps: ActionDeps, input: any) => Promise<PreviewResult>
   execute: (deps: ActionDeps, input: any) => Promise<Record<string, unknown>>
 }

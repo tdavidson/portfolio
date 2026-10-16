@@ -161,6 +161,7 @@ export function StatementsView() {
   const equityLabel = data?.balanceSheet.equity.label ?? "Partners' capital"
   const equityWord = equityLabel.charAt(0).toLowerCase() + equityLabel.slice(1)
   const showPartners = !data || equityLabel === "Partners' capital" || data.changesInPartnersCapital.partners.length > 0
+  const holderWord = equityLabel === "Members' capital" ? 'Member' : 'Partner'
 
   // Header row of period labels for a statement table. With compare='0', cols has
   // length 1 and this renders exactly the single-column header shape used before.
@@ -527,7 +528,7 @@ export function StatementsView() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50">
-                    <th className="text-left px-3 py-2 font-medium">Partner</th>
+                    <th className="text-left px-3 py-2 font-medium">{holderWord}</th>
                     {cols.map((c, i) => <th key={i} className="text-right px-3 py-2 font-medium whitespace-nowrap">{c.period.label}<div className="text-[10px] font-normal text-muted-foreground">ending capital{c.period.end ? ` · ${c.period.end}` : ''}</div></th>)}
                   </tr>
                 </thead>
@@ -551,7 +552,7 @@ export function StatementsView() {
             <table className="w-full text-sm whitespace-nowrap">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="text-left px-3 py-2 font-medium">Partner</th>
+                  <th className="text-left px-3 py-2 font-medium">{holderWord}</th>
                   {CAP_COLS.map(c => <th key={c.key} className="text-right px-3 py-2 font-medium">{c.label}</th>)}
                 </tr>
               </thead>

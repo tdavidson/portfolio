@@ -27,6 +27,11 @@ export interface ActionDeps {
   fundId: string
   userId: string
   access: AccessContext
+  /**
+   * The origin the approver reached the app at, when the door knows it: a staged tool that calls
+   * back into this deployment (a PDF attachment, publishing notices) uses it. Absent = the site origin.
+   */
+  origin?: string
 }
 
 export interface PendingAction {

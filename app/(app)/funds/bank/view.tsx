@@ -127,6 +127,9 @@ export function BankView({ initialSearch = '' }: { initialSearch?: string } = {}
     // Settle anything that pays a declared call or distribution before the AI sees it — an
     // obligation is a fact, and guessing an expense account for it would only be worse.
     if (res.ok) { setResult(data); setCsv(''); if (!data.importReview?.differences?.length) await autoMatch(true); else load() }
+    // A first pass that stops for review is not a failure: nothing was wrong with the file, the
+    // differences are listed below and the next click imports with them acknowledged.
+    else if (data.reviewRequired) setResult(null)
     else setResult({ imported: 0, skipped: 0, errors: [data.error ?? 'Import failed'] })
     setImporting(false)
   }
@@ -271,11 +274,17 @@ export function BankView({ initialSearch = '' }: { initialSearch?: string } = {}
           )}
         </div>
         <ImportReviewPanel review={importReview} />
+        {importReview?.differences.length && !result ? <p className="text-sm text-muted-foreground">Nothing has been imported yet. Check the {importReview.differences.length === 1 ? 'difference' : `${importReview.differences.length} differences`} above, then choose Import as drafts after review.</p> : null}
         {result?.errors?.length ? <p className="text-sm text-destructive">{result.errors[0]}</p> : null}
       </div>
 
       {/* Reconciliation */}
-      {rec && (
+      {rec && txns.length === 0 && (
+        <div className="rounded-card border p-3 text-sm text-muted-foreground">
+          Bank reconciliation starts once a bank feed is imported. Ledger cash is <span className="tabular-nums text-foreground">{fmt(rec.ledgerCashBalance)}</span>.
+        </div>
+      )}
+      {rec && txns.length > 0 && (
         <div className={`rounded-card border p-3 text-sm flex flex-wrap items-center gap-x-6 gap-y-1 ${rec.tiesOut ? 'border-success/40 bg-success/10' : 'border-warning/40 bg-warning/10'}`}>
           <span className="flex items-center gap-2 font-medium">
             {rec.tiesOut ? <Check className="h-4 w-4 text-success" /> : <AlertTriangle className="h-4 w-4 text-warning" />}

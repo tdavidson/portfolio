@@ -22,6 +22,7 @@ import { scanFileAsync } from '@/lib/security/scan-file'
 import { runPipeline, type PostmarkPayload } from '@/lib/pipeline/processEmail'
 import { sanitizeFilename, fileExt } from '@/lib/deals/submission-validation'
 import { jobHandle, type JobHandle } from '@/lib/agent/jobs'
+import { readStagedUploads, removeStaged } from '@/lib/uploads/signed-upload'
 import { after } from 'next/server'
 
 /** How long the call waits for the pipeline before handing back a job (the route allows 120 s). */
@@ -30,6 +31,8 @@ export const PIPELINE_BUDGET_MS = 45_000
 /** Inline files stay well under the serverless request-body limit once base64-encoded. */
 export const MAX_UPDATE_FILE_BYTES = 3 * 1024 * 1024
 export const MAX_UPDATE_FILES = 5
+/** A file uploaded with company_update_upload_url skips the request body: the attachments bucket's cap. */
+export const MAX_STAGED_UPDATE_FILE_BYTES = 25 * 1024 * 1024
 export const MAX_UPDATE_TEXT = 100_000
 
 const TYPE_BY_EXT: Record<string, string> = {
@@ -54,6 +57,8 @@ export interface SubmitUpdateInput {
   /** The update's text, as the assistant has it. */
   text?: unknown
   files?: unknown
+  /** Files PUT to company_update_upload_url URLs: [{ storage_path, filename, content_type }]. */
+  uploaded_files?: unknown
 }
 
 export interface SubmitUpdateResult {
@@ -113,7 +118,13 @@ export function parseUpdateFiles(files: unknown): { name: string; type: string; 
 export async function submitCompanyUpdate(deps: Deps, input: SubmitUpdateInput): Promise<SubmitUpdateResult> {
   const { admin, fundId, userId } = deps
   const text = str(input.text, MAX_UPDATE_TEXT)
-  const files = parseUpdateFiles(input.files)
+  const staged = await readStagedUploads(admin, fundId, 'update', input.uploaded_files, { maxFiles: MAX_UPDATE_FILES, maxBytes: MAX_STAGED_UPDATE_FILE_BYTES })
+  const files = [...parseUpdateFiles(input.files), ...staged.map(f => {
+    const type = TYPE_BY_EXT[fileExt(f.name)]
+    if (!type) throw new Error(`${f.name}: send a PDF, Word, Excel, PowerPoint, CSV, text or image file.`)
+    return { name: f.name, type, bytes: f.bytes }
+  })]
+  if (files.length > MAX_UPDATE_FILES) throw new Error(`At most ${MAX_UPDATE_FILES} files per update.`)
   if (!text && files.length === 0) throw new Error('Send the update as text, as files, or both.')
 
   const companyRef = str(input.company, 200)
@@ -167,6 +178,9 @@ export async function submitCompanyUpdate(deps: Deps, input: SubmitUpdateInput):
       : { Name: f.name, ContentType: f.type, ContentLength: f.bytes.length, StoragePath: storagePath })
     forPipeline.push({ Name: f.name, ContentType: f.type, ContentLength: f.bytes.length, Content: content })
   }
+
+  // Stored under the email now (or refused and recorded as such): the staged copies are done with.
+  await removeStaged(admin, staged.map(f => f.storagePath))
 
   const messageId = `<chat-${crypto.randomUUID()}@hemrock.local>`
   const base = { From: fromAddress, To: 'chat@hemrock.local', Subject: subject, TextBody: text, HtmlBody: '', MessageID: messageId }

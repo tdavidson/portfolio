@@ -41,6 +41,10 @@ const money = (n: number) =>
  * ANY posting left on the pooled account counts as stranded, not just the case of zero
  * per-LP accounts. A half-attributed vehicle is worse than an un-attributed one: some
  * partners' figures look right, which makes the wrong ones look like real zeroes.
+ *
+ * The exception is postings that net to zero. A receipt booked to the pool and then
+ * reclassed out to the partner's own account, or a reversed entry, leaves history on the
+ * pooled account but no capital stranded there: every partner's ending balance is whole.
  */
 export function describeStrandedCapital(input: {
   pooledPostings: number
@@ -49,7 +53,7 @@ export function describeStrandedCapital(input: {
   perLpAccounts: number
 }): StrandedCapital {
   const { pooledPostings, pooledAmount, taggedPostings, perLpAccounts } = input
-  if (pooledPostings === 0) {
+  if (pooledPostings === 0 || Math.abs(roundCents(pooledAmount)) < 0.005) {
     return { ...input, stranded: false, message: null }
   }
   const untagged = pooledPostings - taggedPostings

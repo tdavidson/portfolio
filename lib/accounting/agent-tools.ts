@@ -14,6 +14,10 @@ import { accountIdByCode, duplicateRefMessage, liveEntryByRef, persistEntry } fr
 import { vehicleIdByName } from './vehicle-id'
 import { computeCapitalAccounts, totalNav } from './capital-account'
 import { trialBalance, balanceSheet, incomeStatement } from './statements'
+import { vehicleKindByName } from './vehicle-domain'
+import { closesToOwnerEquity, equityLabel } from './vocab'
+import { changesInMembersCapital } from './members-capital'
+import { isManagementCompany } from '@/lib/vehicle-kinds'
 import { reconcileCapital, type AdminCapitalAccount } from './reconcile'
 import { runWaterfall } from './waterfall'
 import { allocationSourceRef, buildAllocationEntry, type AllocationBody } from './allocation-actions'
@@ -23,14 +27,14 @@ import { importQbJournal, proposeQbAccounts, saveQbMappings } from './quickbooks
 import { journalSource } from './quickbooks/sources'
 import { addChartAccount } from './chart-add'
 import { addPartner, parseAddPartnerInput } from './add-partner'
-import { postBankTransaction, setBankTransactionAccount } from './bank-actions'
+import { ignoreBankTransaction, postBankTransaction, setBankTransactionAccount } from './bank-actions'
 import { mayTouchInvestments } from './investment-access'
 import { runCategorization } from './categorize-run'
 import { bookCapitalCallFromInflow } from './bank-match'
 import { exportLedgerTextPage, postLedgerText } from './text-ledger-run'
 import { listPeriods } from './periods'
-import { closeThrough } from './close'
-import { summarizeBankRec, type BankTxnState } from './bank'
+import { closeThrough, previewCloseThrough } from './close'
+import { openingCashBefore, summarizeBankRec, type BankTxnState } from './bank'
 import { accountBalances } from './ledger'
 import type { SupabaseClient as _Sb } from '@supabase/supabase-js'
 import type { JournalEntry, Posting } from './types'
@@ -51,6 +55,8 @@ import { FORECAST_TOOL_MANIFEST } from '@/lib/agent/forecast-tools-manifest'
 import { FORECAST_HANDLERS } from '@/lib/agent/forecast-tools'
 import { SETUP_TOOL_MANIFEST } from '@/lib/agent/setup-tools-manifest'
 import { SETUP_HANDLERS } from '@/lib/agent/setup-tools'
+import { LP_PORTAL_TOOL_MANIFEST } from '@/lib/agent/lp-portal-tools-manifest'
+import { LP_PORTAL_HANDLERS } from '@/lib/agent/lp-portal-tools'
 import { REPORT_TOOL_MANIFEST } from '@/lib/agent/report-tools-manifest'
 import { REPORT_HANDLERS } from '@/lib/agent/report-tools'
 import { LETTER_TOOL_MANIFEST } from '@/lib/agent/letter-tools-manifest'
@@ -59,11 +65,21 @@ import { QUERY_TOOL_MANIFEST } from '@/lib/agent/query-tools-manifest'
 import { QUERY_HANDLERS } from '@/lib/agent/query-tools'
 import { ENTITY_OPERATIONS_TOOL_MANIFEST, OPERATIONS_TOOL_MANIFEST } from '@/lib/agent/operations-tools-manifest'
 import { OPERATIONS_HANDLERS } from '@/lib/agent/operations-tools'
+import { DESTRUCTIVE_LEDGER_TOOL_MANIFEST, DESTRUCTIVE_TOOL_MANIFEST } from '@/lib/agent/destructive-tools-manifest'
+import { DESTRUCTIVE_HANDLERS } from '@/lib/agent/destructive-tools'
+
+import { UPLOAD_TOOL_MANIFEST } from '@/lib/agent/upload-tools-manifest'
+import { UPLOAD_HANDLERS } from '@/lib/agent/upload-tools'
+import { SERVER_AI_TOOL_MANIFEST } from '@/lib/agent/server-ai-tools-manifest'
+import { SERVER_AI_HANDLERS } from '@/lib/agent/server-ai-tools'
+import { reopenClosedPeriods } from './reopen'
 import { resolveVehicle } from './vehicle-resolver'
 import { resolveVehicleWithAccess } from './http-vehicle'
 import { ACTUAL_BOOK } from './books'
 import { readBulkScope, runBulkDraftAction } from './journal-bulk'
 import { addEntityDocument, entityDocumentUploadUrl, listEntityDocuments } from '@/lib/entity-documents/agent'
+import { RECEIPT_TOOL_MANIFEST } from '@/lib/agent/receipt-tools-manifest'
+import { RECEIPT_HANDLERS } from '@/lib/agent/receipt-tools'
 
 export { resolveVehicle } from './vehicle-resolver'
 
@@ -146,11 +162,19 @@ const HANDLERS: Record<string, AgentToolHandler> = {
   },
 
   financial_statements: async ({ admin, fundId, portfolioGroup }) => {
-    const { accounts, postings } = await loadPostedLedger(admin, fundId, portfolioGroup)
+    const [{ accounts, postings, sourcedPostings }, kind] = await Promise.all([
+      loadPostedLedger(admin, fundId, portfolioGroup),
+      vehicleKindByName(admin, fundId, portfolioGroup),
+    ])
     return {
       trialBalance: trialBalance(accounts, postings),
-      balanceSheet: balanceSheet(accounts, postings),
+      balanceSheet: balanceSheet(accounts, postings, { equityLabel: equityLabel(kind), itemizeEquity: closesToOwnerEquity(kind) }),
       incomeStatement: incomeStatement(accounts, postings),
+      // A management company's members have no statements of their own; this is each member's
+      // capital roll-forward since inception (lib/accounting/members-capital.ts).
+      ...(isManagementCompany(kind)
+        ? { changesInMembersCapital: changesInMembersCapital(accounts, sourcedPostings, { start: null, end: null }) }
+        : {}),
     }
   },
 
@@ -246,6 +270,26 @@ const HANDLERS: Record<string, AgentToolHandler> = {
     return result
   },
 
+  // The Periods page's preview: what closing through a date would do, changing nothing.
+  preview_close: async ({ admin, fundId, portfolioGroup }, input) => {
+    const through = String(input?.periodEnd ?? input?.through ?? '')
+    if (!through) throw new Error('periodEnd (the date to close through) is required')
+    const result = await previewCloseThrough(admin, fundId, portfolioGroup, through)
+    if ('error' in result) throw new Error(result.error)
+    return result
+  },
+
+  // The Periods page's Reopen: the same lib function, reason and audit event (lib/accounting/reopen.ts).
+  // Admin-only (ADMIN_ONLY_TOOLS), so from chat it is staged for an admin to approve.
+  reopen_period: async ({ admin, fundId, portfolioGroup, userId }, input) => {
+    if (!userId) throw new Error('Reopening a period needs a signed-in user to record on the audit trail.')
+    const result = await reopenClosedPeriods(admin, { fundId, userId }, portfolioGroup, {
+      id: input?.period_id, fromDate: input?.from_date, reason: input?.reason,
+    })
+    if (!result.ok) throw new Error(result.error)
+    return { vehicle: portfolioGroup, ...result.value }
+  },
+
   // Pages instead of truncating: `truncated` + `cursor` when the text would be too large to return.
   export_ledger_text: async ({ admin, fundId, portfolioGroup }, input) => {
     return exportLedgerTextPage(admin, fundId, portfolioGroup, {
@@ -310,7 +354,13 @@ const HANDLERS: Record<string, AgentToolHandler> = {
   },
 
   set_bank_transaction_account: async ({ admin, fundId, portfolioGroup }, input) => {
-    const result = await setBankTransactionAccount(admin, fundId, portfolioGroup, String(input?.bankTransactionId ?? ''), input?.accountCode, 'ai')
+    const result = await setBankTransactionAccount(admin, fundId, portfolioGroup, String(input?.bankTransactionId ?? ''), input?.accountCode, 'ai', { replaceSplit: input?.replaceSplit === true })
+    if ('error' in result) throw new Error(result.error)
+    return result
+  },
+
+  ignore_bank_transaction: async ({ admin, fundId, portfolioGroup, userId }, input) => {
+    const result = await ignoreBankTransaction(admin, fundId, portfolioGroup, userId ?? null, String(input?.bankTransactionId ?? ''))
     if ('error' in result) throw new Error(result.error)
     return result
   },
@@ -332,6 +382,17 @@ const HANDLERS: Record<string, AgentToolHandler> = {
     if (!result.ok) throw new Error(String((result.error as any)?.message ?? result.error))
     const { changed, skipped, warnings, hasMore, cursor } = result.outcome
     return { posted: changed, skipped, warnings, hasMore, cursor }
+  },
+
+  // The journal's bulk discard (api/accounting/journal/bulk-void): drafts only, never a posted entry.
+  discard_drafts: async ({ admin, fundId, portfolioGroup, userId }, input) => {
+    const vehicleId = await vehicleIdByName(admin, fundId, portfolioGroup)
+    const result = await runBulkDraftAction(admin, {
+      fundId, vehicleId, group: portfolioGroup, action: 'void', scope: readBulkScope(input), userId,
+    })
+    if (!result.ok) throw new Error(String((result.error as any)?.message ?? result.error))
+    const { changed, skipped, hasMore, cursor } = result.outcome
+    return { discarded: changed, skipped, hasMore, cursor }
   },
 
   list_bank_transactions: async ({ admin, fundId, portfolioGroup }, input) => {
@@ -357,9 +418,9 @@ const HANDLERS: Record<string, AgentToolHandler> = {
     const ledgerCashBalance = cash ? (accountBalances(postings).get(cash.id) ?? 0) : 0
     const vehicleId = await vehicleIdByName(admin, fundId, portfolioGroup)
     // Every row, paged: past 1000 the unmatched count and difference were silently understated.
-    const data = await fetchAllRows<any>((f, t) => admin.from('bank_transactions' as any).select('id, amount, status').eq('fund_id', fundId).eq('vehicle_id', vehicleId).neq('status', 'ignored').order('id').range(f, t))
+    const data = await fetchAllRows<any>((f, t) => admin.from('bank_transactions' as any).select('id, txn_date, amount, status').eq('fund_id', fundId).eq('vehicle_id', vehicleId).neq('status', 'ignored').order('id').range(f, t))
     const txns: BankTxnState[] = data.map(t => ({ amount: Number(t.amount), matched: t.status === 'reconciled' }))
-    return summarizeBankRec(txns, ledgerCashBalance)
+    return summarizeBankRec(txns, ledgerCashBalance, openingCashBefore(postings, cash?.id, data.map(t => t.txn_date)))
   },
 
   list_entity_documents: async ({ admin, fundId, portfolioGroup, userId }) =>
@@ -415,6 +476,7 @@ function bindLedger(manifest: AgentToolMeta[], handlers: Record<string, AgentToo
 export const AGENT_TOOLS: AgentTool[] = [
   ...bindLedger(AGENT_TOOL_MANIFEST, HANDLERS),
   ...bindLedger(ENTITY_OPERATIONS_TOOL_MANIFEST, OPERATIONS_HANDLERS),
+  ...bindLedger(RECEIPT_TOOL_MANIFEST, RECEIPT_HANDLERS),
   ...bind(PORTFOLIO_TOOL_MANIFEST, PORTFOLIO_HANDLERS),
   ...bind(DILIGENCE_TOOL_MANIFEST, DILIGENCE_HANDLERS),
   ...bind(DEALS_TOOL_MANIFEST, DEALS_HANDLERS),
@@ -427,6 +489,13 @@ export const AGENT_TOOLS: AgentTool[] = [
   ...bind(LETTER_TOOL_MANIFEST, LETTER_HANDLERS),
   ...bind(QUERY_TOOL_MANIFEST, QUERY_HANDLERS),
   ...bind(OPERATIONS_TOOL_MANIFEST, OPERATIONS_HANDLERS),
+  ...bind(LP_PORTAL_TOOL_MANIFEST, LP_PORTAL_HANDLERS),
+
+  // Offered only with AGENT_DESTRUCTIVE_ACTIONS=true, and always staged for an admin (lib/agent/destructive.ts).
+  ...bindLedger(DESTRUCTIVE_LEDGER_TOOL_MANIFEST, DESTRUCTIVE_HANDLERS), ...bind(DESTRUCTIVE_TOOL_MANIFEST, DESTRUCTIVE_HANDLERS),
+
+  ...bind(UPLOAD_TOOL_MANIFEST, UPLOAD_HANDLERS),
+  ...bind(SERVER_AI_TOOL_MANIFEST, SERVER_AI_HANDLERS),
 ]
 
 export function getTool(name: string): AgentTool | undefined {

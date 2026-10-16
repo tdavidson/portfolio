@@ -6,7 +6,7 @@ interface GoogleCredentials {
 }
 
 /**
- * Get Google OAuth credentials for a fund from the database.
+ * Get Google OAuth credentials for a fund: from Settings, else GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET.
  */
 export async function getGoogleCredentials(
   admin: SupabaseClient,
@@ -30,6 +30,13 @@ export async function getGoogleCredentials(
       }
     }
   }
+
+  // None saved in Settings: the deployment's environment (lib/credentials/env.ts). A client id saved
+  // in Settings still pairs with an environment secret, so either half can come from either place.
+  const { envCredential } = await import('@/lib/credentials/env')
+  const clientId = settings?.google_client_id || envCredential('google_client_id')
+  const clientSecret = envCredential('google_client_secret')
+  if (clientId && clientSecret) return { clientId, clientSecret }
 
   return null
 }

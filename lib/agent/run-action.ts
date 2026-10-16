@@ -178,6 +178,8 @@ export async function stageRun(
     if (tool.scope !== 'write') { problems.push(`${at}: ${name} only reads; call it directly instead of putting it in a run.`); continue }
     // Its own approval, with its own confirmation in the app: never one step among many.
     if (tool.stagesAs) { problems.push(`${at}: ${name} is approved on its own in the app; call it directly, not in a run.`); continue }
+    // An upload URL or a preview is for the chat, now; inside a run it would reach only the approver.
+    if (tool.runsDirectly) { problems.push(`${at}: ${name} changes nothing; call it directly, not in a run.`); continue }
     const invalid = schemaProblems(tool.name, tool.inputSchema as Record<string, unknown>, input)
     if (invalid.length) { problems.push(...invalid.map(p => `${at} (${name}): ${p}`)); continue }
     const denied = authorizeStep(name, input)

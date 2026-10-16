@@ -16,6 +16,8 @@ export { POST, GET } from '@/app/api/accounting/mcp/route'
 
 export const runtime = 'nodejs'
 // A submitted company update runs the extraction pipeline in the call (submit_company_update), as
-// an emailed one does in /api/inbound-email.
-export const maxDuration = 120
+// an emailed one does in /api/inbound-email. And a send with PDF attachments, or approving a capital
+// call, waits on a Chromium-bundled route to render them (lib/agent/self-request.ts), whose own
+// limit is 300: this one must outlast it, or the work completes after the chat was told it failed.
+export const maxDuration = 300
 export const dynamic = 'force-dynamic'

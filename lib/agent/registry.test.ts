@@ -5,6 +5,8 @@
 import { describe, it, expect } from 'vitest'
 import { AGENT_TOOLS, getTool, isLedgerTool } from '@/lib/accounting/agent-tools'
 import { isDraftOnlyCall, shouldStage } from '@/lib/agent/dispatch'
+import { adminOnlyToolLabel } from '@/lib/access/admin-only'
+import { isToolOffered } from '@/lib/agent/destructive'
 
 describe('agent tool registry', () => {
   it('every tool has a unique name', () => {
@@ -60,21 +62,64 @@ describe('agent tool registry', () => {
     }
   })
 
-  it('LP writes are the register and letter tools, and publishing notices, which is always staged', () => {
+  it('LP writes are the register, letter, portal and proposed-call tools, and issuing a call and publishing notices, which are always staged', () => {
     const writable = AGENT_TOOLS.filter(t => t.domain === 'lp' && t.scope === 'write')
     expect(writable.map(t => t.name).sort()).toEqual([
-      'lp_correct_commitment', 'lp_create_entity', 'lp_create_investor', 'lp_create_letter', 'lp_draft_letter', 'lp_record_commitment',
-      'lp_share_letter', 'lp_update_entity', 'lp_update_investor', 'lp_update_profile', 'lp_write_letter',
+      'issue_capital_call', 'lp_add_document', 'lp_announce', 'lp_authorized_user_add', 'lp_authorized_user_remove',
+      'lp_correct_commitment', 'lp_create_entity', 'lp_create_investor', 'lp_create_letter', 'lp_delete_commitment',
+      'lp_delete_entity', 'lp_delete_investor', 'lp_document_upload_url', 'lp_draft_letter', 'lp_merge_investors',
+      'lp_portal_account_status', 'lp_portal_invite', 'lp_portal_invite_bulk', 'lp_portal_resend_invite', 'lp_portal_settings',
+      'lp_portal_unlink', 'lp_proposed_call_approve', 'lp_proposed_call_discard', 'lp_proposed_call_propose',
+      'lp_proposed_call_revise', 'lp_record_commitment', 'lp_send_item', 'lp_share_letter', 'lp_update_entity',
+      'lp_update_investor', 'lp_update_profile', 'lp_write_letter',
       'publish_call_notices',
     ])
     // What goes out to LPs is staged from any credential and approved in the app, gated like the
     // notices publish route.
     expect(getTool('publish_call_notices')).toMatchObject({ stagesAs: 'publish_call_notices', accessDomain: 'lp_relations', accessFeature: 'lp_portal' })
     expect(shouldStage(getTool('publish_call_notices')!, {}, { keyId: 'key_script' })).toBe(true)
+    // Issuing a call is the Analyst's pending action, staged from any connection and approved by an admin.
+    expect(getTool('issue_capital_call')).toMatchObject({ stagesAs: 'issue_capital_call', accessDomain: 'lp_capital' })
+    expect(shouldStage(getTool('issue_capital_call')!, {}, { keyId: 'key_script' })).toBe(true)
     // Letters are the LP Letters pages': LP relations, under their switch.
     for (const t of writable.filter(t => t.name.endsWith('_letter'))) {
       expect(t, t.name).toMatchObject({ accessDomain: 'lp_relations', accessFeature: 'lp_letters' })
     }
+    // LP portal documents are the LP documents settings': LP relations, under the portal switch, admin only.
+    for (const name of ['lp_document_upload_url', 'lp_add_document']) {
+      expect(getTool(name), name).toMatchObject({ accessDomain: 'lp_relations', accessFeature: 'lp_portal' })
+    }
+  })
+
+  it('destructive tools are exactly the deletes, merges and book reversals, each admin-only and always staged', () => {
+    const destructive = AGENT_TOOLS.filter(t => t.destructive)
+    expect(destructive.map(t => t.name).sort()).toEqual([
+      'delete_company', 'delete_lp_positions', 'diligence_delete_deal', 'lp_delete_commitment', 'lp_delete_entity', 'lp_delete_investor',
+      'lp_merge_investors', 'merge_vehicles', 'remove_member', 'reverse_entry', 'unpost_entry', 'void_entry',
+    ])
+    for (const t of destructive) {
+      expect(t.scope, t.name).toBe('write')
+      expect(adminOnlyToolLabel(t.name, {}), t.name).toBeTruthy()
+      // Staged from a script's key too, and never a draft-only call.
+      expect(shouldStage(t, {}, { keyId: 'key_script' }), t.name).toBe(true)
+      expect(isDraftOnlyCall(t, {}), t.name).toBe(false)
+      expect(t.stagesAs, t.name).toBeUndefined()
+      // Each says it is destructive, waits for an admin, and what cannot be undone.
+      expect(t.description, t.name).toMatch(/DESTRUCTIVE/)
+      expect(t.description, t.name).toMatch(/admin approves/)
+      expect(t.description, t.name).toMatch(/cannot be undone/i)
+    }
+    // "Delete all fund data" is deliberately not a tool.
+    expect(AGENT_TOOLS.some(t => /delete_(all|fund)/.test(t.name))).toBe(false)
+  })
+
+  it('reopen_period is always offered, admin-only, and staged from a chat', () => {
+    const tool = getTool('reopen_period')!
+    expect(tool.destructive).toBeUndefined()
+    expect(isLedgerTool(tool)).toBe(true)
+    expect(isToolOffered(tool)).toBe(true)
+    expect(adminOnlyToolLabel('reopen_period', {})).toBeTruthy()
+    expect(shouldStage(tool, {}, { keyId: 'oauth:abc' })).toBe(true)
   })
 
   it('document templates are fund-scoped, gated on LP letters, and only generating skips staging', () => {
@@ -96,7 +141,8 @@ describe('agent tool registry', () => {
     for (const t of writes) {
       expect(t.name, t.name).toMatch(t.domain === 'deals' ? /^deals_/ : /^diligence_/)
       // Each takes the deal it changes by name or id, except the two that create one.
-      if (!['deals_create_inbound', 'diligence_create_deal'].includes(t.name)) {
+      // (and the deck upload URL, which is for a deal not created yet).
+      if (!['deals_create_inbound', 'diligence_create_deal', 'deals_deck_upload_url'].includes(t.name)) {
         expect(t.inputSchema.required, t.name).toContain('deal')
       }
     }

@@ -3472,7 +3472,7 @@ export type IssueType          =
 // 'diligence' = an email about a company ALREADY in diligence; it is proposed
 // for that deal's data room and imported only once a human accepts it.
 export type RoutingLabel       = 'reporting' | 'interactions' | 'deals' | 'diligence' | 'other'
-export type RoutedTo           = 'reporting' | 'interactions' | 'deals' | 'diligence' | 'audit' | 'review'
+export type RoutedTo           = 'reporting' | 'interactions' | 'deals' | 'diligence' | 'audit' | 'review' | 'receipts'
 export type DiligenceIntakeStatus = 'pending' | 'accepted' | 'rejected'
 export type ThesisFitScore     = 'strong' | 'moderate' | 'weak' | 'out_of_thesis' | 'spam'
 export type DealStatus         = 'new' | 'reviewing' | 'advancing' | 'met' | 'diligence' | 'invested' | 'passed'

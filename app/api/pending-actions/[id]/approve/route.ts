@@ -33,12 +33,14 @@ export async function POST(req: Request, props: { params: Promise<{ id: string }
   if (principal instanceof NextResponse) return principal
 
   try {
-    // An action that publishes to LPs (confirmInApp) needs `{ confirmed: true }`, which the card
+    // An action that publishes to LPs (personConfirms) needs `{ confirmed: true }`, which the card
     // sends only after its second confirmation; every other action ignores the body.
     const body = await req.json().catch(() => ({}))
     const result = await approvePendingAction(admin, principal, params.id, {
       confirmed: body?.confirmed === true,
       executors: { publish_call_notices: executePublishCallNotices },
+      // A staged tool that calls back into the app (lp_send_item's attachment, lp_proposed_call_approve's notices).
+      origin: new URL(req.url).origin,
     })
     expireTag('pending-actions-badge')
     return NextResponse.json({ ok: true, result: result.result, replayed: result.replayed })

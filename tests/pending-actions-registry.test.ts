@@ -40,3 +40,24 @@ describe('write-action registry', () => {
     }
   })
 })
+
+describe('agent tools that stage a pending action', () => {
+  // A `stagesAs` tool's schema is a copy of its action's (the manifest cannot import the server
+  // registry). Approval runs the action's input, so a field the tool drops is a field the person
+  // asked for and silently lost.
+  it('take the same input as the action they stage, and agree on its domain', async () => {
+    const { AGENT_TOOLS } = await import('@/lib/accounting/agent-tools')
+    const staged = AGENT_TOOLS.filter(t => t.stagesAs)
+    expect(staged.map(t => t.name).sort()).toEqual(['issue_capital_call', 'publish_call_notices'])
+    for (const tool of staged) {
+      const action = getWriteAction(tool.stagesAs!)!
+      expect(action, tool.name).toBeTruthy()
+      expect(tool.accessDomain, tool.name).toBe(action.domain)
+      expect(Object.keys(tool.inputSchema.properties).sort(), tool.name)
+        .toEqual(Object.keys((action.inputSchema as any).properties).sort())
+      // Descriptions may be worded for the chat; the types may not differ.
+      const types = (props: Record<string, any>) => Object.fromEntries(Object.entries(props).map(([k, v]) => [k, v.type]))
+      expect(types(tool.inputSchema.properties), tool.name).toEqual(types((action.inputSchema as any).properties))
+    }
+  })
+})

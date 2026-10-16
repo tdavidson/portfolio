@@ -29,7 +29,9 @@ import { accountBalances, normalBalance } from './ledger'
 import type { Account } from './types'
 import { booksForBasis, basisFromParam, type StatementBasis } from './books'
 import { vehicleKindByName } from './vehicle-domain'
-import { equityLabel } from './vocab'
+import { closesToOwnerEquity, equityLabel } from './vocab'
+import { changesInMembersCapital } from './members-capital'
+import { isManagementCompany } from '@/lib/vehicle-kinds'
 
 /** The JSON body the statements route returns — the on-screen statement set. */
 export interface StatementPayload {
@@ -282,7 +284,7 @@ export function computePayload(data: LedgerData, period: StatementPeriod): State
     period,
     asOf: period.end,
     trialBalance: trialBalance(data.accounts, cumulative),
-    balanceSheet: balanceSheet(data.accounts, cumulative, { equityLabel: equityLabel(data.kind), asOf: period.end }),
+    balanceSheet: balanceSheet(data.accounts, cumulative, { equityLabel: equityLabel(data.kind), asOf: period.end, itemizeEquity: closesToOwnerEquity(data.kind) }),
     incomeStatement: incomeStatement(data.accounts, inPeriod),
     scheduleOfInvestments: {
       ...scheduleOfInvestments(data.accounts, cumulative, nav, positions, data.companies as SoiCompany[]),
@@ -290,7 +292,11 @@ export function computePayload(data: LedgerData, period: StatementPeriod): State
       ...(data.chainWarning ? { chainWarning: data.chainWarning } : {}),
       ...(data.levelWarning ? { levelWarning: data.levelWarning } : {}),
     },
-    changesInPartnersCapital: changesInPartnersCapital(capitalAccounts, data.names, gpEnding),
+    // A management company's members' capital sits in ordinary equity accounts rather than
+    // per-LP capital accounts, so its roll-forward is read from the journal instead.
+    changesInPartnersCapital: isManagementCompany(data.kind)
+      ? changesInMembersCapital(data.accounts, data.sourcedPostings, period, data.names)
+      : changesInPartnersCapital(capitalAccounts, data.names, gpEnding),
     // Absent for a fund holding no funds, so a non-FoF package is unchanged.
     ...(data.fofRaw ? { fof: fofExhibits(data.fofRaw, period.end) } : {}),
     cashFlows: data.cashAccount

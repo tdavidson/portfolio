@@ -200,27 +200,25 @@ export function LpStatementView({ lpEntityId, vehicleId }: { lpEntityId: string;
                 </tr>
               ))}
             </tbody>
+            {/* The commitment summary shares the roll-forward's columns, so its figures sit under
+                the same headings. A period flow of nothing (no capital called this quarter) is left
+                blank rather than printed as $0.00, the way the PDF prints a dash. */}
+            <tbody>
+              <tr>
+                <td colSpan={columns.length + 1} className="px-0 pt-6 pb-2 text-sm font-medium">Commitment summary</td>
+              </tr>
+              {summary.map(r => (
+                <tr key={r.label} className="border-b last:border-b-0">
+                  <td className="px-3 py-2">{r.label}</td>
+                  {r.values.map((v, i) => (
+                    <td key={i} className="px-3 py-2 text-right tabular-nums">
+                      {i < lastCol && (v === null || Math.abs(v) < 0.005) ? '' : r.format === 'percent' ? `${((v ?? 0) * 100).toFixed(3)}%` : fmt(v ?? 0)}
+                    </td>
+                  ))}
+                </tr>
+              ))}
+            </tbody>
           </table>
-        </div>
-
-        <div>
-          <p className="text-sm font-medium mb-2">Commitment summary</p>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <tbody>
-                {summary.map(r => (
-                  <tr key={r.label} className="border-b last:border-b-0">
-                    <td className="px-3 py-2">{r.label}</td>
-                    {r.values.map((v, i) => (
-                      <td key={i} className="px-3 py-2 text-right tabular-nums w-[22%]">
-                        {v === null && i < lastCol ? '' : r.format === 'percent' ? `${((v ?? 0) * 100).toFixed(3)}%` : fmt(v ?? 0)}
-                      </td>
-                    ))}
-                  </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
         </div>
       </div>
 

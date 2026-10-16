@@ -123,10 +123,8 @@ describe('a chat assistant (OAuth over MCP)', () => {
     expect(notifyAdmins).not.toHaveBeenCalled()
   })
 
-  it('applies the staged write when approved from another credential, never the chat that staged it', async () => {
+  it('applies the staged write when approved from chat, its own or another', async () => {
     const staged = await callTool('add_account', { code: '6100', name: 'Legal', type: 'expense' })
-    const self = await callTool('approve_action', { id: staged.json.pendingActionId })
-    expect(self.isError).toBe(true)
     expect(addChartAccount).not.toHaveBeenCalled()
 
     keyId = 'oauth:another-chat'
@@ -294,7 +292,7 @@ describe('an assistant asking for the same change twice (no idempotency key)', (
 
   it('says a repeat of an applied change is already done, and applies nothing', async () => {
     const first = await callTool('add_account', legal)
-    // Approved by a person from another credential: the staging chat cannot approve its own change.
+    // Approved from another chat of the same person.
     keyId = 'oauth:another-chat'
     await callTool('approve_action', { id: first.json.pendingActionId })
     keyId = 'oauth:claude'
@@ -434,21 +432,68 @@ describe('the same access rules as the web', () => {
   const PAIRS: [tool: string, route: string][] = [
     ['post_entry', 'api/accounting/journal'],
     ['post_drafts', 'api/accounting/journal'],
+    ['discard_drafts', 'api/accounting/journal/bulk-void'],
     ['add_account', 'api/accounting/chart'],
     ['close_period', 'api/accounting/periods'],
     ['allocation', 'api/accounting/allocation'],
     ['post_bank_transaction', 'api/accounting/bank'],
+    ['ignore_bank_transaction', 'api/accounting/bank'],
     ['import_bank_transactions', 'api/accounting/bank'],
     ['import_journal', 'api/accounting/quickbooks/import'],
     ['save_journal_mapping', 'api/accounting/quickbooks/mapping'],
     ['add_partner', 'api/accounting/commitments'],
     ['book_capital_call', 'api/accounting/capital-calls'],
+    ['issue_capital_call', 'api/accounting/capital-calls'],
     ['record_investment', 'api/portfolio/investments'],
     ['update_investment', 'api/companies/[id]/investments/[txnId]'],
     ['delete_investment', 'api/companies/[id]/investments/[txnId]'],
     ['forecast_update_plan', 'api/accounting/forecast/[id]'],
     ['forecast_publish', 'api/accounting/forecast/[id]/publish'],
     ['portfolio_construction_update', 'api/accounting/construction'],
+    ['lp_portal_invite', 'api/lps/invites'],
+    ['lp_portal_account_status', 'api/lps/invites'],
+    ['lp_portal_unlink', 'api/lps/invites'],
+    ['lp_portal_resend_invite', 'api/lps/invites/resend'],
+    ['lp_portal_invite_bulk', 'api/lps/invites/bulk'],
+    ['lp_authorized_user_add', 'api/lps/authorized-users'],
+    ['lp_authorized_user_remove', 'api/lps/authorized-users'],
+    ['lp_announce', 'api/lps/announce'],
+    ['lp_send_item', 'api/lps/send'],
+    ['lp_portal_settings', 'api/settings'],
+    ['lp_proposed_call_propose', 'api/accounting/proposed-calls'],
+    ['lp_proposed_call_revise', 'api/accounting/proposed-calls'],
+    ['lp_proposed_call_discard', 'api/accounting/proposed-calls'],
+    ['lp_proposed_call_approve', 'api/accounting/proposed-calls'],
+
+    // The destructive tools (AGENT_DESTRUCTIVE_ACTIONS), each the route whose lib function it calls.
+    ['unpost_entry', 'api/accounting/journal'],
+    ['reverse_entry', 'api/accounting/journal'],
+    ['void_entry', 'api/accounting/journal'],
+    ['reopen_period', 'api/accounting/periods'],
+    ['delete_lp_positions', 'api/accounting/positions'],
+    ['delete_company', 'api/companies/[id]'],
+    ['lp_delete_investor', 'api/lps/investors'],
+    ['lp_merge_investors', 'api/lps/investors'],
+    ['lp_delete_entity', 'api/lps/entities'],
+    ['lp_delete_commitment', 'api/accounting/commitments'],
+    ['diligence_delete_deal', 'api/diligence/[id]'],
+    ['remove_member', 'api/settings/members/[id]'],
+    ['merge_vehicles', 'api/vehicles'],
+
+    // Uploads: the signed URL and the register step, each like the page's own pair of calls.
+    ['diligence_document_upload_url', 'api/diligence/[id]/documents/upload-url'],
+    ['diligence_add_documents', 'api/diligence/[id]/documents'],
+    ['company_document_upload_url', 'api/companies/[id]/documents'],
+    ['add_company_document', 'api/companies/[id]/documents'],
+    ['deals_deck_upload_url', 'api/deals/manual'],
+    ['deals_create_inbound', 'api/deals/manual'],
+    ['email_attachment_upload_url', 'api/emails/[id]/attachments'],
+    ['add_email_attachment', 'api/emails/[id]/attachments'],
+    ['lp_document_upload_url', 'api/lps/documents/upload-url'],
+    ['lp_add_document', 'api/lps/documents'],
+    // The server's model, as the web buttons.
+    ['company_generate_summary', 'api/companies/[id]/summary'],
+    ['portfolio_import_preview', 'api/import'],
   ]
 
   it.each(PAIRS)('%s is gated like %s', async (toolName, route) => {

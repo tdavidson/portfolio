@@ -1,6 +1,6 @@
 'use client'
 
-import { createContext, Fragment, useCallback, useContext, useEffect, useRef, useState } from 'react'
+import { createContext, Fragment, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { Check, ChevronsUpDown } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -21,7 +21,6 @@ import {
 export interface VehicleOption { name: string; id: string | null; kind?: string | null }
 
 interface VehicleCtx {
-  vehicles: VehicleOption[]
   /** The selected vehicle's name (portfolio_group). */
   group: string | null
   /** The selected vehicle's registry id (UUID), or null for a legacy name-only vehicle. */
@@ -33,6 +32,8 @@ interface VehicleCtx {
   setVehicle: (name: string, id: string | null) => void
   /** Set the name only, leaving the id untouched — back-compat for name-only callers. */
   setGroup: (name: string) => void
+  /** The fund's vehicles, loaded once by the provider. Empty until loaded. */
+  vehicles: VehicleOption[]
 }
 const VehicleContext = createContext<VehicleCtx>({
   vehicles: [], group: null, vehicleId: null, kind: null, setVehicle: () => {}, setGroup: () => {},
@@ -113,12 +114,24 @@ export function useVehicle() {
   return useContext(VehicleContext)
 }
 
-/** The URL's server-authorised scope is available on the very first render. Shared sidebar
- * selection still updates through FundScopeSync, but cannot temporarily scope page requests. */
-export function VehiclePageScope({ name, id, children }: { name: string; id: string | null; children: React.ReactNode }) {
-  const parent = useVehicle()
-  const kind = parent.vehicles.find(v => id ? v.id === id : v.name === name)?.kind ?? null
-  return <VehicleContext.Provider value={{ ...parent, group: name, vehicleId: id, kind }}>{children}</VehicleContext.Provider>
+/**
+ * Pins the vehicle for everything under it to the one the URL names, from the FIRST render.
+ *
+ * The app-wide selection is synced from the URL in an effect, which runs after the page's own
+ * effects. So a view that loads on mount used to fire its first request with whatever the
+ * selection was before — nothing on a fresh load (a 400 "specify a vehicle" on a multi-entity
+ * firm), or the PREVIOUS entity after switching — and then fire it again once the sync landed.
+ * Every fund page paid for a wasted request, and a slow stale response could land last. Under
+ * this scope the views read the URL's vehicle directly, so their first request is the right one.
+ */
+export function VehicleScope({ vehicle, vehicleId, children }: { vehicle: string; vehicleId: string | null; children: React.ReactNode }) {
+  const parent = useContext(VehicleContext)
+  const kind = parent.vehicles.find(v => (vehicleId && v.id === vehicleId) || (!vehicleId && v.name === vehicle))?.kind ?? null
+  const value = useMemo(
+    () => ({ ...parent, group: vehicle, vehicleId, kind }),
+    [parent, vehicle, vehicleId, kind],
+  )
+  return <VehicleContext.Provider value={value}>{children}</VehicleContext.Provider>
 }
 
 /**

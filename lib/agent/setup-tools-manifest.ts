@@ -88,4 +88,48 @@ export const SETUP_TOOL_MANIFEST: AgentToolMeta[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'environment_status',
+    description:
+      "Which of the fund's credentials are set, and where: saved in Settings, set in the deployment's environment (a .env file " +
+      'or the host\'s environment variables), or missing. Lists the variable name for each (ANTHROPIC_API_KEY, POSTMARK_SERVER_TOKEN, ' +
+      'GOOGLE_CLIENT_SECRET and the rest), and the non-secret connection settings update_fund_connections changes. Never returns a ' +
+      'value. When the person needs a key, tell them which variable to add to their .env (or host settings) and to redeploy; never ' +
+      'ask them to paste a key into the chat.',
+    scope: 'read',
+    domain: 'portfolio',
+    accessDomain: 'admin',
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'update_fund_connections',
+    description:
+      'Choose the AI provider and model, the outbound and inbound email providers, and their non-secret details (sender name and ' +
+      'address, Postmark inbound address, Mailgun domains, Google client id). Keys and secrets are refused here: they go in the ' +
+      'deployment\'s environment (environment_status lists the variable names) or in Settings. ' +
+      'An empty string clears a field. The same checks as the Settings page.',
+    scope: 'write',
+    domain: 'portfolio',
+    accessDomain: 'admin',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        defaultAIProvider: { type: 'string', enum: ['anthropic', 'openai', 'openrouter'] },
+        claudeModel: { type: 'string', description: 'e.g. claude-sonnet-4-6' },
+        openaiModel: { type: 'string', description: 'e.g. gpt-4o' },
+        openrouterModel: { type: 'string' },
+        openrouterBaseUrl: { type: 'string', description: 'Default https://openrouter.ai/api/v1' },
+        outboundEmailProvider: { type: 'string', description: 'resend, postmark, mailgun or gmail; "" for none. Sends system email (invites, approvals, LP notices).' },
+        asksEmailProvider: { type: 'string', description: 'resend, postmark, mailgun or gmail; "" for none. Sends the quarterly data requests to companies.' },
+        systemEmailFromName: { type: 'string' },
+        systemEmailFromAddress: { type: 'string' },
+        mailgunSendingDomain: { type: 'string' },
+        inboundEmailProvider: { type: 'string', description: 'postmark or mailgun; "" for none. Receives forwarded company updates and other inbound mail.' },
+        postmarkInboundAddress: { type: 'string', description: 'The address Postmark gives the fund\'s inbound server.' },
+        mailgunInboundDomain: { type: 'string' },
+        googleClientId: { type: 'string', description: 'Google OAuth client id for Drive. The secret goes in GOOGLE_CLIENT_SECRET.' },
+      },
+      additionalProperties: false,
+    },
+  },
 ]

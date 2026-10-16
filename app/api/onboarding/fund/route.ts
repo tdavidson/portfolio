@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { hasAnyAIKeyFrom } from '@/lib/credentials/env'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { decrypt, encrypt } from '@/lib/crypto'
@@ -94,7 +95,7 @@ export async function GET() {
     fundName: fund?.name ?? null,
     webhookToken: readWebhookToken(settings),
     products: productsFromVisibility(featureVisibility),
-    hasAIKey: !!(settings.claude_api_key_encrypted || settings.openai_api_key_encrypted || settings.openrouter_api_key_encrypted),
+    hasAIKey: hasAnyAIKeyFrom(settings),
     aiMode: settings.ai_mode ?? null,
   })
 }

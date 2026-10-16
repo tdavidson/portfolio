@@ -16,6 +16,8 @@ import { describeSetupPlan, parseSetupPlan } from '@/lib/onboarding/setup-plan'
 import { resolveCompany } from './portfolio-tools'
 import { resolveInboundDeal } from './deals-tools'
 import { resolveDeal } from './diligence-tools'
+import { DESTRUCTIVE_PREVIEWS } from './destructive-tools'
+import { destructiveRefusal } from './destructive'
 import type { Domain } from '@/lib/access/domains'
 import { hasAccess } from '@/lib/access/effective'
 import type { FeatureKey } from '@/lib/types/features'
@@ -26,6 +28,7 @@ import {
 import { resolveVehicleWithAccess } from '@/lib/accounting/http-vehicle'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import type { ActionDeps, PreviewResult } from '@/lib/pending-actions/types'
+import { serverAIRefusal } from '@/lib/ai/server-ai'
 
 export const AGENT_TOOL_CALL = 'agent_tool_call'
 
@@ -87,6 +90,20 @@ async function resolveEntity(deps: ActionDeps, tool: AgentTool, input: Record<st
     await resolveCompany(deps.admin, deps.fundId, input.company, deps.access)
     return null
   }
+  // A file for an email (add_email_attachment): the stager's when the email is an inbound deal they
+  // can see, or about a company they can see.
+  if (tool.name === 'add_email_attachment') {
+    if (typeof input.deal === 'string' && input.deal.trim()) {
+      await resolveInboundDeal(deps.admin, deps.fundId, input.deal, deps.access)
+      return null
+    }
+    const { data: email } = await (deps.admin as any)
+      .from('inbound_emails').select('company_id').eq('id', String(input.email ?? '')).eq('fund_id', deps.fundId).maybeSingle()
+    if (email?.company_id) {
+      await resolveCompany(deps.admin, deps.fundId, email.company_id, deps.access)
+      return null
+    }
+  }
   // A new company names the entities that will hold it; each must be the stager's.
   if (tool.name === 'create_company' && Array.isArray(input.vehicles) && input.vehicles.length > 0) {
     for (const v of input.vehicles) await resolveVehicleWithAccess(deps.admin, deps.access, String(v), 'read')
@@ -111,7 +128,13 @@ export function summarizeToolCall(tool: string, input: Record<string, unknown>, 
 export async function stageToolCall(deps: ActionDeps, toolName: string, input: Record<string, unknown>) {
   const { tool } = requireTool({ tool: toolName, input })
   const vehicle = await resolveEntity(deps, tool, input)
-  const pinned = vehicle ? { ...input, vehicle } : input
+  // A call the server's model has to make could never run on a fund with no key: say so now.
+  const noKey = await serverAIRefusal(deps.admin, deps.fundId, tool.name)
+  if (noKey) throw new Error(noKey)
+  let pinned = vehicle ? { ...input, vehicle } : input
+  // A destructive change acts on the record its preview names: the ids it resolved to are pinned.
+  const destructive = DESTRUCTIVE_PREVIEWS[toolName]
+  if (destructive) pinned = { ...pinned, ...(await destructive(deps, pinned)).pin }
   const vehicleId = vehicle ? await vehicleIdByName(deps.admin, deps.fundId, vehicle) : null
   const args: ToolCallArgs = { tool: toolName, input: pinned }
   return { args, vehicleId, preview: await previewToolCall(deps, args) }
@@ -144,6 +167,22 @@ export async function previewToolCall(deps: ActionDeps, raw: unknown): Promise<P
       },
     }
   }
+  // A destructive change: what it would remove, read now, and that it waits for an admin.
+  const destructive = DESTRUCTIVE_PREVIEWS[tool.name]
+  if (destructive) {
+    const p = await destructive(deps, args.input)
+    // reopen_period previews the same way but is not a destructive tool: it can be closed again.
+    if (!tool.destructive) {
+      return {
+        summary: `${p.summary} Needs an admin's approval.`,
+        details: { tool: tool.name, vehicle, input: args.input, impact: p.impact },
+      }
+    }
+    return {
+      summary: `${p.summary} Cannot be undone; needs an admin's approval.`,
+      details: { tool: tool.name, vehicle, input: args.input, destructive: true, impact: p.impact },
+    }
+  }
   const input = described ? { ...args.input, files: described } : args.input
   const summary = summarizeToolCall(tool.name, input, vehicle)
   return {
@@ -167,13 +206,16 @@ function describeFiles(files: unknown): { filename: string; kb: number }[] | nul
  */
 export async function executeToolCall(deps: ActionDeps, raw: unknown): Promise<Record<string, unknown>> {
   const { tool, args } = requireTool(raw)
+  // Staged while destructive tools were on, approved after they were turned off: refused.
+  const disabled = destructiveRefusal(tool)
+  if (disabled) throw new Error(disabled)
   if (!hasAccess(deps.access, accessDomainForCall(tool, args.input), 'write', accessFeatureFor(tool))) {
     throw new Error('You do not have current write access for this change.')
   }
   const requested = typeof args.input.vehicle === 'string' ? args.input.vehicle : undefined
   const portfolioGroup = await resolveVehicleForTool(tool, deps.admin, deps.fundId, requested, deps.access)
   const result = await tool.handler(
-    { admin: deps.admin, fundId: deps.fundId, portfolioGroup, userId: deps.userId, access: deps.access },
+    { admin: deps.admin, fundId: deps.fundId, portfolioGroup, userId: deps.userId, access: deps.access, origin: deps.origin },
     args.input,
   )
   return { tool: tool.name, result: result ?? null }

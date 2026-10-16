@@ -14,6 +14,7 @@ import { logOnboardingEvent } from '@/lib/lp-onboarding-audit'
 import { auditReason, recordAudit } from '@/lib/audit/events'
 import { recordCommitmentChange } from '@/lib/accounting/terms'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
+import { ACTUAL_BOOK } from '@/lib/accounting/books'
 
 type Row = Record<string, any>
 const MAX_NAME = 500
@@ -257,4 +258,112 @@ export async function correctCommitmentEvent(
     await audit()
   }
   return done({ ok: true })
+}
+
+// ── Destructive: delete and merge (admin-only on every surface) ────────────────────────────
+
+/** Delete an investor. Its entities and shares go as the database's foreign keys decide. */
+export async function deleteInvestor(admin: SupabaseClient, fundId: string, id: unknown): Promise<Outcome<{ ok: true }>> {
+  if (!id) return fail(400, 'id is required')
+  const { error } = await (admin as any).from('lp_investors').delete().eq('id', id).eq('fund_id', fundId)
+  if (error) return dbFail(error, 'lp-investors-delete')
+  return done({ ok: true })
+}
+
+/** What an entity has on the books: postings in the actual book, and capital-call lines. */
+export async function entityLedgerActivity(admin: SupabaseClient, fundId: string, id: string): Promise<{ postings: number; callLines: number }> {
+  const [{ count: postingCount }, { count: callLineCount }] = await Promise.all([
+    (admin as any).from('journal_postings')
+      .select('id', { count: 'exact', head: true })
+      .eq('book', ACTUAL_BOOK)
+      .eq('fund_id', fundId)
+      .eq('lp_entity_id', id),
+    (admin as any).from('capital_call_lines')
+      .select('id', { count: 'exact', head: true })
+      .eq('fund_id', fundId)
+      .eq('lp_entity_id', id),
+  ])
+  return { postings: postingCount ?? 0, callLines: callLineCount ?? 0 }
+}
+
+/**
+ * Delete an LP entity, refused while it has ledger activity.
+ *
+ * `chart_of_accounts.lp_entity_id` and `journal_postings.lp_entity_id` are ON DELETE SET NULL. So
+ * deleting a partner did not fail — it quietly severed their capital account from them. The
+ * postings stayed in the trial balance (the books still balanced!) but vanished from every
+ * capital-account computation, which requires both the account AND the posting to carry an
+ * lp_entity_id. The sum of partner capital silently stopped equalling equity, and the capital-call
+ * register lost its history (those rows cascade-delete).
+ *
+ * A partner with money on the books is not a row to be deleted. There is no safe way to "undo"
+ * them; their history is the fund's history.
+ */
+export async function deleteEntity(admin: SupabaseClient, fundId: string, id: unknown): Promise<Outcome<{ ok: true }>> {
+  if (!id) return fail(400, 'id is required')
+  const activity = await entityLedgerActivity(admin, fundId, String(id))
+  if (activity.postings > 0 || activity.callLines > 0) {
+    return fail(400,
+      'That partner has activity in the ledger, so deleting them would silently break the books — ' +
+      'their capital postings would stay in the trial balance while disappearing from every capital account. ' +
+      'Reverse or reassign their entries first.')
+  }
+  const { error } = await (admin as any).from('lp_entities').delete().eq('id', id).eq('fund_id', fundId)
+  if (error) return dbFail(error, 'lp-entities-delete')
+  return done({ ok: true })
+}
+
+/** Merge one investor into another: every entity of the source moves to the target, then the source is deleted. */
+export async function mergeInvestors(
+  admin: SupabaseClient, fundId: string, sourceId: unknown, targetId: unknown,
+): Promise<Outcome<{ ok: true; merged: { from: string; into: string } }>> {
+  if (!sourceId || !targetId) return fail(400, 'sourceId and targetId are required')
+  if (sourceId === targetId) return fail(400, 'Cannot merge investor into itself')
+  const db = admin as any
+  if (!(await investorInFund(admin, fundId, String(sourceId)))) return fail(404, 'Source investor not found')
+  if (!(await investorInFund(admin, fundId, String(targetId)))) return fail(404, 'Target investor not found')
+
+  // Reassign all entities from source investor to target investor
+  const { error: reassignErr } = await db.from('lp_entities').update({ investor_id: targetId }).eq('investor_id', sourceId).eq('fund_id', fundId)
+  if (reassignErr) return dbFail(reassignErr, 'lp-investors-merge-reassign')
+
+  // Delete the source investor (now has no entities)
+  const { error: deleteErr } = await db.from('lp_investors').delete().eq('id', sourceId).eq('fund_id', fundId)
+  if (deleteErr) return dbFail(deleteErr, 'lp-investors-merge-delete')
+
+  return done({ ok: true, merged: { from: String(sourceId), into: String(targetId) } })
+}
+
+/**
+ * Remove a wrongly-entered commitment event. A transfer leg deletes BOTH legs sharing its
+ * transfer_id, so the fund's total commitment can't drift. Needs a reason; the deleted event,
+ * whole, is audited as the record that it ever existed.
+ */
+export async function deleteCommitmentEvent(
+  admin: SupabaseClient, ctx: { fundId: string; userId: string }, group: string, id: unknown, rawReason: unknown,
+): Promise<Outcome<{ ok: true; legs: number }>> {
+  const { fundId } = ctx
+  const db = admin as any
+  if (!id) return fail(400, 'id is required')
+  const vehicleId = await vehicleIdByName(admin, fundId, group)
+  const { data: row, error: fetchError } = await db.from('commitment_events').select('*')
+    .eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('id', id).maybeSingle()
+  if (fetchError) return fail(500, fetchError.message)
+  if (!row) return fail(404, 'Not found')
+  const reason = auditReason(rawReason)
+  if (!reason) return fail(400, 'A reason is required to delete a recorded commitment.')
+
+  if (row.transfer_id) {
+    const { error } = await db.from('commitment_events').delete().eq('fund_id', fundId).eq('transfer_id', row.transfer_id)
+    if (error) return fail(500, error.message)
+  } else {
+    const { error } = await db.from('commitment_events').delete().eq('id', id).eq('fund_id', fundId).eq('vehicle_id', vehicleId)
+    if (error) return fail(500, error.message)
+  }
+  // The deleted event, whole, is the record that it ever existed.
+  await recordAudit(admin, {
+    fundId, vehicleId, actorId: ctx.userId, action: 'commitment.delete', subjectType: 'commitment_event', subjectId: String(id), reason,
+    details: { deleted: { effectiveDate: row.effective_date, amount: Number(row.amount), memo: row.memo ?? null, kind: row.kind, lpEntityId: row.lp_entity_id, transferId: row.transfer_id ?? null } },
+  })
+  return done({ ok: true, legs: row.transfer_id ? 2 : 1 })
 }

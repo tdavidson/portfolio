@@ -388,6 +388,22 @@ export async function rotateRefreshToken(
 
   if (new Date(row.expires_at).getTime() < Date.now()) return null
 
+  // Claim the token BEFORE minting, conditionally on it still being live. Two requests presenting
+  // the same refresh token at once both pass the revoked_at read above; without this only-if-live
+  // update both would get a fresh pair and the replay below would never be detected.
+  const now = new Date().toISOString()
+  const { data: claimed } = await (admin as any)
+    .from('oauth_tokens')
+    .update({ revoked_at: now, last_used_at: now })
+    .eq('id', row.id)
+    .is('revoked_at', null)
+    .select('id')
+    .maybeSingle()
+  if (!claimed) {
+    await revokeAllForClient(admin, row.client_id, row.user_id)
+    return null
+  }
+
   // An investor connector token: the holder is an LP, not a fund member, so the check is theirs —
   // still an active LP investing in this fund, and the fund's connector still on. The scope is the
   // investor's own (read, or read and act), carried forward as it was granted.
@@ -398,12 +414,7 @@ export async function rotateRefreshToken(
       await revokeAllForClient(admin, row.client_id, row.user_id)
       return null
     }
-    const issued = await issueTokens(admin, { clientId: row.client_id, userId: row.user_id, fundId: row.fund_id, scope: row.scope, resource: row.resource })
-    await (admin as any)
-      .from('oauth_tokens')
-      .update({ revoked_at: new Date().toISOString(), last_used_at: new Date().toISOString() })
-      .eq('id', row.id)
-    return issued
+    return issueTokens(admin, { clientId: row.client_id, userId: row.user_id, fundId: row.fund_id, scope: row.scope, resource: row.resource })
   }
 
   // The user may have been demoted or removed from the fund since the token was
@@ -431,11 +442,6 @@ export async function rotateRefreshToken(
     scope,
     resource: row.resource,
   })
-
-  await (admin as any)
-    .from('oauth_tokens')
-    .update({ revoked_at: new Date().toISOString(), last_used_at: new Date().toISOString() })
-    .eq('id', row.id)
 
   return issued
 }

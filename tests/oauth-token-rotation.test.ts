@@ -66,10 +66,10 @@ function db() {
         return { error: null }
       },
       maybeSingle: async () => {
-        if (patch) {
-          for (const row of rowsFor()) Object.assign(row, patch)
-        }
-        return { data: rowsFor()[0] ?? null, error: null }
+        // Like PostgREST: an update's filters pick the rows BEFORE the patch, and those rows come back.
+        const matched = rowsFor()
+        if (patch) for (const row of matched) Object.assign(row, patch)
+        return { data: matched[0] ?? null, error: null }
       },
       // Awaiting the chain applies a pending update — how the store issues its revokes.
       then: (resolve: (v: unknown) => unknown, reject: (r: unknown) => unknown) => {

@@ -224,6 +224,47 @@ describe('statements', () => {
   })
 })
 
+describe('management company balance sheet', () => {
+  // A manco whose net income is closed through the bridge into members' accounts: 1,000 of fee
+  // income, 600 closed to two members 50/50, 400 not closed yet, and a 100 distribution to one.
+  const accounts: Account[] = [
+    { id: 'cash', fundId: 'f', code: '1000', name: 'Cash', type: 'asset', subtype: 'cash' },
+    { id: 'pool', fundId: 'f', code: '3000', name: "Members' capital", type: 'equity', subtype: 'members_capital' },
+    { id: 'a', fundId: 'f', code: '3010', name: "Members' capital — A", type: 'equity', subtype: 'member_contributions' },
+    { id: 'b', fundId: 'f', code: '3020', name: "Members' capital — B", type: 'equity', subtype: 'member_contributions' },
+    { id: 'bridge', fundId: 'f', code: '3200', name: 'Undistributed earnings (bridge)', type: 'equity', subtype: 'undistributed_earnings' },
+    { id: 'fee', fundId: 'f', code: '4000', name: 'Management fee income', type: 'income', subtype: 'management_fee_income' },
+  ]
+  const postings: Posting[] = [
+    { accountId: 'cash', amount: 1_000, currency: 'USD' },
+    { accountId: 'fee', amount: -1_000, currency: 'USD' },
+    { accountId: 'bridge', amount: 600, currency: 'USD' },
+    { accountId: 'a', amount: -300, currency: 'USD' },
+    { accountId: 'b', amount: -300, currency: 'USD' },
+    { accountId: 'a', amount: 100, currency: 'USD' },
+    { accountId: 'cash', amount: -100, currency: 'USD' },
+  ]
+
+  it('lists each member account when asked, without the bridge, and still sums to net assets', () => {
+    const bs = balanceSheet(accounts, postings, { equityLabel: "Members' capital", itemizeEquity: true })
+    expect(bs.equity.rows).toEqual([
+      { code: '3010', name: "Members' capital — A", amount: 200 },
+      { code: '3020', name: "Members' capital — B", amount: 300 },
+      { code: '', name: 'Net income not yet closed', amount: 400 },
+    ])
+    expect(bs.equity.total).toBe(900)
+    expect(bs.equity.rows.reduce((t, row) => t + row.amount, 0)).toBe(900)
+    expect(bs.check).toBe(0)
+    expect(bs.partnersCapital).toEqual({ total: 900, unallocatedEarnings: 400 })
+  })
+
+  it('keeps the single line for a fund', () => {
+    const bs = balanceSheet(accounts, postings)
+    expect(bs.equity.rows).toHaveLength(0)
+    expect(bs.equity.total).toBe(900)
+  })
+})
+
 describe('period-scoped statements', () => {
   const accounts: Account[] = [
     { id: 'cash', fundId: 'f', code: '1000', name: 'Cash', type: 'asset', subtype: 'cash' },

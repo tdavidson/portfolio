@@ -133,6 +133,11 @@ export function balanceSheet(
     /** The balance sheet date. Only read for books that keep retained earnings, to split the
      *  current year's net income from prior years'; defaults to the latest posting date. */
     asOf?: string | null
+    /** List equity account by account instead of one line. For the kinds whose equity belongs to
+     *  named members or an owner rather than to partners with statements of their own — a
+     *  management company's members' capital accounts are the only place each member's capital
+     *  shows (lib/vehicle-kinds.ts closesToOwnerEquity). */
+    itemizeEquity?: boolean
   } = {},
 ): BalanceSheet {
   const tb = trialBalance(accounts, postings)
@@ -179,6 +184,24 @@ export function balanceSheet(
       check: r(assets.total - liabilities.total - total),
       // Nothing is waiting on a close: earnings belong in retained earnings by design.
       partnersCapital: { total, unallocatedEarnings: 0 },
+    }
+  }
+
+  // A management company's members (or an individual's owner) have no statement of changes to
+  // carry the detail, so their accounts are listed. The bridge is left out: it only offsets
+  // net income already closed into those accounts, so what remains of net income after it is
+  // the one extra line, and the rows still sum to the total.
+  if (opts.itemizeEquity) {
+    const rows = capitalAccounts.rows
+      .filter(row => row.code !== bridge?.code && row.amount !== 0)
+      .map(row => ({ ...row }))
+    if (unallocatedEarnings !== 0) rows.push({ code: '', name: 'Net income not yet closed', amount: unallocatedEarnings })
+    return {
+      assets,
+      liabilities,
+      equity: { label, rows, total },
+      check: r(assets.total - liabilities.total - total),
+      partnersCapital: { total, unallocatedEarnings },
     }
   }
 

@@ -9,6 +9,7 @@ import {
   bankEntryPostings,
   counterPosting,
   summarizeBankRec,
+  openingCashBefore,
 } from './bank'
 import { isBalanced } from './ledger'
 
@@ -254,6 +255,26 @@ describe('summarizeBankRec', () => {
     expect(s.bankEndingBalance).toBe(3000)
     expect(s.difference).toBe(2000) // ledger cash still shows the unbooked outflow
     expect(s.tiesOut).toBe(false)
+  })
+
+  it('opens the feed at ledger cash before its first transaction', () => {
+    // Books from 2021, bank feed from September: the earlier cash is the feed's opening balance.
+    const postings = [
+      { accountId: 'cash', amount: 200_000, currency: 'USD', entryDate: '2021-03-01' },
+      { accountId: 'cash', amount: -43_170.97, currency: 'USD', entryDate: '2026-08-31' },
+      { accountId: 'cash', amount: 120_000, currency: 'USD', entryDate: '2026-09-02' },
+      { accountId: 'other', amount: 5, currency: 'USD', entryDate: '2020-01-01' },
+    ]
+    const opening = openingCashBefore(postings, 'cash', ['2026-09-30', '2026-09-02'])
+    expect(opening).toBe(156_829.03)
+    const s = summarizeBankRec([{ amount: 120_000, matched: true }], 276_829.03, opening)
+    expect(s.bankEndingBalance).toBe(276_829.03)
+    expect(s.tiesOut).toBe(true)
+  })
+
+  it('opens at zero with no feed or no cash account', () => {
+    expect(openingCashBefore([{ accountId: 'cash', amount: 1, currency: 'USD', entryDate: '2020-01-01' }], 'cash', [])).toBe(0)
+    expect(openingCashBefore([], undefined, ['2026-01-01'])).toBe(0)
   })
 })
 

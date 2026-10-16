@@ -204,46 +204,49 @@ export async function getOutboundConfig(
     return { provider, admin, fundId }
   }
 
-  // Decrypt the relevant secret
-  if (!settings.encryption_key_encrypted) {
-    console.warn(`[outbound-email] No encryption key for fund ${fundId}`)
-    return null
-  }
+  // The provider's secret: the one saved in Settings, else the deployment's environment
+  // (lib/credentials/env.ts), so a fund run from chat never has to paste a key into the app.
+  const { envCredential } = await import('@/lib/credentials/env')
   const kek = process.env.ENCRYPTION_KEY
-  if (!kek) {
-    console.warn('[outbound-email] ENCRYPTION_KEY env var not set')
-    return null
+  let dek: string | null = null
+  if (settings.encryption_key_encrypted && kek) {
+    const { decrypt } = await import('@/lib/crypto')
+    dek = decrypt(settings.encryption_key_encrypted, kek)
   }
-
-  const { decrypt } = await import('@/lib/crypto')
-  const dek = decrypt(settings.encryption_key_encrypted, kek)
+  const secret = async (saved: string | null, fromEnv: Parameters<typeof envCredential>[0]): Promise<string | null> => {
+    if (saved && dek) {
+      const { decrypt } = await import('@/lib/crypto')
+      return decrypt(saved, dek)
+    }
+    if (saved && !kek) console.warn('[outbound-email] ENCRYPTION_KEY env var not set')
+    return envCredential(fromEnv)
+  }
 
   if (provider === 'resend') {
-    if (!settings.resend_api_key_encrypted) {
-      console.warn(`[outbound-email] Resend selected but no API key stored for fund ${fundId}`)
+    const apiKey = await secret(settings.resend_api_key_encrypted, 'resend')
+    if (!apiKey) {
+      console.warn(`[outbound-email] Resend selected but no API key stored or in RESEND_API_KEY for fund ${fundId}`)
       return null
     }
-    return { provider, apiKey: decrypt(settings.resend_api_key_encrypted, dek) }
+    return { provider, apiKey }
   }
 
   if (provider === 'postmark') {
-    if (!settings.postmark_server_token_encrypted) {
-      console.warn(`[outbound-email] Postmark selected but no server token stored for fund ${fundId}`)
+    const serverToken = await secret(settings.postmark_server_token_encrypted, 'postmark_server')
+    if (!serverToken) {
+      console.warn(`[outbound-email] Postmark selected but no server token stored or in POSTMARK_SERVER_TOKEN for fund ${fundId}`)
       return null
     }
-    return { provider, serverToken: decrypt(settings.postmark_server_token_encrypted, dek) }
+    return { provider, serverToken }
   }
 
   if (provider === 'mailgun') {
-    if (!settings.mailgun_api_key_encrypted || !settings.mailgun_sending_domain) {
+    const apiKey = await secret(settings.mailgun_api_key_encrypted, 'mailgun_api')
+    if (!apiKey || !settings.mailgun_sending_domain) {
       console.warn(`[outbound-email] Mailgun selected but missing API key or domain for fund ${fundId}`)
       return null
     }
-    return {
-      provider,
-      apiKey: decrypt(settings.mailgun_api_key_encrypted, dek),
-      mailgunDomain: settings.mailgun_sending_domain,
-    }
+    return { provider, apiKey, mailgunDomain: settings.mailgun_sending_domain }
   }
 
   return null

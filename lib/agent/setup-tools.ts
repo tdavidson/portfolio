@@ -8,6 +8,9 @@ import { productsFromVisibility, parseOnboardingRecord } from '@/lib/onboarding/
 import { ACCESS_PRESETS } from '@/lib/access/presets'
 import { siteOrigin } from '@/lib/site-links'
 import { aiStatus, hasAnyAIKey } from '@/lib/ai/capabilities'
+import { credentialSources } from '@/lib/credentials/env'
+import { applyConnectionUpdate, connectionSettingsOf, parseConnectionUpdate } from '@/lib/onboarding/connection-settings'
+import { validateBaseUrlResolved } from '@/lib/validate-url'
 
 /** How each checklist step is done from chat, where a tool does it. The rest link to the web page. */
 export const STEP_TOOLS: Partial<Record<StepKey, string>> = {
@@ -21,10 +24,10 @@ export const STEP_TOOLS: Partial<Record<StepKey, string>> = {
   forecast: 'forecast_create_plan',
 }
 
-/** Steps that need a secret or a third-party account, which do not belong in a chat. */
+/** Steps that need a secret or a third-party account: the secret goes in the environment or Settings, never a chat. */
 const WEB_ONLY: Partial<Record<StepKey, string>> = {
-  ai_key: 'To run with no server key, record that with setup_fund { aiMode: "assistant" }: you then do the AI work in chat (see ai.worksWithoutKey). A server key is a secret: add it in Settings, or pass it to the bootstrap script, never in a chat.',
-  inbound_email: 'Inbound email needs a Postmark or Mailgun account and a webhook; set it up in Settings.',
+  ai_key: 'To run with no server key, record that with setup_fund { aiMode: "assistant" }: you then do the AI work in chat (see ai.worksWithoutKey). A server key is a secret: have the person add ANTHROPIC_API_KEY (or OPENAI_API_KEY / OPENROUTER_API_KEY) to the deployment\'s .env or host environment and redeploy, or save it in Settings; never in a chat. environment_status shows which are set.',
+  inbound_email: 'Inbound email needs a Postmark or Mailgun account and a webhook. Choose the provider and its address with update_fund_connections; a Mailgun signing key goes in MAILGUN_WEBHOOK_SIGNING_KEY in the environment (environment_status).',
 }
 
 export const SETUP_HANDLERS: Record<string, AgentToolHandler> = {
@@ -69,6 +72,24 @@ export const SETUP_HANDLERS: Record<string, AgentToolHandler> = {
       },
       presets: ACCESS_PRESETS.map(p => ({ key: p.key, label: p.label, description: p.description })),
     }
+  },
+
+  environment_status: async ({ admin, fundId }) => {
+    const { data: settings } = await (admin as any).from('fund_settings').select('*').eq('fund_id', fundId).maybeSingle()
+    const credentials = credentialSources(settings)
+    return {
+      credentials,
+      missing: credentials.filter(c => !c.source).map(c => c.variables[0]),
+      connections: connectionSettingsOf(settings),
+      note: 'A key saved in Settings wins over the environment. Environment variables apply to every fund on this deployment ' +
+        'and take effect after a redeploy (or restart, self-hosted). Never ask the person to paste a key into the chat.',
+    }
+  },
+
+  update_fund_connections: async ({ admin, fundId, userId }, input) => {
+    const parsed = await parseConnectionUpdate(input, validateBaseUrlResolved)
+    if ('error' in parsed) throw new Error(parsed.error)
+    return applyConnectionUpdate(admin, { fundId, userId: userId ?? null }, parsed.updates)
   },
 
   setup_fund: async ({ admin, fundId, userId }, input) => {

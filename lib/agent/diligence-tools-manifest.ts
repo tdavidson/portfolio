@@ -15,6 +15,7 @@
 // From a connected chat each is staged, and applied when the person approves it in the chat.
 
 import type { AgentToolMeta } from '@/lib/accounting/agent-tools-manifest'
+import { UPLOADED_FILES_SCHEMA } from './upload-tools-manifest'
 
 const DEAL = { type: 'string', description: 'Diligence deal id, or the deal name (matched case-insensitively, aliases included).' }
 
@@ -222,7 +223,8 @@ export const DILIGENCE_TOOL_MANIFEST: AgentToolMeta[] = [
     name: 'diligence_add_documents',
     description:
       'Add files to a deal\'s data room (a deck, a model, a transcript). They are scanned and classified; run ' +
-      'diligence_run_agent with stage "analyze" afterwards to read them into evidence. Larger files go through the app.',
+      'diligence_run_agent with stage "analyze" afterwards to read them into evidence. For a file on disk (anything over 3 MB, ' +
+      'up to 100 MB) use diligence_document_upload_url first and pass uploaded_files: never ask the person to paste the file into chat.',
     scope: 'write',
     domain: 'diligence',
     inputSchema: {
@@ -231,8 +233,10 @@ export const DILIGENCE_TOOL_MANIFEST: AgentToolMeta[] = [
           type: 'array',
           description: 'Up to 5 files, each up to 3 MB, as { filename, content_base64 }.',
           items: { type: 'object', properties: { filename: { type: 'string' }, content_base64: { type: 'string' } }, required: ['filename', 'content_base64'] },
-        } },
-      required: ['deal', 'files'],
+        },
+        uploaded_files: UPLOADED_FILES_SCHEMA('diligence_document_upload_url', 'up to 100 MB each, 20 per call'),
+      },
+      required: ['deal'],
     },
   },
   {

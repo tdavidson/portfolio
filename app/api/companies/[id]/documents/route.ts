@@ -2,10 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
-import { extractFromBuffer } from '@/lib/parsing/extractAttachmentText'
-import { scanFileAsync } from '@/lib/security/scan-file'
+import { registerCompanyDocument } from '@/lib/companies/documents'
+import { outcomeResponse } from '@/lib/service-outcome'
 import { dbError } from '@/lib/api-error'
-import { logActivity } from '@/lib/activity'
 
 // Large files need more time for download + security scan + text extraction
 export const maxDuration = 60
@@ -190,101 +189,9 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const body = await req.json()
   const { storagePath, filename, fileType, fileSize, textOnly } = body
 
-  if (!storagePath || !filename || !fileType) {
-    return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
-  }
-
-  // Tenant scoping: the client builds the key as `${fundId}/${companyId}/...`.
-  // Without this check a fund member could pass another tenant's storage path
-  // (the bucket is shared and we use the service-role client), reading its text
-  // or deleting it via the remove() calls below.
-  if (!String(storagePath).startsWith(`${company.fund_id}/${params.id}/`)) {
-    return NextResponse.json({ error: 'Invalid storage path' }, { status: 400 })
-  }
-
-  // Download file from Storage to extract text
-  const { data: fileData, error: downloadError } = await admin
-    .storage
-    .from('company-documents')
-    .download(storagePath)
-
-  if (downloadError || !fileData) {
-    return NextResponse.json({ error: 'Failed to download file from storage' }, { status: 500 })
-  }
-
-  const buffer = Buffer.from(await fileData.arrayBuffer())
-
-  // Scan file for security threats before processing
-  const scanResult = await scanFileAsync(buffer, filename, fileType)
-  if (!scanResult.safe) {
-    // Delete the unsafe file from storage
-    await admin.storage.from('company-documents').remove([storagePath])
-    return NextResponse.json({ error: `File rejected: ${scanResult.reason}` }, { status: 400 })
-  }
-
-  // For textOnly PDFs/images, skip the expensive base64 conversion since they
-  // don't produce extractedText. They stay in storage for native viewing.
-  const ext = filename.split('.').pop()?.toLowerCase() ?? ''
-  const isPdfOrImage =
-    fileType === 'application/pdf' || ext === 'pdf' ||
-    fileType.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp'].includes(ext)
-
-  if (textOnly && isPdfOrImage) {
-    const { error: insertError } = await admin
-      .from('company_documents' as any)
-      .insert({
-        company_id: params.id,
-        fund_id: company.fund_id,
-        filename,
-        file_type: fileType,
-        file_size: fileSize ?? buffer.length,
-        storage_path: storagePath,
-        extracted_text: null,
-        has_native_content: true,
-        uploaded_by: user.id,
-      })
-
-    if (insertError) {
-      return dbError(insertError, 'companies-id-documents')
-    }
-
-    logActivity(admin, company.fund_id, user.id, 'company.document_upload', { companyId: params.id })
-    return NextResponse.json({ success: true, textOnly: false })
-  }
-
-  const result = await extractFromBuffer(buffer, filename, fileType)
-
-  // In textOnly mode, decide whether we can discard the original file.
-  // Files that yield extractedText (DOCX/PPTX/XLSX/CSV) → store text only, delete from Storage.
-  // Files that rely on native content (PDF/images) → keep in Storage as normal.
-  const canDiscardFile = textOnly && !!result.extractedText
-  const finalStoragePath = canDiscardFile ? null : storagePath
-  const hasNative = canDiscardFile ? false : !!result.base64Content
-
-  const { error: insertError } = await admin
-    .from('company_documents' as any)
-    .insert({
-      company_id: params.id,
-      fund_id: company.fund_id,
-      filename,
-      file_type: fileType,
-      file_size: fileSize ?? buffer.length,
-      storage_path: finalStoragePath,
-      extracted_text: result.extractedText || null,
-      has_native_content: hasNative,
-      uploaded_by: user.id,
-    })
-
-  if (insertError) {
-    return dbError(insertError, 'companies-id-documents')
-  }
-
-  // Clean up Storage if we only needed the text
-  if (canDiscardFile) {
-    await admin.storage.from('company-documents').remove([storagePath])
-  }
-
-  logActivity(admin, company.fund_id, user.id, 'company.document_upload', { companyId: params.id })
-
-  return NextResponse.json({ success: true, textOnly: canDiscardFile })
+  // Scan, extract and record: lib/companies/documents.ts, the same steps `add_company_document`
+  // runs for a file uploaded from chat.
+  return outcomeResponse(await registerCompanyDocument(admin, { fundId: company.fund_id, userId: user.id }, params.id, {
+    storagePath, filename, fileType, fileSize, textOnly,
+  }))
 }

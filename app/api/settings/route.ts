@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { credentialSources, hasCredential } from '@/lib/credentials/env'
 import { expireTag } from '@/lib/cache/tags'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -16,6 +17,8 @@ import { validateBaseUrlResolved } from '@/lib/validate-url'
 import type { FeatureKey, FeatureVisibility, FeatureVisibilityMap } from '@/lib/types/features'
 import { AUTH_TITLE_MAX } from '@/lib/auth-brand-shared'
 import { isAIMode } from '@/lib/ai/capabilities'
+import { portalSwitchUpdates } from '@/lib/lps/portal-access'
+import { isSafeLogoDataUri } from '@/lib/vehicle-letterhead'
 
 // GET — returns fund settings (safe fields only)
 export async function GET() {
@@ -89,14 +92,14 @@ export async function GET() {
     signInTitle: settings?.sign_in_title ?? null,
     postmarkInboundAddress: settings?.postmark_inbound_address ?? '',
     postmarkWebhookToken: webhookToken,
-    hasClaudeKey: !!settings?.claude_api_key_encrypted,
+    hasClaudeKey: hasCredential(settings, 'anthropic'),
     claudeModel: settings?.claude_model ?? 'claude-sonnet-4-6',
-    hasOpenAIKey: !!settings?.openai_api_key_encrypted,
+    hasOpenAIKey: hasCredential(settings, 'openai'),
     openaiModel: settings?.openai_model ?? 'gpt-4o',
     defaultAIProvider: settings?.default_ai_provider ?? 'anthropic',
     // Ships in 20261013170000_fund_settings_ai_mode.sql; absent, it reads as not chosen.
     aiMode: settings?.ai_mode ?? null,
-    hasOpenRouterKey: !!settings?.openrouter_api_key_encrypted,
+    hasOpenRouterKey: hasCredential(settings, 'openrouter'),
     openrouterModel: settings?.openrouter_model ?? '',
     openrouterBaseUrl: settings?.openrouter_base_url ?? '',
     retainResolvedReviews: settings?.retain_resolved_reviews ?? true,
@@ -105,7 +108,7 @@ export async function GET() {
     googleDriveConnected: !!settings?.google_refresh_token_encrypted,
     googleDriveFolderId: settings?.google_drive_folder_id ?? null,
     googleDriveFolderName: settings?.google_drive_folder_name ?? null,
-    hasGoogleCredentials: !!(settings?.google_client_id && settings?.google_client_secret_encrypted),
+    hasGoogleCredentials: hasCredential(settings, 'google_client_id') && hasCredential(settings, 'google_client_secret'),
     googleClientId: settings?.google_client_id ?? '',
     aiSummaryPrompt: settings?.ai_summary_prompt ?? null,
     outboundEmailProvider: settings?.outbound_email_provider ?? null,
@@ -114,12 +117,14 @@ export async function GET() {
     approvalEmailBody: settings?.approval_email_body ?? null,
     systemEmailFromName: settings?.system_email_from_name ?? null,
     systemEmailFromAddress: settings?.system_email_from_address ?? null,
-    hasResendKey: !!settings?.resend_api_key_encrypted,
-    hasPostmarkServerToken: !!settings?.postmark_server_token_encrypted,
+    hasResendKey: hasCredential(settings, 'resend'),
+    hasPostmarkServerToken: hasCredential(settings, 'postmark_server'),
     inboundEmailProvider: settings?.inbound_email_provider ?? null,
     mailgunInboundDomain: settings?.mailgun_inbound_domain ?? '',
-    hasMailgunSigningKey: !!settings?.mailgun_signing_key_encrypted,
-    hasMailgunApiKey: !!settings?.mailgun_api_key_encrypted,
+    hasMailgunSigningKey: hasCredential(settings, 'mailgun_signing'),
+    hasMailgunApiKey: hasCredential(settings, 'mailgun_api'),
+    // Which of those come from the deployment's environment rather than Settings (presence only).
+    credentialSources: credentialSources(settings),
     mailgunSendingDomain: settings?.mailgun_sending_domain ?? '',
     fileStorageProvider: settings?.file_storage_provider ?? null,
     analyticsFathomSiteId: settings?.analytics_fathom_site_id ?? null,
@@ -208,8 +213,8 @@ export async function PATCH(req: NextRequest) {
   // Update fund logo
   if (fundLogo !== undefined) {
     if (fundLogo !== null) {
-      if (typeof fundLogo !== 'string' || !fundLogo.startsWith('data:image/')) {
-        return NextResponse.json({ error: 'Logo must be a data:image/ URL' }, { status: 400 })
+      if (!isSafeLogoDataUri(fundLogo)) {
+        return NextResponse.json({ error: 'Logo must be a base64 data:image/ URL' }, { status: 400 })
       }
       if (fundLogo.length > 200 * 1024) {
         return NextResponse.json({ error: 'Logo must be under 200KB' }, { status: 400 })
@@ -238,7 +243,7 @@ export async function PATCH(req: NextRequest) {
   // logo shows Hemrock's mark, no text shows none.
   if (signInLogo !== undefined) {
     if (signInLogo !== null) {
-      if (typeof signInLogo !== 'string' || !signInLogo.startsWith('data:image/')) {
+      if (!isSafeLogoDataUri(signInLogo)) {
         return NextResponse.json({ error: 'Sign-in logo must be a data:image/ URL' }, { status: 400 })
       }
       if (signInLogo.length > 200 * 1024) {
@@ -584,9 +589,11 @@ export async function PATCH(req: NextRequest) {
     }
     settingsUpdates.deals_default_vehicle_id = dealsDefaultVehicleId === null ? null : String(dealsDefaultVehicleId)
   }
-  if (lpPortalEnabled !== undefined) {
-    settingsUpdates.lp_portal_enabled = !!lpPortalEnabled
-  }
+  // The LP portal and investor-connector switches (lib/lps/portal-access.ts, shared with
+  // lp_portal_settings). The connector lets investors connect an assistant to their own portal
+  // (app/api/portal/mcp): separate from the agent API below, which is the fund's own; off by
+  // default, inert unless the LP portal is on too, and checked live on every call.
+  Object.assign(settingsUpdates, portalSwitchUpdates({ lpPortalEnabled, lpAgentEnabled }))
   // Which Affinity transport the diligence assistant uses: Affinity's hosted MCP server
   // (richer, live) or this app's three REST tools. Fund-wide, because it changes what
   // every member's assistant can reach — but each member still authenticates with their
@@ -606,12 +613,6 @@ export async function PATCH(req: NextRequest) {
   // back exactly as it was if the admin changes their mind.
   if (agentApiEnabled !== undefined) {
     settingsUpdates.agent_api_enabled = !!agentApiEnabled
-  }
-  // The investor connector (app/api/portal/mcp): whether investors may connect an assistant to
-  // their own portal. Separate from the agent API above, which is the fund's own. Off by default,
-  // and inert unless the LP portal is on too; checked live on every call, like the switch above.
-  if (lpAgentEnabled !== undefined) {
-    settingsUpdates.lp_agent_enabled = !!lpAgentEnabled
   }
 
   // Update feature visibility

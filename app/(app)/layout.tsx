@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import { ShellBadges, ShellUpdate } from './shell-status'
 import { resolvePageAccess } from '@/lib/access/page-gate'
 import { redirect } from 'next/navigation'
+import { hasCredential } from '@/lib/credentials/env'
 import Script from 'next/script'
 import { headers } from 'next/headers'
 import { NONCE_HEADER } from '@/lib/security/csp'
@@ -49,8 +50,8 @@ export default async function AppLayout({ children }: { children: React.ReactNod
 
   const fundCurrency = fundSettings?.currency ?? 'USD'
   const configuredProviders = [
-    fundSettings?.claude_api_key_encrypted ? 'anthropic' : null,
-    fundSettings?.openai_api_key_encrypted ? 'openai' : null,
+    hasCredential(fundSettings, 'anthropic') ? 'anthropic' : null,
+    hasCredential(fundSettings, 'openai') ? 'openai' : null,
   ].filter(Boolean) as string[]
   const hasAIKey = configuredProviders.length > 0
   const defaultAIProvider = fundSettings?.default_ai_provider ?? 'anthropic'

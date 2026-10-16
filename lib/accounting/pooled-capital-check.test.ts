@@ -9,6 +9,18 @@ describe('describeStrandedCapital', () => {
     expect(s.message).toBeNull()
   })
 
+  it('is silent when the pooled postings net to zero', () => {
+    // Receipts booked to the pool then reclassed to each partner, plus reversed entries.
+    const s = describeStrandedCapital({ pooledPostings: 75, pooledAmount: 0, taggedPostings: 0, perLpAccounts: 61 })
+    expect(s.stranded).toBe(false)
+    expect(s.message).toBeNull()
+  })
+
+  it('still flags a balance of a few cents', () => {
+    const s = describeStrandedCapital({ pooledPostings: 2, pooledAmount: -0.05, taggedPostings: 0, perLpAccounts: 3 })
+    expect(s.stranded).toBe(true)
+  })
+
   it('flags capital pooled with not one partner account', () => {
     const s = describeStrandedCapital({ pooledPostings: 10, pooledAmount: -250_000, taggedPostings: 8, perLpAccounts: 0 })
     expect(s.stranded).toBe(true)

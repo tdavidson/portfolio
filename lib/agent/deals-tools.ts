@@ -12,7 +12,8 @@ import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-
 import type { AccessContext } from '@/lib/access/effective'
 import { canSeeVehicle, visibleVehicleIds } from '@/lib/access/scope'
 import { parseUpdateFiles } from '@/lib/company-updates/submit'
-import { createManualDeal, promoteInboundDeal, queueDealResearch, updateInboundDeal } from '@/lib/deals/service'
+import { createManualDeal, MAX_DEAL_FILE_BYTES, MAX_DEAL_FILES, promoteInboundDeal, queueDealResearch, updateInboundDeal } from '@/lib/deals/service'
+import { readStagedUploads, removeStaged } from '@/lib/uploads/signed-upload'
 import { unwrap } from '@/lib/service-outcome'
 import { fundMemberId, visibleVehicleId } from './refs'
 import { jobHandle, jobRecordId } from './jobs'
@@ -165,6 +166,8 @@ export const DEALS_HANDLERS: Record<string, AgentToolHandler> = {
     const vehicleRef = str(input?.vehicle)
     const vehicleId = vehicleRef ? await visibleVehicleId(admin, access, vehicleRef) : null
     const { data: u } = await (admin as any).auth.admin.getUserById(actor)
+    // A deck PUT to deals_deck_upload_url's staging URL comes back as bytes, as the form's would.
+    const staged = await readStagedUploads(admin, fundId, 'deal', input?.uploaded_files, { maxFiles: MAX_DEAL_FILES, maxBytes: MAX_DEAL_FILE_BYTES })
     const out = unwrap(await createManualDeal(admin, { fundId, userId: actor, userEmail: u?.user?.email ?? null, access }, {
       companyName: str(input?.company_name),
       founderName: str(input?.founder_name),
@@ -175,8 +178,10 @@ export const DEALS_HANDLERS: Record<string, AgentToolHandler> = {
       referrerName: str(input?.referrer_name),
       referrerEmail: str(input?.referrer_email),
       vehicleId,
-      files: parseUpdateFiles(input?.files),
+      files: [...parseUpdateFiles(input?.files), ...staged.map(f => ({ name: f.name, type: f.type, bytes: f.bytes }))],
     }))
+    // Stored under the deal's email now: the staged copies are done with.
+    await removeStaged(admin, staged.map(f => f.storagePath))
     const { data: deal } = out.dealId
       ? await (admin as any).from('inbound_deals').select('company_name, thesis_fit_score, status').eq('id', out.dealId).eq('fund_id', fundId).maybeSingle()
       : { data: null }
