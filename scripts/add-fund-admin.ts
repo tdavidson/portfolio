@@ -1,7 +1,7 @@
 // Make someone the admin of a fund that has none — the first step after splitting a fund with
 // scripts/split-group-into-fund.sql, which leaves the new fund with no members.
 //
-//   npx tsx --env-file=.env.local scripts/add-fund-admin.ts --email finance@3seholdings.com --fund "3SE Holdings"
+//   npx tsx --env-file=.env.local scripts/add-fund-admin.ts --email admin@newfund.com --fund "<fund name or id>"
 //
 // Creates (or reuses) the account, lets it past the signup allow-list, and adds it to the fund as
 // admin. The account is confirmed with no password: they sign in with a magic link. Refuses an

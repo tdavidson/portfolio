@@ -1,11 +1,10 @@
 -- Move one entity group out of a fund and into a new fund of its own, in the same database.
 --
--- Written for splitting 3SE Holdings out of Laconia Capital Group, but nothing in it is specific to
--- either: it takes the source fund, the group's name, and the new fund's name and email domain.
+-- It takes the source fund, the group's name, and the new fund's name and email domain:
 --
 --   psql "$DATABASE_URL" -f scripts/split-group-into-fund.sql \
---     -v source_fund=957a17f7-ddeb-4705-a6c8-d722f8cedc3c \
---     -v group_name='3SE Holdings' -v fund_name='3SE Holdings' -v email_domain=3seholdings.com \
+--     -v source_fund=<source fund id> \
+--     -v group_name='<entity group name>' -v fund_name='<new fund name>' -v email_domain=<newfund.com> \
 --     [-v apply=1]
 --
 -- The new fund starts with no members (a person belongs to one fund, and whoever runs this already
@@ -15,8 +14,8 @@
 -- the safety checks print, and the transaction rolls back. Run it that way first and read the
 -- output. With `-v apply=1` the same transaction commits.
 --
--- This is a one-off data operation, NOT a migration: it names rows that exist only in one
--- deployment, so it must never live in supabase/migrations/ (a fresh install would run it).
+-- This is a data operation run by hand, NOT a migration: it acts on rows the operator names, so it
+-- must never live in supabase/migrations/ (a fresh install would run it).
 --
 -- What moves (fund_id is rewritten; ids never change, so every link between moved rows holds):
 --   * the group and its entities (fund_vehicles);
