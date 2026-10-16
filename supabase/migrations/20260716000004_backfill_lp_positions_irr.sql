@@ -15,8 +15,8 @@
 --
 -- LEDGER VEHICLES ARE EXCLUDED. A vehicle whose capital_source is 'ledger' reads its capital from
 -- posted journal entries and ignores lp_positions entirely, so an IRR on its (stray) positions
--- would never be shown and shouldn't be written. Today those are Bluefish SPV and Bluefish SPV
--- Associates; keying off capital_source rather than names keeps it correct as that set changes.
+-- would never be shown and shouldn't be written. Keying off capital_source rather than names keeps
+-- it correct as that set changes.
 
 with src as (
   select distinct on (li.fund_id, fv.id, li.entity_id, coalesce(s.as_of_date, s.created_at::date))

@@ -45,7 +45,7 @@ begin
       on le.fund_id = o.fund_id
      and lower(btrim(le.entity_name)) = lower(btrim(o.investor_entity))
     where o.carried_interest_pct is not null and o.carried_interest_pct > 0
-      -- Skip ledger vehicles (today: Bluefish SPV / Bluefish SPV Associates), which are
+      -- Skip ledger vehicles, which are
       -- maintained on their own books and are deliberately left untouched by these backfills.
       and not exists (
         select 1 from vehicle_accounting_settings vas
