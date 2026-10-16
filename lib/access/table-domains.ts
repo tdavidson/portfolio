@@ -295,6 +295,7 @@ export const TABLE_RULES: Record<string, TableRule> = {
   oauth_clients: { scope: 'service', note: 'Client secrets and the redirect-URI allowlist.' },
   oauth_tokens: { scope: 'service', note: 'Access/refresh token hashes.' },
   oauth_authorization_codes: { scope: 'service', note: 'Single-use authorization codes and PKCE challenges.' },
+  agent_active_funds: { scope: 'service', note: 'Which master admin pool fund a connector is working in (lib/agent/master-admin.ts).' },
   app_settings: { scope: 'service', note: 'Global inbound address and its webhook token.' },
   allowed_signups: { scope: 'service', note: 'The signup allowlist decides who may exist at all.' },
   rate_limit_entries: { scope: 'service', note: 'Counters; readable rows would make the limiter forgeable.' },

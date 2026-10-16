@@ -41,6 +41,12 @@ export interface ResolvedKey {
   /** The owning member's CURRENT role in the fund (re-checked each call). */
   role: string
   scopes: string[]
+  /**
+   * Set only for an OAuth connection whose owner is in MASTER_ADMIN_EMAILS (lib/agent/master-admin.ts).
+   * When it is, `fundId`/`userId`/`role` above are the ACTIVE pool fund's, not necessarily the
+   * fund the connection was authorized for.
+   */
+  pool?: import('@/lib/agent/master-admin').MasterAdminPool
 }
 
 /**
@@ -121,7 +127,7 @@ export async function resolveAgentAuth(admin: SupabaseClient, req: Request): Pro
       .maybeSingle()
     if (!membership) return null
 
-    return {
+    const home: ResolvedKey = {
       fundId: resolved.fundId,
       // Not a fund_api_keys row — surfaced this way so audit/rate-limit call sites
       // can still name the credential without pretending it's a static key.
@@ -131,6 +137,29 @@ export async function resolveAgentAuth(admin: SupabaseClient, req: Request): Pro
       // OAuth scope strings are space-delimited ('read write'); API-key scopes are
       // comma-delimited. Normalize on the way in so authorizeToolUse sees one shape.
       scopes: resolved.scope.split(/[\s,]+/).map(s => s.trim()).filter(Boolean),
+    }
+
+    // Master admin: the connection may be working in another pooled fund. There it acts as that
+    // fund's listed admin, with that membership's role re-read live like any other.
+    const { loadPool } = await import('@/lib/agent/master-admin')
+    const pool = await loadPool(admin, { userId: resolved.userId, fundId: resolved.fundId, clientId: resolved.clientId })
+    if (!pool) return home
+    if (pool.activeFundId === resolved.fundId) return { ...home, pool }
+
+    const target = pool.funds.find(f => f.fundId === pool.activeFundId)!
+    const { data: targetMembership } = await admin
+      .from('fund_members')
+      .select('role')
+      .eq('fund_id', target.fundId)
+      .eq('user_id', target.userId)
+      .maybeSingle()
+    if (!targetMembership) return { ...home, pool: { ...pool, activeFundId: resolved.fundId } }
+    return {
+      ...home,
+      fundId: target.fundId,
+      userId: target.userId,
+      role: (targetMembership as { role: string }).role,
+      pool,
     }
   }
 
