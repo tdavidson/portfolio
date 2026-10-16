@@ -16,7 +16,7 @@ const data = (o: Partial<ComplianceData> = {}): ComplianceData => ({
   profile: null,
   settings: [
     { compliance_item_id: 'form-adv', portfolio_group: '', applies: 'yes', dismissed: false },
-    { compliance_item_id: 'annual-audit', portfolio_group: 'Fund I', applies: 'yes', dismissed: false, notes: 'Auditor: KPMG' },
+    { compliance_item_id: 'annual-audit', portfolio_group: 'Fund I', applies: 'yes', dismissed: false, notes: 'Auditor: Example Audit LLP' },
     { compliance_item_id: 'annual-audit', portfolio_group: 'Fund II', applies: 'no', dismissed: false },
   ],
   closed: [],
@@ -34,7 +34,7 @@ describe('complianceCalendar', () => {
       // Nobody has said whether it applies to Fund III: that decision is itself a task.
       ['annual-audit', 'Fund III', '2027-04-30', 'needs_review', 'open'],
     ])
-    expect(rows[1].notes).toBe('Auditor: KPMG')
+    expect(rows[1].notes).toBe('Auditor: Example Audit LLP')
   })
 
   it('marks a filed occurrence filed and an unfiled past one overdue', () => {

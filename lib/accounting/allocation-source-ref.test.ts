@@ -34,9 +34,9 @@ const chart = [
 const carry = (over: Record<string, unknown> = {}) => ({
   fundId: 'f', entryDate: '2026-09-30', memo: 'Carry reallocation',
   postings: [
-    { accountId: 'capA', amount: 104603.99, currency: 'USD', lpEntityId: LP_A },
-    { accountId: 'capB', amount: 104603.99, currency: 'USD', lpEntityId: LP_B },
-    { accountId: 'gp', amount: -209207.98, currency: 'USD', lpEntityId: null },
+    { accountId: 'capA', amount: 61250.37, currency: 'USD', lpEntityId: LP_A },
+    { accountId: 'capB', amount: 61250.37, currency: 'USD', lpEntityId: LP_B },
+    { accountId: 'gp', amount: -122500.74, currency: 'USD', lpEntityId: null },
   ],
   ...over,
 })
@@ -61,10 +61,10 @@ describe('allocationSourceRef', () => {
     expect(allocationSourceRef('distribution', carry())).not.toBe(a)
     expect(allocationSourceRef('carry', carry({ entryDate: '2026-10-01' }))).not.toBe(a)
     const more = carry()
-    more.postings = [{ ...more.postings[0], amount: 104604 }, more.postings[1], { ...more.postings[2], amount: -209207.99 }]
+    more.postings = [{ ...more.postings[0], amount: 61250.38 }, more.postings[1], { ...more.postings[2], amount: -122500.75 }]
     expect(allocationSourceRef('carry', more)).not.toBe(a)
     const swapped = carry()
-    swapped.postings = [{ ...swapped.postings[0], lpEntityId: LP_B, accountId: 'capB', amount: 200000 }, { ...swapped.postings[1], lpEntityId: LP_A, accountId: 'capA', amount: 9207.98 }, swapped.postings[2]]
+    swapped.postings = [{ ...swapped.postings[0], lpEntityId: LP_B, accountId: 'capB', amount: 100000 }, { ...swapped.postings[1], lpEntityId: LP_A, accountId: 'capA', amount: 22500.74 }, swapped.postings[2]]
     expect(allocationSourceRef('carry', swapped)).not.toBe(a)
   })
   it('does not use the `allocation:` prefix the ledger reserves for generated allocations', () => {

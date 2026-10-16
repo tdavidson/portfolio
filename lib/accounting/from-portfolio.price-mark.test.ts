@@ -23,37 +23,37 @@ const admin = {
   },
 } as any
 
-const seed = { id: 'a', company_id: 'co', transaction_type: 'investment', transaction_date: '2018-02-06', portfolio_group: 'Fund II', round_name: 'Seed', investment_cost: 500000, shares_acquired: 1082719, share_price: 0.4618 }
-const seriesA = { id: 'b', company_id: 'co', transaction_type: 'investment', transaction_date: '2019-05-15', portfolio_group: 'Fund II', round_name: 'Series A', investment_cost: 500001, shares_acquired: 254754, share_price: 1.9627 }
-const mark = { id: 'm', company_id: 'co', transaction_type: 'unrealized_gain_change', transaction_date: '2019-05-15', portfolio_group: 'Fund II', round_name: 'Series A', current_share_price: 1.9627, unrealized_value_change: null }
+const seed = { id: 'a', company_id: 'co', transaction_type: 'investment', transaction_date: '2018-03-01', portfolio_group: 'Fund II', round_name: 'Seed', investment_cost: 500000, shares_acquired: 1250000, share_price: 0.4 }
+const seriesA = { id: 'b', company_id: 'co', transaction_type: 'investment', transaction_date: '2019-06-01', portfolio_group: 'Fund II', round_name: 'Series A', investment_cost: 468000, shares_acquired: 240000, share_price: 1.95 }
+const mark = { id: 'm', company_id: 'co', transaction_type: 'unrealized_gain_change', transaction_date: '2019-06-01', portfolio_group: 'Fund II', round_name: 'Series A', current_share_price: 1.95, unrealized_value_change: null }
 
 beforeEach(() => {
   h.persistEntry.mockReset().mockResolvedValue({ entryId: 'e1' })
   h.txns = [seed, seriesA, mark]
   // Both purchases are on the books at cost.
   h.postings = [
-    { entryId: 'p1', accountId: 'cost', amount: 500000, entryDate: '2018-02-06' },
-    { entryId: 'p2', accountId: 'cost', amount: 500001, entryDate: '2019-05-15' },
+    { entryId: 'p1', accountId: 'cost', amount: 500000, entryDate: '2018-03-01' },
+    { entryId: 'p2', accountId: 'cost', amount: 468000, entryDate: '2019-06-01' },
     // A later entry must not count against a 2019 mark.
-    { entryId: 'p3', accountId: 'cost', amount: 649993, entryDate: '2023-02-10' },
+    { entryId: 'p3', accountId: 'cost', amount: 650000, entryDate: '2023-03-01' },
   ]
 })
 
 describe('a share-price mark', () => {
   it('books the value the price implies over what the books carried on that date', async () => {
-    const r = await draftEntryForTransaction(admin, 'f', 'u', mark, 'Ocrolus')
+    const r = await draftEntryForTransaction(admin, 'f', 'u', mark, 'Ledgerline')
     expect(r).toMatchObject({ drafted: true, posted: true, kind: 'valuation' })
     const entry = h.persistEntry.mock.calls[0][4]
-    // (1,082,719 + 254,754) × 1.9627 = 2,625,058.26, less 1,000,001 of cost.
+    // (1,250,000 + 240,000) × 1.95 = 2,905,500, less 968,000 of cost.
     expect(entry.postings).toEqual([
-      expect.objectContaining({ accountId: 'unr', amount: 1625057.26 }),
-      expect.objectContaining({ accountId: 'inc4200', amount: -1625057.26 }),
+      expect.objectContaining({ accountId: 'unr', amount: 1937500 }),
+      expect.objectContaining({ accountId: 'inc4200', amount: -1937500 }),
     ])
   })
 
   it('books nothing once the books already carry that value', async () => {
-    h.postings.push({ entryId: 'old', accountId: 'unr', amount: 1625057.26, entryDate: '2019-05-15' })
-    expect(await draftEntryForTransaction(admin, 'f', 'u', mark, 'Ocrolus')).toMatchObject({ drafted: false })
+    h.postings.push({ entryId: 'old', accountId: 'unr', amount: 1937500, entryDate: '2019-06-01' })
+    expect(await draftEntryForTransaction(admin, 'f', 'u', mark, 'Ledgerline')).toMatchObject({ drafted: false })
     expect(h.persistEntry).not.toHaveBeenCalled()
   })
 
@@ -66,40 +66,40 @@ describe('a share-price mark', () => {
 const sum = (postings: any[], account: string) => postings.filter(p => p.accountId === account).reduce((s, p) => s + p.amount, 0)
 
 describe('every derived entry keeps the books at the records', () => {
-  it('a purchase at a new round price revalues the shares already held (Yuvo)', async () => {
-    const seed1 = { id: 'y1', company_id: 'co', transaction_type: 'investment', transaction_date: '2022-01-14', portfolio_group: 'Fund III', round_name: 'Seed-1', investment_cost: 300000, shares_acquired: 13036, share_price: 23.013194 }
-    const a2 = { id: 'y2', company_id: 'co', transaction_type: 'investment', transaction_date: '2024-11-25', portfolio_group: 'Fund III', round_name: 'A-2', investment_cost: 249985, shares_acquired: 6727, share_price: 37.1614 }
+  it('a purchase at a new round price revalues the shares already held (Quarry Health)', async () => {
+    const seed1 = { id: 'y1', company_id: 'co', transaction_type: 'investment', transaction_date: '2022-02-01', portfolio_group: 'Fund III', round_name: 'Seed-1', investment_cost: 300000, shares_acquired: 12500, share_price: 24 }
+    const a2 = { id: 'y2', company_id: 'co', transaction_type: 'investment', transaction_date: '2024-12-02', portfolio_group: 'Fund III', round_name: 'A-2', investment_cost: 250000, shares_acquired: 6250, share_price: 40 }
     h.txns = [seed1, a2]
-    h.postings = [{ entryId: 'p1', accountId: 'cost', amount: 300000, entryDate: '2022-01-14' }]
-    await draftEntryForTransaction(admin, 'f', 'u', a2, 'Yuvo')
+    h.postings = [{ entryId: 'p1', accountId: 'cost', amount: 300000, entryDate: '2022-02-01' }]
+    await draftEntryForTransaction(admin, 'f', 'u', a2, 'Quarry Health')
     const postings = h.persistEntry.mock.calls[0][4].postings
-    expect(sum(postings, 'cost')).toBe(249985)
-    // 13,036 Seed-1 shares from $23.01 to $37.16.
-    expect(sum(postings, 'unr')).toBeCloseTo(13036 * (37.1614 - 23.013194), 0)
-    expect(sum(postings, 'inc4200')).toBeCloseTo(-13036 * (37.1614 - 23.013194), 0)
+    expect(sum(postings, 'cost')).toBe(250000)
+    // 12,500 Seed-1 shares from $24 to $40.
+    expect(sum(postings, 'unr')).toBeCloseTo(12500 * (40 - 24), 0)
+    expect(sum(postings, 'inc4200')).toBeCloseTo(-12500 * (40 - 24), 0)
   })
 
   it('a purchase into a new company books cost and nothing else', async () => {
     h.txns = [seed]
     h.postings = []
-    await draftEntryForTransaction(admin, 'f', 'u', seed, 'Ocrolus')
+    await draftEntryForTransaction(admin, 'f', 'u', seed, 'Ledgerline')
     expect(sum(h.persistEntry.mock.calls[0][4].postings, 'unr')).toBe(0)
   })
 
-  it("an exit reverses only the marks that left with it — not other rounds' (Motorly)", async () => {
-    const seedPref = { id: 'x1', company_id: 'co', transaction_type: 'investment', transaction_date: '2015-11-04', portfolio_group: 'Fund I', round_name: 'Seed Preferred', investment_cost: 187500, shares_acquired: 386614 }
-    const common = { id: 'x2', company_id: 'co', transaction_type: 'investment', transaction_date: '2016-10-07', portfolio_group: 'Fund I', round_name: 'Common', investment_cost: 300001, shares_acquired: 705360 }
-    const markCommon = { id: 'x3', company_id: 'co', transaction_type: 'unrealized_gain_change', transaction_date: '2022-04-30', portfolio_group: 'Fund I', round_name: 'Common', unrealized_value_change: 3325550 }
-    const exit = { id: 'x4', company_id: 'co', transaction_type: 'proceeds', transaction_date: '2022-05-02', portfolio_group: 'Fund I', round_name: 'Seed Preferred', cost_basis_exited: 117917, proceeds_received: 3369126 }
+  it("an exit reverses only the marks that left with it — not other rounds' (Acme Mobility)", async () => {
+    const seedPref = { id: 'x1', company_id: 'co', transaction_type: 'investment', transaction_date: '2015-10-01', portfolio_group: 'Fund I', round_name: 'Seed Preferred', investment_cost: 180000, shares_acquired: 360000 }
+    const common = { id: 'x2', company_id: 'co', transaction_type: 'investment', transaction_date: '2016-09-01', portfolio_group: 'Fund I', round_name: 'Common', investment_cost: 280000, shares_acquired: 700000 }
+    const markCommon = { id: 'x3', company_id: 'co', transaction_type: 'unrealized_gain_change', transaction_date: '2022-05-31', portfolio_group: 'Fund I', round_name: 'Common', unrealized_value_change: 3250000 }
+    const exit = { id: 'x4', company_id: 'co', transaction_type: 'proceeds', transaction_date: '2022-06-01', portfolio_group: 'Fund I', round_name: 'Seed Preferred', cost_basis_exited: 110000, proceeds_received: 3200000 }
     h.txns = [seedPref, common, markCommon, exit]
     h.postings = [
-      { entryId: 'a', accountId: 'cost', amount: 187500, entryDate: '2015-11-04' },
-      { entryId: 'b', accountId: 'cost', amount: 300001, entryDate: '2016-10-07' },
-      { entryId: 'c', accountId: 'unr', amount: 3325550, entryDate: '2022-04-30' },
+      { entryId: 'a', accountId: 'cost', amount: 180000, entryDate: '2015-10-01' },
+      { entryId: 'b', accountId: 'cost', amount: 280000, entryDate: '2016-09-01' },
+      { entryId: 'c', accountId: 'unr', amount: 3250000, entryDate: '2022-05-31' },
     ]
-    await draftEntryForTransaction(admin, 'f', 'u', exit, 'Motorly')
+    await draftEntryForTransaction(admin, 'f', 'u', exit, 'Acme Mobility')
     const postings = h.persistEntry.mock.calls[0][4].postings
-    expect(sum(postings, 'cost')).toBe(-117917)
+    expect(sum(postings, 'cost')).toBe(-110000)
     // The Common mark stays whole: the exit sold Seed Preferred, which had none.
     expect(sum(postings, 'unr')).toBeCloseTo(0, 2)
   })
@@ -109,14 +109,14 @@ describe('every derived entry keeps the books at the records', () => {
     const inIII = { ...seed, id: 'i3', portfolio_group: 'Fund III' }
     const wide = { id: 'w', company_id: 'co', transaction_type: 'unrealized_gain_change', transaction_date: '2026-02-02', portfolio_group: null, current_share_price: 2 }
     h.txns = [inI, inIII, wide]
-    h.postings = [{ entryId: 'p', accountId: 'cost', amount: 500000, entryDate: '2018-02-06' }]
-    await draftEntryForTransaction(admin, 'f', 'u', wide, 'Ocrolus')
+    h.postings = [{ entryId: 'p', accountId: 'cost', amount: 500000, entryDate: '2018-03-01' }]
+    await draftEntryForTransaction(admin, 'f', 'u', wide, 'Ledgerline')
     const groups = h.persistEntry.mock.calls.map(c => c[2]).sort()
     expect(groups).toEqual(['Fund I', 'Fund III'])
     for (const c of h.persistEntry.mock.calls) {
       expect(c[4].sourceRef).toBe('txn:w')
-      // 1,082,719 shares at $2, over $500,000 of cost.
-      expect(sum(c[4].postings, 'unr')).toBeCloseTo(1082719 * 2 - 500000, 2)
+      // 1,250,000 shares at $2, over $500,000 of cost.
+      expect(sum(c[4].postings, 'unr')).toBeCloseTo(1250000 * 2 - 500000, 2)
     }
   })
 })

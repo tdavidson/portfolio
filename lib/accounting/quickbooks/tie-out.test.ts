@@ -135,9 +135,9 @@ describe('real ledger normal-side balances', () => {
       { id: 'other', fundId: 'f', code: '4900', name: 'Other income', type: 'income' },
       { id: 'prepaid', fundId: 'f', code: '3900.1', name: 'Prepaid capital call', type: 'equity' },
     ]
-    const amounts = [138000, -39000, 9000, -58000, -44000, -6000]
+    const amounts = [120000, -30000, 8000, -52000, -40000, -6000]
     const ledger = trialBalance(accounts, accounts.map((a, i) => ({ accountId: a.id, amount: amounts[i], currency: 'USD' })))
-    expect(ledger.rows.find(a => a.code === '4100')?.balance).toBe(58000)
+    expect(ledger.rows.find(a => a.code === '4100')?.balance).toBe(52000)
     const qb = accounts.map((a, i) => ({ account: a.name, debit: Math.max(amounts[i], 0), credit: Math.max(-amounts[i], 0) }))
     const result = compareTrialBalance(ledger, qb, new Map(accounts.map(a => [a.name, a.code])))
     expect(result).toMatchObject({ ties: true, lines: [], ourTotal: 0, theirTotal: 0 })
@@ -148,9 +148,9 @@ describe('real ledger normal-side balances', () => {
       { id: 'cash', fundId: 'f', code: '1000', name: 'Cash', type: 'asset' },
       { id: 'lp', fundId: 'f', code: '3100-lp', name: 'Partner', type: 'equity' },
     ]
-    const ledger = trialBalance(accounts, [{ accountId: 'cash', amount: 1523889, currency: 'USD' }, { accountId: 'lp', amount: -1523889, currency: 'USD' }])
+    const ledger = trialBalance(accounts, [{ accountId: 'cash', amount: 1250000, currency: 'USD' }, { accountId: 'lp', amount: -1250000, currency: 'USD' }])
     const result = compareTrialBalance(ledger, [], new Map())
-    expect(result.lines.map(l => l.difference)).toEqual([1523889, -1523889])
+    expect(result.lines.map(l => l.difference)).toEqual([1250000, -1250000])
   })
 })
 

@@ -211,7 +211,7 @@ export function parseTransactionsCsv(raw: string): ParseResult {
  * A table pasted one cell per line:
  *
  *   Date / Activity Type / Description / Amount / 09/30/26 / Interest Income /
- *   ACME BANK N.A. / (Period 09/01-09/30) / 0.49
+ *   ACME BANK N.A. / (Period 09/01-09/30) / 0.37
  *
  * The header is a run of lines that are each a column name (with a date and an amount, or
  * debit/credit). Each transaction starts at a line that is a date, and runs to the next one. A

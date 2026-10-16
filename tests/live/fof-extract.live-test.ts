@@ -24,7 +24,7 @@ const STATEMENT_HTML = `
 <html><body style="font-family:Georgia,serif;padding:40px;">
   <h1 style="font-size:20px;">Meridian Growth Partners IV, L.P.</h1>
   <p style="font-size:12px;color:#555;">Limited Partner Capital Account Statement</p>
-  <p style="font-size:12px;">Partner: Ashgrove Capital Group<br/>
+  <p style="font-size:12px;">Partner: Example Partners LP<br/>
      Period: Three months ended <b>September 30, 2025</b><br/>
      Statement issued: November 14, 2025</p>
 
@@ -98,7 +98,7 @@ describe('statement extraction — live model', { timeout: 180_000 }, () => {
   })
 
   it('leaves an unknown manager unmatched rather than guessing', async () => {
-    // Ashgrove holds no fund holdings, so this statement should match nothing — and say so.
+    // The test fund holds no fund holdings, so this statement should match nothing — and say so.
     const { data: holdings } = await admin.from('companies')
       .select('id, name, aliases').eq('fund_id', fundId).eq('holding_type', 'fund')
     const matched = matchHoldings(

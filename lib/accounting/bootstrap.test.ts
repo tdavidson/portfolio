@@ -3,8 +3,7 @@ import { memoryAdmin } from '@/tests/helpers/memory-admin'
 
 /**
  * The cutover bootstrap posted "Opening capital bootstrapped from LP data" with no source_ref and
- * no check, so running it twice booked every partner's opening capital twice ($1.83M in
- * production). It now refuses when the partners already have capital on the books, and carries the
+ * no check, so running it twice booked every partner's opening capital twice. It now refuses when the partners already have capital on the books, and carries the
  * `partner-opening` ref so the per-date unique index refuses a concurrent copy.
  */
 

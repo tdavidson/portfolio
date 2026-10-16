@@ -80,7 +80,7 @@ describe('resolveEntryId', () => {
       const q: any = { select: () => q, eq: () => q, gte: () => q, lte: () => q, limit: () => Promise.resolve({ data: ids.map(id => ({ id })), error: null }) }
       return q
     } }) as any
-    const full = 'febb08c4-1400-407e-8323-c9aaac8a5ba2'
+    const full = 'febb08c4-1111-4111-8111-111111111111'
     expect(await resolveEntryId(rows([full]), 'f', 'v', 'febb08c4')).toEqual({ id: full })
     expect(await resolveEntryId(rows([full, 'febb08c4-0000-0000-0000-000000000000']), 'f', 'v', 'febb08c4')).toMatchObject({ error: expect.stringMatching(/More than one/) })
     expect(await resolveEntryId(rows([]), 'f', 'v', full.toUpperCase())).toEqual({ id: full })

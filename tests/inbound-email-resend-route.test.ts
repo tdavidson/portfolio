@@ -70,13 +70,13 @@ const event = {
   created_at: '2026-10-16T00:00:00Z',
   data: {
     email_id: 'em_1', created_at: '2026-10-16T00:00:00Z', from: 'Ada <ada@co.example>',
-    to: ['receipts@inbound.laconia.example'], bcc: [], cc: [], received_for: [], message_id: '<m1@co.example>',
+    to: ['receipts@inbound.ashgrove.example'], bcc: [], cc: [], received_for: [], message_id: '<m1@co.example>',
     subject: 'Receipt', attachments: [{ id: 'at_1', filename: 'r.pdf', content_type: 'application/pdf' }],
   },
 }
 
 const receivedEmail = {
-  object: 'email', id: 'em_1', to: ['receipts@inbound.laconia.example'], from: 'Ada <ada@co.example>',
+  object: 'email', id: 'em_1', to: ['receipts@inbound.ashgrove.example'], from: 'Ada <ada@co.example>',
   created_at: '2026-10-16T00:00:00Z', subject: 'Receipt', bcc: null, cc: null, reply_to: null, received_for: [],
   html: '<p>Attached</p>', text: 'Attached', headers: { date: 'Thu, 16 Oct 2026 00:00:00 +0000' }, message_id: '<m1@co.example>',
   attachments: [{ id: 'at_1', filename: 'r.pdf', size: 3, content_type: 'application/pdf', content_id: null, content_disposition: 'attachment' }],
@@ -102,7 +102,7 @@ beforeEach(() => {
   process.env.ENCRYPTION_KEY = kek
   fundRows = [{
     fund_id: 'fund_1',
-    resend_inbound_domain: 'inbound.laconia.example',
+    resend_inbound_domain: 'inbound.ashgrove.example',
     resend_webhook_secret_encrypted: encrypt(SECRET, dek),
     resend_api_key_encrypted: encrypt('re_test', dek),
     encryption_key_encrypted: encrypt(dek, kek),
@@ -142,7 +142,7 @@ describe('POST /api/inbound-email/resend', () => {
     const payload = (mocks.runPipeline.mock.calls[0] as unknown[])[3] as Row
     expect(payload).toMatchObject({
       From: 'ada@co.example',
-      To: 'receipts@inbound.laconia.example',
+      To: 'receipts@inbound.ashgrove.example',
       TextBody: 'Attached',
       Attachments: [{ Name: 'r.pdf', Content: Buffer.from('pdf').toString('base64') }],
     })

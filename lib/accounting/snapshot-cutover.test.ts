@@ -93,7 +93,7 @@ describe('planRow — NAV / total_value fallback (the NAV didn\'t carry bug)', (
     // The Alice bug: nav=0 correctly (fully realized), total_value stored as 0 (garbage — the
     // UI derives the shown total). The old logic saw nav=0 as "missing", derived from the
     // 0 total_value, and produced a large negative NAV. nav=0 must win.
-    const p = planRow(row({ commitment: 37_500, paidInCapital: 37_500, distributions: 136_285, nav: 0, totalValue: 0 }), ASOF)
+    const p = planRow(row({ commitment: 50_000, paidInCapital: 50_000, distributions: 140_000, nav: 0, totalValue: 0 }), ASOF)
     expect(p.endingCapital).toBe(0)
     expect(p.warnings).toEqual([])
   })

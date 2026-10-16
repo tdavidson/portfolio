@@ -157,12 +157,12 @@ describe('backfillDerivedEntries: a position carried by both the tracker and the
 })
 
 describe('backfillDerivedEntries: tracker rows behind a pooled account or a waiting draft', () => {
-  // Production: an unowned "Investment in Ocrolus at cost" on pooled 1100 (no company) could not be
+  // Production: an unowned "Investment in Ledgerline at cost" on pooled 1100 (no company) could not be
   // adopted, so the company-keyed check missed it and the tracker purchase was derived — cost twice.
   const pooled = () => seed({
-    investment_transactions: [txn('a', { investment_cost: 400001.04 }), txn('b', { company_id: 'co2' })],
-    journal_entries: [entry('legacy', { memo: 'Investment in Ocrolus at cost' }), entry('d', { status: 'draft', source_ref: 'txn:b' })],
-    journal_postings: [line('legacy', 'p1100', 400001.04), line('legacy', 'cash', -400001.04)],
+    investment_transactions: [txn('a', { investment_cost: 250000.62 }), txn('b', { company_id: 'co2' })],
+    journal_entries: [entry('legacy', { memo: 'Investment in Ledgerline at cost' }), entry('d', { status: 'draft', source_ref: 'txn:b' })],
+    journal_postings: [line('legacy', 'p1100', 250000.62), line('legacy', 'cash', -250000.62)],
   })
   const pooledLine = 'Fund I: the pooled investment account 1100 carries 1 journal entry — reconcile by hand before deriving'
   for (const dryRun of [true, false]) {

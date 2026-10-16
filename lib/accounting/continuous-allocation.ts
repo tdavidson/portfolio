@@ -57,7 +57,7 @@ export function isMissingSkipsTable(error: { code?: string; message?: string } |
  * Does this entry already post its own partner allocation? The compound form in ACCOUNTING.md
  * (entries 4–7) books the P&L lines AND the capital side in one entry: each partner's capital
  * account against 3200 Undistributed earnings. Allocating that entry again on posting doubles
- * every partner's share, which is how $37,820 of interest was once credited twice.
+ * every partner's share, which would credit interest twice.
  *
  * Two shapes count. Any line on 3200 — the bridge exists only to carry an allocation, so an
  * entry that writes to it is allocating. Or, without 3200, capital lines (partner capital, or

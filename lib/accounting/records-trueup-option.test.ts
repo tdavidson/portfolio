@@ -19,16 +19,16 @@ vi.mock('./investments', () => ({
 }))
 
 const purchase = {
-  id: 'b1', company_id: 'co-1', portfolio_group: 'Fund I', transaction_date: '2022-06-13',
-  transaction_type: 'investment', round_name: null, investment_cost: 250_000,
+  id: 'b1', company_id: 'co-1', portfolio_group: 'Fund I', transaction_date: '2021-03-01',
+  transaction_type: 'investment', round_name: null, investment_cost: 100_000,
 }
 const returned = {
-  id: 'x1', company_id: 'co-1', portfolio_group: 'Fund I', transaction_date: '2024-12-31',
-  transaction_type: 'proceeds', round_name: null, cost_basis_exited: 250_000, proceeds_received: 250_000,
+  id: 'x1', company_id: 'co-1', portfolio_group: 'Fund I', transaction_date: '2023-06-30',
+  transaction_type: 'proceeds', round_name: null, cost_basis_exited: 100_000, proceeds_received: 100_000,
 }
 const excess = {
-  id: 'x2', company_id: 'co-1', portfolio_group: 'Fund I', transaction_date: '2025-04-16',
-  transaction_type: 'proceeds', round_name: null, cost_basis_exited: 98_232.57, proceeds_received: 98_232.57,
+  id: 'x2', company_id: 'co-1', portfolio_group: 'Fund I', transaction_date: '2024-03-31',
+  transaction_type: 'proceeds', round_name: null, cost_basis_exited: 40_000, proceeds_received: 40_000,
 }
 
 const rows: Record<string, any[]> = { investment_transactions: [purchase, returned, excess] }
@@ -43,32 +43,32 @@ const lines = (r: any, id: string) => r.entry.postings.filter((p: any) => p.acco
 
 beforeEach(() => {
   vi.mocked(accountIdByCode).mockResolvedValue(new Map([['1000', 'cash'], ['4000', 'gain'], ['4200', 'unreal-income']]))
-  // Bought for 250k, all of it returned: the books carry nothing for the holding.
+  // Bought for 100k, all of it returned: the books carry nothing for the holding.
   vi.mocked(loadPostedLedger).mockResolvedValue({
     accounts: [], capitalPostings: [],
     postings: [
-      { accountId: 'cost', amount: 250_000, entryDate: '2022-06-13' }, { accountId: 'cash', amount: -250_000, entryDate: '2022-06-13' },
-      { accountId: 'cost', amount: -250_000, entryDate: '2024-12-31' }, { accountId: 'cash', amount: 250_000, entryDate: '2024-12-31' },
+      { accountId: 'cost', amount: 100_000, entryDate: '2021-03-01' }, { accountId: 'cash', amount: -100_000, entryDate: '2021-03-01' },
+      { accountId: 'cost', amount: -100_000, entryDate: '2023-06-30' }, { accountId: 'cash', amount: 100_000, entryDate: '2023-06-30' },
     ],
   } as any)
 })
 
 describe('buildEntryForTransaction: recordsTrueUp', () => {
   it('books the gap to the records by default', async () => {
-    const r: any = await buildEntryForTransaction(admin, 'f1', excess, 'Venture Fund')
-    expect(lines(r, 'cost')).toEqual([-98_232.57])
-    expect(lines(r, 'unreal')).toEqual([98_232.57])
+    const r: any = await buildEntryForTransaction(admin, 'f1', excess, 'Acme')
+    expect(lines(r, 'cost')).toEqual([-40_000])
+    expect(lines(r, 'unreal')).toEqual([40_000])
   })
   it('leaves the gap out when asked, so an adopted split sees only what the row itself implies', async () => {
-    const r: any = await buildEntryForTransaction(admin, 'f1', excess, 'Venture Fund', { recordsTrueUp: false })
-    expect(lines(r, 'cost')).toEqual([-98_232.57])
-    expect(lines(r, 'cash')).toEqual([98_232.57])
+    const r: any = await buildEntryForTransaction(admin, 'f1', excess, 'Acme', { recordsTrueUp: false })
+    expect(lines(r, 'cost')).toEqual([-40_000])
+    expect(lines(r, 'cash')).toEqual([40_000])
     expect(lines(r, 'unreal')).toEqual([])
   })
   it('re-derived as gain, the excess needs no true-up either way', async () => {
-    const r: any = await buildEntryForTransaction(admin, 'f1', { ...excess, cost_basis_exited: 0 }, 'Venture Fund')
-    expect(lines(r, 'cash')).toEqual([98_232.57])
-    expect(lines(r, 'gain-co')).toEqual([-98_232.57])
+    const r: any = await buildEntryForTransaction(admin, 'f1', { ...excess, cost_basis_exited: 0 }, 'Acme')
+    expect(lines(r, 'cash')).toEqual([40_000])
+    expect(lines(r, 'gain-co')).toEqual([-40_000])
     expect(lines(r, 'unreal')).toEqual([])
   })
 })

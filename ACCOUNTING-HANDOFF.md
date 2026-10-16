@@ -6,7 +6,7 @@ Updated 2026-10-06. The unified application is **committed (`a4008ced`) and depl
 
 Retire the entity-wide accounting-on/off and LP-tracking-versus-accounting distinction. Accounting actions are always available; create accounts only when a write needs them. Use the label “Accounting.” Management companies show operating book health, not LP allocation requirements. Investments and entered LP balances must remain usable and unchanged when journals, bank activity, or QuickBooks records are imported. Imports must show differences and possible overlaps before confirmation. Never silently add two representations of the same economic activity. Preserve unknown versus zero, reported observation dates, and immutable published reports.
 
-**Deployment state.** `20261006164431`, `20261006174407`, `20261006174711` and `20261006190000` are applied, and the unified application is deployed. Two entities are fully onboarded to accounting — *tern spv* and *tern spv associates* — and a few others are mid-setup. No agent has applied a migration, imported anything, deployed, or committed; the owner does all four.
+**Deployment state.** `20261006164431`, `20261006174407`, `20261006174711` and `20261006190000` are applied, and the unified application is deployed. Some entities are fully onboarded to accounting; others are mid-setup. No agent has applied a migration, imported anything, deployed, or committed; the owner does all four.
 
 ## Validation status
 
@@ -87,16 +87,16 @@ Kept as the record of what happened, since the convention it produced now lives 
 The two scripts written during that window remain, in case the situation recurs:
 
 - `scripts/check-dropped-mode-columns.sql` — read-only, prints a verdict and the affected vehicle count.
-- `scripts/restore-mode-columns-shim.sql` — puts the columns back and sets `capital_source = 'ledger'` for the two onboarded vehicles (including inserting a settings row where none exists, since a missing row also reads as `'events'`). Ad-hoc, deliberately not a migration: `20261006174711` is already recorded as applied and re-adding what it dropped should not enter the ledger.
+- `scripts/restore-mode-columns-shim.sql` — puts the columns back and sets `capital_source = 'ledger'` for the onboarded vehicles (including inserting a settings row where none exists, since a missing row also reads as `'events'`). Ad-hoc, deliberately not a migration: `20261006174711` is already recorded as applied and re-adding what it dropped should not enter the ledger.
 
 Leave `20261006174711` in place. Deleting an applied migration causes a history mismatch on the next push.
 
 ## Fund-of-funds and the schedule of investments
 
-A separate strand from the unified-accounting work, done in the same session. The owner's firm has
-21 fund holdings carried **only in the ledger** — each with its own `1100-<id>`/`1200-<id>` accounts
-and real postings from a QuickBooks import, and with `fund_capital_events` and
-`fund_nav_statements` both entirely empty because the register is still being filled in.
+A separate strand from the unified-accounting work, done in the same session. A fund-of-funds can
+carry fund holdings **only in the ledger** (for example from a QuickBooks import) — each with its own
+`1100-<id>`/`1200-<id>` accounts and postings, while `fund_capital_events` and
+`fund_nav_statements` are still empty because the register has not been filled in.
 
 - **The fund-of-funds report is deleted** (`/funds/fof-report`, `/api/accounting/fof-exhibits`,
   `fofSoiPositions`, the nav entry, both access-registry entries, the demo-widget entry). It
@@ -111,7 +111,7 @@ and real postings from a QuickBooks import, and with `fund_capital_events` and
   alone made a half-entered fund-of-funds invisible on the page used to finish entering it.
 - **The schedule of investments generates rows from per-company ledger balances** for holdings the
   portfolio tracker does not cover, keyed on company id so a tracked holding is never duplicated.
-  This is what makes those 21 appear by name, and it takes `costVariance`/`fairValueVariance` to
+  This is what makes ledger-only holdings appear by name, and it takes `costVariance`/`fairValueVariance` to
   zero — the "does not tie to the ledger" warning was the symptom of their absence.
 - **Underlying funds get their own schedule columns**: Commitment, Called (with % drawn), Unfunded,
   Cost, Fair value, MOIC, NAV as of, % of net assets. `unfunded` is the register's own figure, not
@@ -127,9 +127,8 @@ and real postings from a QuickBooks import, and with `fund_capital_events` and
 Diagnostics, all read-only and single-statement so the Supabase SQL editor returns them whole:
 `scripts/check-fof-vehicle-scope.sql` and `scripts/check-fund-tagged-holdings.sql`.
 
-Open: the 21 include apparent duplicates (`Arden` / `Arden Endeavor Fund LP`, `Cinderpeak Fund III` /
-`Cinderpeak Ventures Fund III`, `QRS Digital` / `QRS Digital B, LP`) worth tidying. All carry ledger
-postings, so none is safe to delete outright. `loadFofActive` derives the whole fund-of-funds
+Open: imported holdings can include apparent duplicates (e.g. `Fund A` / `Fund A, LP`) worth
+tidying. When both carry ledger postings, neither is safe to delete outright. `loadFofActive` derives the whole fund-of-funds
 feature set from `count(companies where holding_type = 'fund') > 0`.
 
 ## Migrations and order

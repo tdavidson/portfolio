@@ -60,8 +60,8 @@ const interestEntry = (id: string, amount = 100, sourceType = 'manual') =>
   [line(id, 'cash', amount, sourceType), line(id, 'interest', -amount, sourceType)]
 /** The same receipt in ACCOUNTING.md's compound form: it posts its own capital side. */
 const compoundInterest = (id: string) => [
-  line(id, 'cash', 37_820), line(id, 'interest', -37_820),
-  line(id, 'bridge', 37_820), line(id, 'capA', -22_692, 'manual', 'a'), line(id, 'capB', -15_128, 'manual', 'b'),
+  line(id, 'cash', 24_350), line(id, 'interest', -24_350),
+  line(id, 'bridge', 24_350), line(id, 'capA', -14_610, 'manual', 'a'), line(id, 'capB', -9_740, 'manual', 'b'),
 ]
 const entryOf = (lines: SourcedPosting[]) => ({
   fundId: 'f', entryDate: '2026-03-10', memo: 'Interest', sourceType: lines[0].sourceType,

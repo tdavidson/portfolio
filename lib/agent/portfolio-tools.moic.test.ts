@@ -3,8 +3,8 @@ import { PORTFOLIO_HANDLERS } from './portfolio-tools'
 
 // A partial exit: 100 invested, the slice that cost 60 sold for 300, the rest (cost 40) marked
 // up by 160 to 200. Gross multiple = (300 realized + 200 held) / 100 invested = 5.0x. Dividing by
-// the 40 still held instead (12.5x) is the bug this pins: Motorly showed 24.69x on the schedule and
-// 19.41x on its own page.
+// the 40 still held instead (12.5x) is the bug this pins: one holding showed a different,
+// inflated multiple on the schedule and on its own page.
 const companies = [{ id: 'c1', name: 'Acme', fund_id: 'f1', status: 'active', holding_type: 'company', portfolio_group: ['Fund I'] }]
 const txns = [
   { company_id: 'c1', fund_id: 'f1', transaction_type: 'investment', round_name: 'Seed', transaction_date: '2020-01-01', investment_cost: 100, shares_acquired: 100, portfolio_group: 'Fund I' },

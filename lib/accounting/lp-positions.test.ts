@@ -67,7 +67,7 @@ describe('positionsToPostings', () => {
   it('a stored NAV of 0 is respected (realized position), not treated as missing', () => {
     // The Alice case, at the source: nav=0 is a real value.
     const postings = positionsToPostings([
-      pos({ lpEntityId: 'a', asOfDate: '2026-03-31', calledCapital: 75_000, distributions: 272_570, nav: 0 }),
+      pos({ lpEntityId: 'a', asOfDate: '2026-03-31', calledCapital: 50_000, distributions: 140_000, nav: 0 }),
     ])
     expect(computeCapitalAccounts(postings).get('a')!.ending).toBe(0)
   })

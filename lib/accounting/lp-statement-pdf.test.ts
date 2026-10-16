@@ -3,20 +3,20 @@ import { buildStatementHtml, NET_PNL_LABEL, type StatementPdfData } from './lp-s
 import { ytdWindow } from './statement-period'
 import { emptyAccount, type CapitalAccount } from './capital-account'
 
-// One Northwind Holdings LP partner's books, inception to date (capital_accounts, Oct 2026).
+// An illustrative partner's books, inception to date.
 const itd: CapitalAccount = {
   ...emptyAccount(),
-  contributions: 90000, managementFees: -10000, expenses: -5157.35,
-  operatingIncome: 1821.5, realizedGains: 134.3, ending: 76798.45,
+  contributions: 80000, managementFees: -8000, expenses: -4000,
+  operatingIncome: 1500, realizedGains: 200, ending: 69700,
 }
 
 function data(over: Partial<StatementPdfData> = {}): StatementPdfData {
   return {
-    fundName: 'Ashgrove', fundLogo: null, fundAddress: null, currency: 'USD',
-    vehicle: 'Northwind Holdings LP', partnerName: 'Jordan Avery',
+    fundName: 'Example Capital', fundLogo: null, fundAddress: null, currency: 'USD',
+    vehicle: 'Example Fund LP', partnerName: 'Partner A',
     period: { label: 'Inception to date', start: null, end: null } as any,
-    row: { commitment: 100000, called: 90000, funded: 90000, outstanding: 10000, receivable: 0, ending: 76798.45 },
-    periodRollForward: itd, ytdRollForward: itd, rollForward: itd, ownership: 0.02,
+    row: { commitment: 100000, called: 80000, funded: 80000, outstanding: 20000, receivable: 0, ending: 69700 },
+    periodRollForward: itd, ytdRollForward: itd, rollForward: itd, ownership: 0.025,
     ...over,
   }
 }
@@ -27,16 +27,16 @@ describe('buildStatementHtml', () => {
   it('shows beginning, management fees, net profit or loss, ending capital and the commitment', () => {
     const t = text(buildStatementHtml(data()))
     expect(t).toContain('Beginning capital')
-    expect(t).toContain('Management fees ($10,000.00)')
-    // -10000 - 5157.35 + 1821.50 + 134.30
-    expect(t).toContain(`${NET_PNL_LABEL} ($13,201.55)`)
-    expect(t).toContain('Ending capital $76,798.45')
+    expect(t).toContain('Management fees ($8,000.00)')
+    // -8000 - 4000 + 1500 + 200
+    expect(t).toContain(`${NET_PNL_LABEL} ($10,300.00)`)
+    expect(t).toContain('Ending capital $69,700.00')
     expect(t).toContain('Commitment $100,000.00')
   })
 
   it('keeps the rows outside the profit and loss block summing to ending capital', () => {
     // beginning + contributions + net P&L = ending; the components are indented under the subtotal.
-    expect(0 + 90000 - 13201.55).toBeCloseTo(itd.ending, 2)
+    expect(0 + 80000 - 10300).toBeCloseTo(itd.ending, 2)
     const html = buildStatementHtml(data())
     expect(html.indexOf('Contributions')).toBeLessThan(html.indexOf('Management fees'))
     expect(html.indexOf('Net realized gain')).toBeLessThan(html.indexOf(NET_PNL_LABEL))
@@ -49,26 +49,26 @@ describe('buildStatementHtml', () => {
   })
 
   it("puts the vehicle's logo in the header when one is passed", () => {
-    expect(buildStatementHtml(data({ fundLogo: 'data:image/png;base64,NWH' }))).toContain('src="data:image/png;base64,NWH"')
+    expect(buildStatementHtml(data({ fundLogo: 'data:image/png;base64,EXF' }))).toContain('src="data:image/png;base64,EXF"')
   })
 
   it('prints all three columns for a Q2 statement, and lays the commitment summary out in them', () => {
-    const quarter = { ...emptyAccount(), beginning: 75940, operatingIncome: 170, ending: 76110 }
-    const ytd = { ...emptyAccount(), beginning: 75000, operatingIncome: 1110, ending: 76110 }
+    const quarter = { ...emptyAccount(), beginning: 68900, operatingIncome: 240, ending: 69140 }
+    const ytd = { ...emptyAccount(), beginning: 68000, operatingIncome: 1140, ending: 69140 }
     const t = text(buildStatementHtml(data({
       period: { label: 'Q2 2026', start: '2026-04-01', end: '2026-06-30' } as any,
       periodRollForward: quarter, ytdRollForward: ytd,
     })))
     expect(t).toContain('Statement period Year to date Inception to date')
-    expect(t).toContain('Ending capital $76,110.00 $76,110.00 $76,798.45')
+    expect(t).toContain('Ending capital $69,140.00 $69,140.00 $69,700.00')
     // Called capital is a flow (nothing called this quarter); the balances sit under inception to date.
-    expect(t).toContain('Called capital — — $90,000.00')
-    expect(t).toContain('Remaining to be called $10,000.00')
+    expect(t).toContain('Called capital — — $80,000.00')
+    expect(t).toContain('Remaining to be called $20,000.00')
     expect(t).toContain('unaudited')
   })
 
   it('drops the year-to-date column when the period is year to date (Q1, or the YTD preset)', () => {
-    const q1 = { ...emptyAccount(), beginning: 75940, operatingIncome: 170, ending: 76110 }
+    const q1 = { ...emptyAccount(), beginning: 68900, operatingIncome: 240, ending: 69140 }
     for (const period of [
       { label: 'Q1 2026', start: '2026-01-01', end: '2026-03-31' },
       { preset: 'ytd', label: 'YTD 2026', start: '2026-01-01', end: '2026-10-13' },
@@ -76,17 +76,17 @@ describe('buildStatementHtml', () => {
       const t = text(buildStatementHtml(data({ period: period as any, periodRollForward: q1, ytdRollForward: q1 })))
       expect(t).toContain('Statement period Inception to date')
       expect(t).not.toContain('Year to date')
-      expect(t).toContain('Ending capital $76,110.00 $76,798.45 ')
+      expect(t).toContain('Ending capital $69,140.00 $69,700.00 ')
     }
   })
 
   it('drops the statement-period column on an inception-to-date statement', () => {
-    const ytd = { ...emptyAccount(), beginning: 75940, operatingIncome: 170, ending: 76110 }
+    const ytd = { ...emptyAccount(), beginning: 68900, operatingIncome: 240, ending: 69140 }
     const t = text(buildStatementHtml(data({ ytdRollForward: ytd })))
     expect(t).not.toContain('Statement period')
     expect(t).toContain('Year to date Inception to date')
-    expect(t).toContain('Ending capital $76,110.00 $76,798.45 ')
-    expect(t).toContain('Called capital — $90,000.00')
+    expect(t).toContain('Ending capital $69,140.00 $69,700.00 ')
+    expect(t).toContain('Called capital — $80,000.00')
   })
 
   it('ends at the commitment summary', () => {

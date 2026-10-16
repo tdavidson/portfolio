@@ -4,23 +4,23 @@ import { normalizeResendEmail, toPostmarkPayload } from '@/lib/pipeline/normaliz
 
 describe('matchInboundDomain', () => {
   const funds = [
-    { fund_id: 'a', resend_inbound_domain: 'inbound.laconia.example' },
-    { fund_id: 'b', resend_inbound_domain: 'Inbound.3SE.example ' },
+    { fund_id: 'a', resend_inbound_domain: 'inbound.ashgrove.example' },
+    { fund_id: 'b', resend_inbound_domain: 'Inbound.Northwind.example ' },
   ]
 
   it('matches a recipient on a fund domain, ignoring case and display names', () => {
-    const m = matchInboundDomain(['Receipts <Receipts@INBOUND.3se.example>'], funds)
+    const m = matchInboundDomain(['Receipts <Receipts@INBOUND.northwind.example>'], funds)
     expect(m?.settings.fund_id).toBe('b')
-    expect(m?.recipient).toBe('receipts@inbound.3se.example')
+    expect(m?.recipient).toBe('receipts@inbound.northwind.example')
   })
 
   it('looks past recipients on other domains (a Cc to a person, then the fund address)', () => {
-    const m = matchInboundDomain(['gp@laconia.example', 'updates@inbound.laconia.example'], funds)
+    const m = matchInboundDomain(['gp@ashgrove.example', 'updates@inbound.ashgrove.example'], funds)
     expect(m?.settings.fund_id).toBe('a')
   })
 
   it('does not match a parent domain or a lookalike', () => {
-    expect(matchInboundDomain(['x@laconia.example', 'x@evilinbound.laconia.example'], funds)).toBeNull()
+    expect(matchInboundDomain(['x@ashgrove.example', 'x@evilinbound.ashgrove.example'], funds)).toBeNull()
   })
 })
 

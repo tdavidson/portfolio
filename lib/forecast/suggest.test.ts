@@ -60,13 +60,13 @@ describe('suggestRule', () => {
   })
 
   it('a one-off in short history is not spread forward (loan interest)', () => {
-    const s = suggestRule({ actuals: new Map([['2026-03', 5697.31]]), closedFrom: '2026-02', closedThrough: '2026-09' })!
+    const s = suggestRule({ actuals: new Map([['2026-03', 4850.25]]), closedFrom: '2026-02', closedThrough: '2026-09' })!
     expect(s).toMatchObject({ method: 'manual', params: { amounts: {} } })
-    expect(s.evidence).toMatch(/One-off: 5,697 in Mar 2026/)
+    expect(s.evidence).toMatch(/One-off: 4,850 in Mar 2026/)
   })
 
   it('a small steady income since the books began is averaged from its first month', () => {
-    const interest = new Map([['2026-02', 0.96], ['2026-03', 0.56], ['2026-04', 0.49], ['2026-05', 0.51], ['2026-06', 0.5], ['2026-07', 0.51], ['2026-08', 0.51], ['2026-09', 0.49]] as [string, number][])
+    const interest = new Map([['2026-02', 0.9], ['2026-03', 0.6], ['2026-04', 0.48], ['2026-05', 0.52], ['2026-06', 0.5], ['2026-07', 0.52], ['2026-08', 0.5], ['2026-09', 0.48]] as [string, number][])
     expect(suggestRule({ actuals: interest, closedFrom: '2026-02', closedThrough: '2026-09' })).toMatchObject({ method: 'run_rate', confidence: 'medium' })
   })
 

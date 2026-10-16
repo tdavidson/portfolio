@@ -320,13 +320,13 @@ describe('schedule of investments', () => {
 
   it('fair value counts the unrealized ASSET, not the unrealized income account', () => {
     const p: Posting[] = [
-      { accountId: 'cost', amount: 2_749_992.64, currency: 'USD' },
-      { accountId: 'unrl', amount: 1_178_583.08, currency: 'USD' },
-      { accountId: 'unrlInc', amount: -1_178_583.08, currency: 'USD' }, // the credit side of the mark
+      { accountId: 'cost', amount: 2_640_000.40, currency: 'USD' },
+      { accountId: 'unrl', amount: 1_150_000.25, currency: 'USD' },
+      { accountId: 'unrlInc', amount: -1_150_000.25, currency: 'USD' }, // the credit side of the mark
     ]
-    const soi = scheduleOfInvestments(accts, p, 3_992_163.79)
-    expect(soi.ledgerCost).toBe(2_749_992.64)
-    expect(soi.ledgerFairValue).toBe(3_928_575.72) // NOT 5,107,158.80
+    const soi = scheduleOfInvestments(accts, p, 3_850_000)
+    expect(soi.ledgerCost).toBe(2_640_000.40)
+    expect(soi.ledgerFairValue).toBe(3_790_000.65) // NOT 4,940,000.90
   })
   it('fair value = cost + unrealized, with % of net assets', () => {
     const p: Posting[] = [
@@ -388,20 +388,20 @@ describe('statement of cash flows', () => {
     // (operating). Classifying by the entry's source_type would dump the whole thing
     // into financing.
     const cash: CashPosting[] = [
-      { entryId: 'payoff', accountId: 'cash', amount: -20_689.95, sourceType: 'loan_repayment' },
-      { entryId: 'payoff', accountId: 'note', amount: 14_992.64, sourceType: 'loan_repayment' },
-      { entryId: 'payoff', accountId: 'int', amount: 5_697.31, sourceType: 'loan_repayment' },
+      { entryId: 'payoff', accountId: 'cash', amount: -20_250.25, sourceType: 'loan_repayment' },
+      { entryId: 'payoff', accountId: 'note', amount: 15_400, sourceType: 'loan_repayment' },
+      { entryId: 'payoff', accountId: 'int', amount: 4_850.25, sourceType: 'loan_repayment' },
     ]
     const scf = statementOfCashFlows('cash', cash, accts, 100_000)
 
-    expect(scf.financing.total).toBe(-14_992.64)
+    expect(scf.financing.total).toBe(-15_400)
     expect(scf.financing.lines[0]).toMatchObject({ code: '2200', name: 'Note payable' })
 
-    expect(scf.operating.total).toBe(-5_697.31)
+    expect(scf.operating.total).toBe(-4_850.25)
     expect(scf.operating.lines[0]).toMatchObject({ code: '5300', name: 'Interest expense' })
 
-    expect(scf.netChange).toBe(-20_689.95) // still ties to the actual cash moved
-    expect(scf.endingCash).toBe(79_310.05)
+    expect(scf.netChange).toBe(-20_250.25) // still ties to the actual cash moved
+    expect(scf.endingCash).toBe(79_749.75)
   })
 
   it('collapses per-LP capital accounts into one 3100 Partners’ capital line', () => {
@@ -440,8 +440,8 @@ describe('statement of cash flows', () => {
     // purchase can appear in the cash sections — but omitting them entirely makes the
     // loan look like it was repaid without ever being borrowed.
     const cash: CashPosting[] = [
-      { entryId: 'draw', accountId: 'inv', amount: 2_749_992.64, sourceType: 'investment', entryDate: '2026-02-02', memo: 'Investment funded by loan' },
-      { entryId: 'draw', accountId: 'note', amount: -2_749_992.64, sourceType: 'investment', entryDate: '2026-02-02', memo: 'Investment funded by loan' },
+      { entryId: 'draw', accountId: 'inv', amount: 2_640_000.40, sourceType: 'investment', entryDate: '2026-02-09', memo: 'Investment funded by loan' },
+      { entryId: 'draw', accountId: 'note', amount: -2_640_000.40, sourceType: 'investment', entryDate: '2026-02-09', memo: 'Investment funded by loan' },
     ]
     const scf = statementOfCashFlows('cash', cash, accts, 0)
     expect(scf.netChange).toBe(0)
@@ -450,16 +450,16 @@ describe('statement of cash flows', () => {
 
     expect(scf.nonCash).toHaveLength(1)
     expect(scf.nonCash[0]).toMatchObject({
-      date: '2026-02-02',
+      date: '2026-02-09',
       description: 'Investment funded by loan',
-      amount: 2_749_992.64,
+      amount: 2_640_000.40,
     })
   })
 
   it('DISCLOSES a loan repaid directly by a partner as their capital contribution', () => {
     const cash: CashPosting[] = [
-      { entryId: 'direct', accountId: 'note', amount: 130_000, sourceType: 'capital_call', entryDate: '2026-02-26', memo: 'Partner paid the lender directly' },
-      { entryId: 'direct', accountId: 'cap', amount: -130_000, sourceType: 'capital_call', entryDate: '2026-02-26', memo: 'Partner paid the lender directly' },
+      { entryId: 'direct', accountId: 'note', amount: 130_000, sourceType: 'capital_call', entryDate: '2026-03-02', memo: 'Partner paid the lender directly' },
+      { entryId: 'direct', accountId: 'cap', amount: -130_000, sourceType: 'capital_call', entryDate: '2026-03-02', memo: 'Partner paid the lender directly' },
     ]
     const scf = statementOfCashFlows('cash', cash, accts, 0)
     expect(scf.netChange).toBe(0)
@@ -480,7 +480,7 @@ describe('balance sheet for books that keep retained earnings', () => {
     { id: 'rent', fundId: 'f', code: '5100', name: 'Rent', type: 'expense', subtype: 'occupancy' },
   ]
   const postings: Posting[] = [
-    // 2024: 100k of fees, 30k of rent, 20k distributed to David and 10k to Jeff.
+    // 2024: 100k of fees, 30k of rent, 20k distributed to Robin and 10k to Casey.
     { accountId: 'cash', amount: 100_000, currency: 'USD', entryDate: '2024-03-01' },
     { accountId: 'fees', amount: -100_000, currency: 'USD', entryDate: '2024-03-01' },
     { accountId: 'rent', amount: 30_000, currency: 'USD', entryDate: '2024-06-01' },

@@ -4,7 +4,7 @@ import { memoryAdmin } from '../../tests/helpers/memory-admin'
 /**
  * The agent's read tools must never return part of the books as if it were all of them. Every
  * client here enforces PostgREST's max_rows (1000, supabase/config.toml), the cap that made an
- * export missing its newest entries look like $547,832 of unassigned LP capital.
+ * export missing its newest entries look like unassigned LP capital.
  */
 
 vi.mock('./vehicle-id', async orig => ({ ...(await orig<typeof import('./vehicle-id')>()), vehicleIdByName: async () => 'v1' }))
