@@ -133,7 +133,7 @@ function newFundSettings(extra: Row = {}): Row {
     postmark_webhook_token: null,
     inbound_email_provider: null,
     postmark_inbound_address: null,
-    mailgun_inbound_domain: null,
+    resend_inbound_domain: null,
     feature_visibility: buildFeatureVisibility(['portfolio_reporting']),
     onboarding: {},
     ...extra,

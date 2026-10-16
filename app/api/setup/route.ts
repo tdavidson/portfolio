@@ -147,7 +147,7 @@ export async function GET() {
 
       const hasInboundProvider = !!s?.inbound_email_provider
       const hasInboundKey =
-        !!s?.postmark_webhook_token || !!s?.postmark_webhook_token_encrypted || hasCredential(s, 'mailgun_signing')
+        !!s?.postmark_webhook_token || !!s?.postmark_webhook_token_encrypted || hasCredential(s, 'resend_webhook')
       inboundEmail = {
         providerConfigured: hasInboundProvider,
         keyConfigured: hasInboundKey,
@@ -156,8 +156,7 @@ export async function GET() {
       const hasOutboundProvider = !!s?.outbound_email_provider
       const hasOutboundKey =
         hasCredential(s, 'postmark_server') ||
-        hasCredential(s, 'resend') ||
-        hasCredential(s, 'mailgun_api')
+        hasCredential(s, 'resend')
       outboundEmail = {
         providerConfigured: hasOutboundProvider,
         keyConfigured: hasOutboundKey,

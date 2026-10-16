@@ -46,10 +46,8 @@ export interface SettingsData {
   hasResendKey: boolean
   hasPostmarkServerToken: boolean
   inboundEmailProvider: string | null
-  mailgunInboundDomain: string
-  hasMailgunSigningKey: boolean
-  hasMailgunApiKey: boolean
-  mailgunSendingDomain: string
+  resendInboundDomain: string
+  hasResendWebhookSecret: boolean
   analyticsFathomSiteId: string | null
   analyticsGaMeasurementId: string | null
   analyticsCustomHeadScript: string | null

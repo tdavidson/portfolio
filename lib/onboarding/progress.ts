@@ -136,7 +136,7 @@ export interface SetupFacts {
     /** The fund has saved a product choice (feature_visibility is not empty). */
     productsChosen: boolean
     activeProducts: string[]
-    inboundProvider: 'postmark' | 'mailgun' | null
+    inboundProvider: 'postmark' | 'resend' | null
     inboundConfigured: boolean
     senderCount: number
   } | null
@@ -406,7 +406,7 @@ export function computeSetupProgress(facts: SetupFacts): SetupProgress {
       why: 'Forward company updates to one address and the metrics are extracted for review.',
       done: inboundDone,
       detail: settings.inboundProvider
-        ? `${settings.inboundProvider === 'postmark' ? 'Postmark' : 'Mailgun'}${inboundDone ? '' : ', not finished'}`
+        ? `${settings.inboundProvider === 'postmark' ? 'Postmark' : 'Resend'}${inboundDone ? '' : ', not finished'}`
         : undefined,
       href: '/settings',
       cta: 'Connect email',
@@ -562,7 +562,7 @@ export async function loadSetupFacts(
   if (can.isAdmin) {
     const s = (settingsRes.data ?? {}) as Record<string, any>
     const stored = (s.feature_visibility ?? null) as Partial<FeatureVisibilityMap> | null
-    const provider = s.inbound_email_provider === 'postmark' || s.inbound_email_provider === 'mailgun' ? s.inbound_email_provider : null
+    const provider = s.inbound_email_provider === 'postmark' || s.inbound_email_provider === 'resend' ? s.inbound_email_provider : null
     settings = {
       hasAiKey: hasAnyAIKey(s),
       aiMode: effectiveAIMode(hasAnyAIKey(s), s.ai_mode),
@@ -571,7 +571,7 @@ export async function loadSetupFacts(
       inboundProvider: provider,
       inboundConfigured:
         (provider === 'postmark' && !!String(s.postmark_inbound_address ?? '').trim()) ||
-        (provider === 'mailgun' && !!String(s.mailgun_inbound_domain ?? '').trim()),
+        (provider === 'resend' && !!String(s.resend_inbound_domain ?? '').trim()),
       senderCount: n(sendersRes as CountResult),
     }
   }

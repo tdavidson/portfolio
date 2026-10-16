@@ -27,7 +27,7 @@ export const STEP_TOOLS: Partial<Record<StepKey, string>> = {
 /** Steps that need a secret or a third-party account: the secret goes in the environment or Settings, never a chat. */
 const WEB_ONLY: Partial<Record<StepKey, string>> = {
   ai_key: 'To run with no server key, record that with setup_fund { aiMode: "assistant" }: you then do the AI work in chat (see ai.worksWithoutKey). A server key is a secret: have the person add ANTHROPIC_API_KEY (or OPENAI_API_KEY / OPENROUTER_API_KEY) to the deployment\'s .env or host environment and redeploy, or save it in Settings; never in a chat. environment_status shows which are set.',
-  inbound_email: 'Inbound email needs a Postmark or Mailgun account and a webhook. Choose the provider and its address with update_fund_connections; a Mailgun signing key goes in MAILGUN_WEBHOOK_SIGNING_KEY in the environment (environment_status).',
+  inbound_email: 'Inbound email needs a Postmark or Resend account and a webhook. Choose the provider and its address or domain with update_fund_connections; for Resend, a full-access key goes in RESEND_API_KEY and the webhook signing secret in RESEND_WEBHOOK_SECRET in the environment (environment_status).',
 }
 
 export const SETUP_HANDLERS: Record<string, AgentToolHandler> = {

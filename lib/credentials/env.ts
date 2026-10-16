@@ -21,8 +21,7 @@ export type EnvCredential =
   | 'openrouter'
   | 'resend'
   | 'postmark_server'
-  | 'mailgun_api'
-  | 'mailgun_signing'
+  | 'resend_webhook'
   | 'google_client_id'
   | 'google_client_secret'
 
@@ -39,10 +38,9 @@ export const ENV_CREDENTIALS: Record<EnvCredential, EnvCredentialSpec> = {
   anthropic: { vars: ['ANTHROPIC_API_KEY'], label: 'Claude API key (AI provider)', column: 'claude_api_key_encrypted' },
   openai: { vars: ['OPENAI_API_KEY'], label: 'OpenAI API key (AI provider)', column: 'openai_api_key_encrypted' },
   openrouter: { vars: ['OPENROUTER_API_KEY'], label: 'OpenRouter API key (AI provider)', column: 'openrouter_api_key_encrypted' },
-  resend: { vars: ['RESEND_API_KEY'], label: 'Resend API key (outbound email)', column: 'resend_api_key_encrypted' },
+  resend: { vars: ['RESEND_API_KEY'], label: 'Resend API key (outbound and inbound email)', column: 'resend_api_key_encrypted' },
   postmark_server: { vars: ['POSTMARK_SERVER_TOKEN'], label: 'Postmark server token (outbound email)', column: 'postmark_server_token_encrypted' },
-  mailgun_api: { vars: ['MAILGUN_API_KEY'], label: 'Mailgun API key (outbound email)', column: 'mailgun_api_key_encrypted' },
-  mailgun_signing: { vars: ['MAILGUN_WEBHOOK_SIGNING_KEY'], label: 'Mailgun webhook signing key (inbound email)', column: 'mailgun_signing_key_encrypted' },
+  resend_webhook: { vars: ['RESEND_WEBHOOK_SECRET'], label: 'Resend webhook signing secret (inbound email)', column: 'resend_webhook_secret_encrypted' },
   google_client_id: { vars: ['GOOGLE_CLIENT_ID'], label: 'Google OAuth client id (Google Drive)', column: 'google_client_id' },
   google_client_secret: { vars: ['GOOGLE_CLIENT_SECRET'], label: 'Google OAuth client secret (Google Drive)', column: 'google_client_secret_encrypted' },
 }

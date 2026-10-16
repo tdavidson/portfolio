@@ -50,7 +50,7 @@ function tableQuery(table: string): any {
           postmark_webhook_token: 'webhook-secret',
           postmark_inbound_address: 'inbound@example.com',
           inbound_email_provider: 'postmark',
-          mailgun_inbound_domain: null,
+          resend_inbound_domain: null,
         },
         error: null,
       }

@@ -120,12 +120,10 @@ export async function GET() {
     hasResendKey: hasCredential(settings, 'resend'),
     hasPostmarkServerToken: hasCredential(settings, 'postmark_server'),
     inboundEmailProvider: settings?.inbound_email_provider ?? null,
-    mailgunInboundDomain: settings?.mailgun_inbound_domain ?? '',
-    hasMailgunSigningKey: hasCredential(settings, 'mailgun_signing'),
-    hasMailgunApiKey: hasCredential(settings, 'mailgun_api'),
+    resendInboundDomain: settings?.resend_inbound_domain ?? '',
+    hasResendWebhookSecret: hasCredential(settings, 'resend_webhook'),
     // Which of those come from the deployment's environment rather than Settings (presence only).
     credentialSources: credentialSources(settings),
-    mailgunSendingDomain: settings?.mailgun_sending_domain ?? '',
     fileStorageProvider: settings?.file_storage_provider ?? null,
     analyticsFathomSiteId: settings?.analytics_fathom_site_id ?? null,
     analyticsGaMeasurementId: settings?.analytics_ga_measurement_id ?? null,
@@ -173,7 +171,7 @@ export async function PATCH(req: NextRequest) {
   if (!membership) return NextResponse.json({ error: 'No fund found' }, { status: 404 })
 
   const body = await req.json()
-  const { fundName, fundLogo, fundAddress, fundContactEmail, signInLogo, signInTitle, postmarkInboundAddress, claudeApiKey, claudeModel, retainResolvedReviews, resolvedReviewsTtlDays, googleClientId, googleClientSecret, aiSummaryPrompt, displayName, outboundEmailProvider, asksEmailProvider, approvalEmailSubject, approvalEmailBody, systemEmailFromName, systemEmailFromAddress, resendApiKey, postmarkServerToken, inboundEmailProvider, mailgunInboundDomain, mailgunSigningKey, mailgunApiKey, mailgunSendingDomain, fileStorageProvider, openaiApiKey, openaiModel, defaultAIProvider, openrouterApiKey, openrouterModel, openrouterBaseUrl, aiMode, analyticsFathomSiteId, analyticsGaMeasurementId, analyticsCustomHeadScript, currency, lotMethod, disableUserTracking, featureVisibility, dealThesis, dealScreeningPrompt, dealIntakeEnabled, dealsDefaultVehicleId, lpPortalEnabled, affinityMcpEnabled, agentApiEnabled, lpAgentEnabled } = body
+  const { fundName, fundLogo, fundAddress, fundContactEmail, signInLogo, signInTitle, postmarkInboundAddress, claudeApiKey, claudeModel, retainResolvedReviews, resolvedReviewsTtlDays, googleClientId, googleClientSecret, aiSummaryPrompt, displayName, outboundEmailProvider, asksEmailProvider, approvalEmailSubject, approvalEmailBody, systemEmailFromName, systemEmailFromAddress, resendApiKey, postmarkServerToken, inboundEmailProvider, resendInboundDomain, resendWebhookSecret, fileStorageProvider, openaiApiKey, openaiModel, defaultAIProvider, openrouterApiKey, openrouterModel, openrouterBaseUrl, aiMode, analyticsFathomSiteId, analyticsGaMeasurementId, analyticsCustomHeadScript, currency, lotMethod, disableUserTracking, featureVisibility, dealThesis, dealScreeningPrompt, dealIntakeEnabled, dealsDefaultVehicleId, lpPortalEnabled, affinityMcpEnabled, agentApiEnabled, lpAgentEnabled } = body
 
   // Update display name on fund_members (any user can do this)
   if (displayName !== undefined) {
@@ -188,8 +186,8 @@ export async function PATCH(req: NextRequest) {
     aiSummaryPrompt !== undefined || outboundEmailProvider !== undefined || asksEmailProvider !== undefined ||
     approvalEmailSubject !== undefined || approvalEmailBody !== undefined ||
     systemEmailFromName !== undefined || systemEmailFromAddress !== undefined || resendApiKey !== undefined ||
-    postmarkServerToken !== undefined || inboundEmailProvider !== undefined || mailgunInboundDomain !== undefined ||
-    mailgunSigningKey !== undefined || mailgunApiKey !== undefined || mailgunSendingDomain !== undefined ||
+    postmarkServerToken !== undefined || inboundEmailProvider !== undefined || resendInboundDomain !== undefined ||
+    resendWebhookSecret !== undefined ||
     fileStorageProvider !== undefined ||
     openaiApiKey !== undefined || openaiModel !== undefined || defaultAIProvider !== undefined ||
     openrouterApiKey !== undefined || openrouterModel !== undefined || openrouterBaseUrl !== undefined ||
@@ -350,47 +348,39 @@ export async function PATCH(req: NextRequest) {
     settingsUpdates.system_email_from_address = systemEmailFromAddress?.trim() || null
   }
 
-  // Update Resend API key
-  if (resendApiKey !== undefined && resendApiKey.trim()) {
+  // The fund's data key, created once per request if the fund has none yet, so that saving
+  // several email secrets together encrypts them all under the same key.
+  let emailDek: string | null = null
+  const emailSecretDek = async (): Promise<string | null> => {
+    if (emailDek) return emailDek
     const kek = process.env.ENCRYPTION_KEY
-    if (!kek) return NextResponse.json({ error: 'Server misconfiguration: ENCRYPTION_KEY not set' }, { status: 500 })
-
+    if (!kek) return null
     const { data: existing } = await admin
       .from('fund_settings')
       .select('encryption_key_encrypted')
       .eq('fund_id', membership.fund_id)
       .single()
-
-    let dek: string
     if (existing?.encryption_key_encrypted) {
       const { decrypt } = await import('@/lib/crypto')
-      dek = decrypt(existing.encryption_key_encrypted, kek)
+      emailDek = decrypt(existing.encryption_key_encrypted, kek)
     } else {
-      dek = randomBytes(32).toString('hex')
-      settingsUpdates.encryption_key_encrypted = encrypt(dek, kek)
+      emailDek = randomBytes(32).toString('hex')
+      settingsUpdates.encryption_key_encrypted = encrypt(emailDek, kek)
     }
+    return emailDek
+  }
+
+  // Update Resend API key
+  if (resendApiKey !== undefined && resendApiKey.trim()) {
+    const dek = await emailSecretDek()
+    if (!dek) return NextResponse.json({ error: 'Server misconfiguration: ENCRYPTION_KEY not set' }, { status: 500 })
     settingsUpdates.resend_api_key_encrypted = encrypt(resendApiKey.trim(), dek)
   }
 
   // Update Postmark server token
   if (postmarkServerToken !== undefined && postmarkServerToken.trim()) {
-    const kek = process.env.ENCRYPTION_KEY
-    if (!kek) return NextResponse.json({ error: 'Server misconfiguration: ENCRYPTION_KEY not set' }, { status: 500 })
-
-    const { data: existing } = await admin
-      .from('fund_settings')
-      .select('encryption_key_encrypted')
-      .eq('fund_id', membership.fund_id)
-      .single()
-
-    let dek: string
-    if (existing?.encryption_key_encrypted) {
-      const { decrypt } = await import('@/lib/crypto')
-      dek = decrypt(existing.encryption_key_encrypted, kek)
-    } else {
-      dek = randomBytes(32).toString('hex')
-      settingsUpdates.encryption_key_encrypted = encrypt(dek, kek)
-    }
+    const dek = await emailSecretDek()
+    if (!dek) return NextResponse.json({ error: 'Server misconfiguration: ENCRYPTION_KEY not set' }, { status: 500 })
     settingsUpdates.postmark_server_token_encrypted = encrypt(postmarkServerToken.trim(), dek)
   }
 
@@ -399,58 +389,16 @@ export async function PATCH(req: NextRequest) {
     settingsUpdates.inbound_email_provider = inboundEmailProvider || null
   }
 
-  // Update Mailgun inbound domain
-  if (mailgunInboundDomain !== undefined) {
-    settingsUpdates.mailgun_inbound_domain = mailgunInboundDomain?.trim() || null
+  // Update Resend inbound domain
+  if (resendInboundDomain !== undefined) {
+    settingsUpdates.resend_inbound_domain = resendInboundDomain?.trim().toLowerCase() || null
   }
 
-  // Update Mailgun sending domain
-  if (mailgunSendingDomain !== undefined) {
-    settingsUpdates.mailgun_sending_domain = mailgunSendingDomain?.trim() || null
-  }
-
-  // Update Mailgun signing key (encrypted)
-  if (mailgunSigningKey !== undefined && mailgunSigningKey.trim()) {
-    const kek = process.env.ENCRYPTION_KEY
-    if (!kek) return NextResponse.json({ error: 'Server misconfiguration: ENCRYPTION_KEY not set' }, { status: 500 })
-
-    const { data: existing } = await admin
-      .from('fund_settings')
-      .select('encryption_key_encrypted')
-      .eq('fund_id', membership.fund_id)
-      .single()
-
-    let dek: string
-    if (existing?.encryption_key_encrypted) {
-      const { decrypt } = await import('@/lib/crypto')
-      dek = decrypt(existing.encryption_key_encrypted, kek)
-    } else {
-      dek = randomBytes(32).toString('hex')
-      settingsUpdates.encryption_key_encrypted = encrypt(dek, kek)
-    }
-    settingsUpdates.mailgun_signing_key_encrypted = encrypt(mailgunSigningKey.trim(), dek)
-  }
-
-  // Update Mailgun API key (encrypted)
-  if (mailgunApiKey !== undefined && mailgunApiKey.trim()) {
-    const kek = process.env.ENCRYPTION_KEY
-    if (!kek) return NextResponse.json({ error: 'Server misconfiguration: ENCRYPTION_KEY not set' }, { status: 500 })
-
-    const { data: existing } = await admin
-      .from('fund_settings')
-      .select('encryption_key_encrypted')
-      .eq('fund_id', membership.fund_id)
-      .single()
-
-    let dek: string
-    if (existing?.encryption_key_encrypted) {
-      const { decrypt } = await import('@/lib/crypto')
-      dek = decrypt(existing.encryption_key_encrypted, kek)
-    } else {
-      dek = randomBytes(32).toString('hex')
-      settingsUpdates.encryption_key_encrypted = encrypt(dek, kek)
-    }
-    settingsUpdates.mailgun_api_key_encrypted = encrypt(mailgunApiKey.trim(), dek)
+  // Update Resend webhook signing secret
+  if (resendWebhookSecret !== undefined && resendWebhookSecret.trim()) {
+    const dek = await emailSecretDek()
+    if (!dek) return NextResponse.json({ error: 'Server misconfiguration: ENCRYPTION_KEY not set' }, { status: 500 })
+    settingsUpdates.resend_webhook_secret_encrypted = encrypt(resendWebhookSecret.trim(), dek)
   }
 
   // Update file storage provider

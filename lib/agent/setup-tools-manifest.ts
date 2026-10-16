@@ -105,7 +105,7 @@ export const SETUP_TOOL_MANIFEST: AgentToolMeta[] = [
     name: 'update_fund_connections',
     description:
       'Choose the AI provider and model, the outbound and inbound email providers, and their non-secret details (sender name and ' +
-      'address, Postmark inbound address, Mailgun domains, Google client id). Keys and secrets are refused here: they go in the ' +
+      'address, Postmark inbound address, Resend inbound domain, Google client id). Keys and secrets are refused here: they go in the ' +
       'deployment\'s environment (environment_status lists the variable names) or in Settings. ' +
       'An empty string clears a field. The same checks as the Settings page.',
     scope: 'write',
@@ -119,14 +119,13 @@ export const SETUP_TOOL_MANIFEST: AgentToolMeta[] = [
         openaiModel: { type: 'string', description: 'e.g. gpt-4o' },
         openrouterModel: { type: 'string' },
         openrouterBaseUrl: { type: 'string', description: 'Default https://openrouter.ai/api/v1' },
-        outboundEmailProvider: { type: 'string', description: 'resend, postmark, mailgun or gmail; "" for none. Sends system email (invites, approvals, LP notices).' },
-        asksEmailProvider: { type: 'string', description: 'resend, postmark, mailgun or gmail; "" for none. Sends the quarterly data requests to companies.' },
+        outboundEmailProvider: { type: 'string', description: 'resend, postmark or gmail; "" for none. Sends system email (invites, approvals, LP notices).' },
+        asksEmailProvider: { type: 'string', description: 'resend, postmark or gmail; "" for none. Sends the quarterly data requests to companies.' },
         systemEmailFromName: { type: 'string' },
         systemEmailFromAddress: { type: 'string' },
-        mailgunSendingDomain: { type: 'string' },
-        inboundEmailProvider: { type: 'string', description: 'postmark or mailgun; "" for none. Receives forwarded company updates and other inbound mail.' },
+        inboundEmailProvider: { type: 'string', description: 'postmark or resend; "" for none. Receives forwarded company updates and other inbound mail.' },
         postmarkInboundAddress: { type: 'string', description: 'The address Postmark gives the fund\'s inbound server.' },
-        mailgunInboundDomain: { type: 'string' },
+        resendInboundDomain: { type: 'string', description: 'The domain with receiving turned on in Resend; mail to any address on it comes to the fund.' },
         googleClientId: { type: 'string', description: 'Google OAuth client id for Drive. The secret goes in GOOGLE_CLIENT_SECRET.' },
       },
       additionalProperties: false,
