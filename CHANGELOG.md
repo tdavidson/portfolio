@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Bank reconciliation no longer double-counts a move from an old bank
+- **A transfer in from another bank account ties.** When a feed starts at a new bank, the cash carried from the old one is already in the ledger before the feed begins, so it is the feed's opening balance. The feed's first rows are that same money arriving, posted 1000 to 1000. The reconciliation counted it twice, and Ocrolus SPV LP showed a 44,706.23 difference with every row matched. A matched row whose entry only moves cash on 1000 and nets to zero is now left out of the bank side, and the summary reports how many (`transferCount`, `transferTotal`). The bank page, `bank_reconciliation` and the close preview all use it (`cashTransferEntryIds` in `lib/accounting/bank.ts`).
+
 ### Bank rows from chat: ignore a sweep, re-point a split draft
 - **`ignore_bank_transaction`.** The bank page's Ignore, for rows that are not posted: a money-market reinvestment, a sweep or a duplicate. The draft entry is voided and the row set aside. A posted row is refused, since voiding a posted entry needs a reason and stays on the bank page. A row whose entry belongs to an investment is only unlinked, as on the page. Staged from chat (`ignoreBankTransaction` in `lib/accounting/bank-actions.ts`).
 - **`set_bank_transaction_account` can replace a split.** A draft spread over several accounts (a distribution allocated pro rata to every partner when it went to one) used to be refused with "edit it in the Journal". With `replaceSplit: true` the split is replaced by one posting to the chosen account, drafts only. The new lines go in before the old ones come out, so the entry balances at every step.
