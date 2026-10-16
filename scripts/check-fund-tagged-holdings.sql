@@ -50,5 +50,5 @@ select
 --
 --   delete from public.companies where id = '<the holding id>';
 --
--- Re-tagging is the other option where the thing is not a fund at all (Coinbase looks like a
--- company): update public.companies set holding_type = 'company' where id = '<id>';
+-- Re-tagging is the other option where the thing is not a fund at all (an exchange or operating
+-- company tagged as a fund): update public.companies set holding_type = 'company' where id = '<id>';

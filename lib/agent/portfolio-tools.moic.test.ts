@@ -3,7 +3,7 @@ import { PORTFOLIO_HANDLERS } from './portfolio-tools'
 
 // A partial exit: 100 invested, the slice that cost 60 sold for 300, the rest (cost 40) marked
 // up by 160 to 200. Gross multiple = (300 realized + 200 held) / 100 invested = 5.0x. Dividing by
-// the 40 still held instead (12.5x) is the bug this pins: AutoFi showed 24.69x on the schedule and
+// the 40 still held instead (12.5x) is the bug this pins: Motorly showed 24.69x on the schedule and
 // 19.41x on its own page.
 const companies = [{ id: 'c1', name: 'Acme', fund_id: 'f1', status: 'active', holding_type: 'company', portfolio_group: ['Fund I'] }]
 const txns = [

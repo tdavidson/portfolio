@@ -4,12 +4,12 @@ import { withRecent, __test } from './recent-accounts'
 describe('withRecent', () => {
   it('puts the account first, lower-cased, without duplicates', () => {
     const list = [
-      { email: 'a@laconia.com', fundName: 'Laconia' },
-      { email: 'b@3se.com', fundName: '3SE' },
+      { email: 'a@ashgrove.example', fundName: 'Ashgrove' },
+      { email: 'b@northwind.example', fundName: 'Northwind' },
     ]
-    expect(withRecent(list, { email: ' B@3SE.com ', fundName: '3SE Holdings' })).toEqual([
-      { email: 'b@3se.com', fundName: '3SE Holdings' },
-      { email: 'a@laconia.com', fundName: 'Laconia' },
+    expect(withRecent(list, { email: ' B@NORTHWIND.example ', fundName: 'Northwind Holdings' })).toEqual([
+      { email: 'b@northwind.example', fundName: 'Northwind Holdings' },
+      { email: 'a@ashgrove.example', fundName: 'Ashgrove' },
     ])
   })
 

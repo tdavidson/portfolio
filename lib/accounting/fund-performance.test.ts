@@ -100,12 +100,12 @@ describe('buildFundPerformanceHtml', () => {
   it('prints the rows, the NAV line and the LP-only summary', async () => {
     const { buildFundPerformanceHtml } = await import('./fund-performance-pdf')
     const r = buildFundPerformance({
-      vehicle: '3SE Fund I', asOf: '2025-12-31', grouping: 'date',
+      vehicle: 'Northwind Holdings Fund I', asOf: '2025-12-31', grouping: 'date',
       lp: lp({ committed: 100, paidIn: 90, distributions: 0, nav: 80, totalValue: 80, dpi: 0, rvpi: 80 / 90, tvpi: 80 / 90, irr: -0.0429 }),
       flows: [{ date: '2021-08-11', contributions: 90, distributions: 0 }],
     })
     const html = buildFundPerformanceHtml(r, { currency: 'USD', generatedAt: '2026-10-12T00:00:00Z' })
-    expect(html).toContain('3SE Fund I')
+    expect(html).toContain('Northwind Holdings Fund I')
     expect(html).toContain('Through Q4 2025')
     expect(html).toContain('-4.29%')
     expect(html).toContain('0.89x')

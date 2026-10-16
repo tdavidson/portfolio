@@ -3,7 +3,7 @@ import { buildStatementHtml, NET_PNL_LABEL, type StatementPdfData } from './lp-s
 import { ytdWindow } from './statement-period'
 import { emptyAccount, type CapitalAccount } from './capital-account'
 
-// One 3SE Holdings LP partner's books, inception to date (capital_accounts, Oct 2026).
+// One Northwind Holdings LP partner's books, inception to date (capital_accounts, Oct 2026).
 const itd: CapitalAccount = {
   ...emptyAccount(),
   contributions: 90000, managementFees: -10000, expenses: -5157.35,
@@ -12,8 +12,8 @@ const itd: CapitalAccount = {
 
 function data(over: Partial<StatementPdfData> = {}): StatementPdfData {
   return {
-    fundName: 'Laconia', fundLogo: null, fundAddress: null, currency: 'USD',
-    vehicle: '3SE Holdings LP', partnerName: 'Jon May',
+    fundName: 'Ashgrove', fundLogo: null, fundAddress: null, currency: 'USD',
+    vehicle: 'Northwind Holdings LP', partnerName: 'Jordan Avery',
     period: { label: 'Inception to date', start: null, end: null } as any,
     row: { commitment: 100000, called: 90000, funded: 90000, outstanding: 10000, receivable: 0, ending: 76798.45 },
     periodRollForward: itd, ytdRollForward: itd, rollForward: itd, ownership: 0.02,
@@ -49,7 +49,7 @@ describe('buildStatementHtml', () => {
   })
 
   it("puts the vehicle's logo in the header when one is passed", () => {
-    expect(buildStatementHtml(data({ fundLogo: 'data:image/png;base64,3SE' }))).toContain('src="data:image/png;base64,3SE"')
+    expect(buildStatementHtml(data({ fundLogo: 'data:image/png;base64,NWH' }))).toContain('src="data:image/png;base64,NWH"')
   })
 
   it('prints all three columns for a Q2 statement, and lays the commitment summary out in them', () => {

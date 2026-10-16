@@ -9,7 +9,7 @@ const only = (...ids: string[]) => ({ vehicles: { all: false, ids } })
 const vehicles = [
   { id: 'v1', name: 'Fund I', aliases: ['Fund 1'] },
   { id: 'v2', name: 'SPV A' },
-  { id: 'v3', name: '3SE Holdings LP' },
+  { id: 'v3', name: 'Northwind Holdings LP' },
   { id: 'v4', name: 'Fund II' },
   { id: 'm1', name: 'ManCo', kind: 'manco' },
 ]
@@ -33,7 +33,7 @@ describe('activeEntityOptions', () => {
         { companyId: 'x1', vehicleId: 'v4' }, // only an exited company: not offered
       ],
     })
-    expect(opts.map(o => o.name)).toEqual(['3SE Holdings LP', 'Fund I', 'SPV A'])
+    expect(opts.map(o => o.name)).toEqual(['Fund I', 'Northwind Holdings LP', 'SPV A'])
     expect(opts.find(o => o.id === 'v1')!.names).toEqual(['Fund I', 'Fund 1'])
   })
 
@@ -71,7 +71,7 @@ describe('activeEntityOptions', () => {
 })
 
 const opts: EntityOption[] = [
-  { id: 'v3', name: '3SE Holdings LP', names: ['3SE Holdings LP'] },
+  { id: 'v3', name: 'Northwind Holdings LP', names: ['Northwind Holdings LP'] },
   { id: 'v1', name: 'Fund I', names: ['Fund I', 'Fund 1'] },
   { id: 'v2', name: 'SPV A', names: ['SPV A'] },
 ]
@@ -120,11 +120,11 @@ describe('selectionLabel', () => {
 
 describe('companyInSelection', () => {
   it('shows everything with no exclusions', () => {
-    expect(companyInSelection(['3SE Holdings LP'], opts, [])).toBe(true)
+    expect(companyInSelection(['Northwind Holdings LP'], opts, [])).toBe(true)
   })
   it('hides a company only when every entity holding it is excluded', () => {
-    expect(companyInSelection(['3SE Holdings LP'], opts, ['v3'])).toBe(false)
-    expect(companyInSelection(['3SE Holdings LP', 'Fund I'], opts, ['v3'])).toBe(true)
+    expect(companyInSelection(['Northwind Holdings LP'], opts, ['v3'])).toBe(false)
+    expect(companyInSelection(['Northwind Holdings LP', 'Fund I'], opts, ['v3'])).toBe(true)
   })
   it('matches an entity by its legacy alias', () => {
     expect(companyInSelection(['Fund 1'], opts, ['v1'])).toBe(false)

@@ -143,7 +143,7 @@ const ctx = (a: AccessContext, rows: Record<string, any>[] = []) => {
     fund_members: [{ fund_id: 'fund-1', user_id: 'user-me' }, { fund_id: 'fund-1', user_id: 'user-colleague' }],
     fund_vehicles: [{ id: 'v1', fund_id: 'fund-1', name: 'Fund I', aliases: null, active: true, kind: 'fund' }, { id: 'v2', fund_id: 'fund-1', name: 'Fund II', aliases: null, active: true, kind: 'fund' }],
     company_vehicles: [{ fund_id: 'fund-1', vehicle_id: 'v1', company_id: 'c1' }, { fund_id: 'fund-1', vehicle_id: 'v2', company_id: 'c2' }],
-    funds: [{ id: 'fund-1', name: 'Northgate' }],
+    funds: [{ id: 'fund-1', name: 'Fernhill' }],
     fund_settings: [{ fund_id: 'fund-1', currency: 'eur', theme: { accent: '243 75% 59%' } }],
   })
   return { ctx: { admin, fundId: 'fund-1', portfolioGroup: '', userId: 'user-me', access: a }, tables }
@@ -287,7 +287,7 @@ describe('the portfolio overview straddles two domains', () => {
 
   it('carries the fund\'s name, currency and validated theme', async () => {
     const payload = await DASHBOARD_HANDLERS.show_portfolio_dashboard(ctx(access('admin')).ctx, { vehicle: 'Fund I' })
-    expect(payload.branding.fundName).toBe('Northgate')
+    expect(payload.branding.fundName).toBe('Fernhill')
     expect(payload.branding.currency).toBe('EUR')
     expect(payload.branding.cssVars).toContain('--primary:243 75% 59%')
     expect(payload.subtitle).toBe('Fund I · as of 9 Oct 2026')

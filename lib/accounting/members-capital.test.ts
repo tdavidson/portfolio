@@ -91,7 +91,7 @@ describe('changesInMembersCapital', () => {
   it('shows unclosed net income as retained earnings for a book that closes to retained earnings', () => {
     const re: Account[] = [
       acct('cash', '1000', 'Cash', 'asset'),
-      acct('d', '3010', 'David Contribution', 'equity', 'member_contributions'),
+      acct('d', '3010', 'Robin Contribution', 'equity', 'member_contributions'),
       acct('re', '3300', 'Retained earnings', 'equity', 'retained_earnings'),
       acct('fees', '4000', 'Fees', 'income'),
     ]
@@ -101,7 +101,7 @@ describe('changesInMembersCapital', () => {
     ]
     const { partners, totals } = changesInMembersCapital(re, postings, { start: null, end: null })
     expect(partners).toEqual([
-      expect.objectContaining({ id: 'd', name: 'David Contribution', contributions: 10, ending: 10 }),
+      expect.objectContaining({ id: 'd', name: 'Robin Contribution', contributions: 10, ending: 10 }),
       expect.objectContaining({ id: 'pool', name: 'Retained earnings', operatingIncome: 90, ending: 90 }),
     ])
     expect(totals.ending).toBe(balanceSheet(re, postings, { itemizeEquity: true }).equity.total)
@@ -110,8 +110,8 @@ describe('changesInMembersCapital', () => {
 
 describe('memberNameFromAccount', () => {
   it('drops the members\' capital prefix', () => {
-    expect(memberNameFromAccount("Members' capital — Jeffrey Silverman")).toBe('Jeffrey Silverman')
-    expect(memberNameFromAccount('Member capital - Paul Sethi')).toBe('Paul Sethi')
-    expect(memberNameFromAccount('David Contribution')).toBe('David Contribution')
+    expect(memberNameFromAccount("Members' capital — Jordan Ellis")).toBe('Jordan Ellis')
+    expect(memberNameFromAccount('Member capital - Alex Rivera')).toBe('Alex Rivera')
+    expect(memberNameFromAccount('Robin Contribution')).toBe('Robin Contribution')
   })
 })

@@ -20,15 +20,15 @@ describe('shouldExpectK1', () => {
 
 describe('reportK1Dependencies', () => {
   it('blocks while an underlying fund has not delivered', () => {
-    const r = reportK1Dependencies([k1({ companyId: 'a', companyName: 'Sequoia XI' })], 2026)
+    const r = reportK1Dependencies([k1({ companyId: 'a', companyName: 'Larchwood XI' })], 2026)
     expect(r.outstanding).toHaveLength(1)
-    expect(r.blocker).toContain('Sequoia XI')
+    expect(r.blocker).toContain('Larchwood XI')
     expect(r.blocker).toContain('provisional')
   })
 
   it('does not block once everything has arrived', () => {
     const r = reportK1Dependencies(
-      [k1({ companyId: 'a', companyName: 'Sequoia XI', status: 'received', receivedDate: '2027-08-01' })],
+      [k1({ companyId: 'a', companyName: 'Larchwood XI', status: 'received', receivedDate: '2027-08-01' })],
       2026,
     )
     expect(r.blocker).toBeNull()
@@ -39,7 +39,7 @@ describe('reportK1Dependencies', () => {
     // An amendment means our figures are wrong, but refusing to close for it is backwards: the
     // year needs closing so the amendment can be made against a stable base, and the amendment
     // path reopens deliberately.
-    const r = reportK1Dependencies([k1({ companyId: 'a', companyName: 'Benchmark IX', status: 'amended' })], 2026)
+    const r = reportK1Dependencies([k1({ companyId: 'a', companyName: 'Larchwood IX', status: 'amended' })], 2026)
     expect(r.blocker).toBeNull()
     expect(r.amended).toHaveLength(1)
   })

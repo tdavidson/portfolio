@@ -63,7 +63,7 @@ describe('isReceiptFile', () => {
 })
 
 describe('matching', () => {
-  const receipt = { amount: 250, receiptDate: '2026-05-10', vendorName: 'Cooley LLP' }
+  const receipt = { amount: 250, receiptDate: '2026-05-10', vendorName: 'Acme Legal LLP' }
   it('requires the amount', () => {
     expect(scoreCandidate(receipt, { kind: 'entry', id: 'a', date: '2026-05-10', amount: 260, description: null, status: 'posted' })).toBeNull()
   })
@@ -77,7 +77,7 @@ describe('matching', () => {
   it('ranks same day and vendor named first', () => {
     const ranked = rankCandidates(receipt, [
       { kind: 'entry', id: 'later', date: '2026-05-16', amount: 250, description: 'legal', status: 'posted' },
-      { kind: 'bank', id: 'best', date: '2026-05-10', amount: 250, description: 'COOLEY LLP WIRE', status: 'x' },
+      { kind: 'bank', id: 'best', date: '2026-05-10', amount: 250, description: 'ACME LEGAL LLP WIRE', status: 'x' },
     ])
     expect(ranked.map(r => r.id)).toEqual(['best', 'later'])
     expect(ranked[0].score).toBe(1)
@@ -129,11 +129,11 @@ describe('partnership invoice PDF', () => {
     fromName: 'Hemrock Management LLC', fromLogo: null, fromAddress: null, toName: 'Fund I, L.P.', toAddress: null,
     invoiceNumber: 'PE-2026Q3-ABCDEF', invoiceDate: '2026-10-01', periodLabel: 'Q3 2026', periodStart: '2026-07-01', periodEnd: '2026-09-30',
     currency: 'USD', amount: 1250, memo: null, draft: true,
-    lines: [{ date: '2026-07-14', vendor: 'Cooley <LLP>', description: 'Closing legal', reference: 'INV-9', amount: 1250, receipts: 1 }],
+    lines: [{ date: '2026-07-14', vendor: 'Acme Legal <LLP>', description: 'Closing legal', reference: 'INV-9', amount: 1250, receipts: 1 }],
   }
   it('escapes what it prints and marks a draft', () => {
     const html = buildPartnershipInvoiceHtml(data)
-    expect(html).toContain('Cooley &lt;LLP&gt;')
+    expect(html).toContain('Acme Legal &lt;LLP&gt;')
     expect(html).toContain('Draft for review')
     expect(html).toContain('$1,250.00')
   })

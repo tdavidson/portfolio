@@ -11,7 +11,7 @@ import type {
   PartnerCapitalRow, PortfolioPayload, PortfolioPosition, StatementLine, StatementsPayload,
 } from './payload'
 
-const branding: DashboardBranding = { fundName: 'Northgate Ventures', currency: 'USD', cssVars: '' }
+const branding: DashboardBranding = { fundName: 'Fernhill Ventures', currency: 'USD', cssVars: '' }
 const now = '2026-10-09T18:14:00.000Z'
 const co = (company: string, stage: string, industry: string, cost: number, fairValue: number, realized = 0, status = 'active'): PortfolioPosition => ({
   company, companyId: company.toLowerCase().replace(/[^a-z]+/g, '-'), status, stage, industry: [industry],
@@ -124,7 +124,7 @@ const rows = [
   lp('Pinecrest Foundation', 'Pinecrest Foundation', 'Fund I', 2000000, 0.725, 210000, 2240000, 0.214),
   lp('Rowan & Vale Partners', 'Rowan & Vale Partners', 'Fund I', 1500000, 0.5, 105000, 1120000, 0.18),
   lp('S. Lindqvist', 'S. Lindqvist', 'Meridian SPV', 1500000, 1, 0, 2800000, 0.39),
-  lp('General Partner', 'Northgate GP LLC', 'Fund I', 1000000, 0.725, 105000, 1120000, null),
+  lp('General Partner', 'Fernhill GP LLC', 'Fund I', 1000000, 0.725, 105000, 1120000, null),
 ]
 const t = (k: 'commitment' | 'paidIn' | 'distributions' | 'nav') => rows.reduce((s, r) => s + r[k], 0)
 export const lps: LpPayload = {
@@ -157,7 +157,7 @@ export const calls: CallsPayload = {
 calls.data.selected = { ...calls.data.calls[0], lines: callLines }
 
 export const home: HomePayload = {
-  view: 'home', title: 'Northgate — home', subtitle: 'What you can open, and what to ask', args: {}, generatedAt: now, branding,
+  view: 'home', title: 'Fernhill — home', subtitle: 'What you can open, and what to ask', args: {}, generatedAt: now, branding,
   data: {
     dashboards: [
       { view: 'portfolio', label: 'Portfolio overview', description: 'Cost, fair value and MOIC, by company. Click a company to drill in.', tool: 'show_portfolio_dashboard', args: {} },
@@ -174,7 +174,7 @@ export const home: HomePayload = {
       { key: 'lps', label: 'LP capital', blurb: 'Commitments, calls, distributions and NAV by investor.', questions: ['Who has funded their capital calls?'] },
     ],
     tips: ['Say "save this as Q3 LP review" to keep a dashboard; it always reopens on current figures.'],
-    help: 'You are connected to Northgate.',
+    help: 'You are connected to Fernhill.',
   },
 }
 export const chart: ChartPayload = {

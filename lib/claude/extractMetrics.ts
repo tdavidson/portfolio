@@ -75,7 +75,7 @@ const SYSTEM_PROMPT =
   `REPORTING PERIOD RULES (critical):\n` +
   `- The reporting_period must reflect the period the DATA covers, not when the email was sent or received.\n` +
   `- Look for explicit period references: "Q3 2024", "Year End 2025", "December 2025", "FY2025", "2025 Annual Report", "as of 12/31/2025", etc.\n` +
-  `- Check the email subject line first — it often contains the period (e.g. "Trestle Year End 2025 Update").\n` +
+  `- Check the email subject line first — it often contains the period (e.g. "Acme Year End 2025 Update").\n` +
   `- Check document headers, titles, footers, and column labels for period references.\n` +
   `- Be as specific as the data allows. If the report says "as of November 30, 2025", use year: 2025, quarter: 4, month: 11, label: "Nov 2025". If it says "Q3 2024", use year: 2024, quarter: 3, month: null. If it says "Year End 2025" or "FY2025" or "Annual 2025", use year: 2025, quarter: 4, month: 12, label: "Year End 2025".\n` +
   `- Always set quarter based on the month when a month is known: Jan-Mar = 1, Apr-Jun = 2, Jul-Sep = 3, Oct-Dec = 4.\n` +
