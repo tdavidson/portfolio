@@ -3,7 +3,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadPostedLedger, loadOwnership } from './load'
 import { loadStrandedCapital, type StrandedCapital } from './pooled-capital-check'
-import { balanceSheet, scheduleOfInvestments, postingsAsOf, FAIR_VALUE_TOLERANCE } from './statements'
+import { balanceSheet, scheduleOfInvestments, postingsAsOf, soiTies } from './statements'
 import { buildSoiPositions, type SoiCompany } from './soi'
 import { computeCapitalAccounts, totalNav } from './capital-account'
 import { loadAllocationBasis, type AllocationBasis } from './terms'
@@ -225,7 +225,7 @@ export async function vehicleStatus(
       href: '/funds/status#book-investments',
       action: 'Put them on the ledger',
     })
-  } else if (soi.source === 'tracker' && (soi.costVariance !== 0 || Math.abs(soi.fairValueVariance) >= FAIR_VALUE_TOLERANCE * Math.max(1, soi.rows.length))) {
+  } else if (soi.source === 'tracker' && !soiTies(soi)) {
     issues.push({
       level: 'warning',
       title: 'Schedule of investments does not tie to the ledger',

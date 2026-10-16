@@ -395,6 +395,17 @@ function groupBy(rows: SoiRow[], key: (row: SoiRow) => string, netAssets: number
 /** Fair value ties to the dollar, not the cent: see the per-company tie-out below. */
 export const FAIR_VALUE_TOLERANCE = 1
 
+/**
+ * Whether the schedule ties to the books: cost to the cent, fair value to a dollar per row. Each
+ * row's shares × price may sit cents from what the books hold (see the per-company tie-out), so a
+ * total that is off by less than a dollar a row is that rounding added up, not a disagreement.
+ * The page's banner and the books-status check both read this, so they cannot disagree.
+ */
+export function soiTies(soi: { costVariance: number; fairValueVariance: number; rows: unknown[] }): boolean {
+  return soi.costVariance === 0
+    && Math.abs(soi.fairValueVariance) < FAIR_VALUE_TOLERANCE * Math.max(1, soi.rows.length)
+}
+
 export function scheduleOfInvestments(
   accounts: Account[],
   postings: Posting[],
