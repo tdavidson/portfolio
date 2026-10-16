@@ -86,6 +86,15 @@ describe('retractAdoptedEntry', () => {
     expect(books(m)).toEqual({ a1100: 100, b1100: 200, cash: -300 })
     expect(m.tables.investment_transactions.map((t: any) => t.adopted_entry_id)).toEqual(['e1', 'e1'])
   })
+  it('builds the split without the records true-up', async () => {
+    const m = seed('cash')
+    vi.mocked(buildEntryForTransaction).mockClear()
+    await retractAdoptedEntry(m.admin, 'f', { txnId: 'tA', entryId: 'e1', original: tA, userId: 'u' })
+    expect(vi.mocked(buildEntryForTransaction).mock.calls.length).toBeGreaterThan(0)
+    for (const call of vi.mocked(buildEntryForTransaction).mock.calls) {
+      expect(call[4]).toEqual({ excludeEntryIds: ['e1'], recordsTrueUp: false })
+    }
+  })
   it('refuses in a closed period', async () => {
     s.closed = true
     const m = seed('cash')
