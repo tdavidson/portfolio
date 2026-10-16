@@ -11,6 +11,7 @@ import type { PeriodPreset } from '@/lib/accounting/statement-period'
 import { EmptyState } from '@/components/ui/empty-state'
 import { soiRowHref } from '@/lib/portfolio/holding-href'
 import { tieOutState } from '@/lib/accounting/tie-out-state'
+import { soiTies } from '@/lib/accounting/statements'
 
 interface SoiRow {
   name: string
@@ -84,7 +85,7 @@ export function ScheduleOfInvestmentsView() {
 
   const content = (() => {
     if (!soi) return null
-    const tied = soi.costVariance === 0 && soi.fairValueVariance === 0
+    const tied = soiTies(soi)
     const num = (v: number | null | undefined, dp = 0) =>
       v == null ? '—' : v.toLocaleString('en-US', { minimumFractionDigits: dp, maximumFractionDigits: dp })
 

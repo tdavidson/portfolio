@@ -202,17 +202,24 @@ export function computeSummary(
 
       // Gross performance recognizes escrow at the original realization date. Escrow receipt
       // rows are collection history only and do not change the return calculation.
+      // A proceeds row with no round name belongs to the round its round-less purchases opened
+      // ('Unknown'), or to the only round there is. Dropping it instead left the exited basis on
+      // the position: a fund-of-funds distribution adopted from the ledger (no round, no shares)
+      // returned capital in the books while the schedule kept carrying the full amount invested.
+      const proceedsRound = txn.round_name
+        ?? (roundMap.has('Unknown') ? 'Unknown' : roundMap.size === 1 ? Array.from(roundMap.keys())[0] : null)
+
       if (txn.transaction_date && proceedsAmount > 0) {
         const cf = { date: new Date(txn.transaction_date), amount: proceedsAmount }
         cashFlows.push(cf)
-        if (txn.round_name) {
-          if (!roundCashFlows.has(txn.round_name)) roundCashFlows.set(txn.round_name, [])
-          roundCashFlows.get(txn.round_name)!.push({ ...cf })
+        if (proceedsRound) {
+          if (!roundCashFlows.has(proceedsRound)) roundCashFlows.set(proceedsRound, [])
+          roundCashFlows.get(proceedsRound)!.push({ ...cf })
         }
       }
-      // Attribute cost basis exited and proceeds to the round if specified
-      if (txn.round_name) {
-        const round = roundMap.get(txn.round_name)
+      // Attribute cost basis exited and proceeds to the round
+      if (proceedsRound) {
+        const round = roundMap.get(proceedsRound)
         if (round) {
           if (txn.cost_basis_exited != null) round.costBasisExited += Math.abs(txn.cost_basis_exited)
           round.totalRealized += proceedsAmount
