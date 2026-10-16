@@ -6,6 +6,7 @@ import { generateLiveReport } from '@/lib/accounting/live-report'
 import { lastDataDates } from '@/lib/accounting/lp-positions'
 import { loadEntityScope } from '@/lib/access/entity-scope'
 import { scopeReportCardRows } from '@/lib/access/lp-scope'
+import { linkedLiveRows } from '@/lib/fund-connections'
 
 // Everything the LIVE report cards need, in one call: fund header, per-investor rows
 // (aggregated across vehicles), and the last-updated date PER VEHICLE.
@@ -71,12 +72,34 @@ export async function GET(req: NextRequest) {
     byInvestor.set(info.investorId, g)
   }
 
+  // The LP's positions in connected funds, through pairs both funds' admins approved
+  // (lib/fund-connections). Only onto a card this caller already gets.
+  const linked = await linkedLiveRows(admin, { fundId: gate.fundId, investorIds: Array.from(byInvestor.keys()), asOf })
+  for (const l of linked.rows) {
+    const g = byInvestor.get(l.investorId)
+    if (!g) continue
+    const r = l.row
+    g.rows.push({
+      key: `${l.fundId}-${r.entity_id}-${r.portfolio_group}`,
+      entityName: l.entityName,
+      portfolioGroup: r.portfolio_group,
+      commitment: r.commitment,
+      paidInCapital: r.paid_in_capital,
+      distributions: r.distributions,
+      nav: r.nav,
+      totalValue: r.total_value,
+      receivable: r.receivable,
+      pctFunded: ratio(r.paid_in_capital, r.commitment),
+      dpi: r.dpi, rvpi: r.rvpi, tvpi: r.tvpi, irr: r.irr,
+    })
+  }
+
   const investors = Array.from(byInvestor.values()).sort((a, b) => a.investorName.localeCompare(b.investorName))
 
   // Per-vehicle last-updated dates — for the footnote, since vehicles report irregularly.
   const groups = Array.from(new Set(rows.map(r => r.portfolio_group)))
   const dateMap = await lastDataDates(admin, gate.fundId, groups)
-  const vehicleDates = groups.sort().map(g => ({ vehicle: g, date: dateMap.get(g) ?? null }))
+  const vehicleDates = [...groups.sort().map(g => ({ vehicle: g, date: dateMap.get(g) ?? null })), ...linked.vehicleDates]
 
   const logo = (fund as any)?.logo_url
   return NextResponse.json({

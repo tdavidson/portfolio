@@ -501,6 +501,11 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/settings/dashboard-entities': { domain: 'admin' },
   // Entity groups: managing them is administration (and admins only in the handler).
   'api/settings/vehicle-groups': { domain: 'admin' },
+  // Connected funds: asking another fund to connect, answering, and pairing LPs across them. Admin
+  // on both sides, by design (lib/fund-connections) — and admins only in the handler.
+  'api/settings/fund-connections': { domain: 'admin' },
+  'api/settings/fund-connections/[id]': { domain: 'admin' },
+  'api/settings/fund-connections/[id]/pairs': { domain: 'admin' },
   'api/settings/reminders/test': { domain: 'admin' },
   'api/auth/activity': { domain: 'portfolio', level: 'any' },
   // Affinity issues ONE KEY PER USER, scoped to that user's own permissions, so each member
