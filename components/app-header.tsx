@@ -1,11 +1,13 @@
 'use client'
 
-import { LogOut, Building2 } from 'lucide-react'
+import { useEffect } from 'react'
+import { LogOut, Building2, ArrowLeftRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { LpPortalSwitchLink } from '@/components/lp-portal-switch-link'
 import { useSidebar } from '@/components/sidebar-context'
 import { CommandPaletteTrigger } from '@/components/command-palette'
 import { useAppExit } from '@/components/app-runtime'
+import { rememberAccount } from '@/lib/recent-accounts'
 
 interface AppHeaderProps {
   fundName: string
@@ -25,6 +27,11 @@ interface AppHeaderProps {
 export function AppHeader({ fundName, fundLogo, userEmail }: AppHeaderProps) {
   const exit = useAppExit()
   const { collapsed } = useSidebar()
+
+  // So "Switch account" on the sign-in page can offer this address, named by its fund.
+  useEffect(() => {
+    if (!exit && userEmail) rememberAccount({ email: userEmail, fundName })
+  }, [exit, userEmail, fundName])
 
   return (
     <header className="relative flex items-center justify-between px-4 py-3 shrink-0">
@@ -71,18 +78,35 @@ export function AppHeader({ fundName, fundLogo, userEmail }: AppHeaderProps) {
             </a>
           </Button>
         ) : (
-          <form action="/api/auth/logout" method="POST">
-            <Button
-              type="submit"
-              variant="outline"
-              size="sm"
-              className="text-muted-foreground gap-2"
-              title={`Signed in as ${userEmail}`}
-            >
-              <LogOut className="h-4 w-4" />
-              <span className="hidden sm:inline">Sign out</span>
-            </Button>
-          </form>
+          <>
+            {/* One email is one fund, so switching funds is a sign-out that lands on the sign-in
+                page with this browser's other accounts offered (lib/recent-accounts.ts). */}
+            <form action="/api/auth/logout" method="POST">
+              <input type="hidden" name="switch" value="1" />
+              <Button
+                type="submit"
+                variant="ghost"
+                size="sm"
+                className="text-muted-foreground gap-2"
+                title={`Signed in as ${userEmail}. Switch to another account`}
+              >
+                <ArrowLeftRight className="h-4 w-4" />
+                <span className="hidden sm:inline">Switch account</span>
+              </Button>
+            </form>
+            <form action="/api/auth/logout" method="POST">
+              <Button
+                type="submit"
+                variant="outline"
+                size="sm"
+                className="text-muted-foreground gap-2"
+                title={`Signed in as ${userEmail}`}
+              >
+                <LogOut className="h-4 w-4" />
+                <span className="hidden sm:inline">Sign out</span>
+              </Button>
+            </form>
+          </>
         )}
       </div>
     </header>
