@@ -14,6 +14,7 @@ export interface NormalizedEmailPayload {
   subject: string
   textBody: string
   htmlBody: string
+  messageId?: string
   attachments: Array<{
     filename: string
     contentType: string
@@ -23,22 +24,32 @@ export interface NormalizedEmailPayload {
 }
 
 /**
- * Convert a Mailgun inbound webhook (multipart form fields) into a
- * NormalizedEmailPayload.
+ * Convert a Resend received email (GET /emails/receiving/{id}) and its downloaded attachments into
+ * a NormalizedEmailPayload. `to` is the recipient that matched the fund, since a received email can
+ * be addressed to several.
  */
-export function normalizeMailgunPayload(fields: Record<string, string>, attachments: Array<{
-  filename: string
-  contentType: string
-  content: Buffer
-}>): NormalizedEmailPayload {
+export function normalizeResendEmail(
+  email: {
+    from: string
+    subject: string | null
+    text: string | null
+    html: string | null
+    message_id?: string | null
+    created_at?: string | null
+    headers?: Record<string, string> | null
+  },
+  to: string,
+  attachments: Array<{ filename: string; contentType: string; content: Buffer }>,
+): NormalizedEmailPayload {
   return {
-    from: extractEmail(fields.from || fields.sender || ''),
-    fromName: extractName(fields.from || ''),
-    to: fields.recipient || fields.To || '',
-    date: fields.Date || fields.date || undefined,
-    subject: fields.subject || '',
-    textBody: fields['body-plain'] || '',
-    htmlBody: fields['body-html'] || '',
+    from: extractEmail(email.from),
+    fromName: extractName(email.from),
+    to,
+    date: headerValue(email.headers, 'date') ?? email.created_at ?? undefined,
+    subject: email.subject ?? '',
+    textBody: email.text ?? '',
+    htmlBody: email.html ?? '',
+    messageId: email.message_id || undefined,
     attachments: attachments.map(a => ({
       filename: a.filename,
       contentType: a.contentType,
@@ -62,6 +73,7 @@ export function toPostmarkPayload(normalized: NormalizedEmailPayload): PostmarkP
     Subject: normalized.subject,
     TextBody: normalized.textBody,
     HtmlBody: normalized.htmlBody,
+    MessageID: normalized.messageId,
     Attachments: normalized.attachments.map(a => ({
       Name: a.filename,
       ContentType: a.contentType,
@@ -71,8 +83,15 @@ export function toPostmarkPayload(normalized: NormalizedEmailPayload): PostmarkP
   }
 }
 
+/** A header by name, ignoring case (Resend returns headers as an object keyed as sent). */
+function headerValue(headers: Record<string, string> | null | undefined, name: string): string | undefined {
+  if (!headers) return undefined
+  const key = Object.keys(headers).find(k => k.toLowerCase() === name)
+  return key ? headers[key] : undefined
+}
+
 // Extract email address from "Name <email@example.com>" format
-function extractEmail(from: string): string {
+export function extractEmail(from: string): string {
   const match = from.match(/<([^>]+)>/)
   return match ? match[1] : from.trim()
 }

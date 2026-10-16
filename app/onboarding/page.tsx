@@ -806,7 +806,7 @@ function ProductsStep({
 }
 
 // ---------------------------------------------------------------------------
-// Step: Inbound email (Postmark or Mailgun) — optional
+// Step: Inbound email (Postmark or Resend) — optional
 // ---------------------------------------------------------------------------
 
 function InboundStep({
@@ -820,10 +820,11 @@ function InboundStep({
   onComplete: () => void
   onSkip: () => Promise<void>
 }) {
-  const [provider, setProvider] = useState<'postmark' | 'mailgun'>('postmark')
+  const [provider, setProvider] = useState<'postmark' | 'resend'>('postmark')
   const [inboundAddress, setInboundAddress] = useState('')
-  const [mgDomain, setMgDomain] = useState('')
-  const [mgSigningKey, setMgSigningKey] = useState('')
+  const [rsDomain, setRsDomain] = useState('')
+  const [rsApiKey, setRsApiKey] = useState('')
+  const [rsSecret, setRsSecret] = useState('')
   const [saving, setSaving] = useState(false)
   const [skipping, setSkipping] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -833,16 +834,16 @@ function InboundStep({
     : ''
   const [baseUrl, setBaseUrl] = useState(defaultBase)
   const postmarkWebhookUrl = webhookToken ? `${baseUrl}/api/inbound-email?token=${webhookToken}` : null
-  const mailgunWebhookUrl = `${baseUrl}/api/inbound-email/mailgun`
-  const webhookUrl = provider === 'postmark' ? postmarkWebhookUrl : mailgunWebhookUrl
+  const resendWebhookUrl = `${baseUrl}/api/inbound-email/resend`
+  const webhookUrl = provider === 'postmark' ? postmarkWebhookUrl : resendWebhookUrl
 
   async function submit() {
     if (provider === 'postmark' && !inboundAddress.trim()) {
       setError('Postmark inbound address is required.')
       return
     }
-    if (provider === 'mailgun' && !mgDomain.trim()) {
-      setError('Mailgun inbound domain is required.')
+    if (provider === 'resend' && !rsDomain.trim()) {
+      setError('Resend inbound domain is required.')
       return
     }
     setError(null)
@@ -852,8 +853,9 @@ function InboundStep({
       if (provider === 'postmark') {
         body.postmarkInboundAddress = inboundAddress
       } else {
-        body.mailgunInboundDomain = mgDomain
-        if (mgSigningKey.trim()) body.mailgunSigningKey = mgSigningKey
+        body.resendInboundDomain = rsDomain
+        if (rsApiKey.trim()) body.resendApiKey = rsApiKey
+        if (rsSecret.trim()) body.resendWebhookSecret = rsSecret
       }
       const res = await fetch('/api/onboarding/inbound-email', {
         method: 'PATCH',
@@ -891,10 +893,10 @@ function InboundStep({
               description="Managed inbound address with webhook forwarding"
             />
             <ChoiceTile
-              selected={provider === 'mailgun'}
-              onClick={() => setProvider('mailgun')}
-              title="Mailgun"
-              description="Route emails from your own domain"
+              selected={provider === 'resend'}
+              onClick={() => setProvider('resend')}
+              title="Resend"
+              description="Receive on your own domain"
             />
           </div>
         </div>
@@ -947,8 +949,8 @@ function InboundStep({
               </>
             ) : (
               <>
-                In Mailgun, go to <strong>Receiving</strong> &gt; <strong>Create Route</strong> and
-                forward matching emails to this URL.
+                In Resend, go to <strong>Webhooks</strong> and add this URL for the{' '}
+                <strong>email.received</strong> event.
               </>
             )}
           </p>
@@ -970,31 +972,44 @@ function InboundStep({
           </div>
         )}
 
-        {provider === 'mailgun' && (
+        {provider === 'resend' && (
           <>
             <div className="space-y-2">
-              <Label htmlFor="mg-domain">Mailgun inbound domain</Label>
+              <Label htmlFor="rs-domain">Resend inbound domain</Label>
               <Input
-                id="mg-domain"
-                placeholder="mg.yourdomain.com"
-                value={mgDomain}
-                onChange={e => setMgDomain(e.target.value)}
+                id="rs-domain"
+                placeholder="inbound.yourdomain.com"
+                value={rsDomain}
+                onChange={e => setRsDomain(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                The domain configured for inbound routing in Mailgun.
+                The domain with receiving turned on in Resend. Mail to any address on it comes to your fund.
               </p>
             </div>
             <div className="space-y-2">
-              <Label htmlFor="mg-signing-key">Webhook signing key (optional)</Label>
+              <Label htmlFor="rs-api-key">Resend API key (optional)</Label>
               <Input
-                id="mg-signing-key"
+                id="rs-api-key"
                 type="password"
-                placeholder="Mailgun webhook signing key"
-                value={mgSigningKey}
-                onChange={e => setMgSigningKey(e.target.value)}
+                placeholder="re_..."
+                value={rsApiKey}
+                onChange={e => setRsApiKey(e.target.value)}
               />
               <p className="text-xs text-muted-foreground">
-                Found in the Mailgun dashboard under Sending &gt; Webhooks. Used to verify inbound requests.
+                A full-access key, so the app can read each received email. Or set RESEND_API_KEY on the deployment.
+              </p>
+            </div>
+            <div className="space-y-2">
+              <Label htmlFor="rs-secret">Webhook signing secret (optional)</Label>
+              <Input
+                id="rs-secret"
+                type="password"
+                placeholder="whsec_..."
+                value={rsSecret}
+                onChange={e => setRsSecret(e.target.value)}
+              />
+              <p className="text-xs text-muted-foreground">
+                Shown when you create the webhook in Resend. Or set RESEND_WEBHOOK_SECRET on the deployment. Mail is refused until one is set.
               </p>
             </div>
           </>

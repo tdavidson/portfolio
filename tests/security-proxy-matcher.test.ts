@@ -54,6 +54,7 @@ describe('proxy matcher never lets an /api path skip the gate', () => {
     expect(runsProxy('/api/inbound-email.png')).toBe(true)
     expect(runsProxy('/api/inbound-email')).toBe(false)
     expect(runsProxy('/api/inbound-email/')).toBe(false)
+    expect(runsProxy('/api/inbound-email/resend')).toBe(false)
   })
 
   it('still skips static assets and Next internals', () => {

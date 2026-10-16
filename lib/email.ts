@@ -18,10 +18,9 @@ export interface EmailParams {
 }
 
 export interface OutboundConfig {
-  provider: 'resend' | 'postmark' | 'gmail' | 'mailgun'
-  apiKey?: string       // resend or mailgun
+  provider: 'resend' | 'postmark' | 'gmail'
+  apiKey?: string       // resend
   serverToken?: string  // postmark
-  mailgunDomain?: string // mailgun sending domain
   // gmail uses admin + fundId
   admin?: SupabaseClient
   fundId?: string
@@ -64,23 +63,6 @@ async function sendViaPostmark(serverToken: string, params: EmailParams) {
   // Non-2xx responses reject (axios); a resolved response still carries ErrorCode, 0 on success.
   if (result.ErrorCode) throw new Error(result.Message || `Postmark error ${result.ErrorCode}`)
   return { id: result.MessageID }
-}
-
-async function sendViaMailgun(apiKey: string, domain: string, params: EmailParams) {
-  const FormData = (await import('form-data')).default
-  const Mailgun = (await import('mailgun.js')).default
-  const mailgun = new Mailgun(FormData)
-  const mg = mailgun.client({ username: 'api', key: apiKey })
-  const result = await mg.messages.create(domain, {
-    from: params.from || process.env.EMAIL_FROM || `noreply@${domain}`,
-    to: [params.to],
-    cc: params.cc || undefined,
-    bcc: params.bcc || undefined,
-    subject: params.subject,
-    html: params.html,
-    attachment: params.attachments?.map(a => ({ filename: a.filename, data: a.content })),
-  })
-  return { id: result.id }
 }
 
 async function sendViaGmail(admin: SupabaseClient, fundId: string, params: EmailParams) {
@@ -153,10 +135,6 @@ export async function sendOutboundEmail(config: OutboundConfig, params: EmailPar
   } else if (config.provider === 'postmark') {
     if (!config.serverToken) throw new Error('Postmark server token not configured')
     result = await sendViaPostmark(config.serverToken, params)
-  } else if (config.provider === 'mailgun') {
-    if (!config.apiKey) throw new Error('Mailgun API key not configured')
-    if (!config.mailgunDomain) throw new Error('Mailgun sending domain not configured')
-    result = await sendViaMailgun(config.apiKey, config.mailgunDomain, params)
   } else if (config.provider === 'gmail') {
     if (!config.admin || !config.fundId) throw new Error('Gmail requires admin client and fundId')
     result = await sendViaGmail(config.admin, config.fundId, params)
@@ -179,7 +157,7 @@ export async function getOutboundConfig(
 ): Promise<OutboundConfig | null> {
   const { data: settings, error: settingsError } = await admin
     .from('fund_settings')
-    .select('outbound_email_provider, asks_email_provider, resend_api_key_encrypted, postmark_server_token_encrypted, mailgun_api_key_encrypted, mailgun_sending_domain, encryption_key_encrypted')
+    .select('outbound_email_provider, asks_email_provider, resend_api_key_encrypted, postmark_server_token_encrypted, encryption_key_encrypted')
     .eq('fund_id', fundId)
     .single()
 
@@ -197,7 +175,7 @@ export async function getOutboundConfig(
     return null
   }
 
-  const provider = selectedProvider as 'resend' | 'postmark' | 'gmail' | 'mailgun'
+  const provider = selectedProvider as 'resend' | 'postmark' | 'gmail'
   console.log(`[outbound-email] Using provider "${provider}" for purpose "${purpose}" (fund ${fundId})`)
 
   if (provider === 'gmail') {
@@ -238,15 +216,6 @@ export async function getOutboundConfig(
       return null
     }
     return { provider, serverToken }
-  }
-
-  if (provider === 'mailgun') {
-    const apiKey = await secret(settings.mailgun_api_key_encrypted, 'mailgun_api')
-    if (!apiKey || !settings.mailgun_sending_domain) {
-      console.warn(`[outbound-email] Mailgun selected but missing API key or domain for fund ${fundId}`)
-      return null
-    }
-    return { provider, apiKey, mailgunDomain: settings.mailgun_sending_domain }
   }
 
   return null

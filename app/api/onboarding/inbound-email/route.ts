@@ -15,13 +15,13 @@ export async function PATCH(req: NextRequest) {
   const access = await assertAdminAccess(admin, user.id)
   if (access instanceof NextResponse) return access
 
-  const { fundId, provider, postmarkInboundAddress, mailgunInboundDomain, mailgunSigningKey } = await req.json()
+  const { fundId, provider, postmarkInboundAddress, resendInboundDomain, resendApiKey, resendWebhookSecret } = await req.json()
 
   if (!fundId || !provider) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
-  if (provider !== 'postmark' && provider !== 'mailgun') {
+  if (provider !== 'postmark' && provider !== 'resend') {
     return NextResponse.json({ error: 'Invalid provider' }, { status: 400 })
   }
 
@@ -40,14 +40,14 @@ export async function PATCH(req: NextRequest) {
     updates.postmark_inbound_address = postmarkInboundAddress.trim()
   }
 
-  if (provider === 'mailgun') {
-    if (!mailgunInboundDomain?.trim()) {
-      return NextResponse.json({ error: 'Mailgun inbound domain is required' }, { status: 400 })
+  if (provider === 'resend') {
+    if (!resendInboundDomain?.trim()) {
+      return NextResponse.json({ error: 'Resend inbound domain is required' }, { status: 400 })
     }
-    updates.mailgun_inbound_domain = mailgunInboundDomain.trim()
+    updates.resend_inbound_domain = resendInboundDomain.trim().toLowerCase()
 
-    // Encrypt signing key if provided
-    if (mailgunSigningKey?.trim()) {
+    // Encrypt the API key and webhook secret if provided, both under the fund's one data key
+    if (resendApiKey?.trim() || resendWebhookSecret?.trim()) {
       const kek = process.env.ENCRYPTION_KEY
       if (!kek) return NextResponse.json({ error: 'Server misconfiguration: ENCRYPTION_KEY not set' }, { status: 500 })
 
@@ -65,7 +65,8 @@ export async function PATCH(req: NextRequest) {
         dek = randomBytes(32).toString('hex')
         updates.encryption_key_encrypted = encrypt(dek, kek)
       }
-      updates.mailgun_signing_key_encrypted = encrypt(mailgunSigningKey.trim(), dek)
+      if (resendApiKey?.trim()) updates.resend_api_key_encrypted = encrypt(resendApiKey.trim(), dek)
+      if (resendWebhookSecret?.trim()) updates.resend_webhook_secret_encrypted = encrypt(resendWebhookSecret.trim(), dek)
     }
   }
 

@@ -23,7 +23,7 @@ Designed as a single-tenant deployment per fund. You control your own data, your
 |---------|-------------|-----------|
 | Hosting platform | Runs the Next.js app — choose **Netlify** or **Vercel** or other platfoms | Yes |
 | [Supabase](https://supabase.com) | Database (PostgreSQL), authentication, file storage, row-level security | Yes — 500 MB database, 1 GB storage |
-| Inbound email provider | Receives portfolio company emails — choose **Postmark** or **Mailgun** | Postmark: 100 emails/mo. Mailgun: 1,000/mo |
+| Inbound email provider | Receives portfolio company emails — choose **Postmark** or **Resend** | Postmark: 100 emails/mo. Resend: 3,000/mo (sent and received count together) |
 | AI provider — optional | AI for the web app's AI buttons, email processing and background jobs. Without one, your own assistant does the AI work over MCP: see [AI without a server key](#ai-without-a-server-key) | See below |
 | ↳ [Anthropic](https://console.anthropic.com) | Claude API (default model: `claude-sonnet-4-5`) | Pay-as-you-go |
 | ↳ [OpenAI](https://platform.openai.com) | OpenAI API (default model: `gpt-4o`) | Pay-as-you-go |
@@ -33,7 +33,7 @@ Designed as a single-tenant deployment per fund. You control your own data, your
 
 | Service | What it does | When you need it |
 |---------|-------------|-----------------|
-| Outbound email provider | Sends quarterly reporting requests and system notifications | If you want to email portfolio companies from the app. Choose **Resend**, **Postmark**, **Mailgun**, or **Gmail**. |
+| Outbound email provider | Sends quarterly reporting requests and system notifications | If you want to email portfolio companies from the app. Choose **Resend**, **Postmark**, or **Gmail**. |
 | [Google Cloud](https://console.cloud.google.com) (OAuth) | Google Drive archiving + Gmail sending | If you want to save emails/attachments to Drive or send via Gmail |
 
 ### The quick way: `npm run setup`
@@ -171,10 +171,13 @@ This is how portfolio company reports get into the system. Choose one:
    - `YOUR_TOKEN` is the webhook token shown in the onboarding wizard (also available in Settings)
 4. Enter the Postmark inbound address in the onboarding wizard or Settings page
 
-**Mailgun:**
-1. Create a [Mailgun](https://www.mailgun.com) account and add a domain for receiving
-2. Set up an inbound route to forward to: `https://your-app.com/api/inbound-email/mailgun`
-3. In the onboarding wizard or Settings → Inbound email, select Mailgun as your inbound provider and enter your **Mailgun inbound domain** (e.g. `mg.yourdomain.com`) and, optionally, the **webhook signing key** (Mailgun dashboard → Sending → Webhooks), which is used to verify that inbound requests really came from Mailgun
+**Resend:**
+1. Create a [Resend](https://resend.com) account, add a domain with receiving turned on (a subdomain such as `inbound.yourdomain.com` keeps your existing mailboxes untouched), and add the DNS records it lists, including the receiving MX record
+2. Create a **full-access** API key, so the app can read each received email and its attachments
+3. Add a webhook for the `email.received` event pointing at `https://your-app.com/api/inbound-email/resend`, and copy its signing secret (`whsec_...`)
+4. In the onboarding wizard or Settings → Inbound email, select Resend and enter the **inbound domain**, the **API key** and the **webhook signing secret**. The key and secret can instead go in `RESEND_API_KEY` and `RESEND_WEBHOOK_SECRET` on the deployment
+
+Mail to any address on the domain comes to the fund. Resend's webhook carries only metadata, so the app reads the body and attachments back from Resend's API; if that fails it answers 503 and Resend retries. Mail whose From fails DMARC (a spoofed sender) is dropped, even from an authorized address.
 
 You can also edit the app to use other inbound email parsing services.
 
@@ -317,7 +320,7 @@ curl -s $URL/api/agent -H "Authorization: Bearer $KEY" -H 'Content-Type: applica
 - **Authorized senders** may email company updates in.
 - **`aiMode: "assistant"`** records that the fund runs with no server AI key, so the checklist stops asking for one. See [AI without a server key](#ai-without-a-server-key).
 
-AI provider keys and inbound email (Postmark or Mailgun) involve secrets or third-party accounts,
+AI provider keys and inbound email (Postmark or Resend) involve secrets or third-party accounts,
 so they never go through a chat. An AI key is optional:
 see [AI without a server key](#ai-without-a-server-key).
 
@@ -325,7 +328,7 @@ see [AI without a server key](#ai-without-a-server-key).
 instead be set as an environment variable on the deployment: in `.env` for a self-hosted install, or
 in your host's environment settings (on Vercel, Project → Settings → Environment Variables). The
 variables are `ANTHROPIC_API_KEY`, `OPENAI_API_KEY`, `OPENROUTER_API_KEY`, `RESEND_API_KEY`,
-`POSTMARK_SERVER_TOKEN`, `MAILGUN_API_KEY`, `MAILGUN_WEBHOOK_SIGNING_KEY`, `GOOGLE_CLIENT_ID` and
+`POSTMARK_SERVER_TOKEN`, `RESEND_WEBHOOK_SECRET`, `GOOGLE_CLIENT_ID` and
 `GOOGLE_CLIENT_SECRET` (all listed in `.env.example`). A key saved in Settings wins, and the environment
 fills in when Settings has none. The variables apply to every fund on the deployment and take effect
 after a redeploy.
@@ -333,7 +336,7 @@ after a redeploy.
 From chat, `environment_status` tells an admin which credentials are set and where (Settings, the
 environment, or missing), with the variable name for each, and never a value. `update_fund_connections`
 sets the non-secret half: the AI provider and model, the outbound and inbound email providers, the sender
-name and address, the Postmark inbound address, the Mailgun domains and the Google client id. It refuses
+name and address, the Postmark inbound address, the Resend inbound domain and the Google client id. It refuses
 anything that looks like a key. So a fund can be connected end to end by adding variables to `.env` and
 asking the assistant to do the rest.
 
@@ -355,7 +358,6 @@ To send quarterly reporting requests or system notifications, configure an outbo
 
 - **Resend** — enter your API key
 - **Postmark** — enter your server token (can reuse the same Postmark account as inbound)
-- **Mailgun** — enter your API key and sending domain
 - **Gmail** — connect via Google OAuth (requires Google Cloud setup below)
 
 You can set different providers for system emails and portfolio asks.

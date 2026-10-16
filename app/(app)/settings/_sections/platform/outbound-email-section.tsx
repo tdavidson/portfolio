@@ -18,8 +18,6 @@ export function OutboundEmailSection({
   systemEmailFromAddress: savedFromAddress,
   hasResendKey,
   hasPostmarkServerToken,
-  hasMailgunApiKey,
-  mailgunSendingDomain: existingMailgunDomain,
   googleConnected,
   hasGoogleCredentials,
   googleClientId,
@@ -33,8 +31,6 @@ export function OutboundEmailSection({
   systemEmailFromAddress: string | null
   hasResendKey: boolean
   hasPostmarkServerToken: boolean
-  hasMailgunApiKey: boolean
-  mailgunSendingDomain: string
   googleConnected: boolean
   hasGoogleCredentials: boolean
   googleClientId: string
@@ -51,8 +47,6 @@ export function OutboundEmailSection({
   const [fromAddress, setFromAddress] = useState(savedFromAddress || '')
   const [resendKey, setResendKey] = useState('')
   const [postmarkToken, setPostmarkToken] = useState('')
-  const [mgApiKey, setMgApiKey] = useState('')
-  const [mgDomain, setMgDomain] = useState(existingMailgunDomain)
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [showApprovalEmail, setShowApprovalEmail] = useState(false)
@@ -78,10 +72,6 @@ export function OutboundEmailSection({
     if (activeProviders.has('postmark') && postmarkToken.trim()) {
       payload.postmarkServerToken = postmarkToken.trim()
     }
-    if (activeProviders.has('mailgun')) {
-      if (mgApiKey.trim()) payload.mailgunApiKey = mgApiKey.trim()
-      if (mgDomain.trim()) payload.mailgunSendingDomain = mgDomain.trim()
-    }
     const res = await fetch('/api/settings', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
@@ -92,7 +82,6 @@ export function OutboundEmailSection({
       setSaved(true)
       setResendKey('')
       setPostmarkToken('')
-      setMgApiKey('')
       setTimeout(() => setSaved(false), 2000)
       onSaved()
     }
@@ -104,7 +93,7 @@ export function OutboundEmailSection({
   const approvalBodyChanged = (approvalBody.trim() || null) !== (savedApprovalBody || null)
   const fromNameChanged = (fromName.trim() || null) !== (savedFromName || null)
   const fromAddressChanged = (fromAddress.trim() || null) !== (savedFromAddress || null)
-  const hasNewSecret = resendKey.trim() || postmarkToken.trim() || mgApiKey.trim() || mgDomain !== existingMailgunDomain
+  const hasNewSecret = resendKey.trim() || postmarkToken.trim()
   const canSave = systemProviderChanged || asksProviderChanged || approvalSubjectChanged || approvalBodyChanged || fromNameChanged || fromAddressChanged || hasNewSecret
 
   const selectClass = "flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring"
@@ -128,7 +117,6 @@ export function OutboundEmailSection({
             <option value="">None (disabled)</option>
             <option value="resend">Resend</option>
             <option value="postmark">Postmark</option>
-            <option value="mailgun">Mailgun</option>
             <option value="gmail">Gmail</option>
           </select>
         </div>
@@ -213,7 +201,6 @@ export function OutboundEmailSection({
             <option value="">None (disabled)</option>
             <option value="resend">Resend</option>
             <option value="postmark">Postmark</option>
-            <option value="mailgun">Mailgun</option>
             <option value="gmail">Gmail</option>
           </select>
         </div>
@@ -258,36 +245,6 @@ export function OutboundEmailSection({
               placeholder={hasPostmarkServerToken ? '••••••••' : 'Server token'}
             />
           </div>
-        )}
-
-        {activeProviders.has('mailgun') && (
-          <>
-            <div>
-              <Label>Mailgun API key</Label>
-              {hasMailgunApiKey && (
-                <p className="text-xs text-muted-foreground mt-1 mb-1.5">
-                  A key is already saved. Enter a new one to replace it.
-                </p>
-              )}
-              <Input
-                type="password"
-                value={mgApiKey}
-                onChange={(e) => setMgApiKey(e.target.value)}
-                placeholder={hasMailgunApiKey ? '••••••••' : 'key-...'}
-              />
-            </div>
-            <div>
-              <Label>Sending domain</Label>
-              <Input
-                value={mgDomain}
-                onChange={(e) => setMgDomain(e.target.value)}
-                placeholder="mg.yourdomain.com"
-              />
-              <p className="text-xs text-muted-foreground mt-1">
-                The verified domain in Mailgun used for sending emails.
-              </p>
-            </div>
-          </>
         )}
 
         {activeProviders.has('gmail') && (
