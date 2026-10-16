@@ -13,7 +13,7 @@ let user: { id: string } | null = { id: 'user-me' }
 let enabled = true
 const store = memoryAdmin({
   fund_members: [{ user_id: 'user-me', fund_id: 'fund-1', role: 'member' }],
-  funds: [{ id: 'fund-1', name: 'Northgate Ventures' }],
+  funds: [{ id: 'fund-1', name: 'Fernhill Ventures' }],
 })
 
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { getUser: async () => ({ data: { user } }) } }) }))
@@ -22,7 +22,7 @@ vi.mock('@/lib/oauth/enabled', () => ({ agentApiEnabled: async () => enabled }))
 
 import { GET } from '@/app/api/plugin/route'
 
-const get = (query: string, host = 'portfolio.northgate.vc') =>
+const get = (query: string, host = 'portfolio.fernhill.example') =>
   GET(new NextRequest(`https://${host}/api/plugin${query}`, { headers: { host } }))
 
 beforeEach(() => { user = { id: 'user-me' }; enabled = true })
@@ -32,12 +32,12 @@ describe('GET /api/plugin', () => {
     const res = await get('?target=claude')
     expect(res.status).toBe(200)
     expect(res.headers.get('content-type')).toBe('application/zip')
-    expect(res.headers.get('content-disposition')).toBe('attachment; filename="portfolio-portfolio-northgate-vc-claude.zip"')
+    expect(res.headers.get('content-disposition')).toBe('attachment; filename="portfolio-portfolio-fernhill-example-claude.zip"')
     expect(res.headers.get('cache-control')).toContain('no-store')
 
     const zip = await JSZip.loadAsync(await res.arrayBuffer())
-    expect(JSON.parse(await zip.file('.mcp.json')!.async('string')).mcpServers.portfolio.url).toBe('https://portfolio.northgate.vc/api/mcp')
-    expect(JSON.parse(await zip.file('.claude-plugin/plugin.json')!.async('string')).displayName).toBe('Northgate Ventures Portfolio')
+    expect(JSON.parse(await zip.file('.mcp.json')!.async('string')).mcpServers.portfolio.url).toBe('https://portfolio.fernhill.example/api/mcp')
+    expect(JSON.parse(await zip.file('.claude-plugin/plugin.json')!.async('string')).displayName).toBe('Fernhill Ventures Portfolio')
     expect(zip.file('skills/fund-dashboards/SKILL.md')).toBeTruthy()
   })
 

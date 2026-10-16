@@ -74,7 +74,7 @@ describe('public email domains', () => {
     d => expect(isPublicEmailDomain(d)).toBe(true),
   )
 
-  it.each(['acme.vc', 'sequoiacap.com', 'gmailx.com', 'mail.acme.com'])('%s is an organisation', d => {
+  it.each(['acme.vc', 'acmecapital.com', 'gmailx.com', 'mail.acme.com'])('%s is an organisation', d => {
     expect(isPublicEmailDomain(d)).toBe(false)
   })
 

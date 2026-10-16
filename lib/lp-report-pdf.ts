@@ -5,6 +5,7 @@ import { sanitizeLetterHtml } from '@/lib/sanitize'
 import { lpRatios } from '@/lib/lp-metrics'
 import { generateLiveReport } from '@/lib/accounting/live-report'
 import { lastDataDates } from '@/lib/accounting/lp-positions'
+import { linkedLiveRows } from '@/lib/fund-connections'
 import { documentLetterhead, contactBlock } from '@/lib/vehicle-letterhead'
 import { letterPdfFileName, snapshotPdfFileName } from '@/lib/lps/attachment-names'
 
@@ -494,8 +495,10 @@ export async function generateLiveInvestorReportPdf(
   admin: any,
   /** `groups`: only these vehicles (a member scoped to some entities); absent or null = all.
    *  `omit`: positions to leave out, by vehicle → LP entity ids (a carry recipient's, for a caller
-   *  without gp_economics; lib/access/carry-visibility.ts). */
-  opts: { fundId: string; investorIds: string[]; groups?: string[] | null; omit?: Map<string, Set<string>> },
+   *  without gp_economics; lib/access/carry-visibility.ts).
+   *  `includeConnected`: add the investor's positions in connected funds (lib/fund-connections) —
+   *  the GP's report card does; the LP portal's statement does not yet. */
+  opts: { fundId: string; investorIds: string[]; groups?: string[] | null; omit?: Map<string, Set<string>>; includeConnected?: boolean },
 ): Promise<{ pdf: Buffer; fileName: string } | null> {
   const { fundId, investorIds } = opts
   if (investorIds.length === 0) return null
@@ -515,6 +518,14 @@ export async function generateLiveInvestorReportPdf(
   const mine = report.rows.filter((r: any) =>
     investorSet.has(entInfo.get(r.entity_id)?.investor_id ?? '') && (opts.groups == null || opts.groups.includes(r.portfolio_group))
     && !opts.omit?.get(r.portfolio_group)?.has(r.entity_id))
+
+  // The LP's positions in connected funds, through pairs both funds' admins approved
+  // (lib/fund-connections). Only for a caller who sees every entity: one scoped to some sees those.
+  const linked = opts.includeConnected && opts.groups == null
+    ? await linkedLiveRows(admin, { fundId, investorIds, omitCarryRecipients: !!opts.omit })
+    : { rows: [], vehicleDates: [] }
+  for (const l of linked.rows) entInfo.set(`${l.fundId}:${l.row.entity_id}`, { entity_name: l.entityName, investor_id: l.investorId })
+  mine.push(...linked.rows.map(l => ({ ...l.row, entity_id: `${l.fundId}:${l.row.entity_id}` })))
   if (mine.length === 0) return null
 
   const invRows: InvestmentRow[] = mine.map((r: any, i: number) => {
@@ -543,7 +554,7 @@ export async function generateLiveInvestorReportPdf(
   // "As of" = most recent data date across this investor's vehicles.
   const groups = Array.from(new Set(mine.map((r: any) => r.portfolio_group as string)))
   const dateMap = await lastDataDates(admin, fundId, groups)
-  const maxDate = Array.from(dateMap.values()).filter((d): d is string => !!d).sort().at(-1) ?? report.asOf ?? null
+  const maxDate = [...Array.from(dateMap.values()), ...linked.vehicleDates.map(v => v.date)].filter((d): d is string => !!d).sort().at(-1) ?? report.asOf ?? null
   const asOfFormatted = maxDate ? new Date(maxDate + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : null
 
   const html = buildReportHtml({

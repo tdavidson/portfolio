@@ -8,7 +8,7 @@ const SAMPLE_NARRATIVES = [
     company_name: 'Acme Health',
     narrative: `Acme Health continued its strong trajectory in Q4, with ARR reaching $4.2M, up 35% year-over-year. The company added 12 new enterprise customers during the quarter, bringing total contracted accounts to 87. Net revenue retention remained healthy at 118%, driven by expansion within existing health system clients.
 
-The team closed a $15M Series B in November, led by Summit Partners, which will fund expansion into the payer market. Headcount grew to 52 employees, with key hires in sales leadership and product engineering. The company's burn rate increased modestly to $380K/month as it invests in go-to-market.
+The team closed a $15M Series B in November, led by Acme Growth Partners, which will fund expansion into the payer market. Headcount grew to 52 employees, with key hires in sales leadership and product engineering. The company's burn rate increased modestly to $380K/month as it invests in go-to-market.
 
 One area to watch: sales cycle length has extended from 45 to 60 days as Acme moves upmarket to larger health systems. Management is addressing this by hiring dedicated enterprise sales reps and investing in a more robust demo environment.`,
     updated_by: null,

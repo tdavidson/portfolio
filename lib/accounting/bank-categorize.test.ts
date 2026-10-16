@@ -18,7 +18,7 @@ describe('categorizeBankRow — the entity\'s own chart', () => {
     expect(categorizeBankRow(row(5e6, 'Capital call'), fund).accountCode).toBe('3100')
     expect(categorizeBankRow(row(-12000, 'Annual audit'), fund).accountCode).toBe('5100')
     expect(categorizeBankRow(row(-50000, 'Management fee Q2'), fund).accountCode).toBe('5000')
-    expect(categorizeBankRow(row(0.5, 'MORGAN STANLEY', { activity: 'Interest Income' }), fund).accountCode).toBe('4100')
+    expect(categorizeBankRow(row(0.5, 'ACME BANK', { activity: 'Interest Income' }), fund).accountCode).toBe('4100')
     expect(categorizeBankRow(row(12, 'Dividend received'), fund).accountCode).toBe('4130')
     expect(categorizeBankRow(row(-420, 'Margin interest charged'), fund).accountCode).toBe('5300')
   })

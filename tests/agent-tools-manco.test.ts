@@ -49,25 +49,25 @@ beforeEach(() => {
 
 describe('resolveVehicleForTool — management companies', () => {
   it('resolves a named manco for an owner who holds management_company at the tool\'s level', async () => {
-    mocks.resolveVehicle.mockResolvedValue('3SE Holdings LLC')
+    mocks.resolveVehicle.mockResolvedValue('Northwind Holdings LLC')
     mocks.vehicleKindByName.mockResolvedValue('manco')
     const a = access({ grants: { accounting: 'write', management_company: 'write' } })
-    await expect(resolveVehicleForTool(post, admin, 'f1', '3se holdings llc', a)).resolves.toBe('3SE Holdings LLC')
-    expect(mocks.resolveVehicle).toHaveBeenCalledWith(admin, 'f1', '3se holdings llc', { includeManagementCompanies: true, access: a })
+    await expect(resolveVehicleForTool(post, admin, 'f1', 'northwind holdings llc', a)).resolves.toBe('Northwind Holdings LLC')
+    expect(mocks.resolveVehicle).toHaveBeenCalledWith(admin, 'f1', 'northwind holdings llc', { includeManagementCompanies: true, access: a })
   })
 
   it('refuses a manco to an accounting-only owner', async () => {
-    mocks.resolveVehicle.mockResolvedValue('3SE Holdings LLC')
+    mocks.resolveVehicle.mockResolvedValue('Northwind Holdings LLC')
     mocks.vehicleKindByName.mockResolvedValue('manco')
-    await expect(resolveVehicleForTool(list, admin, 'f1', '3SE Holdings LLC', access())).rejects.toBeInstanceOf(VehicleAccessError)
+    await expect(resolveVehicleForTool(list, admin, 'f1', 'Northwind Holdings LLC', access())).rejects.toBeInstanceOf(VehicleAccessError)
   })
 
   it('refuses a write tool on a manco when the owner holds it read-only', async () => {
-    mocks.resolveVehicle.mockResolvedValue('3SE Holdings LLC')
+    mocks.resolveVehicle.mockResolvedValue('Northwind Holdings LLC')
     mocks.vehicleKindByName.mockResolvedValue('manco')
     const a = access({ grants: { accounting: 'write', management_company: 'read' } })
-    await expect(resolveVehicleForTool(post, admin, 'f1', '3SE Holdings LLC', a)).rejects.toBeInstanceOf(VehicleAccessError)
-    await expect(resolveVehicleForTool(list, admin, 'f1', '3SE Holdings LLC', a)).resolves.toBe('3SE Holdings LLC')
+    await expect(resolveVehicleForTool(post, admin, 'f1', 'Northwind Holdings LLC', a)).rejects.toBeInstanceOf(VehicleAccessError)
+    await expect(resolveVehicleForTool(list, admin, 'f1', 'Northwind Holdings LLC', a)).resolves.toBe('Northwind Holdings LLC')
   })
 
   it('lets a named fund vehicle through on accounting alone', async () => {

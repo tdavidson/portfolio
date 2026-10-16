@@ -84,10 +84,10 @@ describe('a document link', () => {
   it('opens a report card of every vehicle — or only the entities a scoped member can see', async () => {
     access = member({ lp_capital: 'read', gp_economics: 'read' })
     expect((await open(card())).status).toBe(200)
-    expect(cardPdf).toHaveBeenLastCalledWith(store.admin, { fundId: 'fund-1', investorIds: ['inv-1'], groups: null })
+    expect(cardPdf).toHaveBeenLastCalledWith(store.admin, { fundId: 'fund-1', investorIds: ['inv-1'], groups: null, includeConnected: true })
     access = member({ lp_capital: 'read', gp_economics: 'read' }, false)
     expect((await open(card())).status).toBe(200)
-    expect(cardPdf).toHaveBeenLastCalledWith(store.admin, { fundId: 'fund-1', investorIds: ['inv-1'], groups: ['Fund I'] })
+    expect(cardPdf).toHaveBeenLastCalledWith(store.admin, { fundId: 'fund-1', investorIds: ['inv-1'], groups: ['Fund I'], includeConnected: true })
   })
 
   it('stops working when the member loses the grant, the fund, or agent access', async () => {

@@ -1,6 +1,6 @@
 'use client'
 
-import { Suspense, useState, useEffect } from 'react'
+import { Suspense, useState, useEffect, useRef } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
@@ -13,6 +13,8 @@ import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/com
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { Separator } from '@/components/ui/separator'
 import { AuthShell } from '@/components/auth-shell'
+import { X } from 'lucide-react'
+import { forgetAccount, useRecentAccounts, type RecentAccount } from '@/lib/recent-accounts'
 
 export default function AuthPage() {
   return (
@@ -31,6 +33,16 @@ function AuthForm() {
   const searchParams = useSearchParams()
   const urlError = searchParams.get('error')
   const emailConfirmed = searchParams.get('confirmed') === 'true'
+  const switching = searchParams.get('switch') === '1'
+  const passwordRef = useRef<HTMLInputElement>(null)
+
+  const recent = useRecentAccounts()
+
+  function pick(account: RecentAccount) {
+    setEmail(account.email)
+    setError(null)
+    passwordRef.current?.focus()
+  }
 
   // Where to land after signing in. Set when a page bounced the user here to log
   // in first — notably the OAuth consent screen (/oauth/authorize), which must
@@ -125,8 +137,12 @@ function AuthForm() {
     >
         <Card>
           <CardHeader className="pb-4">
-            <CardTitle className="text-lg">Sign in with your account</CardTitle>
-            <CardDescription>Sign in with password or a one-time code.</CardDescription>
+            <CardTitle className="text-lg">{switching ? 'Switch account' : 'Sign in with your account'}</CardTitle>
+            <CardDescription>
+              {switching
+                ? 'Each fund has its own sign-in. Pick the account to switch to.'
+                : 'Sign in with password or a one-time code.'}
+            </CardDescription>
           </CardHeader>
           <CardContent className="space-y-4">
             {emailConfirmed && (
@@ -140,6 +156,35 @@ function AuthForm() {
               <Alert variant="destructive">
                 <AlertDescription>{error || urlError}</AlertDescription>
               </Alert>
+            )}
+
+            {recent.length > 0 && (
+              <div className="space-y-1.5">
+                {recent.map(account => (
+                  <div
+                    key={account.email}
+                    className={`flex items-center rounded-lg border ${account.email === email ? 'border-primary bg-muted/40' : ''}`}
+                  >
+                    <button
+                      type="button"
+                      onClick={() => pick(account)}
+                      className="flex-1 min-w-0 px-3 py-2 text-left"
+                    >
+                      <span className="block text-sm font-medium truncate">{account.fundName || account.email}</span>
+                      {account.fundName && <span className="block text-xs text-muted-foreground truncate">{account.email}</span>}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => forgetAccount(account.email)}
+                      className="p-2 mr-1 text-muted-foreground hover:text-foreground"
+                      title="Forget this account on this browser"
+                      aria-label={`Forget ${account.email}`}
+                    >
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
 
             <div className="space-y-2">
@@ -163,6 +208,7 @@ function AuthForm() {
                 </Link>
               </div>
               <Input
+                ref={passwordRef}
                 id="password"
                 type="password"
                 value={password}
@@ -182,7 +228,7 @@ function AuthForm() {
               <Separator className="flex-1" />
             </div>
 
-            <Link href="/auth/magic-link">
+            <Link href={`/auth/magic-link${magicLinkQuery(email, nextPath)}`}>
               <Button variant="outline" className="w-full">
                 Sign in with a one-time code
               </Button>
@@ -198,4 +244,13 @@ function AuthForm() {
         </Card>
     </AuthShell>
   )
+}
+
+/** Carries the chosen address and any pending destination over to the one-time-code page. */
+function magicLinkQuery(email: string, next: string | null): string {
+  const q = new URLSearchParams()
+  if (email.trim()) q.set('email', email.trim())
+  if (next) q.set('next', next)
+  const s = q.toString()
+  return s ? `?${s}` : ''
 }

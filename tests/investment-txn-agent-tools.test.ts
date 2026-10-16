@@ -16,7 +16,7 @@ beforeEach(() => {
   s.retract.mockReset().mockResolvedValue({ retracted: 1 })
   s.redraft.mockReset().mockResolvedValue({ drafted: true, posted: true })
   m = memoryAdmin({
-    companies: [{ id: 'c1', fund_id: 'f', name: 'Messium, Ltd' }],
+    companies: [{ id: 'c1', fund_id: 'f', name: 'Example Holdings, Ltd' }],
     investment_transactions: [
       { id: 't1', fund_id: 'f', company_id: 'c1', transaction_type: 'unrealized_gain_change', portfolio_group: 'Fund III',
         transaction_date: '2026-09-30', unrealized_value_change: -147.59, current_share_price: 7.31 },

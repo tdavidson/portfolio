@@ -4,12 +4,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 // letterhead_address — 20261012120000_vehicle_letterhead.sql — and letterhead_email, with the fund's
 // default in funds.contact_email — 20261013160000_letterhead_email.sql).
 //
-// A firm can administer a vehicle that has its own brand: 3SE Holdings is run from this fund's
-// books, but its LPs know it as 3SE, not as the firm. So an LP-facing PDF about ONE vehicle (a
+// A firm can administer a vehicle that has its own brand: Northwind Holdings is run from this fund's
+// books, but its LPs know it as Northwind, not as the firm. So an LP-facing PDF about ONE vehicle (a
 // capital account statement, a call or distribution notice, a receipt, a letter) carries that
 // vehicle's letterhead where it has one, and the fund's otherwise. A document spanning several
 // vehicles (an investor report) uses a vehicle's value only when every vehicle on it shares it: an
-// LP who is only in 3SE vehicles gets 3SE's letterhead, one also in the flagship gets the fund's.
+// LP who is only in Northwind vehicles gets Northwind's letterhead, one also in the flagship gets the fund's.
 //
 // Each of the four parts falls back on its own, so a vehicle with only a logo set still prints
 // the fund's name, address and email.

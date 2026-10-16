@@ -26,7 +26,7 @@ beforeEach(() => { m.ingested = []; m.uploaded = []; m.signed = [] })
 
 describe('entity documents over MCP', () => {
   it('issues an upload URL inside this fund and entity, and refuses files over 25 MB', async () => {
-    const out = await entityDocumentUploadUrl(scope, { fileName: '3SE LPA.pdf', sizeBytes: 300_000 })
+    const out = await entityDocumentUploadUrl(scope, { fileName: 'Northwind LPA.pdf', sizeBytes: 300_000 })
     expect(out.storagePath.startsWith('fund-1/veh-1/')).toBe(true)
     expect(out.signedUrl).toContain(out.storagePath)
     await expect(entityDocumentUploadUrl(scope, { fileName: 'x.pdf', sizeBytes: 30 * 1024 * 1024 })).rejects.toThrow(/25 MB/)

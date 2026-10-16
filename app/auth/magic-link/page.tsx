@@ -1,6 +1,7 @@
 'use client'
 
-import { useState } from 'react'
+import { Suspense, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Button } from '@/components/ui/button'
@@ -10,9 +11,22 @@ import { Label } from '@/components/ui/label'
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import { OtpCodeForm } from '@/components/auth/otp-code-form'
+import { safeNextPath } from '@/lib/safe-redirect'
 
 export default function MagicLinkPage() {
-  const [email, setEmail] = useState('')
+  return (
+    <Suspense>
+      <MagicLinkForm />
+    </Suspense>
+  )
+}
+
+function MagicLinkForm() {
+  // Carried over from the sign-in page: the account picked there, and where to land afterwards
+  // (e.g. the agent consent screen a "Switch account" started from).
+  const searchParams = useSearchParams()
+  const next = safeNextPath(searchParams.get('next')) ?? '/'
+  const [email, setEmail] = useState(() => searchParams.get('email') ?? '')
   const [loading, setLoading] = useState(false)
   const [verifying, setVerifying] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -50,7 +64,7 @@ export default function MagicLinkPage() {
       setVerifying(false)
     } else {
       // Run server-side post-login side effects, then land the user.
-      window.location.href = '/auth/post-login?method=magic_link&next=/'
+      window.location.href = `/auth/post-login?method=magic_link&next=${encodeURIComponent(next)}`
     }
   }
 
@@ -102,7 +116,7 @@ export default function MagicLinkPage() {
             )}
 
             <p className="text-center text-sm text-muted-foreground">
-              <Link href="/auth" className="text-primary underline underline-offset-4 hover:text-primary/80">
+              <Link href={next === '/' ? '/auth' : `/auth?next=${encodeURIComponent(next)}`} className="text-primary underline underline-offset-4 hover:text-primary/80">
                 Sign in with password
               </Link>
             </p>

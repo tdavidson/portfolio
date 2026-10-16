@@ -9,6 +9,7 @@ import {
   bankEntryPostings,
   counterPosting,
   summarizeBankRec,
+  cashTransferEntryIds,
   openingCashBefore,
 } from './bank'
 import { isBalanced } from './ledger'
@@ -94,28 +95,28 @@ describe('parseTransactionsCsv', () => {
   })
 
   it('handles a newline embedded in a quoted field (brokerage export)', () => {
-    const csv = 'Date,Description,Amount($),Running Balance\n06/30/2026,"MORGAN STANLEY BANK N.A.\n(Period 06/01-06/30)",0.50,"60,064.45"'
+    const csv = 'Date,Description,Amount($),Running Balance\n06/30/2026,"ACME BANK N.A.\n(Period 06/01-06/30)",0.50,"60,064.45"'
     const { rows, errors } = parseTransactionsCsv(csv)
     expect(errors).toEqual([])
     expect(rows).toHaveLength(1)
     expect(rows[0].amount).toBe(0.5)
-    expect(rows[0].description).toBe('MORGAN STANLEY BANK N.A. (Period 06/01-06/30)')
+    expect(rows[0].description).toBe('ACME BANK N.A. (Period 06/01-06/30)')
   })
 })
 
 describe('parseTransactionsCsv — one cell per line (copied from a bank web page)', () => {
-  const MS = ['Date', 'Activity Type', 'Description', 'Amount', '09/30/26', 'Interest Income', 'MORGAN STANLEY BANK N.A.', '(Period 09/01-09/30)', '0.49'].join('\n')
+  const MS = ['Date', 'Activity Type', 'Description', 'Amount', '09/30/26', 'Interest Income', 'ACME BANK N.A.', '(Period 09/01-09/30)', '0.49'].join('\n')
 
   it('reads the stacked header and a description that wraps over two lines', () => {
     const r = parseTransactionsCsv(MS)
     expect(r.errors).toEqual([])
-    expect(r.rows).toEqual([{ date: '2026-09-30', amount: 0.49, description: 'MORGAN STANLEY BANK N.A. (Period 09/01-09/30)', counterparty: undefined, activity: 'Interest Income' }])
+    expect(r.rows).toEqual([{ date: '2026-09-30', amount: 0.49, description: 'ACME BANK N.A. (Period 09/01-09/30)', counterparty: undefined, activity: 'Interest Income' }])
   })
 
   it('splits several transactions at each date line, with accounting negatives', () => {
     const r = parseTransactionsCsv([MS, '09/15/26', 'Wire Out', 'AUDIT LLC', '(12,000.00)', '09/02/26', 'Deposit', 'CAPITAL CALL', 'FUND II', 'Q3', '50,000'].join('\n'))
     expect(r.rows.map(x => [x.date, x.amount, x.description])).toEqual([
-      ['2026-09-30', 0.49, 'MORGAN STANLEY BANK N.A. (Period 09/01-09/30)'],
+      ['2026-09-30', 0.49, 'ACME BANK N.A. (Period 09/01-09/30)'],
       ['2026-09-15', -12000, 'AUDIT LLC'],
       ['2026-09-02', 50000, 'CAPITAL CALL FUND II Q3'],
     ])
@@ -132,15 +133,15 @@ describe('parseTransactionsCsv — one cell per line (copied from a bank web pag
     expect(r.errors[0]).toMatch(/expected at least 4 values/)
   })
 
-  it('reads a Morgan Stanley activity table, skipping Quantity, Price and Balance', () => {
-    const ms = 'Date\nActivity Type\nDescription\nQuantity\nPrice\nAmount($)\nBalance($)\n\n09/30/26\nInterest Income\nMORGAN STANLEY BANK N.A.\n(Period 09/01-09/30)\n-\n-\n0.49\n60,065.96'
+  it('reads a brokerage activity table, skipping Quantity, Price and Balance', () => {
+    const ms = 'Date\nActivity Type\nDescription\nQuantity\nPrice\nAmount($)\nBalance($)\n\n09/30/26\nInterest Income\nACME BANK N.A.\n(Period 09/01-09/30)\n-\n-\n0.49\n60,065.96'
     const r = parseTransactionsCsv(ms)
     expect(r.errors).toEqual([])
-    expect(r.rows).toEqual([{ date: '2026-09-30', amount: 0.49, description: 'MORGAN STANLEY BANK N.A. (Period 09/01-09/30)', counterparty: undefined, activity: 'Interest Income' }])
+    expect(r.rows).toEqual([{ date: '2026-09-30', amount: 0.49, description: 'ACME BANK N.A. (Period 09/01-09/30)', counterparty: undefined, activity: 'Interest Income' }])
     // Two rows, one with a one-line description and a negative amount.
     const two = parseTransactionsCsv(`${ms}\n09/15/26\nFunds Paid\nWIRE TO AUDIT LLC\n-\n-\n(12,000.00)\n48,065.96`)
     expect(two.rows.map(x => [x.date, x.amount, x.description])).toEqual([
-      ['2026-09-30', 0.49, 'MORGAN STANLEY BANK N.A. (Period 09/01-09/30)'],
+      ['2026-09-30', 0.49, 'ACME BANK N.A. (Period 09/01-09/30)'],
       ['2026-09-15', -12000, 'WIRE TO AUDIT LLC'],
     ])
   })
@@ -152,9 +153,9 @@ describe('parseTransactionsCsv — one cell per line (copied from a bank web pag
   })
 
   it('reads a web table whose cells are tab-separated except where a cell wraps a line', () => {
-    const tsv = 'Date\tActivity Type\tDescription\tAmount\n09/30/26\tInterest Income\tMORGAN STANLEY BANK N.A.\n(Period 09/01-09/30)\t0.49'
-    expect(parseTransactionsCsv(tsv).rows).toEqual([expect.objectContaining({ amount: 0.49, description: 'MORGAN STANLEY BANK N.A. (Period 09/01-09/30)' })])
-    const headerOnly = 'Date\tActivity Type\tDescription\tAmount\n09/30/26\nInterest Income\nMORGAN STANLEY BANK N.A.\n(Period 09/01-09/30)\n0.49'
+    const tsv = 'Date\tActivity Type\tDescription\tAmount\n09/30/26\tInterest Income\tACME BANK N.A.\n(Period 09/01-09/30)\t0.49'
+    expect(parseTransactionsCsv(tsv).rows).toEqual([expect.objectContaining({ amount: 0.49, description: 'ACME BANK N.A. (Period 09/01-09/30)' })])
+    const headerOnly = 'Date\tActivity Type\tDescription\tAmount\n09/30/26\nInterest Income\nACME BANK N.A.\n(Period 09/01-09/30)\n0.49'
     expect(parseTransactionsCsv(headerOnly).rows).toHaveLength(1)
   })
 
@@ -185,7 +186,7 @@ describe('suggestCategory', () => {
 
   it('reads the activity/type column when the description lacks a keyword', () => {
     // Brokerage feed: keyword is in Activity, description is just the bank name.
-    const cat = suggestCategory({ date: 'd', amount: 0.5, description: 'MORGAN STANLEY BANK N.A.', activity: 'Interest Income' })
+    const cat = suggestCategory({ date: 'd', amount: 0.5, description: 'ACME BANK N.A.', activity: 'Interest Income' })
     expect(cat.sourceType).toBe('income')
     expect(cat.accountCode).toBe('4100')
     expect(cat.confidence).toBe('high')
@@ -270,6 +271,31 @@ describe('summarizeBankRec', () => {
     const s = summarizeBankRec([{ amount: 120_000, matched: true }], 276_829.03, opening)
     expect(s.bankEndingBalance).toBe(276_829.03)
     expect(s.tiesOut).toBe(true)
+  })
+
+  it('leaves a transfer in from the old bank out of the bank side', () => {
+    // SVB held 44,706.23 on 1000 before the feed; the feed opens with that money arriving, posted 1000 to 1000.
+    const transfers = cashTransferEntryIds([
+      { entryId: 'move', accountId: 'cash', amount: 44_706.23 },
+      { entryId: 'move', accountId: 'cash', amount: -44_706.23 },
+      { entryId: 'fee', accountId: 'cash', amount: -500 },
+      { entryId: 'fee', accountId: 'expense', amount: 500 },
+    ], 'cash')
+    expect([...transfers]).toEqual(['move'])
+    const s = summarizeBankRec([
+      { amount: 44_706.23, matched: true, cashTransfer: transfers.has('move') },
+      { amount: -500, matched: true, cashTransfer: transfers.has('fee') },
+    ], 44_206.23, 44_706.23)
+    expect(s.bankEndingBalance).toBe(44_206.23)
+    expect(s.transferCount).toBe(1)
+    expect(s.transferTotal).toBe(44_706.23)
+    expect(s.tiesOut).toBe(true)
+  })
+
+  it('counts an unmatched row in full even if flagged as a transfer', () => {
+    const s = summarizeBankRec([{ amount: 100, matched: false, cashTransfer: true }], 0)
+    expect(s.bankEndingBalance).toBe(100)
+    expect(s.transferCount).toBe(0)
   })
 
   it('opens at zero with no feed or no cash account', () => {

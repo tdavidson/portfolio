@@ -23,6 +23,10 @@ interface Props {
   willWrite: boolean
   /** They asked for write but aren't an admin, so we're granting read. Say so. */
   downgraded: boolean
+  /** Who is signed in, so they can see which account (and so which fund) they're about to hand over. */
+  userEmail: string
+  /** This authorization request, to resume after "Switch account". */
+  returnTo: string
   /** They belong to no fund yet: Allow creates one, named here, with them as its admin. */
   newFund?: boolean
   params: {
@@ -35,7 +39,7 @@ interface Props {
   }
 }
 
-export function ConsentForm({ clientName, fundName, willWrite, downgraded, newFund, params }: Props) {
+export function ConsentForm({ clientName, fundName, userEmail, returnTo, willWrite, downgraded, newFund, params }: Props) {
   const [busy, setBusy] = useState<'approve' | 'deny' | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [newFundName, setNewFundName] = useState('')
@@ -85,6 +89,20 @@ export function ConsentForm({ clientName, fundName, willWrite, downgraded, newFu
         </CardHeader>
 
         <CardContent className="space-y-4">
+          {/* One email is one fund, so the account IS the choice of fund. Say which, and offer the
+              way to the other one before Allow, not after. */}
+          {userEmail && (
+            <form action="/api/auth/logout" method="POST" className="flex flex-wrap items-center justify-between gap-x-3 gap-y-1 rounded-lg border px-3 py-2">
+              <span className="text-xs text-muted-foreground min-w-0 truncate">
+                Signed in as <span className="font-medium text-foreground">{userEmail}</span>
+              </span>
+              <input type="hidden" name="switch" value="1" />
+              <input type="hidden" name="next" value={returnTo} />
+              <button type="submit" className="text-xs text-primary underline underline-offset-4 hover:text-primary/80">
+                Not this account? Switch
+              </button>
+            </form>
+          )}
           <RedirectHost redirectUri={params.redirect_uri} />
           {newFund && (
             <div className="space-y-1.5">

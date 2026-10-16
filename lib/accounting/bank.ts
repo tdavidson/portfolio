@@ -211,7 +211,7 @@ export function parseTransactionsCsv(raw: string): ParseResult {
  * A table pasted one cell per line:
  *
  *   Date / Activity Type / Description / Amount / 09/30/26 / Interest Income /
- *   MORGAN STANLEY BANK N.A. / (Period 09/01-09/30) / 0.49
+ *   ACME BANK N.A. / (Period 09/01-09/30) / 0.49
  *
  * The header is a run of lines that are each a column name (with a date and an amount, or
  * debit/credit). Each transaction starts at a line that is a date, and runs to the next one. A
@@ -417,6 +417,13 @@ export function counterPosting<P extends { account_id: string; amount: number | 
 export interface BankTxnState {
   amount: number
   matched: boolean // has a posted ledger entry
+  /**
+   * Posted as cash-to-cash (every line on 1000, netting to zero): money moving between two bank
+   * accounts the books both carry on 1000, such as the move from an old bank to the one this feed
+   * is from. The ledger already holds that cash in the opening balance, so the row is left out of
+   * the bank side too; counting it would double the carried-over balance.
+   */
+  cashTransfer?: boolean
 }
 
 export interface BankRecSummary {
@@ -426,6 +433,9 @@ export interface BankRecSummary {
   matchedCount: number
   unmatchedCount: number
   unmatchedTotal: number
+  /** Rows left out of the bank side as cash-to-cash transfers (see BankTxnState.cashTransfer). */
+  transferCount: number
+  transferTotal: number
   tiesOut: boolean
 }
 
@@ -444,6 +454,27 @@ export function openingCashBefore(postings: Posting[], cashAccountId: string | u
 }
 
 /**
+ * The posted entries that only move cash between bank accounts on the cash account: every line on
+ * `cashAccountId`, netting to zero. A feed row posted this way is a transfer from an account
+ * outside the feed (BankTxnState.cashTransfer).
+ */
+export function cashTransferEntryIds(
+  postings: { entryId: string; accountId: string; amount: number }[], cashAccountId: string | undefined,
+): Set<string> {
+  const out = new Set<string>()
+  if (!cashAccountId) return out
+  const byEntry = new Map<string, { onlyCash: boolean; net: number }>()
+  for (const p of postings) {
+    const e = byEntry.get(p.entryId) ?? { onlyCash: true, net: 0 }
+    if (p.accountId !== cashAccountId) e.onlyCash = false
+    e.net += p.amount
+    byEntry.set(p.entryId, e)
+  }
+  for (const [id, e] of byEntry) if (e.onlyCash && roundCents(e.net) === 0) out.add(id)
+  return out
+}
+
+/**
  * Reconcile the ledger's cash against the bank feed. The bank's ending balance
  * is the opening balance plus every imported transaction; it should equal the
  * ledger cash balance once every transaction is matched to a posted entry. The
@@ -454,7 +485,8 @@ export function summarizeBankRec(
   ledgerCashBalance: number,
   openingCash = 0
 ): BankRecSummary {
-  const bankEndingBalance = roundCents(txns.reduce((s, t) => s + t.amount, openingCash))
+  const transfers = txns.filter(t => t.matched && t.cashTransfer)
+  const bankEndingBalance = roundCents(txns.reduce((s, t) => s + (t.matched && t.cashTransfer ? 0 : t.amount), openingCash))
   const unmatched = txns.filter(t => !t.matched)
   const difference = roundCents(ledgerCashBalance - bankEndingBalance)
   return {
@@ -464,6 +496,8 @@ export function summarizeBankRec(
     matchedCount: txns.length - unmatched.length,
     unmatchedCount: unmatched.length,
     unmatchedTotal: roundCents(unmatched.reduce((s, t) => s + t.amount, 0)),
+    transferCount: transfers.length,
+    transferTotal: roundCents(transfers.reduce((s, t) => s + t.amount, 0)),
     tiesOut: difference === 0 && unmatched.length === 0,
   }
 }

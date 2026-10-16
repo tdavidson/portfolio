@@ -99,7 +99,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ token: st
         const groups = scope.vehicleNames === null ? await listVehicles(admin, claims.fundId) : scope.vehicleNames
         omit = new Map(await Promise.all(groups.map(async g => [g, await carryRecipientIds(admin, claims.fundId, g)] as [string, Set<string>])))
       }
-      result = await generateLiveInvestorReportPdf(admin, { fundId: claims.fundId, investorIds: [investor], groups: scope.vehicleNames, ...(omit ? { omit } : {}) })
+      result = await generateLiveInvestorReportPdf(admin, { fundId: claims.fundId, investorIds: [investor], groups: scope.vehicleNames, ...(omit ? { omit } : {}), includeConnected: true })
     }
   } catch (e) {
     // NOT notFound(). Every check above has passed by now, so saying so reveals nothing — and

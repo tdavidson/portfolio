@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { effectiveCompanyStatus, isNewCompany } from './investments'
+import { computeSummary, effectiveCompanyStatus, isNewCompany } from './investments'
 import type { InvestmentTransaction } from '@/lib/types/database'
 
 const BASE = {
@@ -63,5 +63,32 @@ describe('isNewCompany', () => {
     expect(isNewCompany(null, daysAgo(10), now)).toBe(true)
     expect(isNewCompany(null, daysAgo(200), now)).toBe(false)
     expect(isNewCompany(null, null, now)).toBe(false)
+  })
+})
+
+describe('computeSummary: proceeds with no round name', () => {
+  // A fund-of-funds distribution adopted from the ledger: no round, no shares. Its exited basis
+  // has to leave the position, or the schedule carries the full amount invested.
+  const call = txn({ transaction_type: 'investment', transaction_date: '2022-01-01', investment_cost: 100000 })
+  const dist = txn({ transaction_type: 'proceeds', transaction_date: '2023-01-01', cost_basis_exited: 30000, proceeds_received: 30000 })
+
+  it('reduces the round-less position by the basis exited', () => {
+    const s = computeSummary([call, dist], 'active')
+    const exited = s.rounds.reduce((sum, r) => sum + r.costBasisExited, 0)
+    expect(exited).toBe(30000)
+    expect(s.unrealizedValue).toBe(70000)
+    expect(s.totalRealized).toBe(30000)
+  })
+
+  it('lands on the only round when the purchases were named', () => {
+    const s = computeSummary([buy, txn({ ...dist, cost_basis_exited: 40000, proceeds_received: 40000 })], 'active')
+    expect(s.rounds[0].costBasisExited).toBe(40000)
+    expect(s.unrealizedValue).toBeCloseTo(60000)
+  })
+
+  it('stays unattributed when several named rounds could own it', () => {
+    const a = txn({ transaction_type: 'investment', round_name: 'Series A', transaction_date: '2017-01-01', investment_cost: 50000, shares_acquired: 500, share_price: 100 })
+    const s = computeSummary([buy, a, dist], 'active')
+    expect(s.rounds.reduce((sum, r) => sum + r.costBasisExited, 0)).toBe(0)
   })
 })

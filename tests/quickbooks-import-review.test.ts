@@ -84,24 +84,24 @@ describe('QuickBooks import review routes', () => {
   })
 
   it('requires a holding type before writing anything', async () => {
-    expect((await discover(req({ holdings: ['Coinbase'] }))).status).toBe(400)
+    expect((await discover(req({ holdings: ['Exchange Co'] }))).status).toBe(400)
     expect(writes).toEqual([])
   })
 
-  it('honors Coinbase as a fund and a different holding as a company', async () => {
-    const res = await discover(req({ holdings: ['Coinbase', 'Direct Co'], holdingTypes: { Coinbase: 'fund', 'Direct Co': 'company' } }))
+  it('honors Exchange Co as a fund and a different holding as a company', async () => {
+    const res = await discover(req({ holdings: ['Exchange Co', 'Direct Co'], holdingTypes: { 'Exchange Co': 'fund', 'Direct Co': 'company' } }))
     expect(res.status).toBe(200)
-    expect(writes.filter(w => w.table === 'companies').map(w => [w.row.name, w.row.holding_type])).toEqual([['Coinbase', 'fund'], ['Direct Co', 'company']])
+    expect(writes.filter(w => w.table === 'companies').map(w => [w.row.name, w.row.holding_type])).toEqual([['Exchange Co', 'fund'], ['Direct Co', 'company']])
     expect(writes.filter(w => w.table === 'fund_holding_terms')).toHaveLength(1)
-    expect(ensureInvestmentAccounts).toHaveBeenCalledWith(expect.anything(), 'tenant', 'Fund II', expect.arrayContaining([expect.objectContaining({ name: 'Coinbase' })]))
+    expect(ensureInvestmentAccounts).toHaveBeenCalledWith(expect.anything(), 'tenant', 'Fund II', expect.arrayContaining([expect.objectContaining({ name: 'Exchange Co' })]))
     expect((await res.json()).mappings).toHaveLength(2)
   })
 
   it('reuses an existing holding without changing its type and repairs its accounts', async () => {
-    tables.companies = [{ id: 'coinbase', name: 'Coinbase', holding_type: 'fund', fund_id: 'tenant', portfolio_group: ['Fund II'] }]
-    const res = await discover(req({ holdings: ['Coinbase'], holdingTypes: { Coinbase: 'company' } }))
+    tables.companies = [{ id: 'exchange', name: 'Exchange Co', holding_type: 'fund', fund_id: 'tenant', portfolio_group: ['Fund II'] }]
+    const res = await discover(req({ holdings: ['Exchange Co'], holdingTypes: { 'Exchange Co': 'company' } }))
     expect(writes).toEqual([])
-    expect((await res.json()).mappings).toEqual([{ name: 'Coinbase', code: '1100-coinbase' }])
+    expect((await res.json()).mappings).toEqual([{ name: 'Exchange Co', code: '1100-exchange' }])
   })
 
   it('keeps each journal source on its own mapping', async () => {

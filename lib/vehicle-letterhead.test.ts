@@ -1,20 +1,20 @@
 import { describe, it, expect } from 'vitest'
 import { pickLetterhead, fundLetterhead, contactBlock, safeLogo, type VehicleLetterhead } from './vehicle-letterhead'
 
-const FUND = fundLetterhead({ name: 'Laconia', logo_url: 'data:image/png;base64,FUND', address: '1 Main St', contact_email: 'partners@laconia.example' })
-const THREE_SE: VehicleLetterhead = { logo: 'data:image/png;base64,3SE', name: '3SE Holdings', address: '2 Elm St', email: 'ir@3se.example' }
+const FUND = fundLetterhead({ name: 'Ashgrove', logo_url: 'data:image/png;base64,FUND', address: '1 Main St', contact_email: 'partners@ashgrove.example' })
+const NORTHWIND: VehicleLetterhead = { logo: 'data:image/png;base64,NWH', name: 'Northwind Holdings', address: '2 Elm St', email: 'ir@northwind.example' }
 const vehicles = new Map<string, VehicleLetterhead>([
-  ['3SE Holdings LP', THREE_SE],
-  ['3SE Holdings II LP', THREE_SE],
-  ['3SE Fund I', THREE_SE], // an alias of 3SE Holdings LP
+  ['Northwind Holdings LP', NORTHWIND],
+  ['Northwind Holdings II LP', NORTHWIND],
+  ['Northwind Holdings Fund I', NORTHWIND], // an alias of Northwind Holdings LP
   ['Logo Only SPV', { logo: 'data:image/png;base64,SPV', name: null, address: null, email: null }],
   ['Email Only SPV', { logo: null, name: null, address: null, email: 'spv@example.com' }],
 ])
 
 describe('pickLetterhead', () => {
   it("uses a vehicle's own letterhead on a document about that vehicle", () => {
-    expect(pickLetterhead(FUND, ['3SE Holdings LP'], vehicles)).toEqual(THREE_SE)
-    expect(pickLetterhead(FUND, ['3SE Fund I'], vehicles)).toEqual(THREE_SE)
+    expect(pickLetterhead(FUND, ['Northwind Holdings LP'], vehicles)).toEqual(NORTHWIND)
+    expect(pickLetterhead(FUND, ['Northwind Holdings Fund I'], vehicles)).toEqual(NORTHWIND)
   })
 
   it('falls back to the fund for a vehicle without one', () => {
@@ -22,7 +22,7 @@ describe('pickLetterhead', () => {
   })
 
   it('falls back part by part, so a logo-only vehicle keeps the fund name and address', () => {
-    expect(pickLetterhead(FUND, ['Logo Only SPV'], vehicles)).toEqual({ logo: 'data:image/png;base64,SPV', name: 'Laconia', address: '1 Main St', email: 'partners@laconia.example' })
+    expect(pickLetterhead(FUND, ['Logo Only SPV'], vehicles)).toEqual({ logo: 'data:image/png;base64,SPV', name: 'Ashgrove', address: '1 Main St', email: 'partners@ashgrove.example' })
   })
 
   it("overrides the fund's email on its own", () => {
@@ -30,8 +30,8 @@ describe('pickLetterhead', () => {
   })
 
   it('uses vehicle values across vehicles only when they all share them', () => {
-    expect(pickLetterhead(FUND, ['3SE Holdings LP', '3SE Holdings II LP', '3SE Holdings LP'], vehicles)).toEqual(THREE_SE)
-    expect(pickLetterhead(FUND, ['3SE Holdings LP', 'Fund I'], vehicles)).toEqual(FUND)
+    expect(pickLetterhead(FUND, ['Northwind Holdings LP', 'Northwind Holdings II LP', 'Northwind Holdings LP'], vehicles)).toEqual(NORTHWIND)
+    expect(pickLetterhead(FUND, ['Northwind Holdings LP', 'Fund I'], vehicles)).toEqual(FUND)
   })
 
   it('uses the fund for a document with no vehicle', () => {

@@ -46,8 +46,8 @@ describe('getting-started catalog', () => {
   })
 
   it('writes help text without tool names, scoped to the areas given', () => {
-    const text = helpText({ fundName: 'Northgate', canRead: only('portfolio'), dashboards: ['Portfolio overview'], saved: [] })
-    expect(text).toContain("Northgate's Portfolio deployment")
+    const text = helpText({ fundName: 'Fernhill', canRead: only('portfolio'), dashboards: ['Portfolio overview'], saved: [] })
+    expect(text).toContain("Fernhill's Portfolio deployment")
     expect(text).toContain('Portfolio (')
     expect(text).not.toContain('LP capital (')
   })

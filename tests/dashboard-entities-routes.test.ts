@@ -44,7 +44,7 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({ from: (t: s
 vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScope: async () => ({ access: m.access, vehicleNames: [], companyIds: [] }) }))
 vi.mock('@/lib/access/effective', async (orig) => ({ ...(await orig<any>()), loadAccessContext: async () => ({ fundId: 'f1', vehicles: { all: true, ids: [] } }) }))
 vi.mock('@/lib/dashboard/entity-selection-load', () => ({
-  loadActiveEntityOptions: async () => [{ id: 'v3', name: '3SE Holdings LP', names: ['3SE Holdings LP'] }],
+  loadActiveEntityOptions: async () => [{ id: 'v3', name: 'Northwind Holdings LP', names: ['Northwind Holdings LP'] }],
   loadFundDefaultExcluded: async () => m.fundDefault,
 }))
 vi.mock('@/lib/cache/tags', () => ({ expireTag: () => {} }))
@@ -125,7 +125,7 @@ describe('/api/settings/dashboard-entities — the fund default', () => {
     m.role = 'admin'
     const res = await getDefault()
     expect(res.status).toBe(200)
-    expect(await res.json()).toEqual({ options: [{ id: 'v3', name: '3SE Holdings LP', names: ['3SE Holdings LP'] }], excluded: ['v3'] })
+    expect(await res.json()).toEqual({ options: [{ id: 'v3', name: 'Northwind Holdings LP', names: ['Northwind Holdings LP'] }], excluded: ['v3'] })
   })
 
   it('an admin sets it on their own fund, keeping only the fund\'s entity ids', async () => {

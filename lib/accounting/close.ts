@@ -26,7 +26,7 @@ import { loadResolvedCommitments } from './terms'
 import { recordAudit } from '@/lib/audit/events'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadPostedLedger, loadOwnership, loadEntityNames, fetchAllRows } from './load'
-import { openingCashBefore, summarizeBankRec } from './bank'
+import { cashTransferEntryIds, openingCashBefore, summarizeBankRec } from './bank'
 import type { FundPosition } from '@/lib/portfolio/fof-metrics'
 import { loadFofData, ledgerCarryingByHolding } from '@/lib/portfolio/fof-load'
 import { fofCloseIssues, companiesWithPendingNotices } from '@/lib/portfolio/fof-valuation'
@@ -799,16 +799,17 @@ async function bankRecAsOf(
   admin: SupabaseClient, fundId: string, group: string, vehicleId: string | null, end: string,
 ): Promise<CloseReadiness['bank']> {
   const txnRows = await fetchAllRows((f, t) => admin.from('bank_transactions' as any)
-    .select('txn_date, amount, status')
+    .select('txn_date, amount, status, journal_entry_id')
     .eq('fund_id', fundId).eq('vehicle_id', vehicleId)
     .lte('txn_date', end).neq('status', 'ignored')
     .range(f, t))
   if ((txnRows as any[]).length === 0) return null
-  const { accounts, postings } = await loadPostedLedger(admin, fundId, group, end)
+  const { accounts, postings, sourcedPostings } = await loadPostedLedger(admin, fundId, group, end)
   const cash = accounts.find(a => a.code === '1000')
   const ledgerCash = cash ? (accountBalances(postings).get(cash.id) ?? 0) : 0
+  const transfers = cashTransferEntryIds(sourcedPostings, cash?.id)
   const rec = summarizeBankRec(
-    (txnRows as any[]).map(t => ({ amount: Number(t.amount), matched: t.status === 'reconciled' })), ledgerCash,
+    (txnRows as any[]).map(t => ({ amount: Number(t.amount), matched: t.status === 'reconciled', cashTransfer: transfers.has(t.journal_entry_id) })), ledgerCash,
     openingCashBefore(postings, cash?.id, (txnRows as any[]).map(t => t.txn_date)),
   )
   return {

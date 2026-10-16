@@ -7,12 +7,12 @@ const names = (xs: { name: string }[]) => xs.map(x => x.name)
 
 describe('entities carried at their LP positions', () => {
   it('takes an entity with no holdings, or only empty ones', () => {
-    expect(names(vehiclesCarriedAtLpPositions([v('Triple Lift'), v('3SE Holdings LP', 'fund')], [holding('3SE Holdings LP')]))).toEqual(['Triple Lift', '3SE Holdings LP'])
+    expect(names(vehiclesCarriedAtLpPositions([v('Copperline Direct'), v('Northwind Holdings LP', 'fund')], [holding('Northwind Holdings LP')]))).toEqual(['Copperline Direct', 'Northwind Holdings LP'])
   })
 
   it('flips to the holdings the moment one of them carries a figure', () => {
-    for (const filled of [holding('3SE Holdings LP', 250000), holding('3SE Holdings LP', 0, 80000), holding('3SE Holdings LP', 0, 0, 1)]) {
-      expect(names(vehiclesCarriedAtLpPositions([v('3SE Holdings LP', 'fund')], [holding('3SE Holdings LP'), filled]))).toEqual([])
+    for (const filled of [holding('Northwind Holdings LP', 250000), holding('Northwind Holdings LP', 0, 80000), holding('Northwind Holdings LP', 0, 0, 1)]) {
+      expect(names(vehiclesCarriedAtLpPositions([v('Northwind Holdings LP', 'fund')], [holding('Northwind Holdings LP'), filled]))).toEqual([])
     }
   })
 
