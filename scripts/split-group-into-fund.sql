@@ -6,7 +6,10 @@
 --   psql "$DATABASE_URL" -f scripts/split-group-into-fund.sql \
 --     -v source_fund=957a17f7-ddeb-4705-a6c8-d722f8cedc3c \
 --     -v group_name='3SE Holdings' -v fund_name='3SE Holdings' -v email_domain=3seholdings.com \
---     [-v admin_email=someone@3seholdings.com] [-v apply=1]
+--     [-v apply=1]
+--
+-- The new fund starts with no members (a person belongs to one fund, and whoever runs this already
+-- belongs to the source fund). Add its first admin afterwards with scripts/add-fund-admin.ts.
 --
 -- Without `-v apply=1` it is a DRY RUN: everything happens inside one transaction, the summary and
 -- the safety checks print, and the transaction rolls back. Run it that way first and read the
@@ -51,10 +54,6 @@
 \else
   \set apply 0
 \endif
-\if :{?admin_email}
-\else
-  \set admin_email ''
-\endif
 
 begin;
 
@@ -62,8 +61,7 @@ create temp table split_params on commit drop as
 select :'source_fund'::uuid as source_fund,
        :'group_name'::text as group_name,
        :'fund_name'::text as fund_name,
-       lower(:'email_domain')::text as email_domain,
-       nullif(lower(:'admin_email'), '')::text as admin_email;
+       lower(:'email_domain')::text as email_domain;
 
 -- Single-column foreign keys in public, with whether each end carries fund_id.
 create temp view split_fks as
@@ -92,12 +90,8 @@ declare
   v_vids     uuid[];
   v_names    text[];
   v_cids     uuid[];
-  v_creator  uuid;
-  v_admin    uuid;
   r          record;
-  t          record;
   n          bigint;
-  v_pred     text;
   v_sql      text;
   v_bad      text;
   v_snap     uuid;
@@ -176,7 +170,7 @@ begin
   ------------------------------------------------------------------------------------------------
   -- created_by is the source fund's creator (whoever is splitting it). funds' creator trigger would
   -- also make them the new fund's admin, but a person belongs to one fund only, so it is off for this
-  -- insert and the new fund's admin (if named) is added below.
+  -- insert. Its first admin is added afterwards (scripts/add-fund-admin.ts).
   alter table funds disable trigger fund_creator_member;
   insert into funds (name, created_by, email_domain)
   select p.fund_name, f.created_by, p.email_domain from funds f where f.id = v_src
@@ -199,18 +193,6 @@ begin
   insert into allowed_signups (email_pattern) values ('*@' || p.email_domain) on conflict do nothing;
   get diagnostics n = row_count;
   insert into split_summary values (1, 'allowed_signups', '*@' || p.email_domain, n);
-
-  if p.admin_email is not null then
-    select id into v_admin from auth.users where lower(email) = p.admin_email;
-    if v_admin is null then
-      raise exception 'No account for % — have them sign up first, or leave admin_email out', p.admin_email;
-    end if;
-    if exists (select 1 from fund_members where user_id = v_admin) then
-      raise exception '% already belongs to a fund', p.admin_email;
-    end if;
-    insert into fund_members (fund_id, user_id, role) values (v_new, v_admin, 'admin');
-    insert into split_summary values (1, 'fund_members', 'admin ' || p.admin_email, 1);
-  end if;
 
   ------------------------------------------------------------------------------------------------
   -- 2. Move the group, its entities, and everything keyed to them.
@@ -310,8 +292,13 @@ begin
      and (deals_default_vehicle_id = any(v_vids) or dashboard_excluded_vehicle_ids && v_vids);
 
   ------------------------------------------------------------------------------------------------
-  -- 3. LP reports.
+  -- 3. LP positions and reports.
   ------------------------------------------------------------------------------------------------
+  -- Positions in no report (the current positions) move with their entity.
+  update lp_investments set fund_id = v_new
+   where fund_id = v_src and snapshot_id is null and portfolio_group = any(v_names);
+  get diagnostics n = row_count;
+  insert into split_summary values (3, 'lp_investments', 'moved (current positions, in no report)', n);
   for r in select s.id, s.name, public.lp_report_is_shared(s.id) shared,
                   bool_and(i.portfolio_group = any(v_names)) only_group
              from lp_snapshots s join lp_investments i on i.snapshot_id = s.id
