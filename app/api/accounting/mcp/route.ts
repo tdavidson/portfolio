@@ -8,6 +8,7 @@ import type { AccessContext } from '@/lib/access/effective'
 import { getMcpTool, listResources, negotiateProtocolVersion, readResource } from '@/lib/mcp-apps/server'
 import { callMcpTool, type McpCallContext } from '@/lib/mcp-apps/call'
 import { gatewayTargetName, listedTools, toolListVersion } from '@/lib/mcp-apps/gateway'
+import { activeFund, MASTER_ADMIN_TOOLS, type MasterAdminPool } from '@/lib/agent/master-admin'
 import { rateLimit } from '@/lib/rate-limit'
 import { agentApiEnabled } from '@/lib/oauth/enabled'
 import { issuerFor, wwwAuthenticate } from '@/lib/oauth/metadata'
@@ -80,6 +81,14 @@ function serverInstructions(version: string) {
   return `${SERVER_INSTRUCTIONS} This connection's tool list is version ${version}; search_tools reports the current one.`
 }
 
+/** Told to a master admin connection at initialize: it spans funds, one active at a time. */
+function masterAdminInstructions(pool: MasterAdminPool) {
+  return ` This connection can work in ${pool.funds.length} funds (${pool.funds.map(f => f.fundName).join(', ')}), ` +
+    `one at a time; the active one is ${activeFund(pool).fundName}. Every tool acts on the active fund only, and every ` +
+    'result starts with the fund it came from. Use list_funds to see them and use_fund to switch, and confirm the fund ' +
+    'with the person before any change when more than one could be meant.'
+}
+
 interface RpcRequest { jsonrpc: string; id?: string | number | null; method: string; params?: any }
 
 function ok(id: any, result: any) {
@@ -99,7 +108,7 @@ async function handle(rpc: RpcRequest, ctx: BaseCtx, auth: ResolvedKey, access: 
         // Prompts are the templates a host lists in its prompt menu (lib/agent/getting-started.ts).
         capabilities: { tools: {}, resources: {}, prompts: {} },
         serverInfo: serverInfo(ctx.origin),
-        instructions: serverInstructions(toolListVersion(access)),
+        instructions: serverInstructions(toolListVersion(access)) + (auth.pool ? masterAdminInstructions(auth.pool) : ''),
         _meta: { toolListVersion: toolListVersion(access) },
       })
     case 'ping':
@@ -113,7 +122,11 @@ async function handle(rpc: RpcRequest, ctx: BaseCtx, auth: ResolvedKey, access: 
       // contents to someone who can't read them.
       // search_tools and call_tool come last, on every list: a host caches the list per
       // conversation, and they are how a cached list reaches a tool added since (gateway.ts).
-      return ok(rpc.id, { tools: listedTools(access), _meta: { toolListVersion: toolListVersion(access) } })
+      // A master admin connection also gets list_funds and use_fund (lib/agent/master-admin.ts).
+      return ok(rpc.id, {
+        tools: auth.pool ? [...MASTER_ADMIN_TOOLS, ...listedTools(access)] : listedTools(access),
+        _meta: { toolListVersion: toolListVersion(access) },
+      })
     case 'tools/call': {
       // The same function serves call_tool, so a call through the gateway cannot skip a check.
       const outcome = await callMcpTool({

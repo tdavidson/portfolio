@@ -8,6 +8,7 @@ import { getTool, resolveVehicleForTool, type AgentToolContext } from '@/lib/acc
 import { idempotencyKeyOf, runAgentTool } from '@/lib/agent/dispatch'
 import { CALL_TOOL, closeMatches, isGatewayTool, searchTools, SEARCH_TOOLS } from './gateway'
 import { authorizeMcpTool, getMcpTool, isPendingTool, toolResult } from './server'
+import { activeFund, LIST_FUNDS, matchFund, setActiveFund, USE_FUND } from '@/lib/agent/master-admin'
 
 export type McpCallContext = Omit<AgentToolContext, 'portfolioGroup'>
 
@@ -27,6 +28,41 @@ export type McpCallOutcome = { result: unknown } | { error: { code: number; mess
 const refusal = (text: string) => ({ result: { content: [{ type: 'text', text }], isError: true } })
 
 export async function callMcpTool(call: McpCall): Promise<McpCallOutcome> {
+  if (!call.auth.pool) return callOne(call)
+  if (call.name === LIST_FUNDS || call.name === USE_FUND) return callMasterAdminTool(call)
+  // Pooled: every result says which fund it came from, so a model working across funds can't lose
+  // track of where it is, and neither can the person reading along.
+  const outcome = await callOne(call)
+  if ('result' in outcome) {
+    const r = outcome.result as { content?: unknown[] }
+    if (Array.isArray(r?.content)) {
+      return { result: { ...r, content: [{ type: 'text', text: `Fund: ${activeFund(call.auth.pool).fundName}` }, ...r.content] } }
+    }
+  }
+  return outcome
+}
+
+/**
+ * list_funds / use_fund, for a connection in a master admin pool (lib/agent/master-admin.ts).
+ * Switching only moves which pool fund later calls resolve to (api-keys.ts resolveAgentAuth); the
+ * fund's own switch for agent access and the acting admin's grants still apply there.
+ */
+async function callMasterAdminTool(call: McpCall): Promise<McpCallOutcome> {
+  const pool = call.auth.pool!
+  const text = (t: string) => ({ result: { content: [{ type: 'text', text: t }] } })
+  if (call.name === LIST_FUNDS) {
+    return text(JSON.stringify({
+      active: activeFund(pool).fundName,
+      funds: pool.funds.map(f => ({ name: f.fundName, id: f.fundId, actingAs: f.email, active: f.fundId === pool.activeFundId })),
+    }))
+  }
+  const target = matchFund(pool, call.args.fund)
+  if (typeof target === 'string') return refusal(target)
+  await setActiveFund(call.ctx.admin, pool, target.fundId)
+  return text(`Now working in ${target.fundName}, acting as ${target.email}. Every tool call from here on reads and writes ${target.fundName}.`)
+}
+
+async function callOne(call: McpCall): Promise<McpCallOutcome> {
   const { name, args, meta, ctx, auth, access } = call
   if (name === SEARCH_TOOLS) return { result: { content: [{ type: 'text', text: JSON.stringify(searchTools(args, auth, access)) }] } }
   if (name === CALL_TOOL) return callThroughGateway(call)
@@ -63,6 +99,9 @@ async function callThroughGateway(call: McpCall): Promise<McpCallOutcome> {
   const target = call.args?.name
   if (typeof target !== 'string' || !target) return refusal('call_tool needs "name": the tool to run.')
   if (isGatewayTool(target)) return refusal(`Call ${target} directly, not through call_tool.`)
+  if (call.auth.pool && (target === LIST_FUNDS || target === USE_FUND)) {
+    return callMasterAdminTool({ ...call, name: target, args: (call.args.arguments ?? {}) as Record<string, unknown> })
+  }
   const raw = call.args.arguments ?? {}
   if (typeof raw !== 'object' || Array.isArray(raw)) return refusal('call_tool "arguments" must be an object.')
 
