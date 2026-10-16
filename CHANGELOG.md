@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Inbound email over Resend; Mailgun removed
+- **Resend as an inbound provider.** `/api/inbound-email/resend` takes Resend's `email.received` webhook, checks its Svix signature against the fund's signing secret, then reads the body and attachments back from Resend's API (the webhook carries metadata only) and runs the same pipeline as Postmark. The fund is found by the recipient's domain (`resend_inbound_domain`), so any address on it works. If Resend can't be read back the route answers 503 and stores nothing, and Resend retries. Set it up in Settings → Inbound email or the onboarding wizard: the inbound domain, a full-access Resend API key (the same `resend_api_key_encrypted` outbound uses) and the webhook secret, or `RESEND_API_KEY` and the new `RESEND_WEBHOOK_SECRET` in the environment.
+- **Spoofed senders are dropped.** Resend reports SPF, DKIM and DMARC as its receiving server computed them. Mail whose From fails DMARC is refused even when the address is an authorized sender, which the From-address check alone could not catch.
+- **Large attachments.** Postmark posts attachments inside the webhook body, which Vercel caps at 4.5 MB. Resend's webhook is small and attachments are downloaded separately, so that cap no longer applies.
+- **Mailgun is gone.** The Mailgun inbound route, Mailgun as an outbound provider, its Settings and onboarding fields, `MAILGUN_API_KEY`, `MAILGUN_WEBHOOK_SIGNING_KEY` and the `mailgun.js` and `form-data` dependencies are removed. `20261016150000_resend_inbound_email.sql` adds the Resend columns. `supabase/pending-deploy/drop_mailgun.sql` drops the Mailgun columns and narrows the provider checks; move it into `supabase/migrations/` once this release is live.
+- **Saving several email secrets at once.** Settings now encrypts every email secret in one save under the same data key. A fund with no data key yet that saved two secrets together used to get two keys, and the first secret could no longer be decrypted.
+
 ### Bank reconciliation no longer double-counts a move from an old bank
 - **A transfer in from another bank account ties.** When a feed starts at a new bank, the cash carried from the old one is already in the ledger before the feed begins, so it is the feed's opening balance. The feed's first rows are that same money arriving, posted 1000 to 1000. The reconciliation counted it twice, and Ocrolus SPV LP showed a 44,706.23 difference with every row matched. A matched row whose entry only moves cash on 1000 and nets to zero is now left out of the bank side, and the summary reports how many (`transferCount`, `transferTotal`). The bank page, `bank_reconciliation` and the close preview all use it (`cashTransferEntryIds` in `lib/accounting/bank.ts`).
 

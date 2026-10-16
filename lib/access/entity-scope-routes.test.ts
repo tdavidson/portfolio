@@ -22,7 +22,7 @@ const PENDING: Record<string, string> = {
   'api/cron/deal-research': 'exempt: a job or webhook acting for the fund, not a member request',
   'api/cron/deals-digest': 'exempt: a job or webhook acting for the fund, not a member request',
   'api/inbound-email': 'exempt: a job or webhook acting for the fund, not a member request',
-  'api/inbound-email/mailgun': 'exempt: a job or webhook acting for the fund, not a member request',
+  'api/inbound-email/resend': 'exempt: a job or webhook acting for the fund, not a member request',
   'api/lps/snapshots': 'exempt: GET lists fund-wide snapshot headers (name, date); their rows are lp_investments, scoped where read; writes are admin-only',
   'api/portal/access-history': 'exempt: the LP portal — an LP’s own documents, authenticated as that LP, not a fund member',
   'api/portal/onboarding': 'exempt: the LP portal — an LP’s own documents, authenticated as that LP, not a fund member',

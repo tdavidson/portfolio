@@ -15,12 +15,6 @@ vi.mock('postmark', () => ({
   ServerClient: class { sendEmail = postmarkSend },
 }))
 
-const mailgunCreate = vi.fn()
-vi.mock('form-data', () => ({ default: class {} }))
-vi.mock('mailgun.js', () => ({
-  default: class { client() { return { messages: { create: mailgunCreate } } } },
-}))
-
 // Gmail: stub credential plumbing; lib/google/gmail's real sendEmail runs against a stubbed fetch.
 vi.mock('@/lib/crypto', () => ({ decrypt: (v: string) => v }))
 vi.mock('@/lib/google/credentials', () => ({ getGoogleCredentials: async () => ({ clientId: 'c', clientSecret: 's' }) }))
@@ -38,7 +32,7 @@ describe('sendOutboundEmail throws when the provider reports a failure', () => {
   afterEach(() => {
     vi.restoreAllMocks()
     vi.unstubAllGlobals()
-    resendSend.mockReset(); postmarkSend.mockReset(); mailgunCreate.mockReset()
+    resendSend.mockReset(); postmarkSend.mockReset()
   })
 
   it('resend: returns the id on success', async () => {
@@ -66,10 +60,6 @@ describe('sendOutboundEmail throws when the provider reports a failure', () => {
     await expect(sendOutboundEmail({ provider: 'postmark', serverToken: 't' }, params)).resolves.toEqual({ id: 'pm_1' })
   })
 
-  it('mailgun: a rejected request throws', async () => {
-    mailgunCreate.mockRejectedValue(new Error('Forbidden'))
-    await expect(sendOutboundEmail({ provider: 'mailgun', apiKey: 'k', mailgunDomain: 'mg.example.com' }, params)).rejects.toThrow('Forbidden')
-  })
 
   it('gmail: a non-2xx response throws', async () => {
     vi.stubGlobal('fetch', vi.fn(async () => new Response('{"error":"invalid_grant"}', { status: 401 })))

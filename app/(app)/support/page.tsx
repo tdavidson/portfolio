@@ -469,7 +469,7 @@ export default function SupportPage() {
             The <strong>email composer</strong> takes a plain-text subject and body, pre-filled from your last ask.
             Set the from name and address, the reporting period and the date responses are due, add CC and BCC,
             and send yourself a test first. Emails go out through whichever outbound provider your admin has
-            configured (Gmail, Resend, Postmark, or Mailgun).
+            configured (Gmail, Resend, or Postmark).
           </p>
           <p className="text-muted-foreground mb-2">
             Each request is logged with its recipient list, send timestamp, and delivery results. You
@@ -495,7 +495,7 @@ export default function SupportPage() {
             Everyone can set their display name, two-factor authentication, note notifications, and their own API and MCP keys; non-admins can also connect their own Affinity key and read the AI summary prompt.
           </p>
           <p className="text-muted-foreground mb-2">
-            Admins configure the <strong>organization</strong> &mdash; fund name, logo and address, the sign-in page, appearance (accent colour), currency, team and roles, AI providers (Anthropic, OpenAI and/or OpenRouter), inbound email (Postmark or Mailgun) and authorized senders, outbound email (Gmail, Resend, Postmark or Mailgun), authentication email templates, file storage (Google Drive), analytics, usage tracking, operational reminders, Agent access and the version card &mdash; and turn on each <strong>product</strong>.
+            Admins configure the <strong>organization</strong> &mdash; fund name, logo and address, the sign-in page, appearance (accent colour), currency, team and roles, AI providers (Anthropic, OpenAI and/or OpenRouter), inbound email (Postmark or Resend) and authorized senders, outbound email (Gmail, Resend or Postmark), authentication email templates, file storage (Google Drive), analytics, usage tracking, operational reminders, Agent access and the version card &mdash; and turn on each <strong>product</strong>.
           </p>
           <p className="text-muted-foreground mb-2">
             Each product group has a <em>Turn on</em> button and a row per feature, set to members, admins only, or off: <strong>Portfolio Reporting</strong> (default metrics, the AI summary prompt, dashboard entities), <strong>Investment Workflow</strong> (deal screening, external deal research, known referrers, AI models, diligence schemas, style anchors, defaults and caps, the Affinity connection), <strong>LP Reporting</strong> (the LP portal), and <strong>Fund Operations</strong> &mdash; whose accounting configuration lives on each entity&rsquo;s Admin page. A danger zone at the end of the organization settings permanently deletes all fund data.

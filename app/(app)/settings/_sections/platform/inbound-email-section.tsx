@@ -11,21 +11,24 @@ export function InboundEmailSection({
   provider,
   postmarkAddress,
   postmarkToken,
-  mailgunInboundDomain,
-  hasMailgunSigningKey,
+  resendInboundDomain,
+  hasResendWebhookSecret,
+  hasResendKey,
   onSaved,
 }: {
   provider: string | null
   postmarkAddress: string
   postmarkToken: string
-  mailgunInboundDomain: string
-  hasMailgunSigningKey: boolean
+  resendInboundDomain: string
+  hasResendWebhookSecret: boolean
+  hasResendKey: boolean
   onSaved: () => void
 }) {
   const [selectedProvider, setSelectedProvider] = useState(provider || '')
   const [addr, setAddr] = useState(postmarkAddress)
-  const [mgDomain, setMgDomain] = useState(mailgunInboundDomain)
-  const [mgSigningKey, setMgSigningKey] = useState('')
+  const [rsDomain, setRsDomain] = useState(resendInboundDomain)
+  const [rsSecret, setRsSecret] = useState('')
+  const [rsApiKey, setRsApiKey] = useState('')
   const [saving, setSaving] = useState(false)
   const [saved, setSaved] = useState(false)
   const [copied, setCopied] = useState(false)
@@ -33,7 +36,7 @@ export function InboundEmailSection({
   const [baseUrl, setBaseUrl] = useState(defaultBase)
 
   const postmarkWebhookUrl = `${baseUrl}/api/inbound-email?token=${postmarkToken}`
-  const mailgunWebhookUrl = `${baseUrl}/api/inbound-email/mailgun`
+  const resendWebhookUrl = `${baseUrl}/api/inbound-email/resend`
 
   const handleSave = async () => {
     setSaving(true)
@@ -43,11 +46,10 @@ export function InboundEmailSection({
     if (selectedProvider === 'postmark') {
       payload.postmarkInboundAddress = addr?.trim() || null
     }
-    if (selectedProvider === 'mailgun') {
-      payload.mailgunInboundDomain = mgDomain?.trim() || null
-      if (mgSigningKey.trim()) {
-        payload.mailgunSigningKey = mgSigningKey.trim()
-      }
+    if (selectedProvider === 'resend') {
+      payload.resendInboundDomain = rsDomain?.trim() || null
+      if (rsSecret.trim()) payload.resendWebhookSecret = rsSecret.trim()
+      if (rsApiKey.trim()) payload.resendApiKey = rsApiKey.trim()
     }
     const res = await fetch('/api/settings', {
       method: 'PATCH',
@@ -57,7 +59,8 @@ export function InboundEmailSection({
     setSaving(false)
     if (res.ok) {
       setSaved(true)
-      setMgSigningKey('')
+      setRsSecret('')
+      setRsApiKey('')
       setTimeout(() => setSaved(false), 2000)
       onSaved()
     }
@@ -72,7 +75,7 @@ export function InboundEmailSection({
   const providerChanged = selectedProvider !== (provider || '')
   const hasNewData =
     (selectedProvider === 'postmark' && addr !== postmarkAddress) ||
-    (selectedProvider === 'mailgun' && (mgDomain !== mailgunInboundDomain || mgSigningKey.trim()))
+    (selectedProvider === 'resend' && (rsDomain !== resendInboundDomain || rsSecret.trim() || rsApiKey.trim()))
   const canSave = providerChanged || hasNewData
 
   return (
@@ -90,7 +93,7 @@ export function InboundEmailSection({
           >
             <option value="">None (disabled)</option>
             <option value="postmark">Postmark</option>
-            <option value="mailgun">Mailgun</option>
+            <option value="resend">Resend</option>
           </select>
         </div>
 
@@ -132,34 +135,51 @@ export function InboundEmailSection({
           </>
         )}
 
-        {selectedProvider === 'mailgun' && (
+        {selectedProvider === 'resend' && (
           <>
             <div>
-              <Label>Mailgun inbound domain</Label>
+              <Label>Resend inbound domain</Label>
               <Input
-                value={mgDomain}
-                onChange={(e) => setMgDomain(e.target.value)}
-                placeholder="mg.yourdomain.com"
+                value={rsDomain}
+                onChange={(e) => setRsDomain(e.target.value)}
+                placeholder="inbound.yourdomain.com"
               />
               <p className="text-xs text-muted-foreground mt-1">
-                The domain configured for inbound routing in Mailgun.
+                The domain with receiving turned on in Resend. Mail to any address on it comes to this fund.
               </p>
             </div>
             <div>
-              <Label>Webhook signing key</Label>
-              {hasMailgunSigningKey && (
+              <Label>Resend API key</Label>
+              {hasResendKey && (
                 <p className="text-xs text-muted-foreground mt-1 mb-1.5">
-                  A signing key is saved. Enter a new one to replace it.
+                  A key is already saved (shared with outbound email). Enter a new one to replace it.
                 </p>
               )}
               <Input
                 type="password"
-                value={mgSigningKey}
-                onChange={(e) => setMgSigningKey(e.target.value)}
-                placeholder={hasMailgunSigningKey ? '••••••••' : 'Mailgun webhook signing key'}
+                value={rsApiKey}
+                onChange={(e) => setRsApiKey(e.target.value)}
+                placeholder={hasResendKey ? '••••••••' : 're_...'}
               />
               <p className="text-xs text-muted-foreground mt-1">
-                Found in Mailgun dashboard under Sending &gt; Webhooks.
+                Needs full access, so the app can read each received email and its attachments.
+              </p>
+            </div>
+            <div>
+              <Label>Webhook signing secret</Label>
+              {hasResendWebhookSecret && (
+                <p className="text-xs text-muted-foreground mt-1 mb-1.5">
+                  A signing secret is saved. Enter a new one to replace it.
+                </p>
+              )}
+              <Input
+                type="password"
+                value={rsSecret}
+                onChange={(e) => setRsSecret(e.target.value)}
+                placeholder={hasResendWebhookSecret ? '••••••••' : 'whsec_...'}
+              />
+              <p className="text-xs text-muted-foreground mt-1">
+                Shown when you create the webhook in Resend (Webhooks, or the webhook&#39;s details page).
               </p>
             </div>
             <div>
@@ -172,14 +192,14 @@ export function InboundEmailSection({
                     onChange={(e) => setBaseUrl(e.target.value)}
                     placeholder="https://your-app.vercel.app"
                   />
-                  <span className="text-xs text-muted-foreground bg-muted px-2 py-2 border-l whitespace-nowrap">/api/inbound-email/mailgun</span>
+                  <span className="text-xs text-muted-foreground bg-muted px-2 py-2 border-l whitespace-nowrap">/api/inbound-email/resend</span>
                 </div>
-                <Button onClick={() => copyUrl(mailgunWebhookUrl)} variant="outline" size="icon" className="shrink-0 h-9 w-9">
+                <Button onClick={() => copyUrl(resendWebhookUrl)} variant="outline" size="icon" className="shrink-0 h-9 w-9">
                   {copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}
                 </Button>
               </div>
               <p className="text-xs text-muted-foreground mt-1">
-                In Mailgun, go to Receiving &gt; Create Route and forward matching emails to this URL. Edit the base URL for local development (e.g. ngrok).
+                In Resend, add a webhook for the <strong>email.received</strong> event pointing at this URL. Edit the base URL for local development (e.g. ngrok).
               </p>
             </div>
           </>

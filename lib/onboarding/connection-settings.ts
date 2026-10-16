@@ -13,8 +13,8 @@ import { expireTag } from '@/lib/cache/tags'
 import { logActivity } from '@/lib/activity'
 
 export const AI_PROVIDERS = ['anthropic', 'openai', 'openrouter'] as const
-export const OUTBOUND_PROVIDERS = ['resend', 'postmark', 'mailgun', 'gmail'] as const
-export const INBOUND_PROVIDERS = ['postmark', 'mailgun'] as const
+export const OUTBOUND_PROVIDERS = ['resend', 'postmark', 'gmail'] as const
+export const INBOUND_PROVIDERS = ['postmark', 'resend'] as const
 
 /** Field → fund_settings column. `null` input clears a field (the provider is then "none"). */
 const FIELDS = {
@@ -27,10 +27,9 @@ const FIELDS = {
   asksEmailProvider: 'asks_email_provider',
   systemEmailFromName: 'system_email_from_name',
   systemEmailFromAddress: 'system_email_from_address',
-  mailgunSendingDomain: 'mailgun_sending_domain',
   inboundEmailProvider: 'inbound_email_provider',
   postmarkInboundAddress: 'postmark_inbound_address',
-  mailgunInboundDomain: 'mailgun_inbound_domain',
+  resendInboundDomain: 'resend_inbound_domain',
   googleClientId: 'google_client_id',
 } as const
 

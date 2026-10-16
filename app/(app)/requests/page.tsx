@@ -377,7 +377,7 @@ export default function RequestsPage() {
         <div className="rounded-card border border-dashed p-4 text-center space-y-1">
           <p className="text-sm text-muted-foreground">Set up an outbound email provider in Settings to enable sending emails.</p>
           <p className="text-xs text-muted-foreground">
-            Choose from Gmail, Resend, Mailgun, or Postmark in Settings &gt; Outbound Email.
+            Choose from Gmail, Resend, or Postmark in Settings &gt; Outbound Email.
           </p>
         </div>
       )}

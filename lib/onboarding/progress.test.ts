@@ -159,9 +159,9 @@ describe('computeSetupProgress — blocked and done', () => {
   })
 
   it('needs a finished inbound setup, not just a chosen provider', () => {
-    const f = facts({ settings: { ...facts().settings!, inboundProvider: 'mailgun', inboundConfigured: false } })
+    const f = facts({ settings: { ...facts().settings!, inboundProvider: 'resend', inboundConfigured: false } })
     expect(step(f, 'inbound_email')?.status).toBe('todo')
-    expect(step(f, 'inbound_email')?.detail).toBe('Mailgun, not finished')
+    expect(step(f, 'inbound_email')?.detail).toBe('Resend, not finished')
   })
 
   it('marks LP and investment steps not applicable for a management company, and leaves them out of the count', () => {

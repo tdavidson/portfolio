@@ -72,10 +72,10 @@ export async function GET() {
     return NextResponse.json({ step: 'fund', fundId, fundName: fund?.name ?? null, webhookToken: null })
   }
 
-  // Step "inbound" is complete if either Postmark or Mailgun inbound is configured
+  // Step "inbound" is complete if either Postmark or Resend inbound is configured
   const inboundConfigured = !!(
     (settings.inbound_email_provider === 'postmark' && settings.postmark_inbound_address) ||
-    (settings.inbound_email_provider === 'mailgun' && settings.mailgun_inbound_domain) ||
+    (settings.inbound_email_provider === 'resend' && settings.resend_inbound_domain) ||
     // Legacy: postmark address set without explicit provider
     (!settings.inbound_email_provider && settings.postmark_inbound_address)
   )
