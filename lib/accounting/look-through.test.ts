@@ -139,15 +139,15 @@ describe('associateMembers', () => {
   })
 
   it('gives a blank member 0 carry when others have explicit points (no dollar/points mixing)', () => {
-    // 'david' has a large commitment but no carry points; the others hold points that sum to 100.
-    // He must not absorb the carry by having his commitment dollars normalized against points.
+    // 'robin' has a large commitment but no carry points; the others hold points that sum to 100.
+    // Robin must not absorb the carry by having that commitment's dollars normalized against points.
     const members = associateMembers(
-      new Map([['david', 141_767], ['jeffrey', 141_767], ['geri', 28_353], ['mirit', 14_013]]),
-      new Map([['jeffrey', 40.375], ['geri', 14.25], ['mirit', 5]])
+      new Map([['robin', 140_000], ['jordan', 140_000], ['gina', 28_000], ['kai', 14_000]]),
+      new Map([['jordan', 40.5], ['gina', 14.5], ['kai', 5]])
     )
-    expect(members.find(m => m.lpEntityId === 'david')!.carryWeight).toBe(0)
-    expect(members.find(m => m.lpEntityId === 'jeffrey')!.carryWeight).toBe(40.375)
+    expect(members.find(m => m.lpEntityId === 'robin')!.carryWeight).toBe(0)
+    expect(members.find(m => m.lpEntityId === 'jordan')!.carryWeight).toBe(40.5)
     // Ownership is untouched — only carry defaults change.
-    expect(members.find(m => m.lpEntityId === 'david')!.ownershipWeight).toBe(141_767)
+    expect(members.find(m => m.lpEntityId === 'robin')!.ownershipWeight).toBe(140_000)
   })
 })
