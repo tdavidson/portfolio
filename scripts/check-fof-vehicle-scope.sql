@@ -51,22 +51,23 @@ select finding, detail, value
   from (select * from counts union all select * from by_holding union all select * from terms) r
  order by ord, detail;
 
--- REPAIR, only if row 1 is greater than zero. You said every fund-of-funds investment sits in
--- 3SE Fund I; CHECK THE NAME against your fund_vehicles rows before running this.
+-- REPAIR, only if row 1 is greater than zero, and only where every fund-of-funds investment sits in
+-- one vehicle. Put that vehicle's name in place of <fof vehicle name>, checking it against your
+-- fund_vehicles rows, before running this.
 --
 --   update public.fund_capital_events e
 --      set vehicle_id = v.id
 --     from public.fund_vehicles v
 --    where e.vehicle_id is null
 --      and v.fund_id = e.fund_id
---      and lower(v.name) = lower('3SE Fund I');
+--      and lower(v.name) = lower('<fof vehicle name>');
 --
 --   update public.fund_nav_statements n
 --      set vehicle_id = v.id
 --     from public.fund_vehicles v
 --    where n.vehicle_id is null
 --      and v.fund_id = n.fund_id
---      and lower(v.name) = lower('3SE Fund I');
+--      and lower(v.name) = lower('<fof vehicle name>');
 --
 -- Then re-run 20261006220000 (it is re-runnable) so the terms backfill picks up the newly
 -- resolvable holdings.

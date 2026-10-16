@@ -8,19 +8,19 @@ const payload: VehicleGroupsPayload = {
     { id: 'g-empty', name: 'Empty', position: 2 },
   ],
   assignments: [
-    { vehicleId: 'v1', name: 'Laconia Capital Group III, LP', aliases: [], groupId: 'g-flag' },
-    { vehicleId: 'v2', name: 'Bluefish SPV LP', aliases: ['Bluefish SPV'], groupId: 'g-spv' },
-    { vehicleId: 'v3', name: 'Laconia Capital Group II, LP', aliases: [], groupId: 'g-flag' },
+    { vehicleId: 'v1', name: 'Ashgrove Capital Group III, LP', aliases: [], groupId: 'g-flag' },
+    { vehicleId: 'v2', name: 'Tern SPV LP', aliases: ['Tern SPV'], groupId: 'g-spv' },
+    { vehicleId: 'v3', name: 'Ashgrove Capital Group II, LP', aliases: [], groupId: 'g-flag' },
   ],
 }
 
 type Row = { id: string | null; name: string }
 const rows: Row[] = [
-  { id: 'v2', name: 'Bluefish SPV LP' },
+  { id: 'v2', name: 'Tern SPV LP' },
   { id: 'v9', name: 'Alice' },
-  { id: 'v3', name: 'Laconia Capital Group II, LP' },
-  { id: null, name: 'bluefish spv' }, // legacy name-only row on an alias
-  { id: 'v1', name: 'Laconia Capital Group III, LP' },
+  { id: 'v3', name: 'Ashgrove Capital Group II, LP' },
+  { id: null, name: 'tern spv' }, // legacy name-only row on an alias
+  { id: 'v1', name: 'Ashgrove Capital Group III, LP' },
 ]
 const key = (r: Row) => ({ id: r.id, name: r.name })
 
@@ -29,7 +29,7 @@ describe('groupBySection', () => {
     const s = groupBySection(rows, payload, key)
     expect(s.map(x => x.label)).toEqual(['Flagship', 'SPVs', 'Other'])
     expect(s[0].items.map(r => r.id)).toEqual(['v3', 'v1'])
-    expect(s[1].items.map(r => r.name)).toEqual(['Bluefish SPV LP', 'bluefish spv'])
+    expect(s[1].items.map(r => r.name)).toEqual(['Tern SPV LP', 'tern spv'])
     expect(s[2].items.map(r => r.name)).toEqual(['Alice'])
     expect(isGrouped(s, payload)).toBe(true)
   })

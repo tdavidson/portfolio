@@ -21,9 +21,9 @@ describe('the sign-in mark', () => {
   })
 
   it("shows the fund's logo in place of the mark, and its text under it, when set", () => {
-    const html = render({ logo: 'data:image/png;base64,AAAA', title: 'Laconia Capital' })
+    const html = render({ logo: 'data:image/png;base64,AAAA', title: 'Ashgrove Capital' })
     expect(html).toContain('src="data:image/png;base64,AAAA"')
     expect(html).not.toContain(MARK_PATHS[0].d)
-    expect(html).toContain('<h1 class="text-lg font-semibold tracking-tight">Laconia Capital</h1>')
+    expect(html).toContain('<h1 class="text-lg font-semibold tracking-tight">Ashgrove Capital</h1>')
   })
 })

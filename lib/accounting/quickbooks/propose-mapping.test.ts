@@ -137,11 +137,11 @@ describe('proposeMapping — management company charts', () => {
 describe('migration account identity', () => {
   it('maps each investment to its own account, never another investment or pooled cost', () => {
     const chart = [...CHART,
-      { id: 'coin', code: '1100-coinbase', name: 'Investment — Coinbase', type: 'asset', subtype: 'investment', company_id: 'coinbase' },
-      { id: 'multi', code: '1100-multi', name: 'Investment — Multicoin Fund III', type: 'asset', subtype: 'investment', company_id: 'multi' },
+      { id: 'coin', code: '1100-exchange', name: 'Investment — Exchange Co', type: 'asset', subtype: 'investment', company_id: 'exchange' },
+      { id: 'multi', code: '1100-cinder', name: 'Investment — Cinderpeak Fund III', type: 'asset', subtype: 'investment', company_id: 'multi' },
     ]
-    expect(proposeMapping([qb('Investments:Coinbase'), qb('Investments:Multicoin Fund III'), qb('Investments:Unknown')], chart).map(p => p.code))
-      .toEqual(['1100-coinbase', '1100-multi', null])
+    expect(proposeMapping([qb('Investments:Exchange Co'), qb('Investments:Cinderpeak Fund III'), qb('Investments:Unknown')], chart).map(p => p.code))
+      .toEqual(['1100-exchange', '1100-cinder', null])
   })
 
   it('does not suggest an individual partner for generic partners capital', () => {

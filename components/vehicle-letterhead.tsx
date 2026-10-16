@@ -136,7 +136,7 @@ export function VehicleLetterheadFields({ lh, vehicleName }: { lh: VehicleLetter
         {lh.logoBusy && <Loader2 className="h-3.5 w-3.5 animate-spin" />}
       </div>
       {lh.logoErr && <p className="text-sm text-destructive">{lh.logoErr}</p>}
-      <Input value={lh.name} onChange={e => lh.setName(e.target.value)} placeholder={lh.fund.name ? `Name (fund: ${lh.fund.name})` : 'Name, e.g. 3SE Holdings'} className="h-8" />
+      <Input value={lh.name} onChange={e => lh.setName(e.target.value)} placeholder={lh.fund.name ? `Name (fund: ${lh.fund.name})` : 'Name, e.g. Northwind Holdings'} className="h-8" />
       <Textarea value={lh.address} onChange={e => lh.setAddress(e.target.value)} placeholder={lh.fund.address ? `Address (fund: ${lh.fund.address})` : 'Address'} rows={3} />
       {lh.emailAvailable && (
         <Input type="email" value={lh.email} onChange={e => lh.setEmail(e.target.value)} placeholder={lh.fund.email ? `Email (fund: ${lh.fund.email})` : 'Email'} className="h-8" />

@@ -341,7 +341,7 @@ export async function GET(req: NextRequest) {
   }
 
   // Deal vehicles carried at their LP positions. A direct deal or an SPV whose holding was never
-  // recorded as investment transactions (Triple Lift, PromoteIQ (Direct)) has nothing above — but
+  // recorded as investment transactions (Copperline Direct, Fernway (Direct)) has nothing above — but
   // its LPs' positions say what went in and what it is worth. One row per such vehicle, from the
   // live LP report: paid-in as invested, distributions as proceeds, NAV as fair value.
   //

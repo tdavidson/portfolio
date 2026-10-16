@@ -525,7 +525,7 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
       type: 'object',
       required: ['fileName'],
       properties: {
-        fileName: { type: 'string', description: 'e.g. "3SE Holdings LP - LPA.pdf"' },
+        fileName: { type: 'string', description: 'e.g. "Northwind Holdings LP - LPA.pdf"' },
         sizeBytes: { type: 'number', description: 'file size, checked against the 25 MB limit' },
       },
     },

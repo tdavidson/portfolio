@@ -86,7 +86,7 @@ describe('every derived entry keeps the books at the records', () => {
     expect(sum(h.persistEntry.mock.calls[0][4].postings, 'unr')).toBe(0)
   })
 
-  it("an exit reverses only the marks that left with it — not other rounds' (AutoFi)", async () => {
+  it("an exit reverses only the marks that left with it — not other rounds' (Motorly)", async () => {
     const seedPref = { id: 'x1', company_id: 'co', transaction_type: 'investment', transaction_date: '2015-11-04', portfolio_group: 'Fund I', round_name: 'Seed Preferred', investment_cost: 187500, shares_acquired: 386614 }
     const common = { id: 'x2', company_id: 'co', transaction_type: 'investment', transaction_date: '2016-10-07', portfolio_group: 'Fund I', round_name: 'Common', investment_cost: 300001, shares_acquired: 705360 }
     const markCommon = { id: 'x3', company_id: 'co', transaction_type: 'unrealized_gain_change', transaction_date: '2022-04-30', portfolio_group: 'Fund I', round_name: 'Common', unrealized_value_change: 3325550 }
@@ -97,7 +97,7 @@ describe('every derived entry keeps the books at the records', () => {
       { entryId: 'b', accountId: 'cost', amount: 300001, entryDate: '2016-10-07' },
       { entryId: 'c', accountId: 'unr', amount: 3325550, entryDate: '2022-04-30' },
     ]
-    await draftEntryForTransaction(admin, 'f', 'u', exit, 'AutoFi')
+    await draftEntryForTransaction(admin, 'f', 'u', exit, 'Motorly')
     const postings = h.persistEntry.mock.calls[0][4].postings
     expect(sum(postings, 'cost')).toBe(-117917)
     // The Common mark stays whole: the exit sold Seed Preferred, which had none.

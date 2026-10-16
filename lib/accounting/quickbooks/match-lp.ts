@@ -20,7 +20,7 @@ export function matchQbLp(names: string[], memos: string[], targets: QbLpTarget[
   const hits = targets.filter(t => {
     return labels(t).some(name => name.split(' ').length >= 2 && texts.some(text => text.includes(` ${name} `)))
   })
-  // Do not assign Paul Sethi when a longer joint registration also matches.
+  // Do not assign Alex Rivera when a longer joint registration also matches.
   const specific = hits.filter(t => !hits.some(other => other.entityId !== t.entityId &&
     ` ${normalize(other.name)} `.includes(` ${normalize(t.name)} `)))
   return specific.length === 1 ? specific[0] : null

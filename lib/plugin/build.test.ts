@@ -4,17 +4,17 @@ import { connectorUrl, isPluginTarget, pluginFilename, pluginFiles, pluginName, 
 import { PLUGIN_FILES } from './plugin-files.generated'
 import { MCP_TOOLS } from '@/lib/mcp-apps/server'
 
-const ctx = { origin: 'https://portfolio.northgate.vc', fundName: 'Northgate Ventures', version: '1.2.3' }
+const ctx = { origin: 'https://portfolio.fernhill.example', fundName: 'Fernhill Ventures', version: '1.2.3' }
 
 describe('the plugin\'s identity', () => {
   it('points the connector at this deployment\'s own MCP endpoint', () => {
-    expect(connectorUrl('https://portfolio.northgate.vc')).toBe('https://portfolio.northgate.vc/api/mcp')
-    expect(connectorUrl('https://portfolio.northgate.vc/')).toBe('https://portfolio.northgate.vc/api/mcp')
+    expect(connectorUrl('https://portfolio.fernhill.example')).toBe('https://portfolio.fernhill.example/api/mcp')
+    expect(connectorUrl('https://portfolio.fernhill.example/')).toBe('https://portfolio.fernhill.example/api/mcp')
   })
 
   it('is named after the host, so two funds\' plugins are two plugins', () => {
-    expect(pluginName('https://portfolio.northgate.vc')).toBe('portfolio-portfolio-northgate-vc')
-    expect(pluginName('https://portfolio.northgate.vc')).not.toBe(pluginName('https://app.otherfund.com'))
+    expect(pluginName('https://portfolio.fernhill.example')).toBe('portfolio-portfolio-fernhill-example')
+    expect(pluginName('https://portfolio.fernhill.example')).not.toBe(pluginName('https://app.otherfund.com'))
   })
 
   it('is always kebab-case and bounded, whatever the host looks like', () => {
@@ -31,13 +31,13 @@ describe('the Claude package', () => {
 
   it('has the manifest where Claude looks for it, and only the manifest there', () => {
     const manifest = JSON.parse(files['.claude-plugin/plugin.json'])
-    expect(manifest).toMatchObject({ name: 'portfolio-portfolio-northgate-vc', displayName: 'Northgate Ventures Portfolio', version: '1.2.3', license: 'Apache-2.0' })
+    expect(manifest).toMatchObject({ name: 'portfolio-portfolio-fernhill-example', displayName: 'Fernhill Ventures Portfolio', version: '1.2.3', license: 'Apache-2.0' })
     expect(manifest.description.length).toBeGreaterThan(40)
     expect(Object.keys(files).filter(p => p.startsWith('.claude-plugin/'))).toEqual(['.claude-plugin/plugin.json'])
   })
 
   it('bundles the connector as a fixed https URL and nothing else', () => {
-    expect(JSON.parse(files['.mcp.json'])).toEqual({ mcpServers: { portfolio: { type: 'http', url: 'https://portfolio.northgate.vc/api/mcp' } } })
+    expect(JSON.parse(files['.mcp.json'])).toEqual({ mcpServers: { portfolio: { type: 'http', url: 'https://portfolio.fernhill.example/api/mcp' } } })
   })
 
   it('has nothing that stops claude.ai installing it', () => {
@@ -52,13 +52,13 @@ describe('the ChatGPT package', () => {
 
   it('has the manifest and the connector at the root, registering clients on request', () => {
     const manifest = JSON.parse(files['plugin.json'])
-    expect(manifest).toMatchObject({ name: 'portfolio-portfolio-northgate-vc', version: '1.2.3' })
-    expect(manifest.extensions['com.openai'].interface.displayName).toBe('Northgate Ventures Portfolio')
+    expect(manifest).toMatchObject({ name: 'portfolio-portfolio-fernhill-example', version: '1.2.3' })
+    expect(manifest.extensions['com.openai'].interface.displayName).toBe('Fernhill Ventures Portfolio')
 
     const server = JSON.parse(files['mcp.json']).mcpServers.portfolio
-    expect(server).toMatchObject({ type: 'streamable-http', url: 'https://portfolio.northgate.vc/api/mcp' })
+    expect(server).toMatchObject({ type: 'streamable-http', url: 'https://portfolio.fernhill.example/api/mcp' })
     expect(server.extensions['com.openai'].auth).toEqual({
-      type: 'oauth', client: { mode: 'dcr' }, registrationUrl: 'https://portfolio.northgate.vc/api/oauth/register',
+      type: 'oauth', client: { mode: 'dcr' }, registrationUrl: 'https://portfolio.fernhill.example/api/oauth/register',
     })
   })
 
@@ -91,7 +91,7 @@ describe('both packages', () => {
     const readme = pluginFiles('claude', ctx)['README.md']
     expect(readme.split(/\s+/).length).toBeGreaterThan(40)
     expect(readme).toMatch(/## Data/)
-    expect(readme).toContain('https://portfolio.northgate.vc/api/mcp')
+    expect(readme).toContain('https://portfolio.fernhill.example/api/mcp')
   })
 
   it('falls back to the product\'s name when the fund has none', () => {
@@ -104,8 +104,8 @@ describe('both packages', () => {
     const zip = await JSZip.loadAsync(await pluginZip('claude', ctx))
     expect(Object.keys(zip.files)).toContain('.claude-plugin/plugin.json')
     expect(Object.keys(zip.files)).toContain('skills/fund-dashboards/SKILL.md')
-    expect(await zip.file('.mcp.json')!.async('string')).toContain('https://portfolio.northgate.vc/api/mcp')
-    expect(pluginFilename('claude', ctx)).toBe('portfolio-portfolio-northgate-vc-claude.zip')
+    expect(await zip.file('.mcp.json')!.async('string')).toContain('https://portfolio.fernhill.example/api/mcp')
+    expect(pluginFilename('claude', ctx)).toBe('portfolio-portfolio-fernhill-example-claude.zip')
   })
 
   it('knows its two targets', () => {

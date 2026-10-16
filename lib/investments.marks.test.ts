@@ -18,7 +18,7 @@ const mark = (round: string, change: number, date = '2022-05-02') =>
   txn({ transaction_type: 'unrealized_gain_change', round_name: round, unrealized_value_change: change, transaction_date: date })
 
 describe('rounds with shares but no price anywhere are valued from their marks', () => {
-  // AutoFi, as recorded: share counts on every round, no share price on any investment or mark, a
+  // Motorly, as recorded: share counts on every round, no share price on any investment or mark, a
   // partial secondary in the seed, and warrants received for nothing. It read as $0.
   const history = [
     txn({ round_name: 'Series Seed Preferred', investment_cost: 187500, shares_acquired: 386614, transaction_date: '2015-11-04' }),

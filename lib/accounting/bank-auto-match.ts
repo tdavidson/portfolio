@@ -42,8 +42,8 @@ const CENT = 0.005
 
 /**
  * Normalize for name comparison: case-folded, punctuation dropped, whitespace collapsed.
- * Bank descriptions mangle names ("Peter Jungen Holding Gmb" for "…GmbH", "Padmavathi Rao"
- * for "Padma Rao"), so comparison has to survive truncation and formatting.
+ * Bank descriptions mangle names ("Klaus Beispiel Holding Gmb" for "…GmbH", "Katarina Moreno"
+ * for "Kat Moreno"), so comparison has to survive truncation and formatting.
  */
 export function normalizeName(s: string): string {
   return s.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
@@ -53,8 +53,8 @@ export function normalizeName(s: string): string {
  * Does `description` name this partner?
  *
  * Matches on the partner's distinctive name TOKENS rather than the whole string, because the
- * bank truncates ("Peter Jungen Holding Gmb") and reorders. Requires every token of length ≥3
- * to appear, so "Michael Rueda" does not match a wire to "Michael J. Alpert" — a first name
+ * bank truncates ("Klaus Beispiel Holding Gmb") and reorders. Requires every token of length ≥3
+ * to appear, so "Michael Brandt" does not match a wire to "Michael J. Corwin" — a first name
  * alone is never enough.
  */
 export function descriptionNamesPartner(description: string, partnerName: string): boolean {

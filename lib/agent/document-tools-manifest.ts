@@ -46,7 +46,7 @@ export const DOCUMENT_TOOL_MANIFEST: AgentToolMeta[] = [
       type: 'object',
       required: ['name', 'html'],
       properties: {
-        name: { type: 'string', description: 'Template name, e.g. "3SE Fund II quarterly letter". Saving under an existing name replaces it.' },
+        name: { type: 'string', description: 'Template name, e.g. "Northwind Holdings Fund II quarterly letter". Saving under an existing name replaces it.' },
         html: { type: 'string', description: 'The template: a complete HTML document in the template language.' },
         instructions: { type: 'string', description: 'How to fill it: where each data field comes from, and what changes each quarter. Returned by document_template_get.' },
         sample_data: { type: 'object', description: 'An example data object (e.g. the last real quarter), used to test the template and as the shape to follow.' },
@@ -70,7 +70,7 @@ export const DOCUMENT_TOOL_MANIFEST: AgentToolMeta[] = [
       properties: {
         template: { type: 'string', description: 'Template name.' },
         data: { type: 'object', description: 'The values to fill it with, in the shape the template expects.' },
-        title: { type: 'string', description: 'Document title, used for the file name, e.g. "3SE Fund II LP Letter Q1 2026".' },
+        title: { type: 'string', description: 'Document title, used for the file name, e.g. "Northwind Holdings Fund II LP Letter Q1 2026".' },
       },
       additionalProperties: false,
     },

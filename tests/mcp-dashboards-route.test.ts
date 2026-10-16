@@ -15,7 +15,7 @@ let scopes = ['read', 'write']
 let access: AccessContext
 const store = memoryAdmin({
   saved_dashboards: [],
-  funds: [{ id: 'fund-1', name: 'Northgate' }],
+  funds: [{ id: 'fund-1', name: 'Fernhill' }],
   fund_settings: [{ fund_id: 'fund-1', currency: 'USD', theme: null }],
   fund_members: [{ fund_id: 'fund-1', user_id: 'user-me', role: 'member' }],
   fund_vehicles: [{ id: 'v1', fund_id: 'fund-1', name: 'Fund I', active: true, kind: 'fund', aliases: null }],
@@ -126,7 +126,7 @@ describe('tools/call', () => {
   it('returns a dashboard as figures for the model and a payload for the view', async () => {
     const { result } = (await call('show_portfolio_dashboard')).body
     expect(result.isError).toBeUndefined()
-    expect(result.structuredContent).toMatchObject({ view: 'portfolio', title: 'Portfolio overview', branding: { fundName: 'Northgate', currency: 'USD' } })
+    expect(result.structuredContent).toMatchObject({ view: 'portfolio', title: 'Portfolio overview', branding: { fundName: 'Fernhill', currency: 'USD' } })
     // This member does not hold accounting, so the fund's own position is not in either half.
     expect(result.structuredContent.data.performance).toBeNull()
     const forModel = JSON.parse(result.content[0].text)
@@ -204,7 +204,7 @@ describe('the home dashboard', () => {
     const res = (await call('show_home')).body.result
     expect(res.structuredContent.view).toBe('home')
     expect(res.structuredContent.data.dashboards.map((d: any) => d.tool)).toEqual(['show_portfolio_dashboard'])
-    expect(res.content[0].text).toContain("Northgate's Portfolio deployment")
+    expect(res.content[0].text).toContain("Fernhill's Portfolio deployment")
   })
 })
 

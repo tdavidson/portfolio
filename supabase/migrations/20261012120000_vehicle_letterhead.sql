@@ -2,7 +2,7 @@
 --
 -- A letterhead per vehicle: logo, name and address. Until now the only letterhead was the fund's
 -- (funds.logo_url / name / address), so every LP-facing PDF carried the firm's, including those for
--- a vehicle with its own brand (3SE Holdings). Where a vehicle sets a part, it replaces the fund's
+-- a vehicle with its own brand. Where a vehicle sets a part, it replaces the fund's
 -- on that vehicle's statements, notices, receipts and letters, and on an investor report whose
 -- vehicles all share it (lib/vehicle-letterhead.ts). The logo is a data:image/ URI, like the fund
 -- logo, capped at 200KB by the API.

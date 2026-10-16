@@ -6,7 +6,7 @@ Updated 2026-10-06. The unified application is **committed (`a4008ced`) and depl
 
 Retire the entity-wide accounting-on/off and LP-tracking-versus-accounting distinction. Accounting actions are always available; create accounts only when a write needs them. Use the label “Accounting.” Management companies show operating book health, not LP allocation requirements. Investments and entered LP balances must remain usable and unchanged when journals, bank activity, or QuickBooks records are imported. Imports must show differences and possible overlaps before confirmation. Never silently add two representations of the same economic activity. Preserve unknown versus zero, reported observation dates, and immutable published reports.
 
-**Deployment state.** `20261006164431`, `20261006174407`, `20261006174711` and `20261006190000` are applied, and the unified application is deployed. Two entities are fully onboarded to accounting — *bluefish spv* and *bluefish spv associates* — and a few others are mid-setup. No agent has applied a migration, imported anything, deployed, or committed; the owner does all four.
+**Deployment state.** `20261006164431`, `20261006174407`, `20261006174711` and `20261006190000` are applied, and the unified application is deployed. Two entities are fully onboarded to accounting — *tern spv* and *tern spv associates* — and a few others are mid-setup. No agent has applied a migration, imported anything, deployed, or committed; the owner does all four.
 
 ## Validation status
 
@@ -127,8 +127,8 @@ and real postings from a QuickBooks import, and with `fund_capital_events` and
 Diagnostics, all read-only and single-statement so the Supabase SQL editor returns them whole:
 `scripts/check-fof-vehicle-scope.sql` and `scripts/check-fund-tagged-holdings.sql`.
 
-Open: the 21 include apparent duplicates (`Arca` / `Arca Endeavor Fund LP`, `Multicoin Fund III` /
-`Multicoin Ventures Fund III`, `TCG Crypto` / `TCG Crypto B, LP`) worth tidying. All carry ledger
+Open: the 21 include apparent duplicates (`Arden` / `Arden Endeavor Fund LP`, `Cinderpeak Fund III` /
+`Cinderpeak Ventures Fund III`, `QRS Digital` / `QRS Digital B, LP`) worth tidying. All carry ledger
 postings, so none is safe to delete outright. `loadFofActive` derives the whole fund-of-funds
 feature set from `count(companies where holding_type = 'fund') > 0`.
 
