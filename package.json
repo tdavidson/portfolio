@@ -10,6 +10,8 @@
     "lint": "eslint .",
     "test": "vitest run",
     "test:watch": "vitest",
+    "perf:pages": "node scripts/measure-page-speed.mjs",
+    "perf:check": "node scripts/check-page-speed.mjs",
     "generate:types": "node scripts/generate-memo-agent-types.mjs",
     "demo:widget": "node demo-widget/build.mjs",
     "demo:check": "node scripts/demo-check.mjs",

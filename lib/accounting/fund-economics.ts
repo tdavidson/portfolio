@@ -277,9 +277,11 @@ export async function fundEconomics(
   admin: SupabaseClient,
   fundId: string,
   asOf?: string,
+  groups?: string[],
 ): Promise<VehicleEconomics[]> {
-  const preload = await loadFundPreload(admin, fundId, asOf)
-  const vehicles = await listVehicles(admin, fundId)
+  const vehicles = groups ?? await listVehicles(admin, fundId)
+  if (vehicles.length === 0) return []
+  const preload = await loadFundPreload(admin, fundId, asOf, vehicles)
   // Vehicles are independent, so derive them concurrently rather than one-await-per-vehicle.
   // This was the dominant source of /funds load lag: latency was ~(round-trips × vehicle count)
   // because each vehicle's queries waited for the previous vehicle to finish. (Mirrors what

@@ -24,9 +24,9 @@ describe('pending_actions reach from the browser', () => {
       { encoding: 'utf8' },
     ).trim().split('\n').filter(Boolean)
     // The one user-context read is the layout's Approvals badge count.
-    const userClient = hits.filter(h => h.startsWith('app/(app)/layout.tsx'))
+    const userClient = hits.filter(h => h.startsWith('app/(app)/shell-status.tsx'))
     expect(userClient.length).toBe(1)
-    const layout = readFileSync(join(process.cwd(), 'app', '(app)', 'layout.tsx'), 'utf8')
-    expect(layout).toMatch(/from\('pending_actions'\)\s*\.select\(/)
+    const shell = readFileSync(join(process.cwd(), 'app', '(app)', 'shell-status.tsx'), 'utf8')
+    expect(shell).toMatch(/from\('pending_actions'\)\s*\.select\(/)
   })
 })

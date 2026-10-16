@@ -1,6 +1,7 @@
 import type { ReactNode } from 'react'
 import { fallbackPageData } from './fallbacks'
 import type { DemoPages, DemoSnapshot } from './types'
+import type { DashboardPageData } from '@/app/(app)/dashboard/load'
 
 /** What a route's render function is handed. */
 export interface RouteContext {
@@ -20,7 +21,18 @@ export type RouteRender = (ctx: RouteContext) => ReactNode
 /** The page's loaded data, from pages.json or the snapshot fallback; null shows the notice. */
 export function pageData<T>(ctx: RouteContext): T | null {
   const recorded = ctx.pages.pages[ctx.href]
-  if (recorded !== undefined) return recorded as T
+  if (recorded !== undefined) {
+    // Old recordings predate server-provided card values. Fill them from the synthetic snapshot
+    // rather than reintroducing per-card API requests in the shared product component.
+    if (ctx.pattern === '/dashboard' || ctx.pattern === '/') {
+      const data = recorded as DashboardPageData
+      const metrics = new Map(ctx.snapshot.companies.flatMap(c => c.metrics).map(m => [m.id, m]))
+      return { ...data, companies: data.companies.map(c => ({ ...c, activeMetrics: c.activeMetrics.map(m => ({
+        ...m, latestValue: m.latestValue === undefined ? metrics.get(m.id)?.values.at(-1)?.number ?? null : m.latestValue,
+      })) })) } as T
+    }
+    return recorded as T
+  }
   return fallbackPageData(ctx.pattern, ctx.params, ctx.snapshot) as T | null
 }
 

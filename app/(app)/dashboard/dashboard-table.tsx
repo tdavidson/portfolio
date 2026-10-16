@@ -52,22 +52,27 @@ export function DashboardTable({ companyIds, grouped }: Props) {
   const fundCurrency = useCurrency()
   const [data, setData] = useState<CompanyData[] | null>(null)
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
 
   useEffect(() => {
     let cancelled = false
+    const controller = new AbortController()
     async function load() {
       try {
-        const res = await fetch('/api/dashboard/table-data')
+        const res = await fetch('/api/dashboard/table-data', { signal: controller.signal })
+        if (!res.ok) throw new Error('Portfolio table unavailable')
         if (res.ok) {
           const json = await res.json()
           if (!cancelled) setData(json.companies)
         }
+      } catch {
+        if (!cancelled) setLoadError(true)
       } finally {
         if (!cancelled) setLoading(false)
       }
     }
     load()
-    return () => { cancelled = true }
+    return () => { cancelled = true; controller.abort() }
   }, [])
 
   // Index companies by ID for fast lookup
@@ -106,6 +111,8 @@ export function DashboardTable({ companyIds, grouped }: Props) {
       </div>
     )
   }
+
+  if (loadError) return <p role="alert" className="text-sm text-muted-foreground">Could not load the portfolio table. Refresh this page to try again.</p>
 
   if (!data || data.length === 0) {
     return (

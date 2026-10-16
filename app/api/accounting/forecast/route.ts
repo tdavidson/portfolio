@@ -1,14 +1,17 @@
 import { NextRequest } from 'next/server'
-import { createPlan, listPlans } from '@/lib/forecast/service'
+import { createPlan, listPlans, getPlan } from '@/lib/forecast/service'
 import { forecastRequest, readJson } from '@/lib/forecast/http'
 
 // Forecast plans for one vehicle. GET lists them; POST creates one (seeded blank, from
 // actuals, or from another plan) and returns it compiled.
 
 export async function GET(req: NextRequest) {
-  return forecastRequest(req, 'read', (ctx, vehicle) =>
-    listPlans(ctx, { vehicle, includeArchived: req.nextUrl.searchParams.get('archived') === '1' }),
-  )
+  return forecastRequest(req, 'read', async (ctx, vehicle) => {
+    const list = await listPlans(ctx, { vehicle, includeArchived: req.nextUrl.searchParams.get('archived') === '1' })
+    if (req.nextUrl.searchParams.get('initial') !== '1') return list
+    const initialPlan = list.plans[0] ? await getPlan(ctx, { vehicle, planId: list.plans[0].id }) : null
+    return { ...list, initialPlan }
+  })
 }
 
 export async function POST(req: NextRequest) {

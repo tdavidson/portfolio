@@ -73,7 +73,7 @@ export function ScheduleOfInvestmentsView() {
 
   const load = useCallback(() => {
     setLoading(true)
-    const qs = new URLSearchParams({ preset })
+    const qs = new URLSearchParams({ preset, section: 'soi' })
     if (asOf) qs.set('asOf', asOf)
     lf(`/api/accounting/statements?${qs}`)
       .then(r => (r.ok ? r.json() : null))

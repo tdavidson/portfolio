@@ -7,9 +7,7 @@ import { assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { loadEntityNames, loadEntityClasses } from '@/lib/accounting/load'
 import { loadCapitalPostings } from '@/lib/accounting/capital-source'
-import { computeCapitalAccounts, totalNav, type CapitalPosting } from '@/lib/accounting/capital-account'
-import { lpIrr } from '@/lib/accounting/live-report'
-import { latestPositionIrr } from '@/lib/accounting/lp-positions'
+import { computeCapitalAccounts, type CapitalPosting } from '@/lib/accounting/capital-account'
 import { lpCapitalSummary, listCapitalCalls } from '@/lib/accounting/capital-calls'
 import { loadStrandedCapital } from '@/lib/accounting/pooled-capital-check'
 import { resolvePeriod, customPeriod, type PeriodPreset } from '@/lib/accounting/statement-period'
@@ -52,7 +50,7 @@ export async function GET(req: NextRequest) {
   // period one needs the pre-period history anyway to open with a carried-in balance.
   // `summary` and `calls` fold the old Capital calls page into this one — commitment,
   // called, funded, and unfunded were the duplicated half of it.
-  const [{ source, postings: capitalPostings, evidenceByLp }, names, classes, summary, calls, stranded] = await Promise.all([
+  const [{ source, postings: capitalPostings, evidenceByLp }, names, classes, summary, calls, stranded, advances] = await Promise.all([
     loadCapitalPostings(admin, gate.fundId, group, period.end ?? undefined),
     loadEntityNames(admin, gate.fundId, group),
     loadEntityClasses(admin, gate.fundId, group),
@@ -61,10 +59,10 @@ export async function GET(req: NextRequest) {
     // Capital sitting on the pooled account reaches no partner, which reads on this page as
     // a fund where nobody has contributed. Surface it rather than render the zeroes.
     loadStrandedCapital(admin, gate.fundId, group),
+    // Independent of the statement history: start this alongside the other reads.
+    advanceBalances(admin, gate.fundId, group),
   ])
 
-  // Money each partner sent before it was called, not yet applied to a call (call-extras.ts).
-  const advances = await advanceBalances(admin, gate.fundId, group)
   const periodAccounts = computeCapitalAccounts(capitalPostings, period)
   const itdAccounts = computeCapitalAccounts(capitalPostings, { end: period.end })
   const summaryByLp = new Map(summary.map(s => [s.lpEntityId, s]))
@@ -72,8 +70,14 @@ export async function GET(req: NextRequest) {
   // Per-LP Net IRR. Ledger: derive from each LP's dated flows + terminal NAV at the report date.
   // Events: the reported IRR pasted on the latest position.
   const irrByLp = new Map<string, number>()
+  const postingsByLp = new Map<string, CapitalPosting[]>()
+  for (const posting of capitalPostings) {
+    const rows = postingsByLp.get(posting.lpEntityId) ?? []
+    rows.push(posting)
+    postingsByLp.set(posting.lpEntityId, rows)
+  }
   for (const [lp, evidence] of evidenceByLp) {
-    const value = reportingIrr(capitalPostings.filter(p => p.lpEntityId === lp), itdAccounts.get(lp)?.ending ?? 0, evidence)
+    const value = reportingIrr(postingsByLp.get(lp) ?? [], itdAccounts.get(lp)?.ending ?? 0, evidence)
     if (value != null) irrByLp.set(lp, value)
   }
 

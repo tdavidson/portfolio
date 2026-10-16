@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { Loader2, Download, ChevronRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
@@ -57,8 +57,8 @@ export function TaxView() {
   const [notice, setNotice] = useState<string | null>(null)
   const [state, setState] = useState<Fetched<TaxYearState> | null>(null)
   const [run, setRun] = useState<Fetched<TaxRun> | null>(null)
-  const [taxEntries, setTaxEntries] = useState<JournalEntryRow[]>([])
-  const [adjusting, setAdjusting] = useState<JournalEntryRow[]>([])
+  const [taxEntries, setTaxEntries] = useState<Fetched<{ entries: JournalEntryRow[] }> | null>(null)
+  const [adjusting, setAdjusting] = useState<Fetched<{ entries: JournalEntryRow[] }> | null>(null)
   const [packages, setPackages] = useState<Fetched<K1Package[]> | null>(null)
   const [forms, setForms] = useState<Fetched<TaxFormsReport> | null>(null)
   const [received, setReceived] = useState<Fetched<ReceivedReport> | null>(null)
@@ -75,30 +75,40 @@ export function TaxView() {
     } catch { return { ok: false, status: 0, data: null } }
   }, [lf])
 
+  const loadVersion = useRef(0)
   const load = useCallback(async () => {
+    const version = ++loadVersion.current
+    const current = () => version === loadVersion.current
     setLoading(true)
+    setState(null); setRun(null); setForms(null); setReceived(null); setGains(null); setPayments(null)
+    setTaxEntries(null); setAdjusting(null); setPackages(null); setWorklist(null)
     const start = `${year}-01-01`, end = `${year}-12-31`
-    const [s, r, te, aj, f, rk, pk, rg, vp] = await Promise.all([
-      get<TaxYearState>(`/api/accounting/tax-year?taxYear=${year}`),
-      get<TaxRun>(`/api/accounting/tax-adjustments?taxYear=${year}`),
-      get<{ entries: JournalEntryRow[] }>(`/api/accounting/journal?preset=custom&start=${start}&end=${end}&book=tax&limit=200`),
-      get<{ entries: JournalEntryRow[] }>(`/api/accounting/journal?preset=custom&start=${start}&end=${end}&adjusting=1&limit=200`),
-      get<TaxFormsReport>(`/api/accounting/tax-forms?asOf=${end}`),
-      get<ReceivedReport>(`/api/accounting/received-k1s?taxYear=${year}`),
-      canSeeK1 ? get<{ packages: K1Package[] }>('/api/accounting/k1-packages') : Promise.resolve<Fetched<{ packages: K1Package[] }>>({ ok: false, status: 403, data: null }),
-      get<RealizedGains>(`/api/accounting/realized-gains?year=${year}`),
-      get<VendorPayments>(`/api/accounting/vendor-payments?year=${year}`),
+    const commit = async <T,>(promise: Promise<Fetched<T>>, apply: (value: Fetched<T>) => void) => {
+      const result = await promise
+      if (current()) apply(result)
+    }
+    await Promise.all([
+      commit(get<TaxYearState>(`/api/accounting/tax-year?taxYear=${year}`), setState),
+      commit(get<TaxRun>(`/api/accounting/tax-adjustments?taxYear=${year}`), setRun),
+      commit(get<{ entries: JournalEntryRow[] }>(`/api/accounting/journal?preset=custom&start=${start}&end=${end}&book=tax&limit=200`), setTaxEntries),
+      commit(get<{ entries: JournalEntryRow[] }>(`/api/accounting/journal?preset=custom&start=${start}&end=${end}&adjusting=1&limit=200`), setAdjusting),
+      commit(get<TaxFormsReport>(`/api/accounting/tax-forms?asOf=${end}`), setForms),
+      commit(get<ReceivedReport>(`/api/accounting/received-k1s?taxYear=${year}`), setReceived),
+      commit(get<RealizedGains>(`/api/accounting/realized-gains?year=${year}`), setGains),
+      commit(get<VendorPayments>(`/api/accounting/vendor-payments?year=${year}`), setPayments),
+      (async () => {
+        const pk = canSeeK1 ? await get<{ packages: K1Package[] }>('/api/accounting/k1-packages')
+          : { ok: false, status: 403, data: null }
+        if (!current()) return
+        const mine = (pk.data?.packages ?? []).filter(p => p.tax_year === year && (!vehicleId || p.vehicle_id === vehicleId))
+        setPackages({ ok: pk.ok, status: pk.status, data: pk.ok ? mine : null })
+        const latest = mine.find(p => p.status !== 'superseded') ?? null
+        if (latest) await commit(get<Worklist>(`/api/accounting/state-worklist?packageId=${latest.id}`), setWorklist)
+      })(),
     ])
-    setState(s); setRun(r); setForms(f); setReceived(rk); setGains(rg); setPayments(vp)
-    setTaxEntries(te.data?.entries ?? [])
-    setAdjusting(aj.data?.entries ?? [])
-    const mine = (pk.data?.packages ?? []).filter(p => p.tax_year === year && (!vehicleId || p.vehicle_id === vehicleId))
-    setPackages({ ok: pk.ok, status: pk.status, data: pk.ok ? mine : null })
-    const latest = mine.find(p => p.status !== 'superseded') ?? null
-    setWorklist(latest ? await get<Worklist>(`/api/accounting/state-worklist?packageId=${latest.id}`) : null)
-    setLoading(false)
+    if (current()) setLoading(false)
   }, [get, year, vehicleId, canSeeK1])
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(); return () => { loadVersion.current++ } }, [load])
 
   const post = async (label: string, url: string, body: object): Promise<boolean> => {
     setBusy(label); setNotice(null)
@@ -130,7 +140,11 @@ export function TaxView() {
   const denied = (f: Fetched<unknown> | null, what: string) =>
     f && !f.ok ? <p className="text-sm text-muted-foreground">{f.status === 403 ? `${what} needs access your account does not hold.` : f.status === 404 || f.status === 400 ? `${what}: not available for this vehicle and year.` : `${what} could not be loaded (${f.status}).`}</p> : null
 
-  const entryList = (rows: JournalEntryRow[], book: 'actual' | 'tax', empty: string) => rows.length === 0
+  const entryList = (result: Fetched<{ entries: JournalEntryRow[] }> | null, book: 'actual' | 'tax', empty: string) => {
+    if (!result) return <p role="status" className="text-sm text-muted-foreground">Loading journal entries…</p>
+    if (!result.ok) return denied(result, 'Journal entries')
+    const rows = result.data?.entries ?? []
+    return rows.length === 0
     ? <p className="text-sm text-muted-foreground">{empty}</p>
     : (
       <div className="divide-y rounded-md border text-xs tabular-nums">
@@ -148,6 +162,7 @@ export function TaxView() {
         ))}
       </div>
     )
+  }
 
   const card = 'rounded-card border p-4 space-y-2'
   const h = 'text-sm font-semibold'

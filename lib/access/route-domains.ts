@@ -291,6 +291,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/companies/[id]/investments': { domain: 'portfolio', feature: 'investments' },
   'api/companies/[id]/investments/[txnId]': { domain: 'portfolio', feature: 'investments' },
   'api/companies/[id]/metrics': { domain: 'portfolio' },
+  'api/companies/[id]/metrics/values': { domain: 'portfolio' },
   'api/companies/[id]/metrics/[metricId]/values': { domain: 'portfolio' },
   // Configured where the holding lives (plans/spec-ledger-one-writer.md §6): the price feed any
   // quoted holding marks from, including booking the quoted mark — which derives and posts like

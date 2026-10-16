@@ -1,3 +1,4 @@
+import { loadGateAccess } from '@/lib/access/request-context'
 // The web transport's half of the budgeting module: authenticate, resolve the caller's fund and
 // vehicle, build the service context, and turn service errors into responses. Everything else is
 // lib/forecast/service.ts, shared with MCP and the Analyst.
@@ -7,7 +8,6 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertReadAccess, assertWriteAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
-import { loadAccessContext } from '@/lib/access/effective'
 import { ForecastError, type ForecastServiceContext } from './service'
 
 export async function forecastRequest(
@@ -28,7 +28,7 @@ export async function forecastRequest(
   if (group instanceof NextResponse) return group
 
   try {
-    const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
+    const access = await loadGateAccess(admin, gate)
     const result = await run({ admin, fundId: gate.fundId, userId: gate.userId, access }, group)
     return result instanceof NextResponse ? result : NextResponse.json(result)
   } catch (error) {

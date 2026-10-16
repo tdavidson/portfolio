@@ -139,8 +139,14 @@ export function CapitalAccountsView() {
   const [edited, setEdited] = useState(false)
   const [issuing, setIssuing] = useState(false)
   const [msg, setMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const loadVersion = useRef(0)
+  const [distsLoading, setDistsLoading] = useState(false)
   const load = useCallback(() => {
+    const version = ++loadVersion.current
     setLoading(true)
+    setErr(null)
+    setDists([])
+    setDistsLoading(true)
     const qs = new URLSearchParams()
     if (preset === 'custom') {
       if (start) qs.set('start', start)
@@ -150,22 +156,22 @@ export function CapitalAccountsView() {
       qs.set('preset', preset)
       if (asOf) qs.set('asOf', asOf)
     }
-    // Independent reads, so they are fetched together rather than one after the other.
-    Promise.all([
-      lf(`/api/accounting/capital-accounts?${qs}`)
-        .then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error ?? 'Could not load capital accounts'); return data }),
-      lf('/api/accounting/distributions')
-        .then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error ?? 'Could not load distributions'); return data }),
-    ])
-      .then(([d, ds]) => {
+    lf(`/api/accounting/capital-accounts?${qs}`)
+      .then(async r => { const data = await r.json(); if (!r.ok) throw new Error(data.error ?? 'Could not load capital accounts'); return data })
+      .then(d => {
+        if (version !== loadVersion.current) return
         setRows(d.rows ?? []); setPeriod(d.period ?? null)
         setCalls(d.calls ?? []); setStranded(d.stranded ?? null)
-        setDists(Array.isArray(ds) ? ds : [])
       })
-      .catch(e => setErr(e instanceof Error ? e.message : 'Could not load capital records'))
-      .finally(() => setLoading(false))
+      .catch(() => { if (version === loadVersion.current) setErr('Could not load capital records') })
+      .finally(() => { if (version === loadVersion.current) setLoading(false) })
+    lf('/api/accounting/distributions')
+      .then(async r => { if (!r.ok) throw new Error('distributions'); return r.json() })
+      .then(d => { if (version === loadVersion.current) setDists(Array.isArray(d) ? d : []) })
+      .catch(() => { if (version === loadVersion.current) setErr('Could not load distributions') })
+      .finally(() => { if (version === loadVersion.current) setDistsLoading(false) })
   }, [lf, preset, start, end, asOf])
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(); return () => { loadVersion.current++ } }, [load])
 
   // Open the share dialog with every LP selected by default.
   function openShare() {
@@ -795,6 +801,7 @@ export function CapitalAccountsView() {
       )}
 
       {/* Declared distributions — the outbound register, read the same way. */}
+      {distsLoading && <p role="status" className="text-sm text-muted-foreground">Loading distributions…</p>}
       {dists.length > 0 && (
         <div>
           <p className="text-sm font-medium mb-2 mt-4">Declared distributions</p>

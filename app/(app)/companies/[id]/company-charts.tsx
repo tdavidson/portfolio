@@ -41,6 +41,7 @@ export function CompanyCharts({ companyId, companyName, metrics }: Props) {
   const router = useRouter()
   const [valuesByMetric, setValuesByMetric] = useState<Record<string, MetricValueRow[]>>({})
   const [loading, setLoading] = useState(true)
+  const [loadError, setLoadError] = useState(false)
   const [addMetricOpen, setAddMetricOpen] = useState(false)
   const [defaultsOpen, setDefaultsOpen] = useState(false)
   const [defaultStatus, setDefaultStatus] = useState<DefaultMetricStatus[] | null>(null)
@@ -51,17 +52,16 @@ export function CompanyCharts({ companyId, companyName, metrics }: Props) {
 
   const loadValues = useCallback(async () => {
     setLoading(true)
-    const results: Record<string, MetricValueRow[]> = {}
-    await Promise.all(
-      metrics.map(async (m) => {
-        const res = await fetch(`/api/companies/${companyId}/metrics/${m.id}/values`)
-        if (res.ok) {
-          results[m.id] = await res.json()
-        }
-      })
-    )
-    setValuesByMetric(results)
-    setLoading(false)
+    setLoadError(false)
+    try {
+      const res = await fetch(`/api/companies/${companyId}/metrics/values`)
+      if (!res.ok) throw new Error('Chart data unavailable')
+      setValuesByMetric(await res.json())
+    } catch {
+      setLoadError(true)
+    } finally {
+      setLoading(false)
+    }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [companyId, metricIds])
 
@@ -146,7 +146,7 @@ export function CompanyCharts({ companyId, companyName, metrics }: Props) {
   if (metrics.length === 0) {
     return (
       <>
-        <div className="rounded-card border border-dashed p-12 text-center space-y-3">
+        <div className="rounded-card border border-dashed p-12 text-center space-y-3" data-metrics-ready="company">
           <p className="text-muted-foreground">
             No metrics configured yet. Add metrics to this company to start tracking data.
           </p>
@@ -177,6 +177,10 @@ export function CompanyCharts({ companyId, companyName, metrics }: Props) {
         ? 'grid gap-4 grid-cols-1 md:grid-cols-3'
         : 'grid gap-4 grid-cols-1 md:grid-cols-2'
 
+  if (loadError) {
+    return <p role="alert" className="text-sm text-muted-foreground">Could not load chart data. Refresh this page to try again.</p>
+  }
+
   if (loading) {
     return (
       <div className={gridClass}>
@@ -193,7 +197,7 @@ export function CompanyCharts({ companyId, companyName, metrics }: Props) {
   const hasData = visibleMetrics.some((m) => (valuesByMetric[m.id]?.length ?? 0) > 0)
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4" data-metrics-ready="company">
       <div className="flex items-center justify-between gap-3">
         <h2 className="text-lg font-semibold tracking-tight">Metrics</h2>
         <div className="flex items-center gap-3">

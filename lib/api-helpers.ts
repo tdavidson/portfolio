@@ -1,3 +1,4 @@
+import { withRequestAccess } from '@/lib/access/request-context'
 import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { VehicleGate } from '@/lib/accounting/vehicle-domain'
@@ -36,7 +37,7 @@ export async function resolveFund(
     return NextResponse.json({ error: 'Internal error' }, { status: 500 })
   }
   if (!membership) return NextResponse.json({ error: 'No fund found' }, { status: 403 })
-  return { fundId: membership.fund_id, role: membership.role, userId, need: 'read' }
+  return withRequestAccess<FundGate>({ fundId: membership.fund_id, role: membership.role, userId, need: 'read' })
 }
 
 /**
@@ -73,7 +74,7 @@ export async function assertWriteAccess(
       { status: 403 }
     )
 
-  return { fundId: membership.fund_id, role: membership.role, userId, need: 'write' }
+  return withRequestAccess<FundGate>({ fundId: membership.fund_id, role: membership.role, userId, need: 'write' })
 }
 
 /**
@@ -129,7 +130,7 @@ export async function assertAdminAccess(
   if (membership.role !== 'admin')
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
 
-  return { fundId: membership.fund_id, role: membership.role, userId, need: 'write' }
+  return withRequestAccess<FundGate>({ fundId: membership.fund_id, role: membership.role, userId, need: 'write' })
 }
 
 /**

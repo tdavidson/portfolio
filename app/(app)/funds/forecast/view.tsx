@@ -175,9 +175,15 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
 
   // ---- loading ---------------------------------------------------------------------------------
 
-  const loadPlans = useCallback(async () => {
+  const [plansReady, setPlansReady] = useState(false)
+  const initialPlan = useRef<{ fetcher: typeof lf; detail: PlanDetail } | null>(null)
+  const planListSeq = useRef(0)
+  const loadPlans = useCallback(async (includeInitial = false) => {
+    const seq = ++planListSeq.current
     try {
-      const res = await json<{ plans: PlanListItem[] }>(await lf('/api/accounting/forecast'))
+      const res = await json<{ plans: PlanListItem[]; initialPlan?: PlanDetail | null }>(await lf(`/api/accounting/forecast${includeInitial ? '?initial=1' : ''}`))
+      if (seq !== planListSeq.current) return []
+      if (includeInitial) initialPlan.current = res.initialPlan ? { fetcher: lf, detail: res.initialPlan } : null
       setPlans(res.plans)
       setListError(null)
       return res.plans
@@ -189,13 +195,20 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
   }, [lf])
 
   useEffect(() => {
-    loadPlans().then(ps => { if (ps.length && !planId) setPlanId(ps[0].id) })
+    let cancelled = false
+    setPlansReady(false)
+    loadPlans(true).then(ps => { if (!cancelled) { setPlanId(ps[0]?.id ?? ''); setPlansReady(true) } })
+    return () => { cancelled = true; planListSeq.current++ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadPlans])
 
   const loadDetail = useCallback(async (id: string) => {
     if (!id) { setDetail(null); return null }
-    const d = await json<PlanDetail>(await lf(`/api/accounting/forecast/${id}`))
+    const cached = initialPlan.current
+    initialPlan.current = null
+    const d = cached?.fetcher === lf && cached.detail.plan.id === id
+      ? cached.detail
+      : await json<PlanDetail>(await lf(`/api/accounting/forecast/${id}`))
     setDetail(d)
     return d
   }, [lf])
@@ -261,6 +274,7 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
   // for the new, and the old one must not land last.
   const seriesSeq = useRef(0)
   const loadSeries = useCallback(async () => {
+    if (!plansReady || (planId && detail?.plan.id !== planId)) return
     if (start > end) { setSeriesError('The start month is after the end month'); return }
     const seq = ++seriesSeq.current
     setLoading(true)
@@ -274,7 +288,7 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
     } finally {
       if (seq === seriesSeq.current) setLoading(false)
     }
-  }, [lf, seriesQuery, start, end])
+  }, [lf, seriesQuery, start, end, plansReady, planId, detail?.plan.id])
 
   useEffect(() => { if (plans !== null && view !== 'variance') loadSeries() }, [loadSeries, plans, view])
 

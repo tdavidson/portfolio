@@ -195,7 +195,8 @@ export async function resolveAccessContext(
   client: SupabaseClient,
   userId: string,
 ): Promise<AccessContext | null> {
-  const { data } = await client.rpc('access_context' as never, {} as never)
+  const { data, error } = await client.rpc('access_context' as never, {} as never)
+  if (error) throw new Error('Could not resolve access context')
   const row = (data ?? null) as AccessContextRow | null
   if (!row?.fund_id) return null
 

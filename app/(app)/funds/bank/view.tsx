@@ -3,7 +3,7 @@
 import { ImportReviewPanel } from '@/components/accounting/import-review'
 import type { ImportReview } from '@/lib/accounting/import-review'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { Loader2, Check, AlertTriangle, Upload, Sparkles, Search } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -46,27 +46,35 @@ export function BankView({ initialSearch = '' }: { initialSearch?: string } = {}
   const [sortBy, setSortBy] = useState('date-desc')
   const lf = useLedgerFetch()
 
+  const loadVersion = useRef(0)
   const load = useCallback(() => {
-    setLoading(true)
+    const version = ++loadVersion.current
+    const current = () => version === loadVersion.current
+    setLoading(true); setMatchError(null); setRec(null); setAccounts([]); setAcctNames({})
     return Promise.all([
       lf('/api/accounting/bank').then(async r => {
         const data = await r.json()
-        if (!r.ok) throw new Error(data.error ?? 'Could not load bank transactions.')
-        return data
-      }),
-      lf('/api/accounting/bank/reconcile').then(r => (r.ok ? r.json() : null)),
-      lf('/api/accounting/chart').then(r => (r.ok ? r.json() : [])),
-    ]).then(([t, r, ch]) => {
-      setTxns(Array.isArray(t) ? t : [])
-      setSelected(new Set())
-      setRec(r)
-      const chart = (Array.isArray(ch) ? ch : []).map((a: any) => ({ code: a.code, name: a.name, is_active: a.is_active, lp_entity_id: a.lp_entity_id }))
-      setAccounts(chart)
-      setAcctNames(Object.fromEntries(chart.map(a => [a.code, a.name])))
-    }).catch(e => setMatchError(e.message)).finally(() => setLoading(false))
+        if (!r.ok) throw new Error('Could not load bank transactions.')
+        if (current()) { setTxns(Array.isArray(data) ? data : []); setSelected(new Set()) }
+      }).catch(() => { if (current()) { setTxns([]); setMatchError('Could not load bank transactions.') } })
+        .finally(() => { if (current()) setLoading(false) }),
+      lf('/api/accounting/bank/reconcile').then(async r => {
+        if (!r.ok) throw new Error('reconciliation')
+        const data = await r.json()
+        if (current()) setRec(data)
+      }).catch(() => { if (current()) setMatchError('Could not load reconciliation.') }),
+      lf('/api/accounting/chart').then(async r => {
+        if (!r.ok) throw new Error('chart')
+        const data = await r.json()
+        if (!current()) return
+        const chart = (Array.isArray(data) ? data : []).map((a: any) => ({ code: a.code, name: a.name, is_active: a.is_active, lp_entity_id: a.lp_entity_id }))
+        setAccounts(chart)
+        setAcctNames(Object.fromEntries(chart.map(a => [a.code, a.name])))
+      }).catch(() => { if (current()) setMatchError('Could not load account choices.') }),
+    ])
   }, [lf])
 
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(); return () => { loadVersion.current++ } }, [load])
 
   const [matching, setMatching] = useState(false)
   const [matchMsg, setMatchMsg] = useState<string | null>(null)

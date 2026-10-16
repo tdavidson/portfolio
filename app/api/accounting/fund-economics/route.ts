@@ -1,10 +1,12 @@
+import { loadGateAccess } from '@/lib/access/request-context'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertReadAccess } from '@/lib/api-helpers'
-import { hasAccess, loadAccessContext } from '@/lib/access/effective'
-import { fundEconomics, vehicleEconomics } from '@/lib/accounting/fund-economics'
+import { hasAccess } from '@/lib/access/effective'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
+import { listVehiclesWithId } from '@/lib/accounting/load'
+import { fundEconomics } from '@/lib/accounting/fund-economics'
 import { canSeeVehicle } from '@/lib/access/scope'
 
 // Fund-level performance per vehicle, derived from the ledger.
@@ -22,7 +24,7 @@ export async function GET(req: NextRequest) {
   const gate = await assertReadAccess(admin, user.id)
   if (gate instanceof NextResponse) return gate
 
-  const access = await loadAccessContext(admin, gate.fundId, user.id, gate.role)
+  const access = await loadGateAccess(admin, gate)
 
   const asOf = req.nextUrl.searchParams.get('asOf') ?? undefined
   if (asOf && !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
@@ -30,18 +32,18 @@ export async function GET(req: NextRequest) {
   }
 
   try {
-    // Only the caller's entities. A named one is resolved through the same gate every
-    // vehicle-scoped route uses, which refuses an entity the caller cannot see.
+    // Only the caller's entities.
     const requested = req.nextUrl.searchParams.get('group')
-    let all
+    let groups: string[]
     if (requested) {
       const group = await resolveGroupOr400(admin, gate, requested)
       if (group instanceof NextResponse) return group
-      all = [await vehicleEconomics(admin, gate.fundId, group, asOf)]
+      groups = [group]
     } else {
-      all = await fundEconomics(admin, gate.fundId, asOf)
+      groups = (await listVehiclesWithId(admin, gate.fundId))
+        .filter(v => canSeeVehicle(access, v.id)).map(v => v.name)
     }
-    const vehicles = all.filter(v => canSeeVehicle(access, v.id))
+    const vehicles = (await fundEconomics(admin, gate.fundId, asOf, groups)).filter(v => canSeeVehicle(access, v.id))
 
     // `carryAccrued` and the GP-class block are gp_economics. The fund overview is otherwise
     // ordinary accounting, and the `lp` metrics are already net-to-LP with the carry removed —

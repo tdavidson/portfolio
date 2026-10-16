@@ -1,8 +1,9 @@
+import { loadGateAccess } from '@/lib/access/request-context'
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertReadAccess } from '@/lib/api-helpers'
-import { loadAccessContext, hasAccess } from '@/lib/access/effective'
+import { hasAccess } from '@/lib/access/effective'
 import { listVehiclesWithId, listMancoVehicles } from '@/lib/accounting/load'
 import { MANCO_KIND } from '@/lib/vehicle-kinds'
 import { canSeeVehicle } from '@/lib/access/scope'
@@ -28,7 +29,7 @@ export async function GET() {
   const gate = await assertReadAccess(admin, user.id)
   if (gate instanceof NextResponse) return gate
 
-  const ctx = await loadAccessContext(admin, gate.fundId, user.id, gate.role)
+  const ctx = await loadGateAccess(admin, gate)
   // Only the caller's entities — the switcher and sidebar never offer one they cannot open.
   const vehicles = (await listVehiclesWithId(admin, gate.fundId)).filter(v => canSeeVehicle(ctx, v.id))
   if (!hasAccess(ctx, 'management_company', 'read')) return NextResponse.json(vehicles)

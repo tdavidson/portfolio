@@ -1,3 +1,5 @@
+import { createTransactionLoader } from '@/lib/dashboard/transactions'
+import { loadDashboardCompanyRows } from '@/lib/dashboard/companies'
 import type { PageContext } from '@/lib/pages/context'
 import { computeSummary, effectiveCompanyStatus } from '@/lib/investments'
 import { entityScopeFor } from '@/lib/access/entity-scope'
@@ -15,68 +17,24 @@ export type DashboardPageData = Awaited<ReturnType<typeof loadDashboardPage>>
 export async function loadDashboardPage({ supabase, admin, user, page }: PageContext) {
   const isAdmin = page.isAdmin
 
-  const ninetyDaysAgo = new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString()
-
   // Only the companies linked to the viewer's entities, and only their entities' transactions. An
   // admin sees every entity (no filter); a member with none sees an empty portfolio.
   const scope = await entityScopeFor(admin, page.access)
 
-  // Fetch companies with their first 2 metrics and review counts
-  type CompanyRow = {
-    id: string; name: string; stage: string | null; status: string; created_at: string | null
-    tags: string[]; industry: string[] | null; portfolio_group: string[] | null
-    metrics: { id: string; name: string; unit: string | null; unit_position: string; value_type: string; currency: string | null; display_order: number; is_active: boolean }[]
-    parsing_reviews: { id: string; resolution: string | null }[]
-  }
-
-  let companiesQuery = supabase
-    .from('companies')
-    .select(`
-      id, name, stage, status, created_at, tags, industry, portfolio_group,
-      metrics(id, name, unit, unit_position, value_type, currency, display_order, is_active),
-      parsing_reviews(id, resolution)
-    `)
-    .eq('holding_type', 'company')   // fund holdings have their own surfaces
-  if (scope.companyIds !== null) companiesQuery = companiesQuery.in('id', scope.companyIds)
-  const { data: companiesRaw } = await companiesQuery.order('name') as { data: CompanyRow[] | null }
-
-  // Find cash metric IDs for each company
-  const cashMetricMap = new Map<string, string>()
-  for (const c of companiesRaw ?? []) {
-    const cashMetric = (c.metrics ?? []).find(m =>
-      m.is_active && (m.name.toLowerCase() === 'cash' || /\bcash\b/i.test(m.name))
-    )
-    if (cashMetric) cashMetricMap.set(c.id, cashMetric.id)
-  }
-
-  // Batch fetch latest cash values
-  const cashMetricIds = Array.from(cashMetricMap.values())
-  const cashValues = new Map<string, number>()
-  if (cashMetricIds.length > 0) {
-    const { data: cashRows } = await supabase
-      .from('metric_values')
-      .select('metric_id, value_number')
-      .in('metric_id', cashMetricIds)
-      .not('value_number', 'is', null)
-      .order('period_year', { ascending: false })
-      .order('created_at', { ascending: false }) as { data: { metric_id: string; value_number: number }[] | null }
-
-    // Keep only the first (latest) value per metric
-    for (const row of cashRows ?? []) {
-      if (!cashValues.has(row.metric_id)) {
-        cashValues.set(row.metric_id, row.value_number)
-      }
-    }
-  }
-
-  // Batch fetch latest metric period per company
-  const { data: latestPeriodRows } = await supabase
-    .from('metric_values')
-    .select('company_id, period_year, period_quarter, period_month')
-    .in('company_id', (companiesRaw ?? []).map(c => c.id))
-    .order('period_year', { ascending: false })
-    .order('period_quarter', { ascending: false, nullsFirst: false })
-    .order('period_month', { ascending: false, nullsFirst: false }) as { data: { company_id: string; period_year: number; period_quarter: number | null; period_month: number | null }[] | null }
+  // Start the independent picker reads while the portfolio data loads. Await the whole batch so
+  // an error in either path is observed rather than leaving a rejected promise behind.
+  const loadTransactions = createTransactionLoader(admin, page.fundId)
+  const [{ companiesRaw, allTxns }, entityOptions, savedExcluded, fundDefaultExcluded] = await Promise.all([
+    (async () => {
+      const companiesRaw = await loadDashboardCompanyRows(supabase, page.fundId, scope.companyIds)
+      const allTxns = await loadTransactions(companiesRaw.map(c => c.id))
+      return { companiesRaw, allTxns }
+    })(),
+    loadActiveEntityOptions(admin, page.access, loadTransactions),
+    page.role === 'viewer' ? Promise.resolve(null) : loadSavedExcluded(admin, page.fundId, user.id),
+    loadFundDefaultExcluded(admin, page.fundId),
+  ])
+  const latestPeriodRows = companiesRaw.flatMap(c => c.latest_period.map(p => ({ ...p, company_id: c.id })))
 
   const lastMetricPeriod = new Map<string, string>()
   for (const row of latestPeriodRows ?? []) {
@@ -98,10 +56,10 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
     const activeMetrics = (c.metrics ?? [])
       .filter((m) => m.is_active)
       .sort((a, b) => a.display_order - b.display_order)
-    const openReviews = (c.parsing_reviews ?? []).filter((r) => r.resolution === null).length
+    const openReviews = c.parsing_reviews?.[0]?.count ?? 0
 
-    const cashMetricId = cashMetricMap.get(c.id)
-    const latestCash = cashMetricId ? cashValues.get(cashMetricId) ?? null : null
+    const cashMetric = activeMetrics.find(m => /\bcash\b/i.test(m.name))
+    const latestCash = cashMetric?.latest_numeric[0]?.value_number ?? null
 
     return {
       id: c.id,
@@ -115,18 +73,10 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
       portfolioGroup: scope.vehicleNames === null ? c.portfolio_group : (c.portfolio_group ?? []).filter(g => scope.vehicleNames!.includes(g)),
       lastReportAt,
       openReviews,
-      activeMetrics: activeMetrics.map(m => ({ id: m.id, name: m.name, unit: m.unit, unit_position: m.unit_position, value_type: m.value_type, currency: m.currency })),
+      activeMetrics: activeMetrics.map(m => ({ id: m.id, name: m.name, unit: m.unit, unit_position: m.unit_position, value_type: m.value_type, currency: m.currency, latestValue: m.latest[0]?.value_number ?? null })),
       latestCash,
     }
   })
-
-  // Fetch investment transactions for ALL companies (first investment date + summaries for exited)
-  const allCompanyIds = companies.map(c => c.id)
-  const { data: allTxns } = await admin
-    .from('investment_transactions' as any)
-    .select('*')
-    .in('company_id', allCompanyIds)
-    .order('transaction_date', { ascending: true }) as { data: InvestmentTransaction[] | null }
 
   // Group transactions by company — only the viewer's entities' rows (plus company-wide price
   // signals), so a shared company's figures are the viewer's position, not every fund's.
@@ -185,13 +135,6 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
 
   // The entity picker: the viewer's entities holding an active position (companies, fund holdings,
   // digital assets), and the selection in force — their saved one, else the fund default, else all.
-  const [entityOptions, savedExcluded, fundDefaultExcluded] = await Promise.all([
-    loadActiveEntityOptions(admin, page.access),
-    // The read-only demo shares one login, so a row saved for it (e.g. straight through the Data
-    // API) would be every visitor's selection. The demo always starts from the fund default.
-    page.role === 'viewer' ? Promise.resolve(null) : loadSavedExcluded(admin, page.fundId, user.id),
-    loadFundDefaultExcluded(admin, page.fundId),
-  ])
   const selection = resolveExcluded({ options: entityOptions, saved: savedExcluded, fundDefault: fundDefaultExcluded })
 
   return {

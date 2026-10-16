@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
   ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
@@ -102,21 +102,26 @@ export function FundDetailView({ vehicle, vehicleId }: { vehicle: string; vehicl
   useEffect(() => { setVehicle(vehicle, vehicleId) }, [vehicle, vehicleId, setVehicle])
 
   const g = `group=${encodeURIComponent(vehicle)}`
+  const loadVersion = useRef(0)
   const load = useCallback(() => {
+    const version = ++loadVersion.current
+    const current = () => version === loadVersion.current
     setLoading(true)
-    Promise.all([
-      fetch(`/api/accounting/fund-economics?${g}`).then(r => (r.ok ? r.json() : { vehicles: [] })),
-      fetch(`/api/accounting/statements?${g}&preset=itd`).then(r => (r.ok ? r.json() : null)),
-      fetch(`/api/accounting/fund-timeseries?${g}`).then(r => (r.ok ? r.json() : null)),
-    ]).then(([e, s, t]) => {
-      const found = (e.vehicles ?? []).find((v: VehicleEconomics) => v.vehicle === vehicle) ?? null
-      setEcon(found)
-      setNotFound(!found)
-      setSoi(s?.scheduleOfInvestments ?? null)
-      setTs(t && !t.error ? t : null)
-    }).finally(() => setLoading(false))
+    fetch(`/api/accounting/fund-economics?${g}`)
+      .then(r => (r.ok ? r.json() : { vehicles: [] }))
+      .then(e => {
+        if (!current()) return
+        const found = (e.vehicles ?? []).find((v: VehicleEconomics) => v.vehicle === vehicle) ?? null
+        setEcon(found); setNotFound(!found)
+      }).catch(() => { if (current()) { setEcon(null); setNotFound(true) } })
+      .finally(() => { if (current()) setLoading(false) })
+    setSoi(null); setTs(null)
+    fetch(`/api/accounting/statements?${g}&preset=itd&section=soi`)
+      .then(r => r.ok ? r.json() : null).then(s => { if (current()) setSoi(s?.scheduleOfInvestments ?? null) }).catch(() => { if (current()) setSoi(null) })
+    fetch(`/api/accounting/fund-timeseries?${g}`)
+      .then(r => r.ok ? r.json() : null).then(t => { if (current()) setTs(t && !t.error ? t : null) }).catch(() => { if (current()) setTs(null) })
   }, [g, vehicle])
-  useEffect(() => { load() }, [load])
+  useEffect(() => { load(); return () => { loadVersion.current++ } }, [load])
 
   const hasGpSplit = !!econ && ((econ.gp?.paidIn ?? 0) !== 0 || (econ.gp?.nav ?? 0) !== 0 || (econ.carryAccrued ?? 0) !== 0)
   const effectiveLens: Lens = hasGpSplit ? lens : 'fund'

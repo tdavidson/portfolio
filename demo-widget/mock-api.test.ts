@@ -53,3 +53,26 @@ describe('demo mock API fallback', () => {
     expect(body.lp).toBe('b')
   })
 })
+
+describe('batched chart compatibility', () => {
+  it('assembles old per-metric recordings and falls back to synthetic snapshot series', async () => {
+    const snapshot = {
+      generatedAt: '2026-04-01',
+      companies: [{ id: 'c1', metrics: [
+        { id: 'cash', values: [] },
+        { id: 'mrr', values: [{ year: 2026, quarter: 1, month: null, period_label: 'Q1 2026', number: 25 }] },
+      ] }],
+    } as unknown as DemoSnapshot
+    const fetch = createDemoFetch({ snapshot, answers: { answers: [] } as unknown as DemoAnswers,
+      api: { responses: { 'GET /api/companies/c1/metrics/cash/values': {
+        status: 200, body: [{ metric_id: 'cash', value_number: 100 }],
+      } } } as unknown as DemoApi })
+    const response = await fetch('/api/companies/c1/metrics/values')
+    expect(response.status).toBe(200)
+    expect(await response.json()).toMatchObject({
+      cash: [{ metric_id: 'cash', value_number: 100 }],
+      mrr: [{ metric_id: 'mrr', value_number: 25, period_label: 'Q1 2026' }],
+    })
+    expect((await fetch('/api/companies/unavailable/metrics/values')).status).toBe(404)
+  })
+})
