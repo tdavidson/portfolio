@@ -6,7 +6,7 @@ import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { loadPostedLedger } from '@/lib/accounting/load'
 import { accountBalances } from '@/lib/accounting/ledger'
-import { openingCashBefore, summarizeBankRec, type BankTxnState } from '@/lib/accounting/bank'
+import { cashTransferEntryIds, openingCashBefore, summarizeBankRec, type BankTxnState } from '@/lib/accounting/bank'
 
 // GET — bank reconciliation for a vehicle: ledger cash vs the bank feed.
 export async function GET(req: NextRequest) {
@@ -19,19 +19,20 @@ export async function GET(req: NextRequest) {
   const group = await resolveGroupOr400(admin, gate, req.nextUrl.searchParams.get('group'))
   if (group instanceof NextResponse) return group
 
-  const { accounts, postings } = await loadPostedLedger(admin, gate.fundId, group)
+  const { accounts, postings, sourcedPostings } = await loadPostedLedger(admin, gate.fundId, group)
   const cash = accounts.find(a => a.code === '1000')
   const ledgerCashBalance = cash ? (accountBalances(postings).get(cash.id) ?? 0) : 0
 
   const vehicleId = await vehicleIdByName(admin, gate.fundId, group)
   const { data } = await admin
     .from('bank_transactions' as any)
-    .select('txn_date, amount, status')
+    .select('txn_date, amount, status, journal_entry_id')
     .eq('fund_id', gate.fundId)
     .eq('vehicle_id', vehicleId)
     .neq('status', 'ignored')
   const rows = (data as any[]) ?? []
-  const txns: BankTxnState[] = rows.map(t => ({ amount: Number(t.amount), matched: t.status === 'reconciled' }))
+  const transfers = cashTransferEntryIds(sourcedPostings, cash?.id)
+  const txns: BankTxnState[] = rows.map(t => ({ amount: Number(t.amount), matched: t.status === 'reconciled', cashTransfer: transfers.has(t.journal_entry_id) }))
 
   return NextResponse.json(summarizeBankRec(txns, ledgerCashBalance, openingCashBefore(postings, cash?.id, rows.map(t => t.txn_date))))
 }

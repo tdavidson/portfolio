@@ -34,7 +34,7 @@ import { bookCapitalCallFromInflow } from './bank-match'
 import { exportLedgerTextPage, postLedgerText } from './text-ledger-run'
 import { listPeriods } from './periods'
 import { closeThrough, previewCloseThrough } from './close'
-import { openingCashBefore, summarizeBankRec, type BankTxnState } from './bank'
+import { cashTransferEntryIds, openingCashBefore, summarizeBankRec, type BankTxnState } from './bank'
 import { accountBalances } from './ledger'
 import type { SupabaseClient as _Sb } from '@supabase/supabase-js'
 import type { JournalEntry, Posting } from './types'
@@ -413,13 +413,14 @@ const HANDLERS: Record<string, AgentToolHandler> = {
   },
 
   bank_reconciliation: async ({ admin, fundId, portfolioGroup }) => {
-    const { accounts, postings } = await loadPostedLedger(admin, fundId, portfolioGroup)
+    const { accounts, postings, sourcedPostings } = await loadPostedLedger(admin, fundId, portfolioGroup)
     const cash = accounts.find(a => a.code === '1000')
     const ledgerCashBalance = cash ? (accountBalances(postings).get(cash.id) ?? 0) : 0
     const vehicleId = await vehicleIdByName(admin, fundId, portfolioGroup)
     // Every row, paged: past 1000 the unmatched count and difference were silently understated.
-    const data = await fetchAllRows<any>((f, t) => admin.from('bank_transactions' as any).select('id, txn_date, amount, status').eq('fund_id', fundId).eq('vehicle_id', vehicleId).neq('status', 'ignored').order('id').range(f, t))
-    const txns: BankTxnState[] = data.map(t => ({ amount: Number(t.amount), matched: t.status === 'reconciled' }))
+    const data = await fetchAllRows<any>((f, t) => admin.from('bank_transactions' as any).select('id, txn_date, amount, status, journal_entry_id').eq('fund_id', fundId).eq('vehicle_id', vehicleId).neq('status', 'ignored').order('id').range(f, t))
+    const transfers = cashTransferEntryIds(sourcedPostings, cash?.id)
+    const txns: BankTxnState[] = data.map(t => ({ amount: Number(t.amount), matched: t.status === 'reconciled', cashTransfer: transfers.has(t.journal_entry_id) }))
     return summarizeBankRec(txns, ledgerCashBalance, openingCashBefore(postings, cash?.id, data.map(t => t.txn_date)))
   },
 
