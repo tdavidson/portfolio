@@ -16,6 +16,7 @@ import type { AccessContext } from '@/lib/access/effective'
 import type { ResolvedKey } from '@/lib/accounting/api-keys'
 import { getTool } from '@/lib/accounting/agent-tools'
 import { hasDraftMode, isAssistantCredential } from '@/lib/agent/dispatch'
+import { LIST_FUNDS, MASTER_ADMIN_TOOLS } from '@/lib/agent/master-admin'
 import { CALL_TOOL, SEARCH_TOOLS } from './gateway-names'
 import { describeTool, listableTools, type McpTool } from './server'
 
@@ -89,13 +90,14 @@ const versions = new Map<string, string>()
  * A short hash of the tool list this caller is served (names, descriptions, schemas, annotations).
  * It changes when a deploy changes a tool and when the caller's grants change what they see, so a
  * client holding an older value knows its cached list is stale. Memoized per set of tool names:
- * within one build, the names decide the rest.
+ * within one build, the names decide the rest. A pooled connection (lib/agent/master-admin.ts) is
+ * also served list_funds and use_fund, so joining or leaving a pool changes it too.
  */
-export function toolListVersion(access: AccessContext): string {
-  const names = listableTools(access).map(t => t.name).join(',')
+export function toolListVersion(access: AccessContext, pooled = false): string {
+  const names = listableTools(access).map(t => t.name).join(',') + (pooled ? ',+pool' : '')
   let version = versions.get(names)
   if (!version) {
-    version = createHash('sha256').update(JSON.stringify(listedTools(access))).digest('hex').slice(0, 12)
+    version = createHash('sha256').update(JSON.stringify(listedTools(access)) + (pooled ? JSON.stringify(MASTER_ADMIN_TOOLS) : '')).digest('hex').slice(0, 12)
     versions.set(names, version)
   }
   return version
@@ -187,37 +189,67 @@ export function closeMatches(name: string, access: AccessContext, max = 5): stri
 
 export interface SearchToolsInput { query?: unknown; names?: unknown; limit?: unknown }
 
+/**
+ * list_funds and use_fund, for a pooled connection, in the shape search_tools returns. They are
+ * served beside the registry's tools, not from it, so without this a host whose cached list
+ * predates the pool could never find them, though call_tool runs them (lib/mcp-apps/call.ts).
+ */
+function poolTools(auth: ResolvedKey) {
+  if (!auth.pool) return []
+  return MASTER_ADMIN_TOOLS.map(t => ({
+    name: t.name,
+    description: t.description,
+    inputSchema: t.inputSchema,
+    // use_fund changes no record, only which fund later calls act on.
+    scope: t.name === LIST_FUNDS ? 'read' as const : 'write' as const,
+    staged: false,
+    annotations: t.annotations ?? {},
+  }))
+}
+
 /** `search_tools`: the current tool list, as this caller may use it. */
 export function searchTools(input: SearchToolsInput, auth: ResolvedKey, access: AccessContext) {
   const tools = listableTools(access)
-  const version = toolListVersion(access)
+  const pool = poolTools(auth)
+  const version = toolListVersion(access, pool.length > 0)
   const next = 'Run any of these with call_tool { name, arguments }.'
 
   const names = Array.isArray(input?.names) ? input.names.filter((n): n is string => typeof n === 'string') : []
   if (names.length) {
-    const found = names.map(n => tools.find(t => t.name === n)).filter((t): t is McpTool => !!t)
+    const has = (n: string) => tools.some(t => t.name === n) || pool.some(t => t.name === n)
+    const found = names.flatMap(n => {
+      const p = pool.find(t => t.name === n)
+      if (p) return [p]
+      const t = tools.find(t => t.name === n)
+      return t ? [detailed(t, auth)] : []
+    })
     const notFound = names
-      .filter(n => !tools.some(t => t.name === n))
+      .filter(n => !has(n))
       .map(n => ({ name: n, didYouMean: closeMatches(n, access) }))
-    return { toolListVersion: version, tools: found.map(t => detailed(t, auth)), ...(notFound.length ? { notFound } : {}), next }
+    return { toolListVersion: version, tools: found, ...(notFound.length ? { notFound } : {}), next }
   }
 
   const query = typeof input?.query === 'string' ? input.query.trim() : ''
   if (!query) {
     return {
       toolListVersion: version,
-      count: tools.length,
-      tools: tools.map(t => ({ name: t.name, scope: t.scope, description: oneLine(t.description) })),
+      count: pool.length + tools.length,
+      tools: [
+        ...pool.map(t => ({ name: t.name, scope: t.scope, description: oneLine(t.description) })),
+        ...tools.map(t => ({ name: t.name, scope: t.scope, description: oneLine(t.description) })),
+      ],
       next: 'Pass names to get a tool\'s full description and inputSchema, then run it with call_tool.',
     }
   }
 
   const limit = typeof input?.limit === 'number' && Number.isFinite(input.limit) ? Math.min(50, Math.max(1, Math.floor(input.limit))) : 10
   const terms = words(query)
-  const ranked = tools
-    .map(t => ({ t, s: score(t, terms) }))
+  const ranked = [
+    ...pool.map(p => ({ s: score(p as unknown as McpTool, terms), name: p.name, out: p as Record<string, unknown> })),
+    ...tools.map(t => ({ s: score(t, terms), name: t.name, out: detailed(t, auth) as Record<string, unknown> })),
+  ]
     .filter(r => r.s > 0)
-    .sort((a, b) => b.s - a.s || a.t.name.localeCompare(b.t.name))
+    .sort((a, b) => b.s - a.s || a.name.localeCompare(b.name))
     .slice(0, limit)
-  return { toolListVersion: version, query, tools: ranked.map(r => detailed(r.t, auth)), next }
+  return { toolListVersion: version, query, tools: ranked.map(r => r.out), next }
 }

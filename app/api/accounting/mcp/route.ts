@@ -108,8 +108,8 @@ async function handle(rpc: RpcRequest, ctx: BaseCtx, auth: ResolvedKey, access: 
         // Prompts are the templates a host lists in its prompt menu (lib/agent/getting-started.ts).
         capabilities: { tools: {}, resources: {}, prompts: {} },
         serverInfo: serverInfo(ctx.origin),
-        instructions: serverInstructions(toolListVersion(access)) + (auth.pool ? masterAdminInstructions(auth.pool) : ''),
-        _meta: { toolListVersion: toolListVersion(access) },
+        instructions: serverInstructions(toolListVersion(access, !!auth.pool)) + (auth.pool ? masterAdminInstructions(auth.pool) : ''),
+        _meta: { toolListVersion: toolListVersion(access, !!auth.pool) },
       })
     case 'ping':
       return ok(rpc.id, {})
@@ -125,7 +125,7 @@ async function handle(rpc: RpcRequest, ctx: BaseCtx, auth: ResolvedKey, access: 
       // A master admin connection also gets list_funds and use_fund (lib/agent/master-admin.ts).
       return ok(rpc.id, {
         tools: auth.pool ? [...MASTER_ADMIN_TOOLS, ...listedTools(access)] : listedTools(access),
-        _meta: { toolListVersion: toolListVersion(access) },
+        _meta: { toolListVersion: toolListVersion(access, !!auth.pool) },
       })
     case 'tools/call': {
       // The same function serves call_tool, so a call through the gateway cannot skip a check.
