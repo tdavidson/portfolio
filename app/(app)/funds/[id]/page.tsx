@@ -7,15 +7,11 @@ import { FUND_SUBPAGE_SLUGS } from '@/components/fund-subpages'
 import { sectionForSlug } from '@/lib/accounting/nav'
 import { isManagementCompany } from '@/lib/vehicle-kinds'
 import { AccountingPageHeader, AccountingBody } from '@/components/accounting-chrome'
-import { FirmVehiclesTable } from '@/components/accounting/firm-vehicles'
 import { capitalActionFromParam, type CapitalAction } from '@/lib/accounting/capital-action'
 import { FundDetailView } from './fund-detail-view'
-import { FundOverview } from '../fund-overview'
-import { FirmBankView } from '@/components/accounting/firm-bank'
-import { FirmCloseView } from '@/components/accounting/firm-close'
-import { FirmDraftsView } from '@/components/accounting/firm-drafts'
-import { FirmHoldingsView } from '@/components/accounting/firm-holdings'
 import { MancoDetailView } from './manco-detail-view'
+import { FirmVehiclesTable } from '@/components/accounting/firm-vehicles'
+import { EntityList } from '../entity-list'
 import { getUser } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolvePageAccess } from '@/lib/access/page-gate'
@@ -58,7 +54,7 @@ export default async function EntityPage(props: { params: Promise<{ id: string }
   // Portfolio construction is the Forecast page's Portfolio tab now.
   if (params.id === 'construction') redirect('/funds/forecast')
   if (FUND_SUBPAGE_SLUGS.has(params.id)) {
-    // Only the capital accounts landing has a query to forward — see FirmVehiclesTable's `action`.
+    // Only the capital accounts landing has a query to forward — see EntityIndex's `action`.
     const sp = await props.searchParams
     const action = params.id === 'capital-accounts' ? capitalActionFromParam(typeof sp.action === 'string' ? sp.action : null) : null
     return <FirmSectionPage slug={params.id} action={action} />
@@ -86,16 +82,22 @@ export default async function EntityPage(props: { params: Promise<{ id: string }
 }
 
 /**
- * The firm-wide landing for one section. The table is the same for every section — the state of
- * each entity's books is what you want to know whichever page you are heading for — and only the
- * row's link changes. Admin is also where an entity is added, so that page carries the button.
+ * The firm-wide landing for one section: the entity index (/funds), with each entity's name
+ * leading to this section's page. It used to load every entity's books first — the drafts queue on
+ * the journal's, every open bank row on the bank's, every entity's ledger for the picker cards on
+ * the rest — when what you come to /funds/journal for is to pick whose journal. Rendered here
+ * rather than redirected to /funds, so the sidebar's link costs no extra round trip and still
+ * shows which section you are in.
+ *
+ * Admin is the exception: there the state of every entity's books IS the question, and it is
+ * where an entity is added, so it keeps the full table.
  */
 async function FirmSectionPage({ slug, action }: { slug: string; action: CapitalAction | null }) {
   await requireAccountingAccess()
 
   // Two slugs are not pages of their own any more: plain-text authoring is a tab on the journal,
   // and LP capital events are one of the producers on the capital accounts page.
-  if (slug === 'text') redirect('/funds/journal?tab=text')
+  if (slug === 'text') redirect('/funds/journal')
   if (slug === 'lp-events') redirect('/funds/capital-accounts')
 
   const section = sectionForSlug(slug)
@@ -105,16 +107,9 @@ async function FirmSectionPage({ slug, action }: { slug: string; action: Capital
     <div className="pt-4 md:pt-8 pb-8 w-full">
       <AccountingPageHeader title={section.label}>{section.desc}</AccountingPageHeader>
       <AccountingBody>
-        {/* Where the firm-wide answer is the section's own content rather than a list of doors:
-            every vehicle's multiples side by side, every open bank row and every draft in one
-            queue, the close calendar, and every holding with who holds it. The rest pick an
-            entity. */}
-        {slug === 'performance' ? <FundOverview section="performance" />
-          : slug === 'bank' ? <FirmBankView />
-          : slug === 'journal' ? <FirmDraftsView />
-          : slug === 'periods' ? <FirmCloseView />
-          : slug === 'schedule-of-investments' ? <FirmHoldingsView />
-          : <FirmVehiclesTable section={slug} showAdd={slug === 'status'} action={action} />}
+        {slug === 'status'
+          ? <FirmVehiclesTable section={slug} showAdd />
+          : <EntityList section={slug} action={action} />}
       </AccountingBody>
     </div>
   )
