@@ -16,6 +16,25 @@ import { stagedTarget } from '@/lib/pending-actions/target'
 import { ADMIN_ONLY_ACTIONS } from '@/lib/access/admin-only'
 import { notifyAdminsOfStagedChange } from '@/lib/pending-actions/notify'
 import { ENTITY_DOCUMENTS_TOOL, runEntityDocumentsTool } from '@/lib/entity-documents/analyst'
+import { proposalSubject, replaces, withdrawProposals, type OpenProposal } from '@/lib/pending-actions/withdraw'
+
+/** The drafting tool that takes back an earlier draft the person no longer wants. */
+export const WITHDRAW_PROPOSAL_TOOL: ToolDefinition = {
+  name: 'withdraw_proposal',
+  description:
+    'Withdraw changes you drafted earlier in this conversation that are still waiting for approval, ' +
+    'because the person declined them, no longer wants them, or a newer draft replaces them. Only ids ' +
+    'listed under PROPOSALS WAITING IN THIS CONVERSATION. Withdrawing changes nothing in the books; it ' +
+    'removes the approval card.',
+  inputSchema: {
+    type: 'object',
+    required: ['ids'],
+    properties: {
+      ids: { type: 'array', items: { type: 'string' }, description: 'The pending action ids to withdraw.' },
+      reason: { type: 'string', description: 'One line on why, for the audit trail.' },
+    },
+  },
+}
 
 /** A write the Analyst staged this turn — surfaced so the caller can render approval cards. */
 export interface StagedActionRecord {
@@ -51,6 +70,13 @@ export interface AnalystToolDeps {
   stagedActions?: StagedActionRecord[]
   /** Executor pushes validated read results here; never populated for failed or write tools. */
   completedTools?: CompletedAnalystTool[]
+  /**
+   * Drafts from earlier turns of this conversation still waiting (lib/pending-actions/withdraw.ts).
+   * A new draft that revises one withdraws it, and `withdraw_proposal` may take back any of them.
+   */
+  openProposals?: OpenProposal[]
+  /** Executor pushes the id of each draft it withdrew here, for the caller to retire its card. */
+  withdrawnActions?: string[]
 }
 
 /**
@@ -78,9 +104,19 @@ export function buildAnalystTools(deps: AnalystToolDeps): { tools: ToolDefinitio
     }
   }
 
+  // Taking back an earlier draft: offered only when this conversation has one waiting.
+  if (deps.enableDrafts && deps.userId && (deps.openProposals?.length ?? 0) > 0) tools.push(WITHDRAW_PROPOSAL_TOOL)
+
   // Governing documents follow entity access, not a domain grant: offered to every caller, scoped
   // inside the tool to the entities they can see.
   tools.push(ENTITY_DOCUMENTS_TOOL)
+
+  // A withdrawn draft leaves the open list, so it is neither withdrawn twice nor offered again.
+  const retire = (ids: string[]) => {
+    if (ids.length === 0) return
+    deps.withdrawnActions?.push(...ids)
+    if (deps.openProposals) deps.openProposals = deps.openProposals.filter(p => !ids.includes(p.id))
+  }
 
   const executeTool: ToolExecutor = async (call: ToolInvocation) => {
     if (call.name === ENTITY_DOCUMENTS_TOOL.name) {
@@ -91,6 +127,24 @@ export function buildAnalystTools(deps: AnalystToolDeps): { tools: ToolDefinitio
         )
         deps.completedTools?.push({ name: call.name, input: call.input, result })
         return JSON.stringify(result)
+      } catch (e) {
+        return JSON.stringify({ error: (e as Error).message })
+      }
+    }
+
+    if (call.name === WITHDRAW_PROPOSAL_TOOL.name) {
+      if (!deps.enableDrafts || !deps.userId) return JSON.stringify({ error: 'Unknown or non-readable tool: withdraw_proposal' })
+      const asked = Array.isArray((call.input as { ids?: unknown })?.ids) ? (call.input as { ids: unknown[] }).ids : []
+      const open = new Set((deps.openProposals ?? []).map(p => p.id))
+      const ids = asked.filter((id): id is string => typeof id === 'string' && open.has(id))
+      if (ids.length === 0) return JSON.stringify({ error: 'None of those ids is a proposal waiting in this conversation.' })
+      try {
+        const reason = (call.input as { reason?: unknown }).reason
+        const withdrawn = await withdrawProposals(deps.admin, { fundId: deps.fundId, userId: deps.userId }, ids, {
+          reason: typeof reason === 'string' && reason.trim() ? reason.trim().slice(0, 300) : 'Withdrawn in the conversation',
+        })
+        retire(withdrawn)
+        return JSON.stringify({ withdrawn, notWaiting: ids.filter(id => !withdrawn.includes(id)) })
       } catch (e) {
         return JSON.stringify({ error: (e as Error).message })
       }
@@ -129,12 +183,20 @@ export function buildAnalystTools(deps: AnalystToolDeps): { tools: ToolDefinitio
           if (error) return JSON.stringify({ error: error.message })
           const id = (data as { id: string }).id
           deps.stagedActions?.push({ id, actionType: call.name as ActionType, preview })
+          // A revision of a draft still waiting from an earlier turn replaces it.
+          const next = { actionType: call.name, vehicleId: target.vehicleId ?? null, subject: proposalSubject(target.input) }
+          const superseded = (deps.openProposals ?? []).filter(p => replaces(next, p)).map(p => p.id)
+          const withdrawn = superseded.length > 0
+            ? await withdrawProposals(deps.admin, { fundId: deps.fundId, userId: deps.userId }, superseded, { replacedBy: id })
+            : []
+          retire(withdrawn)
           // An admin-only action from a member waits on an admin who is not in this conversation.
           const adminLabel = ADMIN_ONLY_ACTIONS[call.name]
           if (adminLabel && deps.access.role !== 'admin') {
             await notifyAdminsOfStagedChange(deps.admin, { fundId: deps.fundId, label: adminLabel, summary: preview.summary, requesterId: deps.userId })
           }
-          return `Staged pending action ${id} for approval: ${preview.summary}`
+          const replacedNote = withdrawn.length > 0 ? ` It replaces, and withdrew, the earlier draft${withdrawn.length === 1 ? '' : 's'} ${withdrawn.join(', ')}.` : ''
+          return `Staged pending action ${id} for approval: ${preview.summary}${replacedNote}`
         } catch (e) {
           return JSON.stringify({ error: (e as Error).message })
         }

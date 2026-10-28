@@ -5,7 +5,7 @@
 // discards it. Both endpoints re-check the caller's WRITE access for the action's domain.
 
 import { useState } from 'react'
-import { AlertTriangle, Check, CircleSlash, X } from 'lucide-react'
+import { AlertTriangle, Check, ChevronDown, ChevronRight, CircleSlash, Undo2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { announceApplied } from '@/lib/pending-actions/applied-event'
 import { isRunResult, RunPreview, RunResultView, type RunResult } from '@/components/agent-run-card'
@@ -22,7 +22,12 @@ export interface StagedAction {
 
 type CardState = 'idle' | 'busy' | 'applied' | 'rejected' | 'error'
 
-export function AnalystPendingActions({ actions, title = 'Proposed changes — approve to apply' }: { actions: StagedAction[]; title?: string }) {
+export function AnalystPendingActions({ actions, title = 'Proposed changes — approve to apply', withdrawn }: {
+  actions: StagedAction[]
+  title?: string
+  /** Drafts the Analyst took back (replaced by a revision, or the person moved on): no longer approvable. */
+  withdrawn?: ReadonlySet<string>
+}) {
   const [state, setState] = useState<Record<string, CardState>>({})
   const [errors, setErrors] = useState<Record<string, string>>({})
   // A run's outcome (lib/agent/run-action.ts): each step's result and the checks, shown once applied.
@@ -65,6 +70,14 @@ export function AnalystPendingActions({ actions, title = 'Proposed changes — a
       <p className="text-xs font-medium text-muted-foreground">{title}</p>
       {shown.map(a => {
         const st = state[a.id] ?? 'idle'
+        if (withdrawn?.has(a.id) && st !== 'applied') {
+          return (
+            <div key={a.id} className="border rounded-card px-3 py-2 text-xs text-muted-foreground flex items-start gap-1.5">
+              <Undo2 className="h-3.5 w-3.5 mt-px shrink-0" />
+              <span><span className="line-through">{a.preview.summary}</span> Withdrawn: the Analyst replaced or dropped this proposal.</span>
+            </div>
+          )
+        }
         return (
           <div key={a.id} className="border rounded-card p-3 space-y-2">
             <p className="text-xs font-medium">{a.preview.summary}</p>
@@ -189,42 +202,119 @@ function CallNoticesPreview({ details }: { details: Record<string, unknown> }) {
   )
 }
 
-/** Render a preview's structured details: per-LP tables get a small table, everything else a list. */
+/** Longer than this, a text value goes behind "Show details" rather than into the card. */
+const INLINE_TEXT_MAX = 400
+/** More per-LP rows than this and the table goes behind "Show details" too. */
+const INLINE_LP_ROWS = 8
+
+function isEmpty(v: unknown): boolean {
+  if (v == null || v === '') return true
+  if (Array.isArray(v)) return v.length === 0
+  return typeof v === 'object' && Object.keys(v as object).length === 0
+}
+
+/** Short values read inline; lists, objects and long text are what makes a card a wall. */
+function isBulky(v: unknown): boolean {
+  if (typeof v === 'string') return v.length > INLINE_TEXT_MAX
+  return typeof v === 'object' && v !== null
+}
+
+function bulkLabel(v: unknown): string {
+  if (Array.isArray(v)) return `${v.length} item${v.length === 1 ? '' : 's'}`
+  if (typeof v === 'object' && v !== null) {
+    const n = Object.keys(v).length
+    return `${n} field${n === 1 ? '' : 's'}`
+  }
+  return `${String(v).length.toLocaleString()} characters`
+}
+
+/**
+ * Render a preview's structured details. Short values show inline; lists, objects and long text
+ * (a forecast's every account rule, say) wait behind "Show details", so the card stays readable.
+ * Empty values are left out.
+ */
 function PreviewDetails({ details }: { details: Record<string, unknown> }) {
+  const [open, setOpen] = useState(false)
   const perLp = details.perLp as Array<{ lp: string; commitment?: number; amount: number }> | undefined
-  const scalars = Object.entries(details).filter(([k]) => k !== 'perLp')
+  const entries = Object.entries(details).filter(([k, v]) => k !== 'perLp' && !isEmpty(v))
+  const inline = entries.filter(([, v]) => !isBulky(v))
+  const bulky = entries.filter(([, v]) => isBulky(v))
+  const lpInline = !!perLp && perLp.length > 0 && perLp.length <= INLINE_LP_ROWS
+  const lpBulky = !!perLp && perLp.length > INLINE_LP_ROWS
+  const hidden = [
+    ...bulky.map(([k, v]) => `${k} (${bulkLabel(v)})`),
+    ...(lpBulky ? [`perLp (${perLp!.length} LPs)`] : []),
+  ]
 
   return (
     <div className="space-y-1.5">
-      {scalars.length > 0 && (
-        <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px]">
-          {scalars.map(([k, v]) => (
-            <div key={k} className="contents">
-              <dt className="text-muted-foreground">{k}</dt>
-              <dd className="tabular-nums">{formatVal(v)}</dd>
+      {inline.length > 0 && <DetailList entries={inline} />}
+      {lpInline && <PerLpTable rows={perLp!} />}
+      {hidden.length > 0 && (
+        <div className="space-y-1.5">
+          <button
+            type="button"
+            onClick={() => setOpen(o => !o)}
+            aria-expanded={open}
+            className="flex items-center gap-1 text-[11px] text-muted-foreground hover:text-foreground"
+          >
+            {open ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            {open ? 'Hide details' : `Show details: ${hidden.join(', ')}`}
+          </button>
+          {open && (
+            <div className="space-y-2">
+              {bulky.map(([k, v]) => (
+                <div key={k} className="space-y-0.5">
+                  <p className="text-[11px] text-muted-foreground">{k}</p>
+                  {typeof v === 'string'
+                    ? <p className="text-[11px] whitespace-pre-wrap">{v}</p>
+                    : (
+                      <pre className="max-h-80 overflow-auto rounded-md border bg-muted p-2 text-[11px] whitespace-pre-wrap break-words">
+                        {JSON.stringify(v, null, 2)}
+                      </pre>
+                    )}
+                </div>
+              ))}
+              {lpBulky && <PerLpTable rows={perLp!} />}
             </div>
-          ))}
-        </dl>
-      )}
-      {perLp && perLp.length > 0 && (
-        <table className="w-full text-[11px]">
-          <thead>
-            <tr className="text-muted-foreground">
-              <th className="text-left font-medium py-0.5">LP</th>
-              <th className="text-right font-medium py-0.5">Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            {perLp.map((r, i) => (
-              <tr key={i} className="border-t">
-                <td className="py-0.5">{r.lp}</td>
-                <td className="py-0.5 text-right tabular-nums">{formatVal(r.amount)}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
+          )}
+        </div>
       )}
     </div>
+  )
+}
+
+function DetailList({ entries }: { entries: Array<[string, unknown]> }) {
+  return (
+    <dl className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 text-[11px]">
+      {entries.map(([k, v]) => (
+        <div key={k} className="contents">
+          <dt className="text-muted-foreground">{k}</dt>
+          <dd className="tabular-nums break-words">{formatVal(v)}</dd>
+        </div>
+      ))}
+    </dl>
+  )
+}
+
+function PerLpTable({ rows }: { rows: Array<{ lp: string; commitment?: number; amount: number }> }) {
+  return (
+    <table className="w-full text-[11px]">
+      <thead>
+        <tr className="text-muted-foreground">
+          <th className="text-left font-medium py-0.5">LP</th>
+          <th className="text-right font-medium py-0.5">Amount</th>
+        </tr>
+      </thead>
+      <tbody>
+        {rows.map((r, i) => (
+          <tr key={i} className="border-t">
+            <td className="py-0.5">{r.lp}</td>
+            <td className="py-0.5 text-right tabular-nums">{formatVal(r.amount)}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
   )
 }
 
