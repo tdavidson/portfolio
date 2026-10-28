@@ -22,6 +22,8 @@ interface LegacyAnalystBody {
   model?: { id: string; provider: string }
   effort?: AIEffort
   conversationId?: string
+  /** Drafts from earlier turns of this conversation whose cards are still showing. */
+  openActionIds?: string[]
   /**
    * Stream progress as newline-delimited JSON: `{type:'progress', event}` per step as it starts and
    * finishes, then one `{type:'result', data}` (the same body the plain response returns) or
@@ -58,6 +60,7 @@ export async function POST(req: NextRequest) {
     const result = await runAnalyst(principal, {
       messages: body.messages!,
       conversationId: body.conversationId,
+      openActionIds: Array.isArray(body.openActionIds) ? body.openActionIds : undefined,
       signal: req.signal,
       onProgress,
       scope: {
@@ -88,6 +91,7 @@ export async function POST(req: NextRequest) {
         actionType: action.actionType,
         preview: action.preview,
       })),
+      withdrawnActionIds: result.withdrawnActionIds,
       blocks: result.blocks,
     }
   }

@@ -88,6 +88,11 @@ export interface AnalystRequest {
   /** Credential ceiling for transports with scoped tokens. Cookie-authenticated web defaults on. */
   allowDrafts?: boolean
   /**
+   * Drafts this conversation staged in earlier turns, as the client holds them. Untrusted: only the
+   * caller's own pending Analyst drafts among them count (lib/pending-actions/withdraw.ts).
+   */
+  openActionIds?: string[]
+  /**
    * Called as the run proceeds. Optional and best-effort: a throwing or slow callback must not be
    * able to fail the run, so the orchestrator swallows what it raises.
    */
@@ -117,6 +122,8 @@ export interface AnalystResult {
   scope: string | null
   toolCalls: Array<{ name: string }>
   stagedActions: StagedActionRecord[]
+  /** Earlier drafts this turn withdrew: replaced by a revision, or taken back on the person's word. */
+  withdrawnActionIds: string[]
   blocks: AnalystPresentationBlock[]
   usage: AnalystUsageSummary
 }

@@ -31,6 +31,7 @@ import {
   type ConversationCoordinates,
 } from './conversation-store'
 import { buildPresentationBlocks } from './response'
+import { loadOpenProposals, openProposalsBlock, type OpenProposal } from '@/lib/pending-actions/withdraw'
 import {
   AnalystRequestError,
   type AnalystDependencies,
@@ -391,6 +392,14 @@ export async function runAnalyst(
     }
   }
 
+  // Drafts still waiting from earlier turns: listed for the Analyst, and replaced when it revises one.
+  const drafting = request.allowDrafts !== false && !!principal.userId
+  const openProposals: OpenProposal[] = drafting
+    ? await loadOpenProposals(deps.admin, { fundId: principal.fundId, userId: principal.userId! }, request.openActionIds)
+      .catch(() => [])
+    : []
+  if (openProposals.length > 0) systemPrompt += `\n\n${openProposalsBlock(openProposals)}`
+
   const coordinates: ConversationCoordinates = {
     companyId: scopeInput.companyId ?? null,
     dealId: scopeInput.dealId ?? null,
@@ -432,6 +441,7 @@ export async function runAnalyst(
     let usage: { inputTokens: number; outputTokens: number; cacheReadTokens?: number; cacheCreationTokens?: number }
     let toolCalls: Array<{ name: string }> = []
     const stagedActions: StagedActionRecord[] = []
+    const withdrawnActionIds: string[] = []
     const completedTools: CompletedAnalystTool[] = []
 
     if (provider.supportsToolLoop && provider.createToolLoop) {
@@ -446,6 +456,8 @@ export async function runAnalyst(
         createdVia: 'analyst',
         stagedActions,
         completedTools,
+        openProposals,
+        withdrawnActions: withdrawnActionIds,
       })
       const result = await provider.createToolLoop({
         model,
@@ -521,6 +533,7 @@ export async function runAnalyst(
       scope: conversationScope,
       toolCalls,
       stagedActions,
+      withdrawnActionIds,
       blocks,
       usage: { ...usage, provider: providerType, model },
     }

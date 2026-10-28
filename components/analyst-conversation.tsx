@@ -132,6 +132,8 @@ export function AnalystConversation({
   // applicable against books that have moved on since.
   const [proposals, setProposals] = useState<Record<number, Proposal[]>>({})
   const [stagedActions, setStagedActions] = useState<Record<number, StagedAction[]>>({})
+  // Drafts the Analyst took back: replaced by a revision, or withdrawn because the person moved on.
+  const [withdrawn, setWithdrawn] = useState<Set<string>>(new Set())
   // Drafts still waiting from earlier conversations. A staged change's card lives only in the turn
   // that made it, so once the panel is closed this is the one place left to approve or reject it.
   const [waiting, setWaiting] = useState<StagedAction[]>([])
@@ -181,6 +183,7 @@ export function AnalystConversation({
     if (messages.length === 0) {
       setProposals({})
       setStagedActions({})
+      setWithdrawn(new Set())
     }
   }, [messages.length])
 
@@ -302,6 +305,8 @@ export function AnalystConversation({
           model: selectedModel ? { id: selectedModel.id, provider: selectedModel.provider } : undefined,
           effort,
           conversationId: conversationId ?? undefined,
+          // The drafts this thread's cards hold, so a revision can replace the one it revises.
+          openActionIds: Object.values(stagedActions).flat().map(a => a.id).filter(id => !withdrawn.has(id)),
           stream: true,
         }),
       })
@@ -336,6 +341,9 @@ export function AnalystConversation({
       }
       if (Array.isArray(data.stagedActions) && data.stagedActions.length > 0) {
         setStagedActions(prev => ({ ...prev, [newMessages.length]: data.stagedActions }))
+      }
+      if (Array.isArray(data.withdrawnActionIds) && data.withdrawnActionIds.length > 0) {
+        setWithdrawn(prev => new Set([...prev, ...data.withdrawnActionIds]))
       }
       // Capture conversationId from response
       if (data.conversationId && !conversationId) {
@@ -609,7 +617,7 @@ export function AnalystConversation({
         )}
         {(() => {
           const here = new Set(Object.values(stagedActions).flat().map(a => a.id))
-          const earlier = waiting.filter(a => !here.has(a.id))
+          const earlier = waiting.filter(a => !here.has(a.id) && !withdrawn.has(a.id))
           return earlier.length > 0 && <AnalystPendingActions actions={earlier} title="Waiting for approval, from earlier conversations" />
         })()}
         {threadMeta}
@@ -639,7 +647,7 @@ export function AnalystConversation({
               )}
               <Markdown>{msg.content}</Markdown>
               {proposals[i] && <AnalystProposals proposals={proposals[i]} vehicle={vehicle} />}
-              {stagedActions[i] && <AnalystPendingActions actions={stagedActions[i]} />}
+              {stagedActions[i] && <AnalystPendingActions actions={stagedActions[i]} withdrawn={withdrawn} />}
               <div className="flex items-center gap-0.5 pt-1">
                 <button
                   type="button"
