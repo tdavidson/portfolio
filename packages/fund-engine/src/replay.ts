@@ -172,8 +172,19 @@ export function clawbackAtFundEnd(
   terms: VehicleCarryTerms,
   asOf: string,
   carryPaid: number,
-): { paid: number; entitlement: number; amount: number } {
+): { paid: number; entitlement: number; amount: number; cap?: number } {
   const entitlement = terms.kind === 'none' || terms.carryRate <= 0 ? 0 : fundEndEntitlement(priors, contributions, terms, asOf)
-  return { paid: roundCents(carryPaid), entitlement, amount: roundCents(Math.max(0, carryPaid - entitlement)) }
+  const cap = netOfTaxCap(carryPaid, terms.clawbackNetOfTaxRate)
+  const owed = roundCents(Math.max(0, carryPaid - entitlement))
+  return { paid: roundCents(carryPaid), entitlement, amount: cap === undefined ? owed : Math.min(cap, owed), ...(cap === undefined ? {} : { cap }) }
+}
+
+/** The carry paid less tax at the assumed rate, half to even to the cent; undefined without a rate. */
+export function netOfTaxCap(carryPaid: number, rate: number | undefined): number | undefined {
+  if (rate === undefined) return undefined
+  const c = carryPaid * (1 - rate) * 100
+  const f = Math.floor(c)
+  const cents = Math.abs(c - f - 0.5) < 1e-7 ? (f % 2 === 0 ? f : f + 1) : Math.round(c)
+  return cents / 100
 }
 

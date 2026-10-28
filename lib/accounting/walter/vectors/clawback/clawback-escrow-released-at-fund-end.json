@@ -1,0 +1,108 @@
+{
+  "id": "clawback-escrow-released-at-fund-end",
+  "walter": "0.3",
+  "title": "Escrow released in full at fund end",
+  "description": "1,000 called and 1,500 back on a 20% split. The GP's 100 of carry is 25% escrowed, so 75 is paid and 25 held. At fund end the GP is entitled to all 100, there is no clawback, and the 25 is released.",
+  "tags": [
+    "clawback",
+    "escrow"
+  ],
+  "provenance": "hand-computed",
+  "terms": {
+    "walter": "0.3",
+    "fund": {
+      "id": "example-fund-i",
+      "currency": "USD"
+    },
+    "partners": [
+      {
+        "id": "gp",
+        "role": "gp",
+        "commitment": "0"
+      },
+      {
+        "id": "lp-a",
+        "role": "lp",
+        "commitment": "1000"
+      }
+    ],
+    "waterfall": {
+      "tiers": [
+        {
+          "type": "return-of-capital"
+        },
+        {
+          "type": "split",
+          "gpShare": "0.20"
+        }
+      ]
+    },
+    "clawback": {
+      "escrow": {
+        "share": "0.25",
+        "release": "fund-end"
+      }
+    }
+  },
+  "flows": [
+    {
+      "type": "contribution",
+      "date": "2025-01-01",
+      "partner": "lp-a",
+      "amount": "1000"
+    },
+    {
+      "type": "distributable",
+      "date": "2026-01-01",
+      "amount": "1500"
+    },
+    {
+      "type": "fund-end",
+      "date": "2027-01-01"
+    }
+  ],
+  "expected": {
+    "allocations": [
+      {
+        "date": "2026-01-01",
+        "tier": "return-of-capital",
+        "partner": "lp-a",
+        "amount": "1000.00"
+      },
+      {
+        "date": "2026-01-01",
+        "tier": "split",
+        "partner": "lp-a",
+        "amount": "400.00"
+      },
+      {
+        "date": "2026-01-01",
+        "tier": "split",
+        "partner": "gp",
+        "amount": "100.00"
+      }
+    ],
+    "escrow": [
+      {
+        "date": "2026-01-01",
+        "partner": "gp",
+        "amount": "-25.00"
+      },
+      {
+        "date": "2027-01-01",
+        "partner": "gp",
+        "amount": "25.00"
+      }
+    ],
+    "totals": {
+      "gp": "100.00",
+      "lp-a": "1400.00"
+    },
+    "clawback": {
+      "amount": "0.00",
+      "entitlement": "100.00",
+      "fromEscrow": "0.00"
+    }
+  },
+  "tolerance": "0.01"
+}

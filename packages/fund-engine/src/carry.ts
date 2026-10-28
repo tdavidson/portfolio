@@ -54,6 +54,11 @@ export interface VehicleCarryTerms {
    * ['investments'] is an LPA that returns only invested capital before carry.
    */
   capitalIncludes?: ContributionPurpose[]
+  /**
+   * Caps the clawback at the carry paid less tax at this assumed rate (replay.ts
+   * clawbackAtFundEnd): the GP never gives back more than it kept after tax. Absent: no cap.
+   */
+  clawbackNetOfTaxRate?: number
   /** Single-recipient legacy field; kept for back-compat and as the fallback source. */
   gpEntityId: string | null
   /** Who receives the carry and in what split. Resolved from `carry_recipients`, or

@@ -16,6 +16,7 @@
 
 import {
   allocateAmount,
+  CarryEscrow,
   carryTarget,
   realizedCapitalFromDeals,
   recyclingCap,
@@ -95,7 +96,7 @@ interface WTerms {
     tiers?: WTier[]
     carryRecipients?: { partner: string; share: string }[]
   }
-  clawback?: { enabled?: boolean }
+  clawback?: { enabled?: boolean; escrow?: { share: string; release?: 'fund-end' | { lpMultiple: string } }; netOfTax?: { rate: string } }
   recycling?: { cap: string; capBasis?: 'commitments' | 'management-fees'; until?: string; defaultTreatment?: 'never-distributed' | 'deemed' }
   managementFee?: WFee
 }
@@ -306,6 +307,18 @@ export function run(termsIn: unknown, flowsIn: unknown) {
     .sort((a, b) => a.f.date.localeCompare(b.f.date) || ORDER[a.f.type] - ORDER[b.f.type] || a.i - b.i)
     .map(x => x.f)
   const clawbackOn = terms.clawback?.enabled ?? true
+  // Carry escrow and a net-of-tax clawback cap are 0.3 terms (spec/06).
+  const cbTerms = terms.clawback ?? {}
+  if ((cbTerms.escrow || cbTerms.netOfTax) && terms.walter !== '0.3') refuse('invalid-terms', 'a carry escrow or a net-of-tax clawback needs walter "0.3"')
+  const release = cbTerms.escrow?.release ?? 'fund-end'
+  if (cbTerms.escrow && release !== 'fund-end' && typeof release?.lpMultiple !== 'string') refuse('invalid-terms', 'clawback.escrow.release must be "fund-end" or { lpMultiple }')
+  const escrow = cbTerms.escrow
+    ? new CarryEscrow({
+      share: num(cbTerms.escrow.share, 'clawback.escrow.share'),
+      release: release === 'fund-end' ? 'fund-end' : { lpMultiple: num(release.lpMultiple, 'clawback.escrow.release.lpMultiple') },
+    })
+    : undefined
+  if (cbTerms.netOfTax) carry.clawbackNetOfTaxRate = num(cbTerms.netOfTax.rate, 'clawback.netOfTax.rate')
 
   const recycling: RecyclingTerms | null = terms.recycling ? {
     capRate: num(terms.recycling.cap, 'recycling.cap'),
@@ -324,8 +337,11 @@ export function run(termsIn: unknown, flowsIn: unknown) {
   const allocations: Allocation[] = []
   const recontributions: { date: string; partner: string; amount: string }[] = []
   const recycledOut: { date: string; amount: string; treatment: 'never-distributed' | 'deemed' }[] = []
-  const accruedCarry: { date: string; nav: string; entitlement: string; paid: string; accrued: string }[] = []
-  let clawback: { date: string; paid: string; entitlement: string; amount: string } | undefined
+  const accruedCarry: { date: string; nav: string; entitlement: string; paid: string; accrued: string; byPartner: Record<string, string> }[] = []
+  let clawback: { date: string; paid: string; entitlement: string; amount: string; cap?: string; fromEscrow?: string } | undefined
+  const escrowOut: { date: string; partner: string; amount: string }[] = []
+  /** Carry the tiers have paid so far, by the LPs whose tiers paid it (one key per class). */
+  const paidByGroup = new Map<string, number>()
   const warnings: string[] = []
   let recycledToDate = 0
   let gpPaid = 0
@@ -340,6 +356,14 @@ export function run(termsIn: unknown, flowsIn: unknown) {
     received.set(partner, roundCents((received.get(partner) ?? 0) + amount))
     if (isCarry) gpPaid = roundCents(gpPaid + amount)
     else ownReceived.set(partner, roundCents((ownReceived.get(partner) ?? 0) + amount))
+  }
+  const postEscrow = (date: string, lines: Map<string, number>) => {
+    for (const r of recipients) {
+      const x = lines.get(r.lpEntityId) ?? 0
+      if (x === 0) continue
+      escrowOut.push({ date, partner: r.lpEntityId, amount: money(x) })
+      received.set(r.lpEntityId, roundCents((received.get(r.lpEntityId) ?? 0) + x))
+    }
   }
   const contributedTo = (date: string, id?: string) =>
     roundCents(contributions.filter(c => c.date <= date && (id === undefined || c.partner === id)).reduce((s, c) => s + c.amount, 0))
@@ -452,17 +476,30 @@ export function run(termsIn: unknown, flowsIn: unknown) {
           if (amount > 0) for (const [id, a] of allocateAmount(amount, weights)) add(f.date, tier, id, a)
         }
         const carryNet = new Map<string, number>()
+        const carryReceived = new Map<string, number>()
         const carryBy = new Map<string[] | undefined, number>()
         const gpTier = (tier: string, amount: number, members?: string[]) => {
           if (amount <= 0) return
           for (const [id, a] of allocateAmount(amount, recipients.map(r => ({ lpEntityId: r.lpEntityId, commitment: r.pct })))) {
             add(f.date, tier, id, a, true)
             carryNet.set(id, roundCents((carryNet.get(id) ?? 0) + a))
+            carryReceived.set(id, roundCents((carryReceived.get(id) ?? 0) + a))
             carryBy.set(members, roundCents((carryBy.get(members) ?? 0) + a))
           }
         }
         const bookCarry = () => {
+          if (escrow) {
+            const lpReceived = lpIds.filter(id => partners.find(p => p.id === id)?.role === 'lp')
+            const held = escrow.distribution(
+              new Map(recipients.map(r => [r.lpEntityId, carryReceived.get(r.lpEntityId) ?? 0])),
+              lpReceived.reduce((s, id) => s + (received.get(id) ?? 0), 0),
+              lpReceived.reduce((s, id) => s + contributedTo(f.date, id), 0),
+            )
+            postEscrow(f.date, held)
+          }
           for (const [members, amount] of carryBy) {
+            const key = (members ?? lpIds).join(',')
+            paidByGroup.set(key, roundCents((paidByGroup.get(key) ?? 0) + amount))
             const weights = members ? allWeights.filter(w => members.includes(w.lpEntityId)) : allWeights
             for (const [id, a] of allocateAmount(amount, weights)) carryNet.set(id, roundCents((carryNet.get(id) ?? 0) - a))
           }
@@ -524,51 +561,48 @@ export function run(termsIn: unknown, flowsIn: unknown) {
         const allCapital = contributedTo(f.date)
         const lpNav = allCapital > 0 ? nav * (lpCapital / allCapital) : nav
         const lpReceived = lpIds.reduce((s, id) => s + (ownReceived.get(id) ?? 0), 0)
-        const target = grouped
-          ? groupedFundEndEntitlement([...priors, { date: f.date, amount: roundCents(lpNav) }], groupsOn(f.date), f.date).total
+        const groups = grouped ? groupsOn(f.date) : []
+        const ent = grouped ? groupedFundEndEntitlement([...priors, { date: f.date, amount: roundCents(lpNav) }], groups, f.date) : undefined
+        const target = ent
+          ? ent.total
           : carryTarget({
-          lps: [{ lpEntityId: 'lps', contributed: roundCents(lpCapital), distributed: roundCents(lpReceived), nav: roundCents(lpNav) }],
+          // The LPs' NAV gross of the carry they've borne, as the close measures it (carryAccrualInputs):
+          // every dollar the tiers paid the GP came out of the carry-bearing side.
+          lps: [{ lpEntityId: 'lps', contributed: roundCents(lpCapital), distributed: roundCents(lpReceived), nav: roundCents(lpNav + gpPaid) }],
           contributions: contributions.filter(c => bearingIds.has(c.partner) && c.date <= f.date).map(c => ({ date: c.date, amount: c.amount, purpose: c.purpose })),
           asOf: f.date,
           distributions: priors,
         }, carry)
-        accruedCarry.push({ date: f.date, nav: money(nav), entitlement: money(target), paid: money(gpPaid), accrued: money(Math.max(0, target - gpPaid)) })
+        const accrued = roundCents(Math.max(0, target - gpPaid))
+        // From both sides (spec/06): the recipients credited by share, and each class's own accrual
+        // (its entitlement less what its tiers have paid) charged to its LPs by capital.
+        const byPartner = new Map<string, number>()
+        const put = (id: string, x: number) => byPartner.set(id, roundCents((byPartner.get(id) ?? 0) + x))
+        signedShares(accrued, recipients.map(r => r.pct)).forEach((x, k) => put(recipients[k].lpEntityId, x))
+        const weights = lpWeights(f.date)
+        const sets = ent ? groups.map(g => g.lpEntityIds) : [lpIds]
+        const owe = sets.map((ids, k) => (ent ? ent.byGroup[k] : target) - (paidByGroup.get(ids.join(',')) ?? 0))
+        const members = sets.flatMap(ids => ids)
+        const exact = sets.flatMap((ids, k) => {
+          const ws = ids.map(id => weights.find(w => w.lpEntityId === id)?.commitment ?? 0)
+          const all = ws.reduce((s, v) => s + v, 0)
+          return ws.map(w => (all > 0 ? (owe[k] * w) / all : owe[k] / ids.length))
+        })
+        signedShares(accrued, exact).forEach((x, k) => put(members[k], -x))
+        accruedCarry.push({
+          date: f.date, nav: money(nav), entitlement: money(target), paid: money(gpPaid), accrued: money(accrued),
+          byPartner: Object.fromEntries(partners.filter(p => (byPartner.get(p.id) ?? 0) !== 0).map(p => [p.id, money(byPartner.get(p.id)!)])),
+        })
         break
       }
       case 'fund-end': {
-        if (!clawbackOn || !paysGp) break
-        if (grouped) {
-          // Netted across the classes, and back to the ones that were overpaid, by capital within each.
-          const groups = groupsOn(f.date)
-          const c = groupedClawback(priors, groups, f.date, gpPaid)
-          clawback = { date: f.date, paid: money(c.paid), entitlement: money(c.entitlement), amount: money(c.amount) }
-          if (c.amount > 0) {
-            for (const [id, a] of allocateAmount(c.amount, recipients.map(r => ({ lpEntityId: r.lpEntityId, commitment: r.pct })))) {
-              if (a > 0) add(f.date, 'clawback', id, -a, true)
-            }
-            const weights = lpWeights(f.date)
-            const back = groups.flatMap((g, k) => {
-              const ws = weights.filter(w => g.lpEntityIds.includes(w.lpEntityId))
-              const all = ws.reduce((s, w) => s + w.commitment, 0)
-              return ws.map(w => ({ lpEntityId: w.lpEntityId, commitment: all > 0 ? (c.back[k] * w.commitment) / all : 0 }))
-            })
-            for (const [id, a] of allocateAmount(c.amount, back)) {
-              if (a > 0) add(f.date, 'clawback', id, a)
-            }
-          }
-          break
-        }
-        const lpContributions = contributions.filter(c => bearingIds.has(c.partner) && c.date <= f.date).map(c => ({ date: c.date, amount: c.amount, purpose: c.purpose }))
-        const c = clawbackAtFundEnd(priors, lpContributions, carry, f.date, gpPaid)
-        clawback = { date: f.date, paid: money(c.paid), entitlement: money(c.entitlement), amount: money(c.amount) }
-        if (c.amount > 0) {
-          // The recipients give it back by share, and the LPs receive it by capital.
-          for (const [id, a] of allocateAmount(c.amount, recipients.map(r => ({ lpEntityId: r.lpEntityId, commitment: r.pct })))) {
-            if (a > 0) add(f.date, 'clawback', id, -a, true)
-          }
-          for (const [id, a] of allocateAmount(c.amount, lpWeights(f.date))) {
-            if (a > 0) add(f.date, 'clawback', id, a)
-          }
+        const repaid = new Map<string, number>()
+        settleClawback(f.date, repaid)
+        // What's still in escrow is released at fund end, after the clawback is taken from it.
+        if (escrow) {
+          const out = escrow.fundEnd(repaid)
+          if (clawback) clawback.fromEscrow = money(out.fromEscrow)
+          postEscrow(f.date, out.lines)
         }
         break
       }
@@ -577,8 +611,48 @@ export function run(termsIn: unknown, flowsIn: unknown) {
     }
   }
 
+  /** The clawback at fund end, the recipients' repayments noted in `repaid` for the escrow. */
+  function settleClawback(date: string, repaid: Map<string, number>) {
+    if (!clawbackOn || !paysGp) return
+    if (grouped) {
+      // Netted across the classes, and back to the ones that were overpaid, by capital within each.
+      const groups = groupsOn(date)
+      const c = groupedClawback(priors, groups, date, gpPaid, carry.clawbackNetOfTaxRate)
+      clawback = { date, paid: money(c.paid), entitlement: money(c.entitlement), amount: money(c.amount), ...(c.cap !== undefined ? { cap: money(c.cap) } : {}) }
+      if (c.amount > 0) {
+        for (const [id, a] of allocateAmount(c.amount, recipients.map(r => ({ lpEntityId: r.lpEntityId, commitment: r.pct })))) {
+          if (a > 0) add(date, 'clawback', id, -a, true)
+          repaid.set(id, a)
+        }
+        const weights = lpWeights(date)
+        const back = groups.flatMap((g, k) => {
+          const ws = weights.filter(w => g.lpEntityIds.includes(w.lpEntityId))
+          const all = ws.reduce((s, w) => s + w.commitment, 0)
+          return ws.map(w => ({ lpEntityId: w.lpEntityId, commitment: all > 0 ? (c.back[k] * w.commitment) / all : 0 }))
+        })
+        for (const [id, a] of allocateAmount(c.amount, back)) {
+          if (a > 0) add(date, 'clawback', id, a)
+        }
+      }
+      return
+    }
+    const lpContributions = contributions.filter(c => bearingIds.has(c.partner) && c.date <= date).map(c => ({ date: c.date, amount: c.amount, purpose: c.purpose }))
+    const c = clawbackAtFundEnd(priors, lpContributions, carry, date, gpPaid)
+    clawback = { date, paid: money(c.paid), entitlement: money(c.entitlement), amount: money(c.amount), ...(c.cap !== undefined ? { cap: money(c.cap) } : {}) }
+    if (c.amount > 0) {
+      // The recipients give it back by share, and the LPs receive it by capital.
+      for (const [id, a] of allocateAmount(c.amount, recipients.map(r => ({ lpEntityId: r.lpEntityId, commitment: r.pct })))) {
+        if (a > 0) add(date, 'clawback', id, -a, true)
+        repaid.set(id, a)
+      }
+      for (const [id, a] of allocateAmount(c.amount, lpWeights(date))) {
+        if (a > 0) add(date, 'clawback', id, a)
+      }
+    }
+  }
+
   // The fee schedule (spec/07-management-fees.md), run by the engine's dated schedule.
-  const fees: { start: string; end: string; gross: string; offset: string; net: string; recognized: Record<string, string>; unapplied: string }[] = []
+  const fees: { start: string; end: string; gross: string; offset: string; net: string; recognized: Record<string, string>; unapplied: string; byPartner: Record<string, string> }[] = []
   const feesByPartner: Record<string, string> = {}
   const fee = terms.managementFee
   if (fee) {
@@ -629,21 +703,27 @@ export function run(termsIn: unknown, flowsIn: unknown) {
       portfolioFees: flows.filter(f => f.type === 'portfolio-fee').map(f => ({ date: f.date, kind: f.kind, amount: Number(f.amount) })),
       organizationalExpenses: flows.filter(f => f.type === 'organizational-expense').map(f => ({ date: f.date, amount: Number(f.amount) })),
     })
+    // Each partner pays its group's net by commitment: each period rounded on its own, and the
+    // whole schedule rounded once.
+    const owed = new Map<string, number>()
     for (const p of periods) {
+      const parts = new Map<string, number>()
+      feeGroups.forEach((g, k) => {
+        for (const q of g.members) {
+          const part = g.commit > 0 ? ((p.groupNet?.[k] ?? 0) * (commitment.get(q.id) ?? 0)) / g.commit : 0
+          parts.set(q.id, part)
+          owed.set(q.id, (owed.get(q.id) ?? 0) + part)
+        }
+      })
+      const byPartner: Record<string, string> = {}
+      for (const [id, a] of allocateAmount(p.net, feeBearing.map(q => ({ lpEntityId: q.id, commitment: parts.get(q.id) ?? 0 })))) {
+        if (a !== 0) byPartner[id] = money(a)
+      }
       fees.push({
         start: p.start, end: p.end, gross: money(p.gross), offset: money(p.offset), net: money(p.net),
         recognized: Object.fromEntries(Object.entries(p.recognized).map(([k, v]) => [k, money(v)])),
         unapplied: money(p.unapplied),
-      })
-    }
-    // Each partner pays its group's net by commitment.
-    const owed = new Map<string, number>()
-    for (const p of periods) {
-      feeGroups.forEach((g, k) => {
-        for (const q of g.members) {
-          const part = g.commit > 0 ? ((p.groupNet?.[k] ?? 0) * (commitment.get(q.id) ?? 0)) / g.commit : 0
-          owed.set(q.id, (owed.get(q.id) ?? 0) + part)
-        }
+        byPartner,
       })
     }
     const net = periods.reduce((s, p) => s + p.net, 0)
@@ -665,9 +745,24 @@ export function run(termsIn: unknown, flowsIn: unknown) {
     ...(clawback ? { clawback } : {}),
     accruedCarry,
     carry: carryLines,
+    escrow: escrowOut,
     fees,
     feesByPartner,
     totals,
     warnings: [...new Set(warnings)],
   }
+}
+
+/** `total` across signed `values` to the cent, so the parts add up to it: largest remainder, ties to the earlier. */
+function signedShares(total: number, values: number[]): number[] {
+  if (values.length === 0) return []
+  const sum = values.reduce((s, v) => s + v, 0)
+  const exact = sum === 0 ? values.map(() => total / values.length) : values.map(v => (total * v) / sum)
+  const floors = exact.map(v => Math.floor(v * 100 + 1e-7))
+  let short = Math.round(total * 100) - floors.reduce((s, x) => s + x, 0)
+  const order = exact.map((v, i) => ({ i, rem: v * 100 - floors[i] })).sort((a, b) => b.rem - a.rem || a.i - b.i)
+  const out = floors.slice()
+  for (let j = 0; short > 0 && order.length > 0; j = (j + 1) % order.length, short--) out[order[j].i] += 1
+  for (let j = order.length - 1; short < 0 && order.length > 0; j = (j - 1 + order.length) % order.length, short++) out[order[j].i] -= 1
+  return out.map(c => c / 100)
 }
