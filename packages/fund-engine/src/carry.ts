@@ -315,9 +315,12 @@ function shareByWeight(total: number, weights: { lpEntityId: string; weight: num
 export function carryAccrual(
   input: CarryTargetInput,
   terms: VehicleCarryTerms,
-  alreadyAccrued: number
+  alreadyAccrued: number,
+  /** The GP commit bears carry: the recipients are among `input.lps` too (carryAccrualInputs). */
+  bearing?: BearingRecipients,
 ): CarryAccrual {
   const target = carryTarget(input, terms)
+  if (bearing) return bearingAccrual(input, target, bearing)
 
   // Each LP's gain, measured the same way the target was: value today plus what they've taken
   // out, less what they put in.
@@ -346,4 +349,63 @@ export function carryAccrual(
   }
   for (const [id, amount] of shareByWeight(delta, profits)) if (amount !== 0) perLp.set(id, amount)
   return { target, alreadyAccrued, delta, perLp }
+}
+
+/**
+ * The carry recipients when their own commitments bear carry (VehicleCarryTerms.gpCommitBearsCarry),
+ * with what the books already hold for each.
+ */
+export interface BearingRecipients {
+  recipients: CarryRecipient[]
+  /**
+   * Each recipient's net carry accrued to date, credit-positive: what earlier accruals credited it
+   * as a recipient less what they charged it as a bearer. Carry PAID is not in it. The books can't
+   * split the two sides, because one accrual posts both to the same capital line, but the true-up
+   * only needs the net.
+   */
+  posted: Map<string, number>
+}
+
+/**
+ * The accrual when the recipients bear carry as well as receive it. The target is the whole fund's
+ * carry, recipients' capital included; every partner in profit (a recipient too) bears its share of
+ * it by profit, and each recipient receives its percent of it. A recipient's line is the difference,
+ * so a single recipient at 100% posts only the carry the LPs bear: what it pays itself nets out.
+ *
+ * A true-up like the LP-only one: each LP ends at its share less what it was charged, each recipient
+ * at its share less its receipt, less what it already holds net. The lines sum to zero, so the entry
+ * needs no separate credit to the recipients. `delta` and `alreadyAccrued` are the LPs' side only,
+ * which is what the memo reports.
+ */
+function bearingAccrual(input: CarryTargetInput, target: number, bearing: BearingRecipients): CarryAccrual {
+  const recipientIds = new Set(bearing.recipients.map(r => r.lpEntityId))
+  const profits = input.lps
+    .map(l => ({ lpEntityId: l.lpEntityId, weight: roundCents(l.nav + l.distributed - l.contributed) }))
+    .filter(p => p.weight > 0)
+  const share = shareByWeight(target, profits)
+
+  // Each recipient's receipt, split as buildCarryEntry splits it: the last takes the remainder.
+  const receipt = new Map<string, number>()
+  let allocated = 0
+  bearing.recipients.forEach((r, i) => {
+    const amt = i === bearing.recipients.length - 1 ? roundCents(target - allocated) : roundCents((target * r.pct) / 100)
+    allocated = roundCents(allocated + amt)
+    receipt.set(r.lpEntityId, roundCents((receipt.get(r.lpEntityId) ?? 0) + amt))
+  })
+
+  const perLp = new Map<string, number>()
+  let charged = 0
+  let lpShare = 0
+  for (const l of input.lps) {
+    if (recipientIds.has(l.lpEntityId)) continue
+    charged = roundCents(charged + (l.charged ?? 0))
+    lpShare = roundCents(lpShare + (share.get(l.lpEntityId) ?? 0))
+    const amount = roundCents((share.get(l.lpEntityId) ?? 0) - (l.charged ?? 0))
+    if (amount !== 0) perLp.set(l.lpEntityId, amount)
+  }
+  for (const id of recipientIds) {
+    const amount = roundCents((bearing.posted.get(id) ?? 0) + (share.get(id) ?? 0) - (receipt.get(id) ?? 0))
+    if (amount !== 0) perLp.set(id, amount)
+  }
+  return { target, alreadyAccrued: charged, delta: roundCents(lpShare - charged), perLp }
 }
