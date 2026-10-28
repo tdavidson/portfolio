@@ -9,7 +9,9 @@ answer is. This folder runs Portfolio's accounting engine on those vectors.
   waterfall math of its own. A term the engine can't express is refused as `unsupported`.
   LP classes (Walter 0.2) become per-LP waterfall terms: the engine groups LPs on identical
   terms (`groupLpsByTerms`, `packages/fund-engine/src/lp-groups.ts`) and runs each group on its
-  share. A class's fee rates are a group in `feeSchedule`.
+  share. A class's fee rates are a group in `feeSchedule`. Walter 0.3's carry escrow runs through
+  `CarryEscrow` (`packages/fund-engine/src/carry-escrow.ts`), and the net-of-tax clawback cap is
+  `VehicleCarryTerms.clawbackNetOfTaxRate`, which `clawbackAtFundEnd` and `groupedClawback` apply.
 - `vectors/` and `compare.ts` are copied from the Walter repo, unchanged. Copy them again when
   the spec moves.
 - `conformance.test.ts` runs every vector in `npm test`. Each must pass unless it's in `GAPS`,

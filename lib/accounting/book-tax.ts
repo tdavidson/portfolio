@@ -296,12 +296,15 @@ export function carryOnUnrealizedForYear(
   const out = new Map<string, number>()
   if (terms.kind === 'none' || terms.carryRate <= 0 || terms.recipients.length === 0) return out
   const recipientIds = new Set(terms.recipients.map(r => r.lpEntityId))
+  // When the GP commit bears carry the recipients are bearers too: their own capital is measured
+  // like an LP's, and the recipients' side below nets their receipt against it.
+  const carryFree = terms.gpCommitBearsCarry ? new Set<string>() : recipientIds
 
   const economicsAt = (asOf: string, taxBasis: boolean) => {
     const upTo = capitalPostings.filter(p => (p.entryDate ?? '') <= asOf)
     const accounts = computeCapitalAccounts(upTo)
     const lps: LpEconomics[] = Array.from(accounts.entries())
-      .filter(([id]) => !recipientIds.has(id))
+      .filter(([id]) => !carryFree.has(id))
       .map(([lpEntityId, a]) => ({
         lpEntityId,
         contributed: roundCents(a.contributions),
@@ -309,11 +312,11 @@ export function carryOnUnrealizedForYear(
         nav: roundCents(a.ending - a.carriedInterest - (taxBasis ? a.unrealizedGains + a.fxTranslation : 0)),
       }))
     const contributions: DatedContribution[] = upTo
-      .filter(p => !recipientIds.has(p.lpEntityId) && bucketForSourceType(p.sourceType, p.amount) === 'contributions')
+      .filter(p => !carryFree.has(p.lpEntityId) && bucketForSourceType(p.sourceType, p.amount) === 'contributions')
       .map(p => ({ date: p.entryDate ?? asOf, amount: roundCents(-p.amount) }))
       .filter(c => c.amount > 0)
     // An unreturned-capital hurdle needs what came back, and when.
-    const distributions = priorDistributions(upTo, recipientIds, asOf).priors
+    const distributions = priorDistributions(upTo, recipientIds, asOf, carryFree).priors
     return { lps, contributions, asOf, distributions }
   }
   const yearCarry = (taxBasis: boolean) => {

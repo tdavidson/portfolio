@@ -1,0 +1,155 @@
+{
+  "id": "clawback-escrow-covers-clawback",
+  "walter": "0.3",
+  "title": "Escrowed carry pays the clawback",
+  "description": "The flows of clawback-early-carry, with half of each carry payment held in escrow. Of the 1.68 catch-up on 2027-01-01, 0.84 is held and 0.84 paid. At fund end the GP owes back all 1.68: the 0.84 in escrow covers half of it, and the escrow is released to the GP the same day, so the GP ends with nothing and the LP with all 135.",
+  "tags": [
+    "clawback",
+    "escrow",
+    "pref-contributed",
+    "catch-up-full"
+  ],
+  "provenance": "hand-computed",
+  "terms": {
+    "walter": "0.3",
+    "fund": {
+      "id": "example-fund-i",
+      "currency": "USD"
+    },
+    "partners": [
+      {
+        "id": "gp",
+        "role": "gp",
+        "commitment": "0"
+      },
+      {
+        "id": "lp-a",
+        "role": "lp",
+        "commitment": "1000"
+      }
+    ],
+    "waterfall": {
+      "tiers": [
+        {
+          "type": "return-of-capital"
+        },
+        {
+          "type": "preferred-return",
+          "rate": "0.08",
+          "compounding": "annual",
+          "base": "contributed",
+          "dayCount": "act/365"
+        },
+        {
+          "type": "catch-up",
+          "target": "0.20"
+        },
+        {
+          "type": "split",
+          "gpShare": "0.20"
+        }
+      ]
+    },
+    "clawback": {
+      "escrow": {
+        "share": "0.50"
+      }
+    }
+  },
+  "flows": [
+    {
+      "type": "contribution",
+      "date": "2025-01-01",
+      "partner": "lp-a",
+      "amount": "50"
+    },
+    {
+      "type": "distributable",
+      "date": "2027-01-01",
+      "amount": "60"
+    },
+    {
+      "type": "contribution",
+      "date": "2028-01-01",
+      "partner": "lp-a",
+      "amount": "50"
+    },
+    {
+      "type": "distributable",
+      "date": "2031-01-01",
+      "amount": "75"
+    },
+    {
+      "type": "fund-end",
+      "date": "2031-01-01"
+    }
+  ],
+  "expected": {
+    "allocations": [
+      {
+        "date": "2027-01-01",
+        "tier": "return-of-capital",
+        "partner": "lp-a",
+        "amount": "50.00"
+      },
+      {
+        "date": "2027-01-01",
+        "tier": "preferred-return",
+        "partner": "lp-a",
+        "amount": "8.32"
+      },
+      {
+        "date": "2027-01-01",
+        "tier": "catch-up",
+        "partner": "gp",
+        "amount": "1.68"
+      },
+      {
+        "date": "2031-01-01",
+        "tier": "return-of-capital",
+        "partner": "lp-a",
+        "amount": "50.00"
+      },
+      {
+        "date": "2031-01-01",
+        "tier": "preferred-return",
+        "partner": "lp-a",
+        "amount": "25.00"
+      },
+      {
+        "date": "2031-01-01",
+        "tier": "clawback",
+        "partner": "gp",
+        "amount": "-1.68"
+      },
+      {
+        "date": "2031-01-01",
+        "tier": "clawback",
+        "partner": "lp-a",
+        "amount": "1.68"
+      }
+    ],
+    "escrow": [
+      {
+        "date": "2027-01-01",
+        "partner": "gp",
+        "amount": "-0.84"
+      },
+      {
+        "date": "2031-01-01",
+        "partner": "gp",
+        "amount": "0.84"
+      }
+    ],
+    "totals": {
+      "gp": "0.00",
+      "lp-a": "135.00"
+    },
+    "clawback": {
+      "amount": "1.68",
+      "entitlement": "0.00",
+      "fromEscrow": "0.84"
+    }
+  },
+  "tolerance": "0.01"
+}

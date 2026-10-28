@@ -1,0 +1,89 @@
+{
+  "id": "clawback-escrow-needs-0-3",
+  "walter": "0.2",
+  "title": "A carry escrow in 0.2 terms is refused",
+  "description": "Carry escrow is a 0.3 term. Terms that say walter 0.2 and hold carry in escrow are refused, so an engine that only knows 0.2 never pays out carry the LPA holds back.",
+  "tags": [
+    "escrow",
+    "errors"
+  ],
+  "provenance": "hand-computed",
+  "terms": {
+    "walter": "0.2",
+    "fund": {
+      "id": "example-fund-i",
+      "currency": "USD"
+    },
+    "partners": [
+      {
+        "id": "gp",
+        "role": "gp",
+        "commitment": "0"
+      },
+      {
+        "id": "lp-a",
+        "role": "lp",
+        "commitment": "1000"
+      }
+    ],
+    "waterfall": {
+      "tiers": [
+        {
+          "type": "return-of-capital"
+        },
+        {
+          "type": "preferred-return",
+          "rate": "0.08",
+          "compounding": "annual",
+          "base": "contributed",
+          "dayCount": "act/365"
+        },
+        {
+          "type": "catch-up",
+          "target": "0.20"
+        },
+        {
+          "type": "split",
+          "gpShare": "0.20"
+        }
+      ]
+    },
+    "clawback": {
+      "escrow": {
+        "share": "0.25"
+      }
+    }
+  },
+  "flows": [
+    {
+      "type": "contribution",
+      "date": "2025-01-01",
+      "partner": "lp-a",
+      "amount": "50"
+    },
+    {
+      "type": "distributable",
+      "date": "2027-01-01",
+      "amount": "60"
+    },
+    {
+      "type": "contribution",
+      "date": "2028-01-01",
+      "partner": "lp-a",
+      "amount": "50"
+    },
+    {
+      "type": "distributable",
+      "date": "2031-01-01",
+      "amount": "75"
+    },
+    {
+      "type": "fund-end",
+      "date": "2031-01-01"
+    }
+  ],
+  "expected": {
+    "error": "invalid-terms"
+  },
+  "tolerance": "0.01"
+}

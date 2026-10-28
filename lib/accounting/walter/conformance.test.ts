@@ -40,7 +40,7 @@ describe('Walter conformance', () => {
   if (process.env.WALTER_RESULTS) {
     const count = (s: string) => results.filter(r => r.status === s).length
     writeFileSync(process.env.WALTER_RESULTS, JSON.stringify({
-      walter: '0.2',
+      walter: '0.3',
       engine: ENGINE,
       summary: { vectors: results.length, pass: count('pass'), fail: count('fail'), unsupported: count('unsupported') },
       results,

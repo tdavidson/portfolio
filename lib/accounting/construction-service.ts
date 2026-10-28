@@ -8,7 +8,7 @@ import { loadPostedLedger } from './load'
 import { loadReportingCapital } from './reporting-capital'
 import { accountBalances, normalBalance } from './ledger'
 import { bucketForSourceType } from './capital-account'
-import { datedContributions } from '@portfolio/fund-engine'
+import { carryFreeIds, datedContributions } from '@portfolio/fund-engine'
 import { loadCarryTerms } from './carry'
 import { planCostsByYear } from '@/lib/forecast/plan-costs'
 import { copyConstructionToPlansWithout, loadPlanConstruction, primaryPlanRow, writePlanConstruction, type PlanConstructionRef } from '@/lib/forecast/plan-construction'
@@ -310,6 +310,11 @@ async function loadConstructionActuals(
   const totalCommitted = commitments.reduce((s, r) => s + (r.commitment ?? 0), 0)
   const recipientCommitted = commitments.filter(r => recipientIds.has(r.lpEntityId)).reduce((s, r) => s + (r.commitment ?? 0), 0)
   const gpStakeShare = totalCommitted > 0 ? Math.min(1, recipientCommitted / totalCommitted) : 0
+  // Unless the GP commit bears carry (gpCommitBearsCarry): it still pays no fee, but then the whole
+  // fund runs through the waterfall and the "LP" side below is every partner.
+  const bearing = carryTerms.gpCommitBearsCarry === true
+  const carryFree = carryFreeIds(carryTerms)
+  const carryFreeShare = bearing ? 0 : gpStakeShare
   // Carry actually paid out to date — distributions of carry, by source type, on the books.
   const carryPaidOnBooks = (ledger?.capitalPostings ?? [])
     .filter(p => p.sourceType === 'carry_distribution')
@@ -320,7 +325,7 @@ async function loadConstructionActuals(
   // `journal_entries.entry_date` is NOT NULL, so this discards nothing in practice.
   const datedFlows = (bucket: 'contributions' | 'distributions', sign: 1 | -1) =>
     (ledger?.capitalPostings ?? [])
-      .filter(posting => !recipientIds.has(posting.lpEntityId ?? '') && bucketForSourceType(posting.sourceType, posting.amount) === bucket && !!posting.entryDate)
+      .filter(posting => !carryFree.has(posting.lpEntityId ?? '') && bucketForSourceType(posting.sourceType, posting.amount) === bucket && !!posting.entryDate)
       .map(posting => ({ date: posting.entryDate as string, amount: Math.max(0, sign * posting.amount) }))
       .filter(flow => flow.amount > 0)
   const lpContributions = datedFlows('contributions', -1)
@@ -400,7 +405,7 @@ async function loadConstructionActuals(
   // carryRate to the GP and the rest to the LPs. So the LPs' distributions beyond their capital are
   // (1 − rate) of the profit, and the carry paid is rate / (1 − rate) of that excess. With a hurdle
   // the split depends on timing this cannot reconstruct, so it is left at what the books show.
-  const lpShareOfCommitments = 1 - gpStakeShare
+  const lpShareOfCommitments = 1 - carryFreeShare
   const carryInferred = () => {
     if (carryPaidOnBooks > 0 || carryTerms.kind === 'none' || carryTerms.carryRate <= 0 || carryTerms.prefRate > 0) return 0
     const called = (economics?.fund.paidIn ?? 0) * lpShareOfCommitments
@@ -438,33 +443,34 @@ async function loadConstructionActuals(
         // The LP side excludes the GP's stake. When the books class the GP entity separately,
         // `economics.lp` already leaves it out; otherwise take its share of commitments off.
         ...(() => {
-          const classed = !!economics.lp && economics.fund.committed > 0 && economics.lp.committed < economics.fund.committed - 0.5
-          const lpShare = classed ? economics.lp!.committed / economics.fund.committed : 1 - gpStakeShare
+          const classed = !bearing && !!economics.lp && economics.fund.committed > 0 && economics.lp.committed < economics.fund.committed - 0.5
+          const lpShare = classed ? economics.lp!.committed / economics.fund.committed : 1 - carryFreeShare
           return {
             lpCommitmentShare: economics.fund.committed > 0 ? lpShare : 1,
             // The fund figures are known here (the guard above); a class figure may not be.
             lpCalledCapital: (classed ? economics.lp!.paidIn : null) ?? (economics.fund.paidIn as number) * lpShare,
             lpDistributedCapital: (classed ? economics.lp!.distributions : null) ?? (economics.fund.distributions as number) * lpShare,
-            lpNav: (classed ? economics.lp!.nav : null) ?? (economics.fund.nav as number) * lpShare,
+            // Bearing, the bearers' NAV is the fund's less the carry the recipients hold accrued.
+            lpNav: (classed ? economics.lp!.nav : null) ?? (bearing ? Math.round(((economics.fund.nav as number) - economics.carryAccrued) * 100) / 100 : (economics.fund.nav as number) * lpShare),
           }
         })(),
         // fund − LP distributed is read as carry already paid (applyLpWaterfall). With the GP's
         // stake taken off by share, that difference would be the stake's own distributions — so
         // the fund figure is the LPs' plus the carry the books actually show paid.
-        fundDistributedCapital: !!economics.lp && economics.fund.committed > 0 && economics.lp.committed < economics.fund.committed - 0.5
+        fundDistributedCapital: !bearing && !!economics.lp && economics.fund.committed > 0 && economics.lp.committed < economics.fund.committed - 0.5
           ? economics.fund.distributions
-          : (economics.fund.distributions as number) * (1 - gpStakeShare) + carryPaidToDate(),
+          : (economics.fund.distributions as number) * (1 - carryFreeShare) + carryPaidToDate(),
         ...(carryInferred() > 0 ? { carryPaidInferred: carryInferred() } : {}),
         // Deal by deal, the forecast measures the same realized base a booked distribution would.
         ...(carryTerms.kind === 'american' ? {
           dealByDeal: {
             deals: dealHistories(allTransactions as any[], (companyResult.data ?? []) as { id: string; status: string | null }[], vehicle, today),
-            ...dealByDealBasis(ledger?.capitalPostings ?? [], recipientIds, today),
+            ...dealByDealBasis(ledger?.capitalPostings ?? [], carryFree, today),
           },
         } : {}),
         // Tagged by what each paid for when the terms return only some of it (economics.ts).
         contributions: carryTerms.capitalIncludes
-          ? datedContributions((ledger?.capitalPostings ?? []).filter(posting => !!posting.entryDate), recipientIds, today)
+          ? datedContributions((ledger?.capitalPostings ?? []).filter(posting => !!posting.entryDate), carryFree, today)
           : lpContributions,
         distributions: lpDistributions,
       } : undefined,

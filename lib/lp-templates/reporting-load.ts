@@ -33,7 +33,7 @@ import {
 export function earnedCarryShare(postings: CapitalPosting[], terms: VehicleCarryTerms, date: string): number {
   if (terms.kind === 'none' || terms.carryRate <= 0) return 0
   const dated = postings.filter(p => !p.entryDate || p.entryDate <= date)
-  const { lps, contributions, alreadyAccrued, distributions } = carryAccrualInputs(dated, terms.recipients, date)
+  const { lps, contributions, alreadyAccrued, distributions, bearing } = carryAccrualInputs(dated, terms.recipients, date, terms.gpCommitBearsCarry)
   if (alreadyAccrued <= 0.005 || lps.length === 0) return 0
   const accounts = computeCapitalAccounts(dated)
   const realizedOnly = lps.map(l => {
@@ -41,7 +41,11 @@ export function earnedCarryShare(postings: CapitalPosting[], terms: VehicleCarry
     return { ...l, nav: roundCents(l.nav - (a ? a.unrealizedGains + a.fxTranslation : 0)) }
   })
   const earned = carryTarget({ lps: realizedOnly, contributions, distributions, asOf: date }, terms)
-  return Math.min(1, Math.max(0, earned / alreadyAccrued))
+  // When the GP commit bears carry the target includes the recipients' own share, which the LPs'
+  // charge leaves out, so the ratio is taken against the whole target instead.
+  const whole = bearing ? carryTarget({ lps, contributions, distributions, asOf: date }, terms) : alreadyAccrued
+  if (whole <= 0.005) return 0
+  return Math.min(1, Math.max(0, earned / whole))
 }
 
 export async function loadIlpaReporting(

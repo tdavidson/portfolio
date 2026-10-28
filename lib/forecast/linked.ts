@@ -118,7 +118,8 @@ export interface LinkedLoad {
 /**
  * What a GP entity takes from its fund's forecast, by month: its share of the fund's capital calls
  * and distributions (its commitment over the fund's — returned in full, since its own stake bears no
- * carry), and its cut of the carry the LPs pay (its percent of the carry recipients).
+ * carry, unless the terms say the GP commit bears it), and its cut of the carry (its percent of the
+ * carry recipients).
  */
 export interface GpShareSchedule {
   fund: string
@@ -156,6 +157,8 @@ export async function gpShareOf(
   const mine = summary.find(r => r.lpEntityId === link.lpEntityId)?.commitment ?? 0
   const share = total > 0 ? mine / total : 0
   const carryPct = (terms.recipients.find(r => r.lpEntityId === link.lpEntityId)?.pct ?? 0) / 100
+  // A GP commit that bears carry comes back net, like an LP's: its share of what is left after carry.
+  const bears = terms.gpCommitBearsCarry === true
   const warnings: string[] = []
   if (share === 0) warnings.push(`This entity has no commitment recorded in ${label}, so it takes no share of its calls or distributions`)
   const inferred = model.actuals.waterfall?.carryPaidInferred ?? 0
@@ -171,7 +174,7 @@ export async function gpShareOf(
     for (const [m, f] of fromPlan) {
       const r = row(m)
       r.called = roundCents(f.called * share)
-      r.distributed = roundCents((f.distributed + f.carry) * share)
+      r.distributed = roundCents((bears ? f.distributed : f.distributed + f.carry) * share)
       r.carry = roundCents(f.carry * carryPct)
     }
     return { fund: label, months, basis: shareBasis(share, carryPct, label, visible, showCarry, 'calls and distributions', 'from its forecast'), warnings }
@@ -205,8 +208,9 @@ export async function gpShareOf(
       const carryHere = gross > 0 ? (carry * d.amount) / gross : 0
       const r = row(d.month)
       // The GP's own stake comes back in full — the waterfall charges carry on the LPs' share only
-      // (construction-forecast.ts applyLpWaterfall) — and the carry it pays is the GP's on top.
-      r.distributed = roundCents(r.distributed + d.amount * share)
+      // (construction-forecast.ts applyLpWaterfall) — and the carry it pays is the GP's on top. When
+      // the GP commit bears carry the whole fund runs through the waterfall, so its stake is net.
+      r.distributed = roundCents(r.distributed + (bears ? d.amount - carryHere : d.amount) * share)
       r.carry = roundCents(r.carry + carryHere * carryPct)
     }
   }

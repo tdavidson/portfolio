@@ -1,0 +1,101 @@
+{
+  "id": "reporting-accrued-carry-by-partner",
+  "walter": "0.3",
+  "title": "Accrued carry by partner",
+  "description": "1,000 called (600 and 400), 1,500 back on a 20% split, then a NAV of 500. Liquidating at that NAV the GP side is entitled to 200 of the 1,000 profit and has been paid 100, so 100 is accrued. The recipients are credited it 75 and 25, and the LPs bear it by capital, 60 and 40.",
+  "tags": [
+    "reporting",
+    "accrued-carry",
+    "accrued-carry-by-partner"
+  ],
+  "provenance": "hand-computed",
+  "terms": {
+    "walter": "0.3",
+    "fund": {
+      "id": "example-fund-i",
+      "currency": "USD"
+    },
+    "partners": [
+      {
+        "id": "gp",
+        "role": "gp",
+        "commitment": "0"
+      },
+      {
+        "id": "gp-b",
+        "role": "gp",
+        "commitment": "0"
+      },
+      {
+        "id": "lp-a",
+        "role": "lp",
+        "commitment": "600"
+      },
+      {
+        "id": "lp-b",
+        "role": "lp",
+        "commitment": "400"
+      }
+    ],
+    "waterfall": {
+      "tiers": [
+        {
+          "type": "return-of-capital"
+        },
+        {
+          "type": "split",
+          "gpShare": "0.20"
+        }
+      ],
+      "carryRecipients": [
+        {
+          "partner": "gp",
+          "share": "0.75"
+        },
+        {
+          "partner": "gp-b",
+          "share": "0.25"
+        }
+      ]
+    }
+  },
+  "flows": [
+    {
+      "type": "contribution",
+      "date": "2025-01-01",
+      "partner": "lp-a",
+      "amount": "600"
+    },
+    {
+      "type": "contribution",
+      "date": "2025-01-01",
+      "partner": "lp-b",
+      "amount": "400"
+    },
+    {
+      "type": "distributable",
+      "date": "2026-01-01",
+      "amount": "1500"
+    },
+    {
+      "type": "nav",
+      "date": "2027-01-01",
+      "amount": "500"
+    }
+  ],
+  "expected": {
+    "accruedCarry": [
+      {
+        "date": "2027-01-01",
+        "entitlement": "200.00",
+        "byPartner": {
+          "gp": "75.00",
+          "gp-b": "25.00",
+          "lp-a": "-60.00",
+          "lp-b": "-40.00"
+        }
+      }
+    ]
+  },
+  "tolerance": "0.01"
+}

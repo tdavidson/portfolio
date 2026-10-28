@@ -1,0 +1,119 @@
+{
+  "id": "reporting-fees-by-partner",
+  "walter": "0.3",
+  "title": "Each period's fee by partner",
+  "description": "2% a year on 1,000 of commitments, quarterly: 5.00 a quarter, 3.50 from the 700 commitment and 1.50 from the 300. A 1.01 transaction fee in the second quarter, offset in full, makes that quarter 3.99, which splits 2.793 and 1.197 and rounds by largest remainder to 2.79 and 1.20. Over the year the partners pay 13.293 and 5.697 exactly, so feesByPartner is 13.29 and 5.70, rounded on its own.",
+  "tags": [
+    "reporting",
+    "fees",
+    "fees-by-partner"
+  ],
+  "provenance": "hand-computed",
+  "terms": {
+    "walter": "0.3",
+    "fund": {
+      "id": "example-fund-i",
+      "currency": "USD"
+    },
+    "partners": [
+      {
+        "id": "gp",
+        "role": "gp",
+        "commitment": "0"
+      },
+      {
+        "id": "lp-a",
+        "role": "lp",
+        "commitment": "700"
+      },
+      {
+        "id": "lp-b",
+        "role": "lp",
+        "commitment": "300"
+      }
+    ],
+    "waterfall": {
+      "tiers": [
+        {
+          "type": "return-of-capital"
+        },
+        {
+          "type": "split",
+          "gpShare": "0.20"
+        }
+      ]
+    },
+    "managementFee": {
+      "frequency": "quarterly",
+      "start": "2025-01-01",
+      "end": "2026-01-01",
+      "schedule": [
+        {
+          "from": "2025-01-01",
+          "rate": "0.02",
+          "basis": "commitments"
+        }
+      ],
+      "offsets": {
+        "transaction": "1"
+      }
+    }
+  },
+  "flows": [
+    {
+      "type": "portfolio-fee",
+      "date": "2025-05-15",
+      "kind": "transaction",
+      "amount": "1.01"
+    }
+  ],
+  "expected": {
+    "fees": [
+      {
+        "start": "2025-01-01",
+        "gross": "5.00",
+        "offset": "0.00",
+        "net": "5.00",
+        "byPartner": {
+          "lp-a": "3.50",
+          "lp-b": "1.50"
+        }
+      },
+      {
+        "start": "2025-04-01",
+        "gross": "5.00",
+        "offset": "1.01",
+        "net": "3.99",
+        "byPartner": {
+          "lp-a": "2.79",
+          "lp-b": "1.20"
+        }
+      },
+      {
+        "start": "2025-07-01",
+        "gross": "5.00",
+        "offset": "0.00",
+        "net": "5.00",
+        "byPartner": {
+          "lp-a": "3.50",
+          "lp-b": "1.50"
+        }
+      },
+      {
+        "start": "2025-10-01",
+        "gross": "5.00",
+        "offset": "0.00",
+        "net": "5.00",
+        "byPartner": {
+          "lp-a": "3.50",
+          "lp-b": "1.50"
+        }
+      }
+    ],
+    "feesByPartner": {
+      "lp-a": "13.29",
+      "lp-b": "5.70"
+    }
+  },
+  "tolerance": "0.01"
+}

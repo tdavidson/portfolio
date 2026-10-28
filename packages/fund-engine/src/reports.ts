@@ -76,6 +76,8 @@ export interface StatementsReport {
     catchupMeasure?: string
     carrySteps?: CarryStep[]
     capitalIncludes?: string[]
+    /** The GP commit bears carry: the recipients are in `perPartner` too, on both sides. */
+    gpCommitBearsCarry?: boolean
     target: number
     alreadyAccrued: number
     delta: number
@@ -156,10 +158,10 @@ export function statementsFromEntries(
     if (t.recipients.length === 0) {
       warnings.push('Carry terms are set but no recipient is named, so no carry accrual is computed (the close refuses the same way).')
     } else {
-      const inputs = carryAccrualInputs(books.capitalPostings, t.recipients, asOf)
+      const inputs = carryAccrualInputs(books.capitalPostings, t.recipients, asOf, t.gpCommitBearsCarry)
       const accrual = inputs.lps.length === 0
         ? { target: 0, alreadyAccrued: inputs.alreadyAccrued, delta: 0, perLp: new Map<string, number>() }
-        : carryAccrual({ lps: inputs.lps, contributions: inputs.contributions, distributions: inputs.distributions, asOf }, t, inputs.alreadyAccrued)
+        : carryAccrual({ lps: inputs.lps, contributions: inputs.contributions, distributions: inputs.distributions, asOf }, t, inputs.alreadyAccrued, inputs.bearing)
       carry = {
         kind: t.kind,
         carryRate: t.carryRate,
@@ -173,6 +175,7 @@ export function statementsFromEntries(
         ...(t.catchupMeasure === 'profit' ? { catchupMeasure: t.catchupMeasure } : {}),
         ...(t.carrySteps?.length ? { carrySteps: t.carrySteps } : {}),
         ...(t.capitalIncludes ? { capitalIncludes: t.capitalIncludes } : {}),
+        ...(t.gpCommitBearsCarry ? { gpCommitBearsCarry: true } : {}),
         target: accrual.target,
         alreadyAccrued: accrual.alreadyAccrued,
         delta: accrual.delta,

@@ -8,7 +8,7 @@
 
 import { roundCents } from './ledger.ts'
 import { bucketForSourceType, computeCapitalAccounts, type CapitalPosting } from './capital-account.ts'
-import type { CarryRecipient, DatedContribution, LpEconomics } from './carry.ts'
+import type { BearingRecipients, CarryRecipient, DatedContribution, LpEconomics } from './carry.ts'
 import type { PartnerEconomics, PriorDistribution } from './distribution-waterfall.ts'
 
 export interface CarryAccrualInputs {
@@ -23,6 +23,8 @@ export interface CarryAccrualInputs {
   alreadyAccrued: number
   /** Every prior distribution as a fund-wide total per date, for an unreturned-capital hurdle. */
   distributions: PriorDistribution[]
+  /** Only when the GP commit bears carry: the recipients, who are then in `lps` too. Pass to carryAccrual. */
+  bearing?: BearingRecipients
 }
 
 /**
@@ -33,8 +35,11 @@ export function carryAccrualInputs(
   capitalPostings: CapitalPosting[],
   recipients: CarryRecipient[],
   asOf: string,
+  /** The GP commit bears carry (VehicleCarryTerms.gpCommitBearsCarry): the recipients are in the economics too. */
+  gpCommitBearsCarry = false,
 ): CarryAccrualInputs {
   const recipientIds = new Set(recipients.map(r => r.lpEntityId))
+  const carryFree = gpCommitBearsCarry ? new Set<string>() : recipientIds
   const accounts = computeCapitalAccounts(capitalPostings)
 
   // Carry is measured LP-side. Each LP's carriedInterest line holds what earlier accruals charged
@@ -55,11 +60,37 @@ export function carryAccrualInputs(
     charged: charged(a),
   }))
 
-  // Dated contributions, for the hurdle. The pref accrues from when cash actually arrived.
-  const contributions = datedContributions(capitalPostings, recipientIds, asOf)
+  // When the GP commit bears carry the recipients pay it on their own capital as well. Their
+  // carriedInterest line mixes carry received, carry charged and carry paid, so their NAV before
+  // any carry is the balance with that whole line taken out, and what the accrual already holds for
+  // them is the line before payouts (carry_distribution), net.
+  let bearing: BearingRecipients | undefined
+  if (gpCommitBearsCarry) {
+    const posted = new Map<string, number>()
+    for (const p of capitalPostings) {
+      if (!recipientIds.has(p.lpEntityId) || p.sourceType === 'carry_distribution') continue
+      if (bucketForSourceType(p.sourceType, p.amount) !== 'carriedInterest') continue
+      posted.set(p.lpEntityId, roundCents((posted.get(p.lpEntityId) ?? 0) - p.amount))
+    }
+    for (const r of recipients) {
+      const a = accounts.get(r.lpEntityId)
+      if (!a || lps.some(l => l.lpEntityId === r.lpEntityId)) continue
+      lps.push({
+        lpEntityId: r.lpEntityId,
+        contributed: roundCents(a.contributions),
+        distributed: roundCents(-a.distributions),
+        nav: roundCents(a.ending - a.carriedInterest),
+        charged: 0,
+      })
+    }
+    bearing = { recipients, posted }
+  }
 
-  const { priors: distributions } = priorDistributions(capitalPostings, recipientIds, asOf)
-  return { lps, contributions, alreadyAccrued, distributions }
+  // Dated contributions, for the hurdle. The pref accrues from when cash actually arrived.
+  const contributions = datedContributions(capitalPostings, carryFree, asOf)
+
+  const { priors: distributions } = priorDistributions(capitalPostings, recipientIds, asOf, carryFree)
+  return { lps, contributions, alreadyAccrued, distributions, ...(bearing ? { bearing } : {}) }
 }
 
 /**

@@ -1590,12 +1590,14 @@ async function accrueCarry(
   // has begun accruing.
   //
   // The recipients receive carry; they don't pay it, so they are outside `lps` and their own
-  // contributions are outside the hurdle (carryAccrualInputs, in the fund engine).
-  const { lps, contributions, alreadyAccrued, distributions } = carryAccrualInputs(capitalPostings, terms.recipients, periodEnd)
+  // contributions are outside the hurdle (carryAccrualInputs, in the fund engine). Unless the GP
+  // commit bears carry: then they are in both, and each recipient's line nets what it bears against
+  // what it receives, so the entry's lines already balance.
+  const { lps, contributions, alreadyAccrued, distributions, bearing } = carryAccrualInputs(capitalPostings, terms.recipients, periodEnd, terms.gpCommitBearsCarry)
 
   if (lps.length === 0) return {}
 
-  const accrual = carryAccrual({ lps, contributions, distributions, asOf: periodEnd }, terms, alreadyAccrued)
+  const accrual = carryAccrual({ lps, contributions, distributions, asOf: periodEnd }, terms, alreadyAccrued, bearing)
   if (accrual.perLp.size === 0) return {}
 
   const capMap = await ensureCapitalAccounts(admin, fundId, group, [
@@ -1620,7 +1622,7 @@ async function accrueCarry(
     capMap,
     gpCapitalId,
     undefined,
-    terms.recipients,
+    bearing ? 'netted' : terms.recipients,
   )
   entry.sourceRef = sourceRef // so reopening the period voids the accrual with everything else
 

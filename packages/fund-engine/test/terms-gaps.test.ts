@@ -161,3 +161,65 @@ describe('the close trues each LP up to its share of the carry', () => {
     expect(a.perLp.size).toBe(0)
   })
 })
+
+describe('the accrual when the GP commit bears carry', () => {
+  const european: VehicleCarryTerms = {
+    kind: 'european', carryRate: 0.2, prefRate: 0, catchupRate: 1, prefCompounds: true,
+    gpEntityId: null, recipients: [{ lpEntityId: 'gp', pct: 100 }], gpCommitBearsCarry: true,
+  }
+  // 900 from the LP and 100 from the GP, both up 50%.
+  const postings: CapitalPosting[] = [
+    { lpEntityId: 'lp', amount: -900, sourceType: 'capital_call', entryDate: '2024-01-01' },
+    { lpEntityId: 'gp', amount: -100, sourceType: 'capital_call', entryDate: '2024-01-01' },
+    { lpEntityId: 'lp', amount: -450, sourceType: 'unrealized_gain', entryDate: '2024-12-31' },
+    { lpEntityId: 'gp', amount: -50, sourceType: 'unrealized_gain', entryDate: '2024-12-31' },
+  ]
+  const accrue = (books: CapitalPosting[], terms: VehicleCarryTerms, asOf = '2024-12-31') => {
+    const i = carryAccrualInputs(books, terms.recipients, asOf, terms.gpCommitBearsCarry)
+    return carryAccrual({ ...i, asOf }, terms, i.alreadyAccrued, i.bearing)
+  }
+  const sum = (m: Map<string, number>) => Math.round([...m.values()].reduce((s, v) => s + v, 0) * 100) / 100
+
+  it('measures the whole fund, and a single recipient posts only what the LPs bear', () => {
+    const a = accrue(postings, european)
+    // 20% of the fund's 500 of profit; the GP's 10 of it is paid to itself and nets out.
+    expect(a.target).toBe(100)
+    expect(Object.fromEntries(a.perLp)).toEqual({ lp: 90, gp: -90 })
+    expect(sum(a.perLp)).toBe(0)
+  })
+
+  it('is a true-up: nothing on unchanged books, and carry paid is not accrued again', () => {
+    const booked: CapitalPosting[] = [
+      ...postings,
+      { lpEntityId: 'lp', amount: 90, sourceType: 'carried_interest', entryDate: '2024-12-31' },
+      { lpEntityId: 'gp', amount: -90, sourceType: 'carried_interest', entryDate: '2024-12-31' },
+    ]
+    expect(accrue(booked, european).perLp.size).toBe(0)
+    const paid = [...booked, { lpEntityId: 'gp', amount: 60, sourceType: 'carry_distribution', entryDate: '2025-01-15' }]
+    expect(accrue(paid, european, '2025-01-31').perLp.size).toBe(0)
+  })
+
+  it('charges one recipient carry the other receives', () => {
+    const split: VehicleCarryTerms = { ...european, recipients: [{ lpEntityId: 'gp', pct: 50 }, { lpEntityId: 'gp2', pct: 50 }] }
+    const a = accrue(postings, split)
+    // The GP bears 10 and receives 50; the second recipient, with no capital, receives 50.
+    expect(Object.fromEntries(a.perLp)).toEqual({ lp: 90, gp: -40, gp2: -50 })
+    expect(sum(a.perLp)).toBe(0)
+    const booked = [...postings,
+      { lpEntityId: 'lp', amount: 90, sourceType: 'carried_interest', entryDate: '2024-12-31' },
+      { lpEntityId: 'gp', amount: -40, sourceType: 'carried_interest', entryDate: '2024-12-31' },
+      { lpEntityId: 'gp2', amount: -50, sourceType: 'carried_interest', entryDate: '2024-12-31' },
+    ]
+    expect(accrue(booked, split).perLp.size).toBe(0)
+  })
+
+  it('puts the GP commit in the hurdle, which a carry-free commit stays out of', () => {
+    const pref = { ...european, prefRate: 0.08, catchupRate: 0 }
+    const bears = accrue(postings, pref)
+    const free = accrue(postings, { ...pref, gpCommitBearsCarry: false })
+    // Without a catch-up the carry is 20% of profit over the pref: on 1,000 bearing it, 20% of
+    // (500 − 80); on the LP's 900 alone, 20% of (450 − 72).
+    expect(bears.target).toBe(84)
+    expect(free.target).toBe(75.6)
+  })
+})

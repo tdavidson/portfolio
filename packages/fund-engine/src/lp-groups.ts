@@ -29,7 +29,7 @@ import { runWaterfall, type WaterfallResult, type WaterfallState } from './water
 import { capitalContributions, hurdleTarget, type DatedContribution, type HurdleReduction } from './hurdle.ts'
 import { roundCents } from './ledger.ts'
 import type { VehicleCarryTerms } from './carry.ts'
-import { waterfallTermsOf, type PriorDistribution, type RealizedCapital } from './replay.ts'
+import { netOfTaxCap, waterfallTermsOf, type PriorDistribution, type RealizedCapital } from './replay.ts'
 
 /** One LP's own waterfall terms. Anything absent is the fund's. */
 export interface LpWaterfallTerms {
@@ -247,10 +247,14 @@ export function groupedClawback(
   groups: LpGroup[],
   asOf: string,
   carryPaid: number,
-): { paid: number; entitlement: number; amount: number; back: number[] } {
+  /** Caps the clawback at the carry paid less tax at this assumed rate (replay.ts netOfTaxCap). */
+  netOfTaxRate?: number,
+): { paid: number; entitlement: number; amount: number; back: number[]; cap?: number } {
   const paidBy = replay(priors, groups, asOf, false).map(c => c.state.gpCarryPaid)
   const ent = groupedFundEndEntitlement(priors, groups, asOf)
-  const amount = roundCents(Math.max(0, carryPaid - ent.total))
+  const cap = netOfTaxCap(carryPaid, netOfTaxRate)
+  const owed = roundCents(Math.max(0, carryPaid - ent.total))
+  const amount = cap === undefined ? owed : Math.min(cap, owed)
   const excess = paidBy.map((p, k) => Math.max(0, p - ent.byGroup[k]))
   const excessTotal = excess.reduce((s, v) => s + v, 0)
   return {
@@ -258,5 +262,6 @@ export function groupedClawback(
     entitlement: ent.total,
     amount,
     back: excess.map(e => (excessTotal > 0 ? (amount * e) / excessTotal : 0)),
+    ...(cap === undefined ? {} : { cap }),
   }
 }

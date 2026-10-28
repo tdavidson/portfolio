@@ -17,10 +17,19 @@ export interface Vector {
 export interface Expected {
   allocations?: { date: string; tier: string; partner: string; amount: string }[]
   totals?: Record<string, string>
-  clawback?: { amount: string; entitlement?: string } | null
-  accruedCarry?: { date: string; entitlement: string }[]
-  fees?: { start: string; gross: string; offset: string; net: string; recognized?: Record<string, string>; unapplied?: string }[]
+  clawback?: { amount: string; entitlement?: string; cap?: string; fromEscrow?: string } | null
+  accruedCarry?: { date: string; entitlement: string; byPartner?: Record<string, string> }[]
+  fees?: {
+    start: string
+    gross: string
+    offset: string
+    net: string
+    recognized?: Record<string, string>
+    unapplied?: string
+    byPartner?: Record<string, string>
+  }[]
   carry?: { date: string; partner: string; amount: string }[]
+  escrow?: { date: string; partner: string; amount: string }[]
   feesByPartner?: Record<string, string>
   recontributions?: { date: string; partner: string; amount: string }[]
   error?: string
@@ -36,6 +45,11 @@ export interface Outcome {
 const n = (s: string | undefined) => (s === undefined ? 0 : Number(s))
 
 type Row = { date: string; tier: string; partner: string; amount: string }
+/** Every key of `want` and of `got`, compared: a key the engine reports that isn't listed must be zero. */
+const bothWays = (label: string, want: Record<string, string>, got: Record<string, string> | undefined, near: (l: string, w?: string, g?: string) => void) => {
+  for (const k of new Set([...Object.keys(want), ...Object.keys(got ?? {})])) near(`${label} ${k}`, want[k], got?.[k])
+}
+
 const aggregate = (rows: Row[]) => {
   const m = new Map<string, number>()
   for (const r of rows) {
@@ -77,10 +91,13 @@ export function compare(v: Vector, run: () => any): Outcome {
   if (e.clawback) {
     near('clawback', e.clawback.amount, res.clawback?.amount)
     if (e.clawback.entitlement !== undefined) near('clawback entitlement', e.clawback.entitlement, res.clawback?.entitlement)
+    if (e.clawback.cap !== undefined) near('clawback cap', e.clawback.cap, res.clawback?.cap)
+    if (e.clawback.fromEscrow !== undefined) near('clawback from escrow', e.clawback.fromEscrow, res.clawback?.fromEscrow)
   }
   for (const a of e.accruedCarry ?? []) {
     const g = (res.accruedCarry ?? []).find((x: any) => x.date === a.date)
     near(`carry entitlement at ${a.date}`, a.entitlement, g?.entitlement)
+    if (a.byPartner) bothWays(`carry accrued at ${a.date} by`, a.byPartner, g?.byPartner, near)
   }
   if (e.fees) {
     const got = res.fees ?? []
@@ -95,12 +112,18 @@ export function compare(v: Vector, run: () => any): Outcome {
         }
       }
       if (f.unapplied !== undefined) near(`unapplied offset after ${f.start}`, f.unapplied, g?.unapplied)
+      if (f.byPartner) bothWays(`fee from ${f.start} paid by`, f.byPartner, g?.byPartner, near)
     }
   }
   for (const [p, a] of Object.entries(e.feesByPartner ?? {})) near(`fee paid by ${p}`, a, res.feesByPartner?.[p])
   if (e.carry) {
     const want = aggregate(e.carry.map((r) => ({ ...r, tier: 'carry' })))
     const got = aggregate((res.carry ?? []).map((r: any) => ({ ...r, tier: 'carry' })))
+    for (const k of new Set([...want.keys(), ...got.keys()])) near(k, String(want.get(k) ?? 0), String(got.get(k) ?? 0))
+  }
+  if (e.escrow) {
+    const want = aggregate(e.escrow.map((r) => ({ ...r, tier: 'escrow' })))
+    const got = aggregate((res.escrow ?? []).map((r: any) => ({ ...r, tier: 'escrow' })))
     for (const k of new Set([...want.keys(), ...got.keys()])) near(k, String(want.get(k) ?? 0), String(got.get(k) ?? 0))
   }
   if (e.recontributions) {

@@ -1,0 +1,134 @@
+{
+  "id": "clawback-escrow-released-at-lp-multiple",
+  "walter": "0.3",
+  "title": "Escrow released once the LPs have 1.5x",
+  "description": "1,000 called on a 20% split, with 25% of carry escrowed until the LPs have 1.5x. The first 1,200 pays 40 of carry, 10 of it held; the LP has 1,160. The next 500 pays 100 of carry and holds 25, and takes the LP to 1,560, past 1,500, so the 35 held is released the same day: the GP's escrow line that day nets to +10. Nothing is held from the last 100.",
+  "tags": [
+    "escrow"
+  ],
+  "provenance": "hand-computed",
+  "terms": {
+    "walter": "0.3",
+    "fund": {
+      "id": "example-fund-i",
+      "currency": "USD"
+    },
+    "partners": [
+      {
+        "id": "gp",
+        "role": "gp",
+        "commitment": "0"
+      },
+      {
+        "id": "lp-a",
+        "role": "lp",
+        "commitment": "1000"
+      }
+    ],
+    "waterfall": {
+      "tiers": [
+        {
+          "type": "return-of-capital"
+        },
+        {
+          "type": "split",
+          "gpShare": "0.20"
+        }
+      ]
+    },
+    "clawback": {
+      "escrow": {
+        "share": "0.25",
+        "release": {
+          "lpMultiple": "1.5"
+        }
+      }
+    }
+  },
+  "flows": [
+    {
+      "type": "contribution",
+      "date": "2025-01-01",
+      "partner": "lp-a",
+      "amount": "1000"
+    },
+    {
+      "type": "distributable",
+      "date": "2026-01-01",
+      "amount": "1200"
+    },
+    {
+      "type": "distributable",
+      "date": "2027-01-01",
+      "amount": "500"
+    },
+    {
+      "type": "distributable",
+      "date": "2028-01-01",
+      "amount": "100"
+    }
+  ],
+  "expected": {
+    "allocations": [
+      {
+        "date": "2026-01-01",
+        "tier": "return-of-capital",
+        "partner": "lp-a",
+        "amount": "1000.00"
+      },
+      {
+        "date": "2026-01-01",
+        "tier": "split",
+        "partner": "lp-a",
+        "amount": "160.00"
+      },
+      {
+        "date": "2026-01-01",
+        "tier": "split",
+        "partner": "gp",
+        "amount": "40.00"
+      },
+      {
+        "date": "2027-01-01",
+        "tier": "split",
+        "partner": "lp-a",
+        "amount": "400.00"
+      },
+      {
+        "date": "2027-01-01",
+        "tier": "split",
+        "partner": "gp",
+        "amount": "100.00"
+      },
+      {
+        "date": "2028-01-01",
+        "tier": "split",
+        "partner": "lp-a",
+        "amount": "80.00"
+      },
+      {
+        "date": "2028-01-01",
+        "tier": "split",
+        "partner": "gp",
+        "amount": "20.00"
+      }
+    ],
+    "escrow": [
+      {
+        "date": "2026-01-01",
+        "partner": "gp",
+        "amount": "-10.00"
+      },
+      {
+        "date": "2027-01-01",
+        "partner": "gp",
+        "amount": "10.00"
+      }
+    ],
+    "totals": {
+      "gp": "160.00",
+      "lp-a": "1640.00"
+    }
+  },
+  "tolerance": "0.01"
+}

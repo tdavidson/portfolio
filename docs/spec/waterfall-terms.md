@@ -78,8 +78,16 @@ and do not pay it. Their own contributions are excluded from the hurdle, and a s
 recipient has also contributed capital. `gpCommitBearsCarry` is the exception, for an LPA that
 charges carry on the GP commit too: a distribution's split then runs the recipients' capital
 through the tiers with the LPs' (§6), and its contributions are in the hurdle. The close's carry
-accrual still measures the LPs' carry only, and the forecast still treats the GP's stake as
-carry-free.
+accrual then measures the whole fund's carry, recipients' capital included. Every partner in
+profit bears a share of it by profit, a recipient too, and each recipient receives its percent of
+it. One accrual posts both sides to a recipient's capital line, so the line is the net of the two,
+and the entry's lines balance without a separate credit. A single recipient at 100% therefore posts
+only the carry the LPs bear, because what it pays itself nets out. The books can't split that net
+line back into its two halves, and the true-up doesn't need them to: it compares each recipient's
+net target with its net accrued (`carryAccrualInputs`, `carryAccrual` in the fund engine). The
+statements report, the tax book's carry on unrealized gains and the ILPA earned-carry share follow
+the same rule. The forecast runs the whole fund through the waterfall, so the GP's stake comes back
+net of the carry it bears, and a GP entity's share of the fund's forecast does too.
 
 **Management fee is not a waterfall term.** The fee is booked by the `management_fee` allocation,
 either from a typed rate on commitments (`annualRate` × `periodFraction`, `lib/accounting/fees.ts`)

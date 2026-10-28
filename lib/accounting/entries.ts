@@ -332,7 +332,9 @@ export function buildCarryEntry(
   // The carry recipients and each one's PERCENT share (summing to 100). The total the LPs pay
   // is split across them here — the last recipient absorbs the rounding remainder so the credits
   // always tie to the total to the cent. Omit/empty → credit the pooled GP capital account (legacy).
-  recipients?: { lpEntityId: string; pct: number }[] | null
+  // 'netted': `perLpCarry` already holds the recipients' lines and sums to zero (the GP commit
+  // bears carry, carryAccrual), so nothing more is credited.
+  recipients?: { lpEntityId: string; pct: number }[] | null | 'netted'
 ): JournalEntry {
   let total = 0
   const postings: Posting[] = []
@@ -341,7 +343,9 @@ export function buildCarryEntry(
     total = roundCents(total + amt)
     postings.push(lpDebit(capMap, lpEntityId, amt, currency))
   }
-  if (recipients && recipients.length > 0) {
+  if (recipients === 'netted') {
+    // finalize's balance check catches a perLpCarry that doesn't net to zero.
+  } else if (recipients && recipients.length > 0) {
     let allocated = 0
     recipients.forEach((r, i) => {
       const amt = i === recipients.length - 1 ? roundCents(total - allocated) : roundCents((total * r.pct) / 100)
