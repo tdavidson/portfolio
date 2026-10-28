@@ -1,7 +1,5 @@
 import { Suspense, type ReactNode } from 'react'
 import Link from 'next/link'
-import { FundOverview } from '@/app/(app)/funds/fund-overview'
-import { MancoOverview } from '@/app/(app)/funds/manco-overview'
 import { FundDetailView } from '@/app/(app)/funds/[id]/fund-detail-view'
 import { MancoDetailView } from '@/app/(app)/funds/[id]/manco-detail-view'
 import { BankView } from '@/app/(app)/funds/bank/view'
@@ -22,11 +20,14 @@ import { AccountingPageHeader, AccountingBody } from '@/components/accounting-ch
 import { FundSubpageChrome, FundScopeSync } from '@/components/fund-subpage-chrome'
 import { FundSwitcher } from '@/components/accounting-vehicle'
 import { FirmVehiclesTable } from '@/components/accounting/firm-vehicles'
+import { EntityIndex } from '@/components/accounting/entity-index'
+import type { IndexEntity } from '@/lib/accounting/entity-pages'
 import { FUND_SUBPAGE_SLUGS } from '@/components/fund-subpages'
 import { sectionForSlug } from '@/lib/accounting/nav'
 import { capitalActionFromParam } from '@/lib/accounting/capital-action'
 import { isManagementCompany } from '@/lib/vehicle-kinds'
 import { NoData, resolveVehicle, type RouteRender, type Vehicle } from '../route-helpers'
+import type { DemoSnapshot } from '../types'
 
 /**
  * The Entities section: the app's chrome around the app's views, with the vehicle resolved from
@@ -46,24 +47,23 @@ const SUBPAGES: Record<string, { title: string; description: string; view: React
   'tax': { title: 'Tax', description: "The year's book-to-tax adjustments, adjusting entries, K-1 package, partner tax forms, and the tax package for the preparer.", view: <TaxView /> },
 }
 
-function Overview() {
+/** The entity index, from the snapshot's vehicles as app/(app)/funds/entity-list.tsx loads it from the registry. */
+const indexEntities = (snapshot: DemoSnapshot): IndexEntity[] => snapshot.vehicles.map(v => ({ ...v, active: true }))
+
+function Overview({ snapshot }: { snapshot: DemoSnapshot }) {
   return (
     <div className="pt-4 md:pt-8 pb-8 w-full">
-      <AccountingPageHeader title="Entities">
-        Performance per investment vehicle, derived from fund accounting or LP capital accounts,
-        and the firm&rsquo;s own operating entities below it.
+      <AccountingPageHeader title="Financials">
+        Every entity the firm keeps books for. Pick one to open its pages.
       </AccountingPageHeader>
       <AccountingBody>
-        <div className="space-y-8">
-          <FundOverview />
-          <MancoOverview />
-        </div>
+        <EntityIndex entities={indexEntities(snapshot)} />
       </AccountingBody>
     </div>
   )
 }
 
-function FundsSection({ slug, query }: { slug: string; query: URLSearchParams }) {
+function FundsSection({ slug, query, snapshot }: { slug: string; query: URLSearchParams; snapshot: DemoSnapshot }) {
   const section = sectionForSlug(slug)
   if (!section) return <NoData href={`/funds/${slug}`} />
   const action = slug === 'capital-accounts' ? capitalActionFromParam(query.get('action')) : null
@@ -71,7 +71,9 @@ function FundsSection({ slug, query }: { slug: string; query: URLSearchParams })
     <div className="pt-4 md:pt-8 pb-8 w-full">
       <AccountingPageHeader title={section.label}>{section.desc}</AccountingPageHeader>
       <AccountingBody>
-        <FirmVehiclesTable section={slug} showAdd={slug === 'status'} action={action} />
+        {slug === 'status'
+          ? <FirmVehiclesTable section={slug} showAdd />
+          : <EntityIndex entities={indexEntities(snapshot)} section={slug} action={action} />}
       </AccountingBody>
     </div>
   )
@@ -122,10 +124,10 @@ function EntitySubpage({ v, slug }: { v: Vehicle; slug: string }) {
 }
 
 export const renders: Record<string, RouteRender> = {
-  '/funds': () => <Overview />,
+  '/funds': ctx => <Overview snapshot={ctx.snapshot} />,
   // /funds/<section> is the firm-wide landing for that section; /funds/<entity id> the entity.
   '/funds/:x': ctx => FUND_SUBPAGE_SLUGS.has(ctx.params.x)
-    ? <FundsSection slug={ctx.params.x} query={ctx.query} />
+    ? <FundsSection slug={ctx.params.x} query={ctx.query} snapshot={ctx.snapshot} />
     : <EntityLead v={resolveVehicle(ctx.snapshot, ctx.params.x)} />,
   '/funds/:id/:slug': ctx => <EntitySubpage v={resolveVehicle(ctx.snapshot, ctx.params.id)} slug={ctx.params.slug} />,
   '/funds/:id/capital-accounts/:lpEntityId': ctx => (
