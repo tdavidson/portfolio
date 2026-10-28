@@ -13,7 +13,7 @@ import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, D
 import { cn } from '@/lib/utils'
 import { addMonths, presetRange, type Interval, type MonthKey, type RangePreset } from '@/lib/forecast/months'
 import type { PlanDetail, PlanReturnsResponse, SeriesResult, VarianceResponse } from '@/lib/forecast/service'
-import { CashChart, PnlChart } from './charts'
+import { CashChart, PnlChart, SourceChart } from './charts'
 import { cashFlowForecastState } from './chart-visibility'
 import { FeeLinksDialog } from './fee-links'
 import { RuleDialog, type RuleSubmit } from './rule-dialog'
@@ -691,6 +691,12 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
           <div className="grid gap-4 lg:grid-cols-2">
             <PnlChart series={series} fmt={short} />
             <CashChart series={series} fmt={short} />
+          </div>
+        )}
+        {showForecastCharts && series && !hasPortfolio && (
+          <div className="grid gap-4 lg:grid-cols-2">
+            <SourceChart series={series} fmt={short} type="income" />
+            <SourceChart series={series} fmt={short} type="expense" />
           </div>
         )}
         {hasPortfolio && (

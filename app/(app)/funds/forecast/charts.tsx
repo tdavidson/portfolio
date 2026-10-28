@@ -6,6 +6,7 @@ import {
 } from 'recharts'
 import { ChartCard, EmptyPlot, AXIS, tooltipStyle, HUE } from '@/components/fund-chart-kit'
 import type { SeriesResult } from '@/lib/forecast/service'
+import { NOT_REVENUE, OTHER_KEY, sourceBreakdown } from './breakdown'
 
 /**
  * Both charts read the series the table reads, period for period — never a second query.
@@ -76,7 +77,6 @@ export function CashChart({ series, fmt }: { series: SeriesResult; fmt: Fmt }) {
 // their own series — unrealized and FX changes are left out. Forecast periods are a lighter tint. A
 // single exit would dwarf every month, so the scale is set by the ordinary periods and one far
 // larger is cut at the edge with its full figure on it.
-const NOT_REVENUE = new Set(['realized_gain', 'unrealized', 'fx_translation', 'equity_method', 'carried_interest'])
 const REVENUE_HUE = 'var(--chart-1)'
 const EXPENSE_HUE = 'var(--chart-2)'
 // Realized gains (an exit's gain over cost) are shown, as their own series: they are what a fund
@@ -191,6 +191,60 @@ export function CashFlowTimeline({ series, fmt }: { series: SeriesResult; fmt: F
             {present.map(f => (
               <Bar key={f.key} dataKey={f.key} name={f.label} stackId="cash" fill={`hsl(${f.hue})`} isAnimationActive={false}>
                 {data.map(d => <Cell key={d.label} fill={isActual(d.status) ? `hsl(${f.hue})` : `hsl(${f.hue} / 0.45)`} />)}
+              </Bar>
+            ))}
+          </ComposedChart>
+        </ResponsiveContainer>
+      )}
+    </ChartCard>
+  )
+}
+
+// ── Revenue and expenses by source (management company) ─────────────────────────────────────────
+//
+// One stacked bar per period, each P&L account a segment: the largest five over the range in the
+// categorical slots, largest first, and the rest as "Other" in muted ink. Slot order follows size
+// over the whole range, so an account keeps its colour across periods. Forecast periods are a
+// lighter tint of each slot.
+
+const SOURCE_HUES = ['var(--cat-1)', 'var(--cat-2)', 'var(--cat-3)', 'var(--cat-4)', 'var(--cat-5)']
+const OTHER_HUE = 'var(--muted-foreground)'
+
+export function SourceChart({ series, fmt, type }: { series: SeriesResult; fmt: Fmt; type: 'income' | 'expense' }) {
+  const sources = useMemo(() => sourceBreakdown(series.lines, type), [series, type])
+  const data = useMemo(
+    () => series.periods.map((p, i) => ({
+      label: p.label,
+      status: p.status,
+      ...Object.fromEntries(sources.map(s => [s.key, s.values[i] ?? 0])),
+    })),
+    [series, sources],
+  )
+  const edge = boundaryLabel(series)
+  const hue = (key: string, i: number) => (key === OTHER_KEY ? OTHER_HUE : SOURCE_HUES[i] ?? OTHER_HUE)
+  const title = type === 'income' ? 'Revenue by source' : 'Expenses by source'
+  return (
+    <ChartCard title={title}>
+      {!sources.length ? <EmptyPlot label={type === 'income' ? 'No revenue in this range' : 'No expenses in this range'} /> : (
+        <ResponsiveContainer width="100%" height={260}>
+          <ComposedChart data={data} stackOffset="sign" margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
+            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+            <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} minTickGap={16} />
+            <YAxis tick={AXIS} tickLine={false} axisLine={false} width={64} tickFormatter={v => fmt(v)} />
+            <Tooltip
+              contentStyle={tooltipStyle}
+              formatter={(v: any, name: any) => [fmt(v as number), name]}
+              labelFormatter={(label: any, payload: any) => {
+                const st = payload?.[0]?.payload?.status
+                return `${label} · ${st === 'forecast' ? 'forecast' : st === 'mixed' ? 'part forecast' : st === 'actual_unclosed' ? 'actual, not closed' : 'actual'}`
+              }}
+            />
+            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <ReferenceLine y={0} stroke={HUE.muted} />
+            {edge && <ReferenceLine x={edge} stroke={HUE.muted} strokeDasharray="4 4" />}
+            {sources.map((s, i) => (
+              <Bar key={s.key} dataKey={s.key} name={s.label} stackId="src" fill={`hsl(${hue(s.key, i)})`} isAnimationActive={false}>
+                {data.map(d => <Cell key={d.label} fill={isActual(d.status) ? `hsl(${hue(s.key, i)})` : `hsl(${hue(s.key, i)} / 0.45)`} />)}
               </Bar>
             ))}
           </ComposedChart>

@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Management company revenue and expenses by source
+- **A management company's forecast Charts tab shows revenue by source and expenses by source**, as two stacked bar charts over the forecast periods. Each P&L account is a segment; the five largest over the range keep their own colour and the rest fold into "Other". Forecast periods are a lighter tint and the actuals boundary is marked, as on the other forecast charts. Gains, unrealized and FX changes stay out of revenue. `app/(app)/funds/forecast/breakdown.ts`.
+
 ### Edit a portfolio company from chat, the API and the connector
 - **`update_company` changes the whole record.** Besides the name, aliases and status, it now sets contact emails, tags, industry, stage, country, founded year, overview, founders, why invested, current update, notes and the entities that hold it. Lists take `<list>` to replace and `add_<list>` / `remove_<list>` to change what is there; contact emails are checked and lowercased. A named entity must already exist; a member changes only their own entities' part, as on the company page. `lib/companies/holding-edit.ts`.
 - **The in-app chat and `/api/v1/chat` can stage it too**, as the `update_company` pending action (`lib/pending-actions/company-edit.ts`). Approving it re-plans the change against the record as it is then. A connected chat's staged `update_company` shows each field from what it is to what it would be.
