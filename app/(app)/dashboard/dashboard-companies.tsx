@@ -2,7 +2,7 @@
 
 import { useState, useMemo } from 'react'
 import Link from 'next/link'
-import { ArrowDownAZ, ArrowUpZA, ArrowDown, ArrowUp, LayoutGrid, Table2, CalendarDays } from 'lucide-react'
+import { ArrowDownAZ, ArrowUpZA, ArrowDown, ArrowUp, LayoutGrid, Table2, CalendarDays, Search, X } from 'lucide-react'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DashboardTable } from './dashboard-table'
@@ -11,6 +11,8 @@ import { useCurrency, getCurrencySymbol } from '@/components/currency-context'
 import { EntityPicker } from './entity-picker'
 import { companyInSelection, type EntityOption } from '@/lib/dashboard/entity-selection'
 import { isNewCompany } from '@/lib/investments'
+import { searchCompanies } from '@/lib/dashboard/company-search'
+import { useAppNavigate } from '@/components/app-runtime'
 
 interface ActiveMetric {
   id: string
@@ -30,6 +32,7 @@ interface Company {
   createdAt?: string | null
   tags: string[]
   industry: string[] | null
+  aliases?: string[]
   portfolioGroup: string[] | null
   lastReportAt: string | null
   openReviews: number
@@ -88,8 +91,14 @@ export function DashboardCompanies({ companies, canAdd, entities }: Props) {
   const [sortMode, setSortMode] = useState<SortMode>('investDate')
   const [alphaSortAsc, setAlphaSortAsc] = useState(true)
   const [investDateSortAsc, setInvestDateSortAsc] = useState(false) // newest first by default
+  const [query, setQuery] = useState('')
+  const navigate = useAppNavigate()
+  const searching = query.trim() !== ''
 
   const filtered = useMemo(() => {
+    // A search is for getting to one company fast, so it looks past the status and entity filters:
+    // an exited company, or one held only by an entity left out of the picker, is still found.
+    if (searching) return searchCompanies(query, companies)
     let result = companies
     if (statusFilter) {
       result = result.filter(c => c.status === statusFilter)
@@ -98,7 +107,7 @@ export function DashboardCompanies({ companies, canAdd, entities }: Props) {
       result = result.filter(c => companyInSelection(c.portfolioGroup, entities.options, entities.excluded))
     }
     return result
-  }, [companies, statusFilter, entities.options, entities.excluded])
+  }, [companies, statusFilter, entities.options, entities.excluded, searching, query])
 
   function sortCompanies(list: Company[]) {
     if (sortMode === 'alpha') {
@@ -119,8 +128,9 @@ export function DashboardCompanies({ companies, canAdd, entities }: Props) {
     return list
   }
 
+  // While searching, best match first: Enter opens the first one shown.
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const sortedFiltered = useMemo(() => sortCompanies(filtered), [filtered, sortMode, alphaSortAsc, investDateSortAsc])
+  const sortedFiltered = useMemo(() => (searching ? filtered : sortCompanies(filtered)), [filtered, searching, sortMode, alphaSortAsc, investDateSortAsc])
 
   return (
     <div>
@@ -128,6 +138,33 @@ export function DashboardCompanies({ companies, canAdd, entities }: Props) {
       {companies.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap mb-4">
           {canAdd && <AddCompanyButton />}
+          <div className="relative w-full sm:w-56">
+            <Search className="pointer-events-none absolute left-2.5 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <input
+              type="search"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && sortedFiltered[0]) { e.preventDefault(); navigate(`/companies/${sortedFiltered[0].id}`) }
+                else if (e.key === 'Escape' && query) { e.preventDefault(); setQuery('') }
+              }}
+              placeholder="Search companies…"
+              aria-label="Search portfolio companies"
+              autoComplete="off"
+              spellCheck={false}
+              className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-7 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring [&::-webkit-search-cancel-button]:hidden"
+            />
+            {query && (
+              <button
+                type="button"
+                onClick={() => setQuery('')}
+                aria-label="Clear search"
+                className="absolute right-1.5 top-1/2 -translate-y-1/2 rounded-sm p-0.5 text-muted-foreground hover:text-foreground"
+              >
+                <X className="h-3.5 w-3.5" />
+              </button>
+            )}
+          </div>
           <select
             value={statusFilter}
             onChange={e => setStatusFilter(e.target.value)}
@@ -202,7 +239,9 @@ export function DashboardCompanies({ companies, canAdd, entities }: Props) {
               {canAdd && <div className="flex justify-center"><AddCompanyButton /></div>}
             </>
           ) : (
-            <p className="text-muted-foreground">No companies match the selected filters.</p>
+            <p className="text-muted-foreground">
+              {searching ? <>No companies match “{query.trim()}”.</> : 'No companies match the selected filters.'}
+            </p>
           )}
         </div>
       ) : view === 'table' ? (

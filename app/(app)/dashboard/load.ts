@@ -69,6 +69,7 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
       createdAt: c.created_at,
       tags: c.tags ?? [],
       industry: c.industry,
+      aliases: c.aliases ?? [],
       // Which entities hold it — only the viewer's; another fund's holding is not theirs to see.
       portfolioGroup: scope.vehicleNames === null ? c.portfolio_group : (c.portfolio_group ?? []).filter(g => scope.vehicleNames!.includes(g)),
       lastReportAt,

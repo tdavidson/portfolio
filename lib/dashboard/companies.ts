@@ -8,6 +8,7 @@ export interface DashboardCompanyRow {
   created_at: string | null
   tags: string[]
   industry: string[] | null
+  aliases: string[] | null
   portfolio_group: string[] | null
   metrics: {
     id: string; name: string; unit: string | null; unit_position: string
@@ -26,7 +27,7 @@ export interface DashboardCompanyRow {
 export async function loadDashboardCompanyRows(client: PageSupabase, fundId: string, companyIds: string[] | null) {
   if (companyIds?.length === 0) return []
   let query = client.from('companies').select(`
-    id, name, stage, status, created_at, tags, industry, portfolio_group,
+    id, name, stage, status, created_at, tags, industry, aliases, portfolio_group,
     metrics(id, name, unit, unit_position, value_type, currency, display_order, is_active,
       latest:metric_values(value_number), latest_numeric:metric_values(value_number)),
     parsing_reviews(count), latest_period:metric_values(period_year, period_quarter, period_month)
