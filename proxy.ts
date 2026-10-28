@@ -11,33 +11,36 @@ import { buildReportOnlyCsp, generateNonce, NONCE_HEADER, REPORT_ONLY_HEADER } f
 import { buildEnforcingCsp } from '@/lib/security/csp-enforcing.mjs'
 import { companyEntityDenial, dealEntityDenial, rlsRowDenial, rowCompanyDenial } from '@/lib/access/entity-gate'
 
-// The ENFORCING policy, on every response this proxy produces. It used to come from next.config.mjs
-// `headers()`, and on Vercel a config header lands on the REQUEST as well as the response: the
-// render saw this policy, which has no nonce, under `content-security-policy` — the header Next reads
-// its nonce from first — so every script and chunk went out un-nonced and the report-only policy
-// flagged the app's own code (the `[csp-nonce]` log in app/layout.tsx is how that was found).
-// next.config.mjs now sends it only on the paths this proxy's matcher skips;
-// tests/csp-enforcing-coverage.test.ts pins that every path gets it from exactly one of the two.
-const ENFORCING_CSP = buildEnforcingCsp({
+// The ENFORCING policy, on every response this proxy produces, carrying the page's nonce.
+//
+// Next reads its render nonce from the request's `content-security-policy`, and every header the
+// proxy sets on its response is copied onto the request too (resolve-routes.js; Vercel does the
+// same with next.config.mjs `headers()`). So whatever enforcing policy a page response carries is
+// what the render reads, and when it carried no nonce every script and chunk went out un-nonced
+// (found with the `[csp-nonce]` log in app/layout.tsx). Hence the nonce goes IN the enforcing
+// policy, the pattern Next's own CSP guide uses. next.config.mjs sends the nonce-less policy only on
+// the paths this matcher skips; tests/csp-enforcing-coverage.test.ts pins that split.
+const enforcingCsp = (nonce: string | null) => buildEnforcingCsp({
   development: process.env.NODE_ENV === 'development',
   supabaseUrl: process.env.NEXT_PUBLIC_SUPABASE_URL,
+  nonce,
 })
 
 export async function proxy(request: NextRequest) {
-  const response = await route(request)
-  response.headers.set('Content-Security-Policy', ENFORCING_CSP)
+  // A per-response nonce. Pages only: an API response carries no scripts.
+  const nonce = request.nextUrl.pathname.startsWith('/api') ? null : generateNonce()
+  const response = await route(request, nonce)
+  response.headers.set('Content-Security-Policy', enforcingCsp(nonce))
   return response
 }
 
-async function route(request: NextRequest) {
+async function route(request: NextRequest, nonce: string | null) {
   const { pathname } = request.nextUrl
   const isApiRoute = pathname.startsWith('/api')
 
-  // A per-response nonce for the report-only CSP (lib/security/csp.ts). Pages only: an API
-  // response carries no scripts, and the enforcing policy from next.config.mjs still applies to
-  // everything. Set on the REQUEST so Next nonces its own bootstrap scripts and layouts can read
-  // it, and on the RESPONSE so the browser evaluates it.
-  const nonce = isApiRoute ? null : generateNonce()
+  // The strict policy (lib/security/csp.ts), report-only, with the same nonce as the enforcing one.
+  // Set on the REQUEST so the layouts can read the nonce, and on the RESPONSE so the browser
+  // evaluates it.
   const reportOnlyCsp = nonce
     ? buildReportOnlyCsp(nonce, { development: process.env.NODE_ENV === 'development' })
     : null
@@ -54,14 +57,11 @@ async function route(request: NextRequest) {
     headers.delete('content-security-policy')
     headers.set(NONCE_HEADER, nonce)
     headers.set(REPORT_ONLY_HEADER, reportOnlyCsp)
-    // ALSO under the enforcing header's name, on the REQUEST only. Next reads its render nonce from
-    // `content-security-policy` first, then `-report-only` — and on Vercel the report-only request
-    // header never reached the function: production rendered every chunk and RSC payload un-nonced
-    // while x-nonce (set the same way, one line up) arrived intact. This is the header name Next's
-    // own CSP guide sets, so it is the one the platform is known to forward. A request header is
-    // never sent to the browser; the response carries only the report-only policy, so nothing is
-    // enforced by this line. Setting it after the delete above is what makes the delete matter.
-    headers.set('content-security-policy', reportOnlyCsp)
+    // The enforcing policy, nonce included, under the name Next reads first. proxy() puts the same
+    // value on the response, which Next copies over this anyway; setting it here too keeps the
+    // render right should that copy ever stop. Setting it after the delete above is what makes the
+    // delete matter.
+    headers.set('content-security-policy', enforcingCsp(nonce))
     const response = NextResponse.next({ request: { headers } })
     response.headers.set(REPORT_ONLY_HEADER, reportOnlyCsp)
     return response

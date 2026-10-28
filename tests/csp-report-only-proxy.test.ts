@@ -5,8 +5,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
  * REQUEST (so Next nonces its own bootstrap and the layouts can read it) and on the RESPONSE (so
  * the browser evaluates it). Never on an API response, which carries no scripts.
  *
- * The enforcing policy is set here too, on every response the proxy produces (next.config.mjs
- * sends it only on paths the proxy skips; tests/csp-enforcing-coverage.test.ts covers the split).
+ * The enforcing policy is set here too, on every response the proxy produces, and on a page it
+ * carries the same nonce: Next copies the proxy's response headers onto the request and reads its
+ * render nonce from `content-security-policy` first, so the enforcing policy is what the render sees.
+ * next.config.mjs sends it only on paths the proxy skips (tests/csp-enforcing-coverage.test.ts).
  */
 
 const getUser = vi.hoisted(() => vi.fn())
@@ -83,16 +85,20 @@ describe('report-only CSP on page responses', () => {
     expect(nonceIn(res.headers.get('x-middleware-request-content-security-policy')!)).toBe(ours)
   })
 
-  it('hands Next the policy under the header name it reads first (request only, never the response)', async () => {
-    // Vercel did not forward `content-security-policy-report-only` as a request header, so Next
-    // rendered every script un-nonced in production while the layout's x-nonce arrived fine.
-    // `content-security-policy` on the REQUEST is the pattern Next's own CSP guide uses; the
-    // browser never sees request headers, so this enforces nothing.
+  it('hands the render the enforcing policy with our nonce, on the request and the response', async () => {
+    // Next copies every proxy response header onto the request and reads its nonce from
+    // `content-security-policy` before `-report-only`. When the enforcing policy carried no nonce,
+    // production rendered every script un-nonced. Both copies must name the report-only nonce.
     const res = await proxy(req('/auth'))
     const ours = nonceIn(res.headers.get(REPORT_ONLY_HEADER)!)
-    expect(res.headers.get('x-middleware-request-content-security-policy')).toBe(res.headers.get(REPORT_ONLY_HEADER))
-    expect(nonceIn(res.headers.get('x-middleware-request-content-security-policy')!)).toBe(ours)
-    expect(res.headers.get('content-security-policy')).not.toContain('nonce-')
+    expect(nonceIn(res.headers.get('content-security-policy')!)).toBe(ours)
+    expect(res.headers.get('x-middleware-request-content-security-policy')).toBe(res.headers.get('content-security-policy'))
+  })
+
+  it('keeps the enforcing policy loose where it was: unsafe-inline stays, no strict-dynamic', async () => {
+    const csp = (await proxy(req('/auth'))).headers.get('content-security-policy')!
+    expect(csp).toContain("script-src 'self' 'unsafe-inline' 'nonce-")
+    expect(csp).not.toContain('strict-dynamic')
   })
 
   it('puts the enforcing policy on every response, pages, APIs and redirects alike', async () => {
@@ -101,15 +107,10 @@ describe('report-only CSP on page responses', () => {
     const redirect = await proxy(req('/dashboard'))
     expect(redirect.status).toBe(307)
     for (const res of [page, api, redirect]) {
-      const csp = res.headers.get('content-security-policy')
-      expect(csp).toContain("script-src 'self' 'unsafe-inline'")
-      expect(csp).not.toContain('nonce-')
+      expect(res.headers.get('content-security-policy')).toContain("script-src 'self' 'unsafe-inline'")
     }
-  })
-
-  it('never hands the render the enforcing policy as its request CSP', async () => {
-    const res = await proxy(req('/auth'))
-    expect(res.headers.get('x-middleware-request-content-security-policy')).toBe(res.headers.get(REPORT_ONLY_HEADER))
+    // A redirect renders nothing, but a nonce on it is harmless; an API response gets none.
+    expect(api.headers.get('content-security-policy')).not.toContain('nonce-')
   })
 
   it('does not put unsafe-eval in the production policy', async () => {

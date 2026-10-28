@@ -3,7 +3,7 @@ import { buildEnforcingCsp } from './csp-enforcing.mjs'
 import { buildReportOnlyCsp } from './csp'
 
 /**
- * The enforcing CSP sent from next.config.mjs. Pins that production carries no 'unsafe-eval' and
+ * The enforcing CSP, sent by proxy.ts (and next.config.mjs on the paths it skips). Pins that production carries no 'unsafe-eval' and
  * that img-src names hosts rather than admitting every https: origin.
  */
 
@@ -35,6 +35,11 @@ describe('the enforcing policy', () => {
   it('does not repeat a hosted Supabase origin already covered by the wildcard', () => {
     const csp = buildEnforcingCsp({ supabaseUrl: 'https://abc.supabase.co' })
     expect(directive(csp, 'img-src')).not.toContain('abc.supabase.co')
+  })
+
+  it('carries the page nonce beside unsafe-inline when given one, and none otherwise', () => {
+    expect(directive(buildEnforcingCsp({ nonce: 'abc123' }), 'script-src')).toContain("'unsafe-inline' 'nonce-abc123'")
+    expect(prod).not.toContain('nonce-')
   })
 
   it('keeps the protections it already had', () => {
