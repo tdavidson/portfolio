@@ -79,24 +79,27 @@ describe('loadPositionsBatch', () => {
 })
 
 describe('QuickBooks LP cash attribution', () => {
-  it('classifies actual receipts and payments but keeps non-cash capital adjustments separate', () => {
+  it('classifies receipts, payments and calls against Due from LPs but keeps other non-cash capital adjustments separate', () => {
     const ledger = assembleLoadedLedger('fund', {
       acctRows: [
         { id: 'cash', code: '1000', name: 'Cash', type: 'asset', subtype: 'cash' },
         { id: 'capital', code: '3100-a', name: 'LP A', type: 'equity', subtype: 'lp_capital', lp_entity_id: 'a' },
         { id: 'receivable', code: '1300', name: 'Receivable', type: 'asset', subtype: 'receivable' },
+        { id: 'fee', code: '5000', name: 'Fees', type: 'expense', subtype: 'management_fee' },
       ],
-      entryRows: ['receipt', 'payment', 'accrual'].map(id => ({ id, source_type: 'quickbooks', entry_date: '2026-01-01' })),
+      entryRows: ['receipt', 'payment', 'call', 'adjustment'].map(id => ({ id, source_type: 'quickbooks', entry_date: '2026-01-01' })),
       postingRows: [
         { journal_entry_id: 'receipt', account_id: 'cash', amount: 100 },
         { journal_entry_id: 'receipt', account_id: 'capital', amount: -100, lp_entity_id: 'a' },
         { journal_entry_id: 'payment', account_id: 'cash', amount: -20 },
         { journal_entry_id: 'payment', account_id: 'capital', amount: 20, lp_entity_id: 'a' },
-        { journal_entry_id: 'accrual', account_id: 'receivable', amount: 500 },
-        { journal_entry_id: 'accrual', account_id: 'capital', amount: -500, lp_entity_id: 'a' },
+        { journal_entry_id: 'call', account_id: 'receivable', amount: 500 },
+        { journal_entry_id: 'call', account_id: 'capital', amount: -500, lp_entity_id: 'a' },
+        { journal_entry_id: 'adjustment', account_id: 'fee', amount: 30 },
+        { journal_entry_id: 'adjustment', account_id: 'capital', amount: -30, lp_entity_id: 'a' },
       ],
     })
-    expect(ledger.capitalPostings.map(p => p.sourceType)).toEqual(['contribution', 'distribution', 'quickbooks'])
+    expect(ledger.capitalPostings.map(p => p.sourceType)).toEqual(['contribution', 'distribution', 'capital_call', 'quickbooks'])
     expect(ledger.sourcedPostings.every(p => p.sourceType === 'quickbooks')).toBe(true)
   })
 })
