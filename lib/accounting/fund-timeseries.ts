@@ -305,7 +305,8 @@ export async function fundTimeseries(
       if (p.entryDate && p.entryDate > until) continue
       if (ids && (!p.lpEntityId || !ids.has(p.lpEntityId))) continue
       const bucket = bucketForSourceType(p.sourceType, p.amount)
-      if (bucket !== 'contributions' && bucket !== 'distributions') continue
+      // Transfers between partners count, as in fund-economics.flowsFor.
+      if (bucket !== 'contributions' && bucket !== 'distributions' && bucket !== 'transfers') continue
       const delta = -p.amount // credit increases capital
       if (Math.abs(delta) < 0.005) continue
       out.push({ date: new Date((p.entryDate ?? until) + 'T00:00:00Z'), amount: -delta })

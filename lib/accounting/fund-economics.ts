@@ -202,7 +202,8 @@ export async function vehicleEconomics(
     for (const p of postings) {
       if (ids && (!p.lpEntityId || !ids.has(p.lpEntityId))) continue
       const bucket = bucketForSourceType(p.sourceType, p.amount)
-      if (bucket !== 'contributions' && bucket !== 'distributions') continue
+      // Transfers between partners count as flows for a subset of partners (they net out fund-wide).
+      if (bucket !== 'contributions' && bucket !== 'distributions' && bucket !== 'transfers') continue
       const delta = -p.amount // capital delta: credit positive
       if (Math.abs(delta) < 0.005) continue
       out.push({

@@ -108,7 +108,8 @@ const round4 = (r: number | null): number | null => (r == null ? null : Math.rou
  * terminal inflow at the reporting date — the fund would have to hand it over if it liquidated
  * today.
  *
- * Only CASH movements count. Fees, marks and gains change the LP's NAV, and the NAV is already
+ * Only CASH movements count, and a transfer to or from another partner, which is a sale or a
+ * purchase at the value moved. Fees, marks and gains change the LP's NAV, and the NAV is already
  * the terminal value — including them as flows would count the same economics twice.
  */
 export function lpIrr(
@@ -121,7 +122,8 @@ export function lpIrr(
   for (const p of postings) {
     if (!p.entryDate) continue
     const bucket = bucketForSourceType(p.sourceType, p.amount)
-    if (bucket !== 'contributions' && bucket !== 'distributions') continue
+    // A transfer to or from another partner is a sale or purchase at the value moved (see reportingIrr).
+    if (bucket !== 'contributions' && bucket !== 'distributions' && bucket !== 'transfers') continue
 
     // capitalDelta = -amount. A contribution raises capital (+) and is cash OUT for the LP (−).
     const capitalDelta = -p.amount
