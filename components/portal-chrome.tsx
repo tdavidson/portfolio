@@ -8,6 +8,8 @@ import { LogOut } from 'lucide-react'
 
 const TABS: { href: string; label: string; match?: string[] }[] = [
   { href: '/portal/overview', label: 'Overview' },
+  // Each of the investor's own dated capital movements.
+  { href: '/portal/activity', label: 'Activity' },
   // Calls to fund and distributions coming: each with its notice, its status, and a way to say
   // "we've wired".
   { href: '/portal/notices', label: 'Notices' },

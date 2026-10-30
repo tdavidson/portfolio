@@ -6,13 +6,15 @@ import { Loader2, FileText, Mail, Download, ArrowLeft, Eye, ChevronRight, Extern
 import { Button } from '@/components/ui/button'
 import { AppFooter } from '@/components/app-footer'
 import { OverviewView } from '@/components/portal/overview-view'
+import { ActivityView } from '@/components/portal/activity-view'
+import type { ActivityLine } from '@/lib/portal/activity'
 import type { OverviewMetrics } from '@/lib/lp-overview'
 
 interface Investor { id: string; name: string }
 interface Snapshot { id: string; name: string; as_of_date: string | null }
 interface Letter { id: string; period_label: string; period_year: number; period_quarter: number }
 interface Doc { id: string; title: string; file_name: string; size_bytes: number | null; category: string | null; doc_date: string | null; uploaded_at: string; scope: string; sample: boolean }
-interface Preview { investor: { id: string; name: string }; fund: { name: string; logo_url: string | null }; currency?: string; overview?: OverviewMetrics | null; portal_enabled: boolean; snapshots: Snapshot[]; letters: Letter[]; documents: Doc[] }
+interface Preview { investor: { id: string; name: string }; fund: { name: string; logo_url: string | null }; currency?: string; overview?: OverviewMetrics | null; activity?: { lines: ActivityLine[]; multipleEntities: boolean } | null; portal_enabled: boolean; snapshots: Snapshot[]; letters: Letter[]; documents: Doc[] }
 
 const SCOPE_ORDER: { key: string; label: string }[] = [
   { key: 'fund', label: 'Fund documents' },
@@ -49,7 +51,7 @@ export default function LpPortalPreviewPage() {
   const [investorId, setInvestorId] = useState('sample')
   const [data, setData] = useState<Preview | null>(null)
   const [loading, setLoading] = useState(false)
-  const [tab, setTab] = useState<'overview' | 'library' | 'settings' | 'contact'>('overview')
+  const [tab, setTab] = useState<'overview' | 'activity' | 'library' | 'settings' | 'contact'>('overview')
   const [downloading, setDownloading] = useState<string | null>(null)
 
   useEffect(() => {
@@ -131,6 +133,7 @@ export default function LpPortalPreviewPage() {
 
   const TABS = [
     { key: 'overview' as const, label: 'Overview' },
+    { key: 'activity' as const, label: 'Activity' },
     { key: 'library' as const, label: 'Library' },
     { key: 'settings' as const, label: 'Settings' },
     { key: 'contact' as const, label: 'Contact' },
@@ -201,6 +204,14 @@ export default function LpPortalPreviewPage() {
             <OverviewView data={{ investorName: data.investor.name, currency: data.currency, hasData: !!data.overview, ...(data.overview ?? {}) }} />
           ) : (
             <div className="text-sm text-muted-foreground">Select an LP in the bar above to preview their overview.</div>
+          )
+        ) : tab === 'activity' ? (
+          loading ? (
+            <div className="flex items-center gap-2 text-sm text-muted-foreground py-8"><Loader2 className="h-4 w-4 animate-spin" /> Loading…</div>
+          ) : data ? (
+            <ActivityView linkNotices={false} data={{ currency: data.currency ?? 'USD', lines: data.activity?.lines ?? [], multipleEntities: !!data.activity?.multipleEntities }} />
+          ) : (
+            <div className="text-sm text-muted-foreground">Select an LP in the bar above to preview their activity.</div>
           )
         ) : tab === 'settings' ? (
           <div className="space-y-4">

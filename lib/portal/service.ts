@@ -14,6 +14,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { overviewFromLive, type LiveOverviewRow } from '@/lib/lp-overview'
 import { lastDataDates } from '@/lib/accounting/lp-positions'
+import { loadActivity } from '@/lib/portal/activity-load'
 import { generateLiveReport } from '@/lib/accounting/live-report'
 import { listCapitalCalls } from '@/lib/accounting/capital-calls'
 import { listDistributions } from '@/lib/accounting/distributions'
@@ -134,6 +135,35 @@ export async function portalStatementInvestors(admin: SupabaseClient, p: LpPrinc
   const sharedInvestorIds = Array.from(new Set(((shares ?? []) as any[]).map(s => s.lp_investor_id as string)))
   if (sharedInvestorIds.length === 0 || !on) throw new PortalError(404, 'Statement not available')
   return sharedInvestorIds
+}
+
+/**
+ * The investor's own dated capital movements, newest first, from the same funds as the overview
+ * (portal on, live report published to them). Only the investor's own capital accounts and
+ * statements are read, and lines are described from their kind, never from an entry's memo
+ * (lib/portal/activity.ts, lib/portal/activity-load.ts).
+ */
+export async function portalActivity(admin: SupabaseClient, p: LpPrincipal) {
+  const db = admin as any
+  const empty = { currency: 'USD', lines: [], multipleEntities: false }
+  if (p.investorIds.length === 0) return empty
+
+  const { data: entities } = await db.from('lp_entities').select('id, fund_id, entity_name').in('investor_id', p.investorIds)
+  const entityRows = (entities ?? []) as any[]
+  const entityNames = new Map<string, string>(entityRows.map(e => [e.id as string, (e.entity_name as string | null) ?? 'Your account']))
+  const fundIds = Array.from(new Set(entityRows.map(e => e.fund_id as string)))
+  if (entityNames.size === 0 || fundIds.length === 0) return empty
+
+  const enabled = await enabledFundsAmong(db, fundIds)
+  const { data: settings } = await db.from('fund_settings').select('fund_id, currency').in('fund_id', Array.from(enabled))
+  const currency = ((settings ?? []) as any[])[0]?.currency ?? 'USD'
+  const { data: shares } = await db.from('lp_live_report_shares').select('fund_id').in('fund_id', Array.from(enabled)).in('lp_investor_id', p.investorIds)
+  const sharedFundIds = Array.from(new Set(((shares ?? []) as any[]).map(s => s.fund_id as string)))
+  if (sharedFundIds.length === 0) return { ...empty, currency }
+
+  // Only this investor's own capital rows are read, not each fund's live report (activity-load.ts).
+  const lines = await loadActivity(admin, sharedFundIds, entityNames)
+  return { currency, lines, multipleEntities: new Set(lines.map(l => l.entityId)).size > 1 }
 }
 
 // ---------------------------------------------------------------------------
