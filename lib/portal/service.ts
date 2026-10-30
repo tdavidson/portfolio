@@ -13,7 +13,9 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { overviewFromLive, type LiveOverviewRow } from '@/lib/lp-overview'
-import { lastDataDates } from '@/lib/accounting/lp-positions'
+import { lastDataDates, loadPositions } from '@/lib/accounting/lp-positions'
+import { loadCapitalPostings } from '@/lib/accounting/capital-source'
+import { buildActivity, type VehicleActivityInput } from '@/lib/portal/activity'
 import { generateLiveReport } from '@/lib/accounting/live-report'
 import { listCapitalCalls } from '@/lib/accounting/capital-calls'
 import { listDistributions } from '@/lib/accounting/distributions'
@@ -134,6 +136,51 @@ export async function portalStatementInvestors(admin: SupabaseClient, p: LpPrinc
   const sharedInvestorIds = Array.from(new Set(((shares ?? []) as any[]).map(s => s.lp_investor_id as string)))
   if (sharedInvestorIds.length === 0 || !on) throw new PortalError(404, 'Statement not available')
   return sharedInvestorIds
+}
+
+/**
+ * The investor's own dated capital movements, newest first, from the same funds and vehicles as
+ * the overview (portal on, live report published to them). Each vehicle's postings and positions
+ * are kept to this investor's entities before anything is built, and lines are described from
+ * their kind, never from an entry's memo (lib/portal/activity.ts).
+ */
+export async function portalActivity(admin: SupabaseClient, p: LpPrincipal) {
+  const db = admin as any
+  const empty = { currency: 'USD', lines: [], multipleEntities: false }
+  if (p.investorIds.length === 0) return empty
+
+  const { data: entities } = await db.from('lp_entities').select('id, fund_id, entity_name').in('investor_id', p.investorIds)
+  const entityRows = (entities ?? []) as any[]
+  const entityNames = new Map<string, string>(entityRows.map(e => [e.id as string, (e.entity_name as string | null) ?? 'Your account']))
+  const fundIds = Array.from(new Set(entityRows.map(e => e.fund_id as string)))
+  if (entityNames.size === 0 || fundIds.length === 0) return empty
+
+  const enabled = await enabledFundsAmong(db, fundIds)
+  const { data: settings } = await db.from('fund_settings').select('fund_id, currency').in('fund_id', Array.from(enabled))
+  const currency = ((settings ?? []) as any[])[0]?.currency ?? 'USD'
+  const { data: shares } = await db.from('lp_live_report_shares').select('fund_id').in('fund_id', Array.from(enabled)).in('lp_investor_id', p.investorIds)
+  const sharedFundIds = Array.from(new Set(((shares ?? []) as any[]).map(s => s.fund_id as string)))
+  if (sharedFundIds.length === 0) return { ...empty, currency }
+
+  const vehicles: VehicleActivityInput[] = []
+  const seenEntities = new Set<string>()
+  for (const fid of sharedFundIds) {
+    const report = await generateLiveReport(admin, fid)
+    const mine = report.rows.filter(r => entityNames.has(r.entity_id))
+    for (const r of mine) seenEntities.add(r.entity_id)
+    for (const group of Array.from(new Set(mine.map(r => r.portfolio_group)))) {
+      const [capital, positions] = await Promise.all([
+        loadCapitalPostings(admin, fid, group),
+        loadPositions(admin, fid, group),
+      ])
+      vehicles.push({
+        vehicle: group,
+        postings: capital.postings.filter(x => entityNames.has(x.lpEntityId)),
+        positions: positions.filter(x => entityNames.has(x.lpEntityId)),
+      })
+    }
+  }
+  return { currency, lines: buildActivity(vehicles, entityNames), multipleEntities: seenEntities.size > 1 }
 }
 
 // ---------------------------------------------------------------------------

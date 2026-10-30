@@ -633,6 +633,7 @@ export const UNGATED_ROUTES: Record<string, string> = {
   // Deliberately NOT merged into fund-member domains — see plans/plan-access-control.md.
   'api/portal/access-history': 'LP portal: resolveLpAccess.',
   'api/portal/activate': 'LP portal: invite activation.',
+  'api/portal/activity': 'LP portal: resolveLpAccess.',
   'api/portal/analyst': 'LP portal: resolveLpAccess.',
   'api/portal/authorized-users': 'LP portal: resolveLpAccess.',
   'api/portal/connections': 'LP portal: resolveLpAccess; only the signed-in person\'s own investor-connector tokens.',
