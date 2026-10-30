@@ -1,4 +1,5 @@
 import { reportingIrr } from '@/lib/accounting/reporting-irr'
+import { irrFlowPostings } from '@/lib/accounting/irr-flows'
 import { advanceBalances } from '@/lib/accounting/call-extras'
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
@@ -71,7 +72,7 @@ export async function GET(req: NextRequest) {
   // Events: the reported IRR pasted on the latest position.
   const irrByLp = new Map<string, number>()
   const postingsByLp = new Map<string, CapitalPosting[]>()
-  for (const posting of capitalPostings) {
+  for (const posting of irrFlowPostings(capitalPostings)) {
     const rows = postingsByLp.get(posting.lpEntityId) ?? []
     rows.push(posting)
     postingsByLp.set(posting.lpEntityId, rows)

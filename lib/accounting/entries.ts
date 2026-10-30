@@ -286,9 +286,11 @@ export function buildPeriodCloseEntry(
 }
 
 /**
- * Transfer of capital between partners (LP secondary / assignment): debit the
- * transferor's capital, credit the transferee's. Nets to zero at the fund level —
- * no cash moves and NAV is unchanged; only the ownership of it changes.
+ * Transfer of capital between partners: debit the transferor's capital, credit the
+ * transferee's. Nets to zero at the fund level — no cash moves and NAV is unchanged; only
+ * the ownership of it changes. `kind` decides what it does to each partner's IRR: an
+ * assignment hands the history to the new holder, a secondary sale is an exit and a purchase
+ * at the value moved (lib/accounting/irr-flows.ts).
  */
 export function buildTransferEntry(
   base: Base,
@@ -296,12 +298,13 @@ export function buildTransferEntry(
   toLpEntityId: string,
   amount: number,
   capMap: CapitalAccountMap,
-  currency = 'USD'
+  currency = 'USD',
+  kind: 'assignment' | 'secondary' = 'assignment'
 ): JournalEntry {
   const amt = roundCents(amount)
   if (amt <= 0) throw new Error('Transfer amount must be positive')
   if (fromLpEntityId === toLpEntityId) throw new Error('Cannot transfer capital to the same partner')
-  return finalize(base, 'transfer', [
+  return finalize(base, kind === 'secondary' ? 'secondary_transfer' : 'transfer', [
     lpDebit(capMap, fromLpEntityId, amt, currency),  // reduce the transferor
     lpDebit(capMap, toLpEntityId, -amt, currency),   // increase the transferee
   ])

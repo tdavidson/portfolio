@@ -18,12 +18,13 @@
 // snapshots stay exactly as they are, which is what makes the two comparable.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { computeCapitalAccounts, emptyAccount, bucketForSourceType, recontributedByLp, type CapitalAccount, type CapitalPosting } from './capital-account'
+import { computeCapitalAccounts, emptyAccount, recontributedByLp, type CapitalAccount, type CapitalPosting } from './capital-account'
 import { xirr, type CashFlow } from '@/lib/xirr'
 import { lpRatios } from '@/lib/lp-metrics'
 import { loadCapitalPostings, type CapitalSource } from './capital-source'
 import { loadCommitmentEvents, commitmentsFrom, loadPartnerTerms } from './terms'
 import { reportingIrr } from './reporting-irr'
+import { irrFlowPostings, isIrrFlow } from './irr-flows'
 import type { CapitalEvidence } from './capital-evidence'
 import { loadReportingCapital } from './reporting-capital'
 import { listVehicles, loadOwnership } from './load'
@@ -108,9 +109,10 @@ const round4 = (r: number | null): number | null => (r == null ? null : Math.rou
  * terminal inflow at the reporting date — the fund would have to hand it over if it liquidated
  * today.
  *
- * Only CASH movements count, and a transfer to or from another partner, which is a sale or a
- * purchase at the value moved. Fees, marks and gains change the LP's NAV, and the NAV is already
- * the terminal value — including them as flows would count the same economics twice.
+ * Only CASH movements count, and a secondary sale to or from another partner at the value moved;
+ * pass `irrFlowPostings` rows so an assignment's history has moved to its new holder. Fees, marks
+ * and gains change the LP's NAV, and the NAV is already the terminal value — including them as
+ * flows would count the same economics twice.
  */
 export function lpIrr(
   postings: CapitalPosting[],
@@ -121,9 +123,7 @@ export function lpIrr(
 
   for (const p of postings) {
     if (!p.entryDate) continue
-    const bucket = bucketForSourceType(p.sourceType, p.amount)
-    // A transfer to or from another partner is a sale or purchase at the value moved (see reportingIrr).
-    if (bucket !== 'contributions' && bucket !== 'distributions' && bucket !== 'transfers') continue
+    if (!isIrrFlow(p)) continue
 
     // capitalDelta = -amount. A contribution raises capital (+) and is cash OUT for the LP (−).
     const capitalDelta = -p.amount
@@ -209,9 +209,10 @@ export async function liveRowsForVehicle(
     ...Array.from(commitmentByLp.keys()),
   ])
 
-  // Each LP's own postings, for their IRR. Grouped once rather than filtering per LP.
+  // Each LP's own IRR flows, with assignments resolved across partners. Grouped once rather than
+  // filtering per LP.
   const postingsByLp = new Map<string, CapitalPosting[]>()
-  for (const p of postings) {
+  for (const p of irrFlowPostings(postings)) {
     if (!p.lpEntityId) continue
     const list = postingsByLp.get(p.lpEntityId) ?? []
     list.push(p)

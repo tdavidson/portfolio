@@ -23,7 +23,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { roundCents } from './ledger'
 import { loadCapitalPostings } from './capital-source'
 import { loadFundPreload, vehicleCapitalPreload } from './fund-preload'
-import { bucketForSourceType, computeCapitalAccounts } from './capital-account'
+import { bucketForSourceType, computeCapitalAccounts, type CapitalPosting } from './capital-account'
+import { irrFlowPostings } from './irr-flows'
 import { txnsForVehicle } from './soi'
 import { computeSummary } from '@/lib/investments'
 import { xirr, type CashFlow } from '@/lib/xirr'
@@ -298,15 +299,16 @@ export async function fundTimeseries(
 
   // Net-IRR flows from the LP's point of view: a contribution is money out (negative), a
   // distribution money back (positive). Mirrors fund-economics.flowsFor so the two agree.
+  const irrFlowsByQuarter = new Map<string, CapitalPosting[]>()
   const netFlowsUpTo = (until: string, ids: Set<string> | null): CashFlow[] => {
-    const postings = resolvedPeriods[quarters.indexOf(until)].postings
+    let postings = irrFlowsByQuarter.get(until)
+    if (!postings) {
+      postings = irrFlowPostings(resolvedPeriods[quarters.indexOf(until)].postings.filter(p => !p.entryDate || p.entryDate <= until))
+      irrFlowsByQuarter.set(until, postings)
+    }
     const out: CashFlow[] = []
     for (const p of postings) {
-      if (p.entryDate && p.entryDate > until) continue
       if (ids && (!p.lpEntityId || !ids.has(p.lpEntityId))) continue
-      const bucket = bucketForSourceType(p.sourceType, p.amount)
-      // Transfers between partners count, as in fund-economics.flowsFor.
-      if (bucket !== 'contributions' && bucket !== 'distributions' && bucket !== 'transfers') continue
       const delta = -p.amount // credit increases capital
       if (Math.abs(delta) < 0.005) continue
       out.push({ date: new Date((p.entryDate ?? until) + 'T00:00:00Z'), amount: -delta })
