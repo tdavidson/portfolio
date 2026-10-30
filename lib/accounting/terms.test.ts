@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { commitmentsAsOf, allocationWeights, resolveCommitmentMap, type PartnerTerms } from './terms'
+import { commitmentsAsOf, allocationWeights, resolveCommitmentMap, loadCommitmentEvents, loadCommitmentEventsBatch, type PartnerTerms } from './terms'
 import { allocateAmount } from './allocation'
 
 describe('commitmentsAsOf', () => {
@@ -149,5 +149,32 @@ describe('resolveCommitmentMap', () => {
   it('ignores an empty positions map even for a tracking vehicle', () => {
     const m = resolveCommitmentMap({ source: 'events', owners, events, positions: new Map() })
     expect(m.get('b')).toBe(5750) // empty positions → base ladder
+  })
+})
+
+describe('commitment event reads', () => {
+  // A fake that honours .range() and caps each response at 1000 rows, as PostgREST does.
+  function capped(rows: any[]): any {
+    let range: [number, number] = [0, rows.length - 1]
+    const q: any = {
+      select: () => q, eq: () => q, in: () => q, order: () => q,
+      range: (from: number, to: number) => { range = [from, to]; return q },
+      then: (resolve: (v: any) => any) => resolve({ data: rows.slice(range[0], Math.min(range[1] + 1, range[0] + 1000)), error: null }),
+    }
+    return { from: () => q }
+  }
+  const rows = Array.from({ length: 2500 }, (_, i) => ({
+    lp_entity_id: `e${i % 50}`, effective_date: '2024-06-30', amount: '100', kind: i < 50 ? 'initial' : 'increase', vehicle_id: i % 2 ? 'v1' : 'v2',
+  }))
+
+  it("reads a vehicle's events past PostgREST's 1000-row cap", async () => {
+    const events = await loadCommitmentEvents(capped(rows), 'fund-1', 'Example Fund I', new Map([['Example Fund I', 'v1']]))
+    expect(events).toHaveLength(2500)
+  })
+
+  it('reads every vehicle past the cap in the batch load', async () => {
+    const map = await loadCommitmentEventsBatch(capped(rows), 'fund-1', ['v1', 'v2'])
+    expect(map.get('v1')).toHaveLength(1250)
+    expect(map.get('v2')).toHaveLength(1250)
   })
 })
