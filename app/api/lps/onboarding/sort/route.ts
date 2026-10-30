@@ -9,6 +9,7 @@ import { runPool } from '@/lib/lp-report-pdf'
 import { canRecordTaxForms } from '@/lib/lp-onboarding-tax'
 import { scanFile } from '@/lib/security/scan-file'
 import { loadLpScope, lpVisible } from '@/lib/access/lp-scope'
+import { fetchAllRows, latestInvestmentRows } from '@/lib/accounting/load'
 
 export const maxDuration = 120
 
@@ -55,16 +56,17 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     }
   }
 
-  const [{ data: ents }, { data: invs }] = await Promise.all([
+  const [{ data: ents }, invs] = await Promise.all([
     a.from('lp_entities').select('id, entity_name, investor_id, lp_investors(name)').eq('fund_id', fundId),
-    a.from('lp_investments').select('entity_id, commitment, portfolio_group').eq('fund_id', fundId),
+    fetchAllRows<any>((f, t) => a.from('lp_investments').select('id, entity_id, commitment, portfolio_group, snapshot_id, updated_at, lp_snapshots(as_of_date, created_at)').eq('fund_id', fundId).order('id').range(f, t)),
   ])
   // Match files only against LPs with a position in one of the caller's entities.
   const lp = await loadLpScope(admin, gate)
   const entities: MatchableEntity[] = ((ents ?? []) as any[]).filter(e => lpVisible(lp.entityIds, e.id)).map(e => ({ id: e.id, name: e.entity_name, investorName: e.lp_investors?.name ?? '' }))
   const commitmentByEntity = new Map<string, number>()
   // Only the caller's entities' commitments: an LP also in another entity must not show its total.
-  for (const r of ((invs ?? []) as any[]).filter(r => lp.scope.vehicleNames === null || lp.scope.vehicleNames.includes(r.portfolio_group))) {
+  // One row per LP per snapshot: each entity's latest row per vehicle, summed across vehicles.
+  for (const r of latestInvestmentRows(invs, r => `${r.entity_id}|${r.portfolio_group ?? ''}`).filter(r => lp.scope.vehicleNames === null || lp.scope.vehicleNames.includes(r.portfolio_group))) {
     const c = Number(r.commitment)
     if (Number.isFinite(c) && c > 0) commitmentByEntity.set(r.entity_id, (commitmentByEntity.get(r.entity_id) ?? 0) + c)
   }

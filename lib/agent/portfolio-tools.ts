@@ -18,7 +18,7 @@ import { entityScopeFor, type EntityScope } from '@/lib/access/entity-scope'
 import { filterByCompany, groupWriteDenial, scopeCompanyRows, scopeGroups, scopeTransactions, visibleCompanyIds } from '@/lib/access/scope'
 import { validateConversionLink } from '@/lib/accounting/conversion-link'
 import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
-import { fetchAllRows } from '@/lib/accounting/load'
+import { fetchAllRows, latestInvestmentRows } from '@/lib/accounting/load'
 import { companyUpdateStatus, submitCompanyUpdate } from '@/lib/company-updates/submit'
 import { jobRecordId } from './jobs'
 import { writeMetricValue } from '@/lib/pending-actions/metric-value'
@@ -247,14 +247,18 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
   fund_performance: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     // Committed / called / distributed come from the LP register, which is the fund's
     // own record of what it asked for and paid out. NAV comes from the portfolio.
-    const { data: lps } = await (admin as any)
+    // One row per LP per snapshot, each cumulative to date: take each LP's latest row in each
+    // vehicle, never the sum across snapshots (see loadOwnership).
+    const lps = latestInvestmentRows(await fetchAllRows<any>((f, t) => (admin as any)
       .from('lp_investments')
-      .select('portfolio_group, commitment, paid_in_capital, distributions, nav')
+      .select('id, entity_id, portfolio_group, commitment, paid_in_capital, distributions, nav, snapshot_id, updated_at, lp_snapshots(as_of_date, created_at)')
       .eq('fund_id', fundId)
+      .order('id')
+      .range(f, t)), r => `${r.entity_id}|${r.portfolio_group ?? ''}`)
 
     const byVehicle = new Map<string, { committed: number; called: number; distributed: number; nav: number }>()
     const perfScope = await entityScopeFor(admin, access)
-    for (const r of scopeCompanyRows((lps as any[]) ?? [], perfScope.vehicleNames, 'portfolio_group')) {
+    for (const r of scopeCompanyRows(lps, perfScope.vehicleNames, 'portfolio_group')) {
       const v = r.portfolio_group ?? '—'
       if (input?.vehicle && v !== input.vehicle) continue
       const cur = byVehicle.get(v) ?? { committed: 0, called: 0, distributed: 0, nav: 0 }
