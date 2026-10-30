@@ -5,6 +5,7 @@ import { encrypt } from '@/lib/crypto'
 import { getGoogleCredentials } from '@/lib/google/credentials'
 import { assertAdminAccess } from '@/lib/api-helpers'
 import { safeNextPath } from '@/lib/safe-redirect'
+import { requestOrigin } from '@/lib/site-links'
 import {
   consumeGoogleOAuthTransaction,
   GOOGLE_OAUTH_STATE_COOKIE,
@@ -12,9 +13,9 @@ import {
 
 function redirectAndClearState(req: NextRequest, target: string) {
   // Every target is either a literal here or a returnTo that consumeGoogleOAuthTransaction already
-  // ran through safeNextPath; re-check anyway, since new URL(target, req.url) is what would honour
+  // ran through safeNextPath; re-check anyway, since new URL(target, origin) is what would honour
   // an escape.
-  const response = NextResponse.redirect(new URL(safeNextPath(target) ?? '/settings', req.url))
+  const response = NextResponse.redirect(new URL(safeNextPath(target) ?? '/settings', requestOrigin(req)))
   response.cookies.set(GOOGLE_OAUTH_STATE_COOKIE, '', {
     httpOnly: true,
     maxAge: 0,
@@ -32,7 +33,7 @@ function withError(returnTo: string, code: string): string {
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.redirect(new URL('/auth', req.url))
+  if (!user) return NextResponse.redirect(new URL('/auth', requestOrigin(req)))
 
   const code = req.nextUrl.searchParams.get('code')
   const stateParam = req.nextUrl.searchParams.get('state')

@@ -3,11 +3,13 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { logActivity } from '@/lib/activity'
 import { safeNextPath } from '@/lib/safe-redirect'
+import { requestOrigin } from '@/lib/site-links'
 
 // Handles magic link, password reset, and OAuth redirects from Supabase Auth.
 // Supabase appends ?code= to the redirect URL after authentication.
 export async function GET(request: NextRequest) {
-  const { searchParams, origin } = new URL(request.url)
+  const { searchParams } = new URL(request.url)
+  const origin = requestOrigin(request)
   const code = searchParams.get('code')
   // Prevent open redirect. Not exploitable here as it stands (origin is prepended,
   // so a stray backslash lands in the path and can't re-enter the authority) — but

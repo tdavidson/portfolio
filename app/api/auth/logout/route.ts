@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { logActivity } from '@/lib/activity'
 import { safeNextPath } from '@/lib/safe-redirect'
+import { requestOrigin } from '@/lib/site-links'
 
 export async function POST(req: Request) {
   // "Switch account" posts here too: one email is one fund, so switching funds is signing out and
@@ -29,8 +30,9 @@ export async function POST(req: Request) {
 
   await supabase.auth.signOut()
 
-  // Use request origin so redirect stays on the same URL (preview, production, etc.)
-  const origin = new URL(req.url).origin
+  // The origin the browser used, so the redirect stays on the same URL (preview, production, or
+  // behind a proxy, where req.url carries the server's listen address).
+  const origin = requestOrigin(req)
   const target = new URL('/auth', origin)
   if (switching) target.searchParams.set('switch', '1')
   if (next) target.searchParams.set('next', next)
