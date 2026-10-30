@@ -97,6 +97,8 @@ Save this value in your .env.local — it's your `ENCRYPTION_KEY`. If you lose i
 
 Next is to deploy the app to your chosen hosting provider. Netlify and Vercel are prebuilt, but you are not tied to those providers, feel free to deploy to your desired host.
 
+Building on your own host needs memory: on a 4 GB machine, `next build` can compile and then fail in the type check with "JavaScript heap out of memory". Give Node more heap for the build, for example `NODE_OPTIONS=--max-old-space-size=2560 npm run build`.
+
 **Option A: Netlify**
 
 [![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/tdavidson/portfolio)
@@ -128,7 +130,7 @@ Now that you have your deployed URL, go back to the Supabase dashboard:
 1. **Authentication > URL Configuration**:
    - Set **Site URL** to your deployed URL (e.g. `https://reporting.yourfund.com` or your Netlify or Vercel deployment URLs)
    - Add `https://reporting.yourfund.com/**` to **Redirect URLs** (the `/**` wildcard is important)
-2. **Authentication > Email Templates** (optional): Supabase sends auth emails (confirmations, password resets, magic links) using a built-in email service. Copy the templates from `supabase/templates/` into the dashboard if you want them branded. For production, configure a custom SMTP provider in **Project Settings > Auth > SMTP Settings** so emails come from your domain instead of Supabase's default. LP portal invites do not use these templates once an outbound email provider is configured in the app (see the LP onboarding section); a fund with no outbound provider falls back to Supabase's **Invite user** template, which is one template for the whole project and must then link to `/portal/welcome` as `supabase/templates/invite.html` does.
+2. **Authentication > Email Templates** (required): copy the templates from `supabase/templates/` into the dashboard. Sign-in, signup and password reset ask for a 6-digit code, and these templates are what put the code (`{{ .Token }}`) in the email; Supabase's built-in templates may send only a link, and the user then has no code to enter. On self-hosted Supabase the dashboard and `supabase/config.toml` don't apply: point GoTrue at the files instead, by serving them over HTTPS and setting `GOTRUE_MAILER_TEMPLATES_MAGIC_LINK`, `GOTRUE_MAILER_TEMPLATES_CONFIRMATION`, `GOTRUE_MAILER_TEMPLATES_INVITE`, `GOTRUE_MAILER_TEMPLATES_RECOVERY` and `GOTRUE_MAILER_TEMPLATES_EMAIL_CHANGE` to their URLs. For production, configure a custom SMTP provider in **Project Settings > Auth > SMTP Settings** so emails come from your domain instead of Supabase's default. LP portal invites do not use these templates once an outbound email provider is configured in the app (see the LP onboarding section); a fund with no outbound provider falls back to Supabase's **Invite user** template, which is one template for the whole project and must then link to `/portal/welcome` as `supabase/templates/invite.html` does.
 3. **Authentication > Providers > Email**: leave **Confirm email** on. LP portal activation binds a login to an invited account by email address, and that is only safe once the address has been confirmed (see `app/api/portal/activate/route.ts`).
 4. **Authentication > Hooks**: Enable the **Before User Created** hook to enforce the signup whitelist at the database level. Select **Postgres Function** and choose `hook_before_user_created`. This prevents direct signups that bypass the API whitelist check.
 
@@ -144,7 +146,7 @@ Signups are restricted by an email whitelist. Before anyone can create an accoun
 
 By default the first signup is the admin, with access to the fund-level and technical settings, but the admin can be changed after creation if needed.
 
-> **Headless:** `npm run bootstrap -- --email you@yourfund.com --fund "Your Fund"`, run where your `.env.local` holds the Supabase keys and `ENCRYPTION_KEY`, does this step and Step 7 for you: it adds the address to `allowed_signups`, creates a confirmed account and the fund, turns Agent access on and prints an API key. Or add the address to `allowed_signups` and connect Claude or ChatGPT; with no fund yet, the consent screen asks you to name one. See [Setting up a fund with Claude, ChatGPT or a script](#setting-up-a-fund-with-claude-chatgpt-or-a-script).
+> **Headless:** `npm run bootstrap -- --email you@yourfund.com --fund "Your Fund"`, run where your `.env.local` holds the Supabase keys and `ENCRYPTION_KEY`, does this step and Step 7 for you: it adds the address to `allowed_signups`, creates a confirmed account and the fund, turns Agent access on and prints an API key. The account has no password, so you sign in with an emailed code: set up the email templates (Step 5) and working email first, or set a password with **Forgot password?** on the sign-in page once email works. Or add the address to `allowed_signups` and connect Claude or ChatGPT; with no fund yet, the consent screen asks you to name one. See [Setting up a fund with Claude, ChatGPT or a script](#setting-up-a-fund-with-claude-chatgpt-or-a-script).
 
 ### Step 7: Complete the onboarding wizard
 
