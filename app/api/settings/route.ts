@@ -143,6 +143,7 @@ export async function GET() {
     affinityMcpEnabled: !!settings?.affinity_mcp_enabled,
     agentApiEnabled: !!settings?.agent_api_enabled,
     lpAgentEnabled: !!settings?.lp_agent_enabled,
+    lpPortalShowIrr: !!settings?.lp_portal_show_irr,
     displayName: membership.display_name ?? '',
     isAdmin: membership.role === 'admin',
     userId: user.id,
@@ -171,7 +172,7 @@ export async function PATCH(req: NextRequest) {
   if (!membership) return NextResponse.json({ error: 'No fund found' }, { status: 404 })
 
   const body = await req.json()
-  const { fundName, fundLogo, fundAddress, fundContactEmail, signInLogo, signInTitle, postmarkInboundAddress, claudeApiKey, claudeModel, retainResolvedReviews, resolvedReviewsTtlDays, googleClientId, googleClientSecret, aiSummaryPrompt, displayName, outboundEmailProvider, asksEmailProvider, approvalEmailSubject, approvalEmailBody, systemEmailFromName, systemEmailFromAddress, resendApiKey, postmarkServerToken, inboundEmailProvider, resendInboundDomain, resendWebhookSecret, fileStorageProvider, openaiApiKey, openaiModel, defaultAIProvider, openrouterApiKey, openrouterModel, openrouterBaseUrl, aiMode, analyticsFathomSiteId, analyticsGaMeasurementId, analyticsCustomHeadScript, currency, lotMethod, disableUserTracking, featureVisibility, dealThesis, dealScreeningPrompt, dealIntakeEnabled, dealsDefaultVehicleId, lpPortalEnabled, affinityMcpEnabled, agentApiEnabled, lpAgentEnabled } = body
+  const { fundName, fundLogo, fundAddress, fundContactEmail, signInLogo, signInTitle, postmarkInboundAddress, claudeApiKey, claudeModel, retainResolvedReviews, resolvedReviewsTtlDays, googleClientId, googleClientSecret, aiSummaryPrompt, displayName, outboundEmailProvider, asksEmailProvider, approvalEmailSubject, approvalEmailBody, systemEmailFromName, systemEmailFromAddress, resendApiKey, postmarkServerToken, inboundEmailProvider, resendInboundDomain, resendWebhookSecret, fileStorageProvider, openaiApiKey, openaiModel, defaultAIProvider, openrouterApiKey, openrouterModel, openrouterBaseUrl, aiMode, analyticsFathomSiteId, analyticsGaMeasurementId, analyticsCustomHeadScript, currency, lotMethod, disableUserTracking, featureVisibility, dealThesis, dealScreeningPrompt, dealIntakeEnabled, dealsDefaultVehicleId, lpPortalEnabled, affinityMcpEnabled, agentApiEnabled, lpAgentEnabled, lpPortalShowIrr } = body
 
   // Update display name on fund_members (any user can do this)
   if (displayName !== undefined) {
@@ -196,7 +197,7 @@ export async function PATCH(req: NextRequest) {
     disableUserTracking !== undefined || featureVisibility !== undefined ||
     dealThesis !== undefined || dealScreeningPrompt !== undefined ||
     dealIntakeEnabled !== undefined || dealsDefaultVehicleId !== undefined || lpPortalEnabled !== undefined || affinityMcpEnabled !== undefined ||
-    agentApiEnabled !== undefined || lpAgentEnabled !== undefined
+    agentApiEnabled !== undefined || lpAgentEnabled !== undefined || lpPortalShowIrr !== undefined
 
   if (hasAdminFields && membership.role !== 'admin') {
     return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
@@ -497,7 +498,7 @@ export async function PATCH(req: NextRequest) {
   // lp_portal_settings). The connector lets investors connect an assistant to their own portal
   // (app/api/portal/mcp): separate from the agent API below, which is the fund's own; off by
   // default, inert unless the LP portal is on too, and checked live on every call.
-  Object.assign(settingsUpdates, portalSwitchUpdates({ lpPortalEnabled, lpAgentEnabled }))
+  Object.assign(settingsUpdates, portalSwitchUpdates({ lpPortalEnabled, lpAgentEnabled, lpPortalShowIrr }))
   // Which Affinity transport the diligence assistant uses: Affinity's hosted MCP server
   // (richer, live) or this app's three REST tools. Fund-wide, because it changes what
   // every member's assistant can reach — but each member still authenticates with their

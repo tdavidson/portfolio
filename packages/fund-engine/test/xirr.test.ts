@@ -36,4 +36,10 @@ describe('xirr', () => {
   it('returns null without both a positive and negative flow', () => {
     expect(xirr([{ date: d('2025-01-01'), amount: -100 }, { date: d('2026-01-01'), amount: -50 }])).toBeNull()
   })
+
+  it('counts a 365-day year, as Excel does', () => {
+    // Exactly 365 days and +10%: Excel's XIRR gives 10.0000%. A 365.25-day year read 10.0072%.
+    const r = xirr([{ date: d('2025-01-01'), amount: -1_000_000 }, { date: d('2026-01-01'), amount: 1_100_000 }])!
+    expect(r).toBeCloseTo(0.1, 8)
+  })
 })

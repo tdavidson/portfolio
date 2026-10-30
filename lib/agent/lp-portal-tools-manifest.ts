@@ -272,9 +272,9 @@ export const LP_PORTAL_TOOL_MANIFEST: AgentToolMeta[] = [
   {
     name: 'lp_portal_settings',
     description:
-      'Turn the LP portal on or off, and the investor connector (investors connecting their own assistant to their portal, which ' +
-      'works only while the portal is on). Only the switches given change; returns both as they now stand. lp_portal_accounts ' +
-      'shows them without changing anything. Admin only.',
+      'Turn the LP portal on or off, the investor connector (investors connecting their own assistant to their portal, which ' +
+      'works only while the portal is on), and whether the portal overview shows each fund\'s IRR (off by default). Only the ' +
+      'switches given change; returns all three as they now stand. lp_portal_accounts shows them without changing anything. Admin only.',
     scope: 'write',
     domain: 'lp',
     accessDomain: 'admin',
@@ -283,6 +283,7 @@ export const LP_PORTAL_TOOL_MANIFEST: AgentToolMeta[] = [
       properties: {
         portal_enabled: { type: 'boolean', description: 'The LP portal.' },
         investor_connector_enabled: { type: 'boolean', description: 'Investors may connect an assistant to their own portal.' },
+        show_irr: { type: 'boolean', description: 'The portal overview shows each investor their IRR in each fund.' },
       },
       additionalProperties: false,
     },

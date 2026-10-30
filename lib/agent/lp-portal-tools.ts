@@ -77,10 +77,11 @@ export const LP_PORTAL_HANDLERS: Record<string, AgentToolHandler> = {
   lp_portal_accounts: async (ctx) => {
     requireAdmin(ctx, 'see LP portal accounts')
     const rows = unwrap(await listPortalAccounts(ctx.admin, ctx.fundId))
-    const { data: fs } = await (ctx.admin as any).from('fund_settings').select('lp_portal_enabled, lp_agent_enabled').eq('fund_id', ctx.fundId).maybeSingle()
+    const { data: fs } = await (ctx.admin as any).from('fund_settings').select('lp_portal_enabled, lp_agent_enabled, lp_portal_show_irr').eq('fund_id', ctx.fundId).maybeSingle()
     return {
       portal_enabled: !!fs?.lp_portal_enabled,
       investor_connector_enabled: !!fs?.lp_agent_enabled,
+      show_irr: !!fs?.lp_portal_show_irr,
       accounts: rows.map(r => ({
         link_id: r.id,
         lp_account_id: r.lp_accounts?.id ?? null,
@@ -274,12 +275,14 @@ export const LP_PORTAL_HANDLERS: Record<string, AgentToolHandler> = {
     const switches = {
       ...(typeof input?.portal_enabled === 'boolean' ? { lpPortalEnabled: input.portal_enabled } : {}),
       ...(typeof input?.investor_connector_enabled === 'boolean' ? { lpAgentEnabled: input.investor_connector_enabled } : {}),
+      ...(typeof input?.show_irr === 'boolean' ? { lpPortalShowIrr: input.show_irr } : {}),
     }
-    if (Object.keys(switches).length === 0) throw new Error('Pass portal_enabled and/or investor_connector_enabled.')
+    if (Object.keys(switches).length === 0) throw new Error('Pass portal_enabled, investor_connector_enabled and/or show_irr.')
     const out = await setPortalSwitches(ctx.admin, actor, switches)
     return {
       portal_enabled: out.lpPortalEnabled,
       investor_connector_enabled: out.lpAgentEnabled,
+      show_irr: out.lpPortalShowIrr,
       changed: out.changed,
       ...(out.lpAgentEnabled && !out.lpPortalEnabled ? { note: 'The investor connector works only while the LP portal is on.' } : {}),
     }

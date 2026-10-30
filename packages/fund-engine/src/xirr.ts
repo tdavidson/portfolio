@@ -11,7 +11,9 @@ export function xirr(flows: CashFlow[]): number | null {
   const hasNeg = flows.some(f => f.amount < 0)
   if (!hasPos || !hasNeg) return null
 
-  const daysFromFirst = flows.map(f => (f.date.getTime() - flows[0].date.getTime()) / (365.25 * 86400000))
+  // A 365-day year, as Excel's XIRR and fund administrators count it, so a statement agrees with
+  // the spreadsheet an investor checks it against. (365.25 read about a basis point higher at 14%.)
+  const daysFromFirst = flows.map(f => (f.date.getTime() - flows[0].date.getTime()) / (365 * 86400000))
 
   // No time spread → IRR is undefined. Every flow is at the same instant, so npv(rate) is the
   // (rate-independent) SUM of the amounts: it has no root in `rate` at all. When that sum is also
@@ -20,7 +22,7 @@ export function xirr(flows: CashFlow[]): number | null {
   // 10%). Bail here instead: you cannot compute a return from a single point in time.
   let minT = daysFromFirst[0], maxT = daysFromFirst[0]
   for (const t of daysFromFirst) { if (t < minT) minT = t; if (t > maxT) maxT = t }
-  if (maxT - minT < 1 / 365.25) return null // under a day of spread
+  if (maxT - minT < 1 / 365) return null // under a day of spread
 
   function npv(rate: number): number {
     return flows.reduce((sum, f, i) => sum + f.amount / Math.pow(1 + rate, daysFromFirst[i]), 0)
