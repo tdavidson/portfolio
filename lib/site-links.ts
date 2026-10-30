@@ -43,6 +43,24 @@ export function siteOrigin(): string {
   return 'http://localhost:3000'
 }
 
+/**
+ * The origin the browser used to reach this request, for absolute redirects.
+ *
+ * Behind a reverse proxy, `next start -H <address> -p <port>` reports its own listen address as
+ * the origin of `request.url` (Next prefers it to the Host header), so a redirect built from
+ * `request.url` sends the browser to https://localhost:3100. The proxy's forwarded host, or the
+ * Host header it passes on, is the address the browser used; issuerFor (lib/oauth/metadata.ts)
+ * reads them the same way. On Vercel and in local development they agree with `request.url`.
+ */
+export function requestOrigin(req: Request): string {
+  const first = (name: string) => req.headers.get(name)?.split(',')[0].trim() || null
+  const host = first('x-forwarded-host') ?? first('host')
+  if (!host) return new URL(req.url).origin
+  const proto = first('x-forwarded-proto')
+    ?? (/^(localhost|127\.0\.0\.1|\[::1\])(:|$)/.test(host) ? 'http' : 'https')
+  return `${proto}://${host}`
+}
+
 /** The bare host of siteOrigin(), for display (the OG image footer). */
 export function siteHost(): string {
   try {
