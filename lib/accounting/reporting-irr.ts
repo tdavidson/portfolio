@@ -11,7 +11,9 @@ export function reportingIrr(postings: CapitalPosting[], nav: number, evidence: 
   if (!evidence.asOf) return null
   const flows = postings.flatMap(p => {
     const type = bucketForSourceType(p.sourceType, p.amount)
-    return p.entryDate && (type === 'contributions' || type === 'distributions')
+    // An LP-to-LP transfer is the seller's exit and the buyer's purchase at the value moved: money
+    // back to one partner and money in from the other. It nets to zero across the fund.
+    return p.entryDate && (type === 'contributions' || type === 'distributions' || type === 'transfers')
       ? [{ date: new Date(p.entryDate + 'T00:00:00Z'), amount: p.amount }] : []
   })
   if (Math.abs(nav) >= 0.005) flows.push({ date: new Date(evidence.asOf + 'T00:00:00Z'), amount: nav })
