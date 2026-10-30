@@ -71,6 +71,12 @@ export default function PortalNoticesPage() {
       .finally(() => setLoading(false))
   }
   useEffect(() => { load() }, [])
+  // Arriving from the Activity tab (#notice-<line id>): the cards render after the fetch, so the
+  // browser's own jump to the anchor has already missed them.
+  useEffect(() => {
+    if (loading || !window.location.hash.startsWith('#notice-')) return
+    document.getElementById(window.location.hash.slice(1))?.scrollIntoView({ block: 'start' })
+  }, [loading])
 
   function openDoc(documentId: string, title: string) {
     setViewerDoc({ id: documentId, title, file_name: `${title}.pdf`, mime_type: 'application/pdf' })
@@ -102,7 +108,7 @@ export default function PortalNoticesPage() {
     const st = statusLabel(n, today)
     const title = isCall ? `Capital call${n.number ? ` No. ${n.number}` : ''}` : 'Distribution'
     return (
-      <div className="rounded-card border bg-card p-4 space-y-3">
+      <div id={`notice-${n.lineId}`} className="rounded-card border bg-card p-4 space-y-3 scroll-mt-4 target:ring-2 target:ring-primary">
         <div className="flex items-start justify-between gap-3">
           <div className="flex items-start gap-3 min-w-0">
             <span className="mt-0.5 shrink-0 text-muted-foreground">{isCall ? <ArrowUpFromLine className="h-4 w-4" /> : <ArrowDownToLine className="h-4 w-4" />}</span>

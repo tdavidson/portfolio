@@ -13,9 +13,8 @@
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { overviewFromLive, type LiveOverviewRow } from '@/lib/lp-overview'
-import { lastDataDates, loadPositions } from '@/lib/accounting/lp-positions'
-import { loadCapitalPostings } from '@/lib/accounting/capital-source'
-import { buildActivity, type VehicleActivityInput } from '@/lib/portal/activity'
+import { lastDataDates } from '@/lib/accounting/lp-positions'
+import { loadActivity } from '@/lib/portal/activity-load'
 import { generateLiveReport } from '@/lib/accounting/live-report'
 import { listCapitalCalls } from '@/lib/accounting/capital-calls'
 import { listDistributions } from '@/lib/accounting/distributions'
@@ -139,10 +138,10 @@ export async function portalStatementInvestors(admin: SupabaseClient, p: LpPrinc
 }
 
 /**
- * The investor's own dated capital movements, newest first, from the same funds and vehicles as
- * the overview (portal on, live report published to them). Each vehicle's postings and positions
- * are kept to this investor's entities before anything is built, and lines are described from
- * their kind, never from an entry's memo (lib/portal/activity.ts).
+ * The investor's own dated capital movements, newest first, from the same funds as the overview
+ * (portal on, live report published to them). Only the investor's own capital accounts and
+ * statements are read, and lines are described from their kind, never from an entry's memo
+ * (lib/portal/activity.ts, lib/portal/activity-load.ts).
  */
 export async function portalActivity(admin: SupabaseClient, p: LpPrincipal) {
   const db = admin as any
@@ -162,25 +161,9 @@ export async function portalActivity(admin: SupabaseClient, p: LpPrincipal) {
   const sharedFundIds = Array.from(new Set(((shares ?? []) as any[]).map(s => s.fund_id as string)))
   if (sharedFundIds.length === 0) return { ...empty, currency }
 
-  const vehicles: VehicleActivityInput[] = []
-  const seenEntities = new Set<string>()
-  for (const fid of sharedFundIds) {
-    const report = await generateLiveReport(admin, fid)
-    const mine = report.rows.filter(r => entityNames.has(r.entity_id))
-    for (const r of mine) seenEntities.add(r.entity_id)
-    for (const group of Array.from(new Set(mine.map(r => r.portfolio_group)))) {
-      const [capital, positions] = await Promise.all([
-        loadCapitalPostings(admin, fid, group),
-        loadPositions(admin, fid, group),
-      ])
-      vehicles.push({
-        vehicle: group,
-        postings: capital.postings.filter(x => entityNames.has(x.lpEntityId)),
-        positions: positions.filter(x => entityNames.has(x.lpEntityId)),
-      })
-    }
-  }
-  return { currency, lines: buildActivity(vehicles, entityNames), multipleEntities: seenEntities.size > 1 }
+  // Only this investor's own capital rows are read, not each fund's live report (activity-load.ts).
+  const lines = await loadActivity(admin, sharedFundIds, entityNames)
+  return { currency, lines, multipleEntities: new Set(lines.map(l => l.entityId)).size > 1 }
 }
 
 // ---------------------------------------------------------------------------

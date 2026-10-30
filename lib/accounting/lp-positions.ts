@@ -119,7 +119,7 @@ export async function loadPositions(
   return rows.map(toLpPosition)
 }
 
-function toLpPosition(r: any): LpPosition {
+export function toLpPosition(r: any): LpPosition {
   return {
     id: r.id as string | undefined,
     lpEntityId: r.lp_entity_id as string,

@@ -47,6 +47,14 @@ export interface ActivityLine {
   detail: 'transaction' | 'quarterly'
   /** For a quarterly line, the statement date it is measured from. */
   since?: string
+  /** The notice behind this line, when the call or distribution was made in the app. */
+  notice?: NoticeLink
+}
+
+/** A capital call or distribution line in the app, which the portal's Notices tab shows. */
+export interface NoticeLink {
+  lineId: string
+  kind: 'capital_call' | 'distribution'
 }
 
 export interface VehicleActivityInput {
@@ -69,7 +77,15 @@ export function activityKind(p: Pick<CapitalPosting, 'sourceType' | 'amount'>): 
   return null
 }
 
-export function buildActivity(vehicles: VehicleActivityInput[], entityNames: Map<string, string>): ActivityLine[] {
+/**
+ * @param notices in-app call and distribution lines keyed `${journal entry id}|${entity id}`: a
+ *   line built from that entry, for that entity, links to its notice.
+ */
+export function buildActivity(
+  vehicles: VehicleActivityInput[],
+  entityNames: Map<string, string>,
+  notices: Map<string, NoticeLink> = new Map(),
+): ActivityLine[] {
   const lines: ActivityLine[] = []
   for (const v of vehicles) {
     const sums = new Map<string, ActivityLine>()
@@ -86,6 +102,9 @@ export function buildActivity(vehicles: VehicleActivityInput[], entityNames: Map
         kind, label: ACTIVITY_LABELS[kind], amount: 0, detail: 'transaction' as const,
       }
       line.amount += Math.abs(p.amount)
+      const notice = p.entryId ? notices.get(`${p.entryId}|${p.lpEntityId}`) : undefined
+      const fits = notice && (notice.kind === 'capital_call' ? kind === 'contribution' : kind === 'distribution')
+      if (fits && !line.notice) line.notice = notice
       sums.set(key, line)
     }
     for (const line of Array.from(sums.values())) {

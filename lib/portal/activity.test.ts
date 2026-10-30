@@ -64,3 +64,19 @@ describe('buildActivity', () => {
     expect(lines[0]).toMatchObject({ detail: 'transaction', amount: 60 })
   })
 })
+
+describe('notice links', () => {
+  it('links a line to the in-app call or distribution that posted its entry', () => {
+    const notices = new Map([
+      ['call-entry|e1', { lineId: 'call-line', kind: 'capital_call' as const }],
+      ['dist-entry|e1', { lineId: 'dist-line', kind: 'distribution' as const }],
+    ])
+    const lines = buildActivity([{ vehicle: 'Example Fund I', positions: [], postings: [
+      { lpEntityId: 'e1', entryId: 'call-entry', entryDate: '2024-01-15', sourceType: 'capital_call', amount: -100 },
+      { lpEntityId: 'e1', entryId: 'dist-entry', entryDate: '2024-06-30', sourceType: 'distribution', amount: 40 },
+      // Booked outside the app (an import, a manual entry): nothing to link to.
+      { lpEntityId: 'e1', entryId: 'imported', entryDate: '2023-06-30', sourceType: 'capital_call', amount: -50 },
+    ] }], names, notices)
+    expect(lines.map(l => l.notice?.lineId ?? null)).toEqual(['dist-line', 'call-line', null])
+  })
+})

@@ -6,6 +6,7 @@ import { lastDataDates } from '@/lib/accounting/lp-positions'
 import { generateLiveReport } from '@/lib/accounting/live-report'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 import { canSeeVehicle } from '@/lib/access/scope'
+import { loadActivity } from '@/lib/portal/activity-load'
 
 /** Portfolio overview for one investor — LIVE (the same data /lps shows, sliced to this LP). */
 async function computeOverview(admin: any, fundId: string, investorId: string) {
@@ -21,6 +22,15 @@ async function computeOverview(admin: any, fundId: string, investorId: string) {
   const groups = Array.from(new Set(mine.map((r: any) => r.portfolio_group as string)))
   const vehicleDates = await lastDataDates(admin, fundId, groups)
   return overviewFromLive(rows, vehicleDates)
+}
+
+/** The investor's Activity tab, as the portal would show it (lib/portal/activity-load.ts). */
+async function computeActivity(admin: any, fundId: string, investorId: string) {
+  const { data: entities } = await admin
+    .from('lp_entities').select('id, entity_name').eq('fund_id', fundId).eq('investor_id', investorId)
+  const entityNames = new Map<string, string>(((entities ?? []) as any[]).map(e => [e.id as string, (e.entity_name as string | null) ?? 'Your account']))
+  const lines = await loadActivity(admin, [fundId], entityNames)
+  return { lines, multipleEntities: new Set(lines.map(l => l.entityId)).size > 1 }
 }
 
 /**
@@ -69,13 +79,16 @@ export async function GET(req: NextRequest) {
       (admin as any).from('lp_investments').select('lp_entities!inner(investor_id)').eq('fund_id', fundId).limit(1),
     ])
     const repId = (rep ?? [])[0]?.lp_entities?.investor_id as string | undefined
-    const overview = repId ? await computeOverview(admin, fundId, repId) : null
+    const [overview, activity] = repId
+      ? await Promise.all([computeOverview(admin, fundId, repId), computeActivity(admin, fundId, repId)])
+      : [null, null]
     return NextResponse.json({
       investor: { id: 'sample', name: 'Sample investor' },
       fund,
       currency: ef?.currency ?? 'USD',
       portal_enabled: !!ef?.lp_portal_enabled,
       overview,
+      activity,
       snapshots: snaps ?? [],
       letters: (lets ?? []).filter((l: any) => l && l.status !== 'generating'),
       documents: (fundDocs ?? []).map((d: any) => ({ ...d, sample: String(d.storage_path ?? '').startsWith('sample/'), storage_path: undefined })),
@@ -87,7 +100,7 @@ export async function GET(req: NextRequest) {
   if (!investor) return NextResponse.json({ error: 'Investor not found in your fund' }, { status: 404 })
 
   const { data: ef } = await (admin as any).from('fund_settings').select('lp_portal_enabled, currency').eq('fund_id', fundId).maybeSingle()
-  const overview = await computeOverview(admin, fundId, investorId)
+  const [overview, activity] = await Promise.all([computeOverview(admin, fundId, investorId), computeActivity(admin, fundId, investorId)])
 
   const [{ data: snapShares }, { data: letterShares }, { data: fundDocs }, { data: invDocShares }] = await Promise.all([
     (admin as any).from('lp_snapshot_shares').select('lp_snapshots(id, name, as_of_date)').eq('lp_investor_id', investorId).eq('fund_id', fundId),
@@ -117,6 +130,7 @@ export async function GET(req: NextRequest) {
     currency: ef?.currency ?? 'USD',
     portal_enabled: !!ef?.lp_portal_enabled,
     overview,
+    activity,
     snapshots,
     letters,
     documents,

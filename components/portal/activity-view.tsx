@@ -1,7 +1,8 @@
 'use client'
 
 import { useMemo, useState } from 'react'
-import { ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Download } from 'lucide-react'
+import Link from 'next/link'
+import { ArrowDownToLine, ArrowUpFromLine, ArrowLeftRight, Download, FileText } from 'lucide-react'
 import type { ActivityKind, ActivityLine } from '@/lib/portal/activity'
 import { Metric } from '@/components/ui/metric'
 import { toCsv } from '@/lib/accounting/csv'
@@ -49,7 +50,11 @@ function KindIcon({ kind }: { kind: ActivityKind }) {
  * LP-portal Activity: each of the investor's own capital movements, newest first, with a filter by
  * kind and vehicle and a CSV download of what is shown. Presentational only.
  */
-export function ActivityView({ data }: { data: ActivityViewData }) {
+export function ActivityView({ data, linkNotices = true }: {
+  data: ActivityViewData
+  /** Link calls and distributions made in the app to the Notices tab. Off in the staff preview, which has none. */
+  linkNotices?: boolean
+}) {
   const [filter, setFilter] = useState<Filter>('all')
   const [vehicle, setVehicle] = useState<string>('')
   const currency = data.currency || 'USD'
@@ -145,6 +150,11 @@ export function ActivityView({ data }: { data: ActivityViewData }) {
                       <div className="flex items-center gap-2">
                         <KindIcon kind={l.kind} />
                         <span className="font-medium">{l.label}</span>
+                        {linkNotices && l.notice && (
+                          <Link href={`/portal/notices#notice-${l.notice.lineId}`} className="inline-flex items-center gap-1 text-xs text-primary hover:underline">
+                            <FileText className="h-3.5 w-3.5" aria-hidden /> Notice
+                          </Link>
+                        )}
                       </div>
                       {l.detail === 'quarterly' && (
                         <div className="ml-6 text-xs text-muted-foreground">Quarterly change since {fmtDate(l.since)}</div>
