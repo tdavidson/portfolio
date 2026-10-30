@@ -1,4 +1,4 @@
-import { loadOwnership } from './load'
+import { loadOwnership, fetchAllRows } from './load'
 import { loadPositions, type LpPosition } from './lp-positions'
 // Allocation configuration: what the close splits P&L on, how each partner's
 // commitment has changed over time, and which partners bear which categories.
@@ -288,13 +288,17 @@ export async function loadCommitmentEvents(
 ): Promise<CommitmentEvent[]> {
   if (events) return events
   const vehicleId = await vehicleIdByName(admin, fundId, group, idMap)
-  const { data } = await admin
+  // Paged: PostgREST caps a response at 1000 rows and drops the rest without an error, and a
+  // partner whose commitment moves with every contribution reaches that quickly.
+  const rows = await fetchAllRows<any>((from, to) => admin
     .from('commitment_events' as any)
     .select('lp_entity_id, effective_date, amount, kind')
     .eq('fund_id', fundId)
     .eq('vehicle_id', vehicleId)
     .order('effective_date', { ascending: true })
-  return ((data as any[]) ?? []).map(toCommitmentEvent)
+    .order('id', { ascending: true })
+    .range(from, to))
+  return rows.map(toCommitmentEvent)
 }
 
 /**
@@ -309,13 +313,16 @@ export async function loadCommitmentEventsBatch(
   const out = new Map<string, CommitmentEvent[]>()
   if (vehicleIds.length === 0) return out
   for (const id of vehicleIds) out.set(id, [])
-  const { data } = await admin
+  // Paged for the same reason as loadCommitmentEvents; across every vehicle the cap comes sooner.
+  const rows = await fetchAllRows<any>((from, to) => admin
     .from('commitment_events' as any)
     .select('lp_entity_id, effective_date, amount, kind, vehicle_id')
     .eq('fund_id', fundId)
     .in('vehicle_id', vehicleIds)
     .order('effective_date', { ascending: true })
-  for (const e of ((data as any[]) ?? [])) out.get(e.vehicle_id)?.push(toCommitmentEvent(e))
+    .order('id', { ascending: true })
+    .range(from, to))
+  for (const e of rows) out.get(e.vehicle_id)?.push(toCommitmentEvent(e))
   return out
 }
 

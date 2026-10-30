@@ -24,6 +24,7 @@ import type { CapitalPosting } from './capital-account'
 import { vehicleIdByName, type VehicleIdMap } from './vehicle-id'
 import { roundCents } from './ledger'
 import { ACTUAL_BOOK } from './books'
+import { fetchAllRows } from './load'
 
 const TOLERANCE = 0.005
 
@@ -104,15 +105,18 @@ export async function loadPositions(
 ): Promise<LpPosition[]> {
   const vehicleId = await vehicleIdByName(admin, fundId, group, idMap)
   if (!vehicleId) return []
-  let q = admin
-    .from('lp_positions' as any)
-    .select('id, lp_entity_id, as_of_date, commitment, called_capital, distributions, nav, irr')
-    .eq('fund_id', fundId)
-    .eq('vehicle_id', vehicleId)
-  if (asOf) q = q.lte('as_of_date', asOf)
-  const { data, error } = await q
-  if (error) throw error
-  return ((data as any[]) ?? []).map(toLpPosition)
+  // Paged: a vehicle with quarterly history passes PostgREST's 1000-row cap, and a truncated read
+  // drops LPs' latest positions so they fall back to an empty ledger and report as zero.
+  const rows = await fetchAllRows<any>((from, to) => {
+    let q = admin
+      .from('lp_positions' as any)
+      .select('id, lp_entity_id, as_of_date, commitment, called_capital, distributions, nav, irr')
+      .eq('fund_id', fundId)
+      .eq('vehicle_id', vehicleId)
+    if (asOf) q = q.lte('as_of_date', asOf)
+    return q.order('id').range(from, to)
+  })
+  return rows.map(toLpPosition)
 }
 
 function toLpPosition(r: any): LpPosition {
@@ -142,15 +146,17 @@ export async function loadPositionsBatch(
   const out = new Map<string, LpPosition[]>()
   if (vehicleIds.length === 0) return out
   for (const id of vehicleIds) out.set(id, [])
-  let q = admin
-    .from('lp_positions' as any)
-    .select('id, lp_entity_id, as_of_date, commitment, called_capital, distributions, nav, irr, vehicle_id')
-    .eq('fund_id', fundId)
-    .in('vehicle_id', vehicleIds)
-  if (asOf) q = q.lte('as_of_date', asOf)
-  const { data, error } = await q
-  if (error) throw error
-  for (const r of ((data as any[]) ?? [])) out.get(r.vehicle_id)?.push(toLpPosition(r))
+  // Paged for the same reason as loadPositions: one query across every vehicle passes the cap fastest.
+  const rows = await fetchAllRows<any>((from, to) => {
+    let q = admin
+      .from('lp_positions' as any)
+      .select('id, lp_entity_id, as_of_date, commitment, called_capital, distributions, nav, irr, vehicle_id')
+      .eq('fund_id', fundId)
+      .in('vehicle_id', vehicleIds)
+    if (asOf) q = q.lte('as_of_date', asOf)
+    return q.order('id').range(from, to)
+  })
+  for (const r of rows) out.get(r.vehicle_id)?.push(toLpPosition(r))
   return out
 }
 

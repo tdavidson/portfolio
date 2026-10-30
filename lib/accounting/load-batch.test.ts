@@ -76,6 +76,23 @@ describe('loadPositionsBatch', () => {
     expect(map.get('v1')![0]).toMatchObject({ lpEntityId: 'e1', commitment: 100, calledCapital: 40, nav: 45, irr: 0.1 })
     expect(map.get('v2')![0]).toMatchObject({ lpEntityId: 'e2', distributions: null, irr: null })
   })
+
+  it('reads past PostgREST\'s 1000-row cap instead of truncating', async () => {
+    // A fake that honours .range() and caps each response at 1000 rows, as PostgREST does.
+    const rows = Array.from({ length: 2500 }, (_, i) => ({
+      id: `p${String(i).padStart(4, '0')}`, lp_entity_id: `e${i % 50}`, as_of_date: '2024-06-30',
+      commitment: '100', called_capital: '100', distributions: '0', nav: null, irr: null, vehicle_id: i % 2 ? 'v1' : 'v2',
+    }))
+    let range: [number, number] = [0, rows.length - 1]
+    const q: any = {
+      select: () => q, eq: () => q, in: () => q, lte: () => q, order: () => q,
+      range: (from: number, to: number) => { range = [from, to]; return q },
+      then: (resolve: (v: any) => any) => resolve({ data: rows.slice(range[0], Math.min(range[1] + 1, range[0] + 1000)), error: null }),
+    }
+    const map = await loadPositionsBatch({ from: () => q } as any, 'fund-1', ['v1', 'v2'])
+    expect(map.get('v1')).toHaveLength(1250)
+    expect(map.get('v2')).toHaveLength(1250)
+  })
 })
 
 describe('QuickBooks LP cash attribution', () => {
