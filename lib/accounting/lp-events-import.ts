@@ -54,7 +54,8 @@ const TYPE_ALIASES: { re: RegExp; type: string }[] = [
   { re: /^(unrealized|unrealised|unrealized gain|valuation|mark|markup|markdown|revaluation)$/i, type: 'valuation' },
   { re: /^(fx|fx translation|fx revaluation|currency|translation)$/i, type: 'fx_revaluation' },
   { re: /^(carry|carried interest|carried|incentive)$/i, type: 'carried_interest' },
-  { re: /^(transfer|assignment|secondary)$/i, type: 'transfer' },
+  { re: /^(transfer|assignment)$/i, type: 'transfer' },
+  { re: /^(secondary|secondary sale|secondary transfer)$/i, type: 'secondary_transfer' },
   { re: /^(other|manual|misc|adjustment)$/i, type: 'manual' },
 ]
 

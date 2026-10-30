@@ -50,7 +50,8 @@ export const LP_EVENT_TYPES = [
   { value: 'valuation', label: 'Unrealized gain / loss', hint: 'A mark, not cash' },
   { value: 'fx_revaluation', label: 'FX translation', hint: 'Currency move, not performance' },
   { value: 'carried_interest', label: 'Carried interest', hint: 'Accrued to the GP' },
-  { value: 'transfer', label: 'Transfer', hint: 'LP-to-LP; nets to zero across the fund' },
+  { value: 'transfer', label: 'Transfer (assignment)', hint: 'LP-to-LP, not a sale: the new holder takes over the history' },
+  { value: 'secondary_transfer', label: 'Transfer (secondary sale)', hint: 'LP-to-LP sale: an exit and a purchase at the value moved' },
   { value: 'manual', label: 'Other', hint: 'Shows on its own line — use sparingly' },
 ] as const
 

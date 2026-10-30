@@ -91,7 +91,9 @@ export function bucketForSourceType(sourceType: string | null | undefined, amoun
       // how the portfolio did apart from what the exchange rate did to it.
       return 'fxTranslation'
     case 'transfer':
-      // LP-to-LP assignment/secondary: nets to zero across the fund.
+    case 'secondary_transfer':
+      // LP-to-LP: an assignment (`transfer`) or a secondary sale. Nets to zero across the fund;
+      // the two differ only in what they do to each partner's IRR (lib/accounting/irr-flows.ts).
       return 'transfers'
     case 'carried_interest':
     case 'carry':

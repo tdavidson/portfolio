@@ -19,9 +19,9 @@ beforeEach(() => { vi.clearAllMocks(); mocks.advances.mockResolvedValue(new Map(
 
 it('starts advances before the capital history resolves and preserves each partner’s balances and IRR inputs', async () => {
   const postings = [
-    { lpEntityId: 'lp-a', amount: -100, sourceType: 'capital_contribution', entryDate: '2026-01-01' },
-    { lpEntityId: 'lp-b', amount: -300, sourceType: 'capital_contribution', entryDate: '2026-01-01' },
-    { lpEntityId: 'lp-a', amount: -50, sourceType: 'capital_contribution', entryDate: '2026-02-01' },
+    { lpEntityId: 'lp-a', amount: -100, sourceType: 'capital_call', entryDate: '2026-01-01' },
+    { lpEntityId: 'lp-b', amount: -300, sourceType: 'capital_call', entryDate: '2026-01-01' },
+    { lpEntityId: 'lp-a', amount: -50, sourceType: 'capital_call', entryDate: '2026-02-01' },
   ]
   let finish!: (value: unknown) => void
   mocks.capital.mockReturnValue(new Promise(resolve => { finish = resolve }))

@@ -25,6 +25,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { roundCents } from './ledger'
 import { reportingIrr } from './reporting-irr'
+import { irrFlowPostings } from './irr-flows'
 import { loadReportingCapital } from './reporting-capital'
 import { computeCapitalAccounts, bucketForSourceType, emptyAccount, type CapitalAccount } from './capital-account'
 import { loadEntityNames, listVehicles } from './load'
@@ -197,12 +198,13 @@ export async function vehicleEconomics(
   const terminalDate = asOfDate
   // Dated flows, from the LP's point of view: a contribution is money out (negative), a
   // distribution is money back (positive).
+  // Assignments resolved once: a subset of partners sees the history an assignment moved to them
+  // (lib/accounting/irr-flows.ts). Across the whole fund the flows are unchanged.
+  const irrFlows = irrFlowPostings(postings)
   const flowsFor = (ids: Set<string> | null): CashFlow[] => {
     const out: CashFlow[] = []
-    for (const p of postings) {
+    for (const p of irrFlows) {
       if (ids && (!p.lpEntityId || !ids.has(p.lpEntityId))) continue
-      const bucket = bucketForSourceType(p.sourceType, p.amount)
-      if (bucket !== 'contributions' && bucket !== 'distributions') continue
       const delta = -p.amount // capital delta: credit positive
       if (Math.abs(delta) < 0.005) continue
       out.push({
@@ -240,7 +242,7 @@ export async function vehicleEconomics(
     const selected = ids.filter(id => !set || set.has(id))
     const evidence = selected.map(id => evidenceByLp.get(id))
     if (selected.length === 1) {
-      metrics.irr = reportingIrr(postings.filter(p => p.lpEntityId === selected[0]), metrics.nav ?? 0, evidence[0])
+      metrics.irr = reportingIrr(irrFlows.filter(p => p.lpEntityId === selected[0]), metrics.nav ?? 0, evidence[0])
     } else if (evidence.some(e => !e || !e.canCalculateIrr || e.conflict || e.missing.length > 0)) {
       metrics.irr = null
     }
