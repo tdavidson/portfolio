@@ -8,3 +8,8 @@
 plugin/** text eol=lf
 lib/mcp-apps/app/** text eol=lf
 app/globals.css text eol=lf
+
+# The engine's sample close bundle: its manifest records the sha256 of each file's bytes, and
+# lib/accounting/close-bundle.test.ts verifies them. Keep LF everywhere, or a Windows checkout
+# rewrites the files to CRLF and the bundle no longer verifies.
+packages/fund-engine/examples/bundle/** text eol=lf
