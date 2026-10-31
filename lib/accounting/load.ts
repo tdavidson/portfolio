@@ -291,6 +291,20 @@ export interface InvestmentRow {
  * commitment-weighted number in the module, so it earns direct coverage.
  */
 export function currentOwnership(rows: InvestmentRow[]): Ownership[] {
+  return latestInvestmentRows(rows).map(row => ({
+    lpEntityId: row.entity_id,
+    commitment: Number(row.commitment ?? 0),
+    paidIn: Number(row.paid_in_capital ?? 0),
+    distributions: Number(row.distributions ?? 0),
+  }))
+}
+
+/**
+ * One `lp_investments` row per key (default: per LP entity), by the same rule as
+ * `currentOwnership`. Readers that span vehicles key on entity and `portfolio_group`, so an
+ * LP in two vehicles keeps one row in each.
+ */
+export function latestInvestmentRows<T extends InvestmentRow>(rows: T[], keyOf: (row: T) => string = row => row.entity_id): T[] {
   // A snapshotted row always beats an unsnapshotted one; among snapshotted rows the
   // greatest as_of_date wins, with created_at breaking ties on same-dated snapshots.
   const rank = (row: InvestmentRow): [number, string, string] => {
@@ -307,17 +321,13 @@ export function currentOwnership(rows: InvestmentRow[]): Ownership[] {
     return az > bz
   }
 
-  const byEntity = new Map<string, InvestmentRow>()
+  const byKey = new Map<string, T>()
   for (const row of rows) {
-    const cur = byEntity.get(row.entity_id)
-    if (!cur || beats(row, cur)) byEntity.set(row.entity_id, row)
+    const key = keyOf(row)
+    const cur = byKey.get(key)
+    if (!cur || beats(row, cur)) byKey.set(key, row)
   }
-  return Array.from(byEntity.entries()).map(([lpEntityId, row]) => ({
-    lpEntityId,
-    commitment: Number(row.commitment ?? 0),
-    paidIn: Number(row.paid_in_capital ?? 0),
-    distributions: Number(row.distributions ?? 0),
-  }))
+  return Array.from(byKey.values())
 }
 
 /**

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { currentOwnership, type InvestmentRow } from './load'
+import { currentOwnership, latestInvestmentRows, type InvestmentRow } from './load'
 
 /**
  * `lp_investments` holds one row per LP *per snapshot*, each carrying that snapshot's
@@ -74,5 +74,24 @@ describe('currentOwnership', () => {
   it('treats missing money columns as zero, not NaN', () => {
     const rows: InvestmentRow[] = [{ entity_id: 'a', snapshot_id: 's1', lp_snapshots: snap('2026-06-30') }]
     expect(currentOwnership(rows)).toEqual([{ lpEntityId: 'a', commitment: 0, paidIn: 0, distributions: 0 }])
+  })
+})
+
+describe('latestInvestmentRows', () => {
+  const snap = (as_of_date: string) => ({ as_of_date, created_at: '2026-01-01T00:00:00Z' })
+  type Row = InvestmentRow & { portfolio_group: string }
+
+  it('keeps one row per LP per vehicle when keyed on both', () => {
+    const rows: Row[] = [
+      { entity_id: 'a', portfolio_group: 'Fund I', commitment: 100_000, snapshot_id: 's1', lp_snapshots: snap('2026-03-31') },
+      { entity_id: 'a', portfolio_group: 'Fund I', commitment: 100_000, snapshot_id: 's2', lp_snapshots: snap('2026-06-30') },
+      { entity_id: 'a', portfolio_group: 'Fund II', commitment: 50_000, snapshot_id: 's2', lp_snapshots: snap('2026-06-30') },
+    ]
+    const latest = latestInvestmentRows(rows, r => `${r.entity_id}|${r.portfolio_group}`)
+    expect(latest.map(r => [r.portfolio_group, r.commitment, r.snapshot_id]).sort()).toEqual([
+      ['Fund I', 100_000, 's2'],
+      ['Fund II', 50_000, 's2'],
+    ])
+    expect(latest.reduce((s, r) => s + Number(r.commitment), 0)).toBe(150_000)
   })
 })
