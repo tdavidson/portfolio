@@ -786,6 +786,17 @@ Non-admin users do not see the update indicator. The check runs against the publ
 
 Each installation has a unique **Installation ID** — a UUID automatically generated in your database when you run migrations. This ID is specific to your deployment and is displayed at the bottom of the Updates page. It lays the groundwork for future license key validation and is not shared externally.
 
+**Renumbered migrations (October 2026).** Four migrations used to share a version number with another file, which stopped a fresh `supabase db push` partway. They now have their own versions:
+
+| File | Was | Now |
+|---|---|---|
+| `lp_letter_shares` | `20260625000000` | `20260624235959` |
+| `lp_portal_security_hardening` | `20260625000001` | `20260625000003` |
+| `lp_documents_categories` | `20260626000000` | `20260625235959` |
+| `per_company_investment_accounts` | `20260713000002` | `20260713000005` |
+
+If you paste migrations into the SQL Editor, nothing changes for you. If you use `supabase db push` and your database was set up before this change, the CLI will see these four as older than your last migration and refuse to push. If you already applied those files some other way, record them with `supabase migration repair --status applied 20260624235959 20260625000003 20260625235959 20260713000005`. If you never applied them, run `supabase db push --include-all` once.
+
 ## Contact
 
 Built by Taylor Davidson at [Hemrock](https://www.hemrock.com).

@@ -37,7 +37,7 @@ create table if not exists compliance_items (
   applicability_question text not null,
   filing_system text not null,
   filing_portal_url text,
-  regulation_url text not null,
+  regulation_url text,
   form_instructions_url text,
   complexity text not null default 'medium',
   data_fields jsonb default '[]'::jsonb,

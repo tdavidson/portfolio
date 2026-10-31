@@ -28,7 +28,7 @@ interface ComplianceItem {
   applicability_text: string
   filing_system: string
   filing_portal_url: string | null
-  regulation_url: string
+  regulation_url: string | null
   complexity: string
   notes: string | null
   alert: string | null
