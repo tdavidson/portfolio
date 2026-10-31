@@ -34,7 +34,7 @@ import { DashboardEntitiesSection } from './_sections/products/portfolio/dashboa
 import { DealScreeningSection } from './_sections/products/investment/deal-screening-section'
 import { KnownReferrersSection } from './_sections/products/investment/known-referrers-section'
 import { MemoAgentSection } from './_sections/products/investment/memo-agent-section'
-import { LpConnectorRow, LpPortalRow } from './_sections/products/lp/lp-portal-card'
+import { LpConnectorRow, LpPortalIrrRow, LpPortalRow } from './_sections/products/lp/lp-portal-card'
 import { ProductGroup } from './_sections/products/product-group'
 import { SettingsGroup } from './_sections/settings-group'
 import type { FeatureKey, FeatureVisibility } from '@/lib/types/features'
@@ -265,7 +265,7 @@ export default function SettingsPage() {
             values={visValues}
             onFeatureChange={handleFeatureChange}
             onToggled={load}
-            accessRowsBefore={{ lp_portal: <><LpPortalRow enabled={settings.lpPortalEnabled} onSaved={load} /><LpConnectorRow enabled={!!settings.lpAgentEnabled} portalOn={settings.lpPortalEnabled} onSaved={load} /></> }}
+            accessRowsBefore={{ lp_portal: <><LpPortalRow enabled={settings.lpPortalEnabled} onSaved={load} /><LpConnectorRow enabled={!!settings.lpAgentEnabled} portalOn={settings.lpPortalEnabled} onSaved={load} /><LpPortalIrrRow enabled={!!settings.lpPortalShowIrr} portalOn={settings.lpPortalEnabled} onSaved={load} /></> }}
           />
 
           <ProductGroup product="fund_operations" values={visValues} onFeatureChange={handleFeatureChange} onToggled={load}>

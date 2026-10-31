@@ -80,10 +80,11 @@ export async function portalOverview(admin: SupabaseClient, p: LpPrincipal) {
   const fundIds = Array.from(new Set(entityRows.map(e => e.fund_id as string)))
   if (entityIds.size === 0 || fundIds.length === 0) return empty
 
-  const { data: settings } = await db.from('fund_settings').select('fund_id, lp_portal_enabled, currency').in('fund_id', fundIds)
+  const { data: settings } = await db.from('fund_settings').select('fund_id, lp_portal_enabled, lp_portal_show_irr, currency').in('fund_id', fundIds)
   const enabledFundIds = ((settings ?? []) as any[]).filter(s => s.lp_portal_enabled).map(s => s.fund_id as string)
   if (enabledFundIds.length === 0) return empty
   const currency = ((settings ?? []) as any[]).find(s => s.lp_portal_enabled)?.currency ?? 'USD'
+  const showsIrr = new Set(((settings ?? []) as any[]).filter(s => s.lp_portal_show_irr).map(s => s.fund_id as string))
 
   const { data: shares } = await db.from('lp_live_report_shares').select('fund_id').in('fund_id', enabledFundIds).in('lp_investor_id', p.investorIds)
   const sharedFundIds = Array.from(new Set(((shares ?? []) as any[]).map(s => s.fund_id as string)))
@@ -97,7 +98,10 @@ export async function portalOverview(admin: SupabaseClient, p: LpPrincipal) {
     const report = await generateLiveReport(admin, fid)
     const mine = report.rows.filter(r => entityIds.has(r.entity_id))
     for (const r of mine) {
-      liveRows.push({ portfolio_group: r.portfolio_group, commitment: r.commitment, paid_in_capital: r.paid_in_capital, distributions: r.distributions, nav: r.nav })
+      liveRows.push({
+        portfolio_group: r.portfolio_group, commitment: r.commitment, paid_in_capital: r.paid_in_capital, distributions: r.distributions, nav: r.nav,
+        ...(showsIrr.has(fid) ? { irr: r.irr } : {}),
+      })
     }
     const groups = Array.from(new Set(mine.map(r => r.portfolio_group)))
     const m = await lastDataDates(admin, fid, groups)

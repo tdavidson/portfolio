@@ -18,6 +18,9 @@ function fmtMoney(v: number | null, currency: string): string {
 function fmtMultiple(v: number | null | undefined): string {
   return v == null ? '—' : `${v.toFixed(2)}x`
 }
+function fmtPct(v: number | null | undefined): string {
+  return v == null ? '—' : `${(v * 100).toFixed(1)}%`
+}
 function fmtDate(s: string | null | undefined): string {
   if (!s) return ''
   const d = new Date(s.length <= 10 ? `${s}T00:00:00` : s)
@@ -76,6 +79,11 @@ export function OverviewView({ data }: { data: OverviewViewData }) {
                       <h3 className="font-medium truncate">{v.name}</h3>
                       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                         {fmtMultiple(v.tvpi)} TVPI
+                        {v.irr !== undefined && (
+                          <span title={v.irr == null ? 'No IRR yet: it is shown from a year after your first contribution, for one account per vehicle.' : 'Annualized.'}>
+                            {' · '}{fmtPct(v.irr)} IRR
+                          </span>
+                        )}
                       </span>
                     </div>
                     <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-2 text-sm">

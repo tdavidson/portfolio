@@ -65,6 +65,7 @@ export interface SettingsData {
   hasSubmissionToken: boolean
   lpPortalEnabled: boolean
   lpAgentEnabled?: boolean
+  lpPortalShowIrr?: boolean
 }
 
 export type Saved = () => void

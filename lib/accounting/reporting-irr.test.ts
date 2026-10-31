@@ -35,8 +35,8 @@ describe('IRR across a secondary sale', () => {
   })
 
   it("counts it as the buyer's purchase at the value moved", () => {
-    // 150,000 in on 2022-01-01, worth 165,000 on 2022-12-31: about 10%.
-    const buyer = irr(books, 'buyer', '2022-12-31')
+    // 150,000 in on 2022-01-01, worth 165,000 a year later: about 10%.
+    const buyer = irr(books, 'buyer', '2023-01-01')
     expect(buyer).not.toBeNull()
     expect(buyer!).toBeGreaterThan(0.095)
     expect(buyer!).toBeLessThan(0.105)
@@ -45,7 +45,7 @@ describe('IRR across a secondary sale', () => {
   it('agrees with lpIrr', () => {
     const flows = irrFlowPostings(books)
     expect(lpIrr(flows.filter(p => p.lpEntityId === 'seller'), 0, '2022-12-31')).toBeCloseTo(irr(books, 'seller', '2022-12-31')!, 4)
-    expect(lpIrr(flows.filter(p => p.lpEntityId === 'buyer'), 165_000, '2022-12-31')).toBeCloseTo(irr(books, 'buyer', '2022-12-31')!, 4)
+    expect(lpIrr(flows.filter(p => p.lpEntityId === 'buyer'), 165_000, '2023-01-01')).toBeCloseTo(irr(books, 'buyer', '2023-01-01')!, 4)
   })
 })
 
@@ -94,5 +94,25 @@ describe('IRR across an assignment', () => {
       { lpEntityId: 'a', entryDate: '2021-01-01', sourceType: 'transfer', amount: 100 },
     ]
     expect(irrFlowPostings(books)).toEqual([books[0]])
+  })
+})
+
+describe('IRR under a year', () => {
+  const books = [
+    { lpEntityId: 'a', entryDate: '2026-06-01', sourceType: 'contribution', amount: -5_000 },
+    { lpEntityId: 'a', entryDate: '2026-06-05', sourceType: 'valuation', amount: -175 },
+  ]
+
+  it('is not annualized: no IRR until the first cash flow is a year old', () => {
+    // 5,000 in and worth 5,175 four days later would annualize to several hundred percent.
+    expect(irr(books, 'a', '2026-06-05')).toBeNull()
+    expect(irr(books, 'a', '2027-05-31')).toBeNull()
+    expect(lpIrr(irrFlowPostings(books), 5_175, '2026-06-05')).toBeNull()
+  })
+
+  it('is shown from a year on', () => {
+    // 5,000 in on 2026-06-01, worth 5,175 exactly 365 days later: 3.5%.
+    expect(irr(books, 'a', '2027-06-01')!).toBeCloseTo(0.035, 6)
+    expect(lpIrr(irrFlowPostings(books), 5_175, '2027-06-01')!).toBeCloseTo(0.035, 4)
   })
 })

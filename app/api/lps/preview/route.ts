@@ -14,10 +14,15 @@ async function computeOverview(admin: any, fundId: string, investorId: string) {
     .from('lp_entities').select('id').eq('fund_id', fundId).eq('investor_id', investorId)
   const entityIds = new Set(((entities ?? []) as any[]).map(e => e.id as string))
   if (entityIds.size === 0) return null
-  const report = await generateLiveReport(admin, fundId)
+  const [report, { data: fs }] = await Promise.all([
+    generateLiveReport(admin, fundId),
+    admin.from('fund_settings').select('lp_portal_show_irr').eq('fund_id', fundId).maybeSingle(),
+  ])
+  const showIrr = !!fs?.lp_portal_show_irr
   const mine = report.rows.filter((r: any) => entityIds.has(r.entity_id))
   const rows: LiveOverviewRow[] = mine.map((r: any) => ({
     portfolio_group: r.portfolio_group, commitment: r.commitment, paid_in_capital: r.paid_in_capital, distributions: r.distributions, nav: r.nav,
+    ...(showIrr ? { irr: r.irr } : {}),
   }))
   const groups = Array.from(new Set(mine.map((r: any) => r.portfolio_group as string)))
   const vehicleDates = await lastDataDates(admin, fundId, groups)

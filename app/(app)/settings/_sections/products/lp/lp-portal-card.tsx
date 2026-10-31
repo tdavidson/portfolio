@@ -113,3 +113,52 @@ export function LpConnectorRow({ enabled, portalOn, onSaved }: { enabled: boolea
     </div>
   )
 }
+
+/**
+ * Whether the portal overview shows each fund's IRR (fund_settings.lp_portal_show_irr). Off by
+ * default, since some managers prefer not to show IRR in a portal. Per fund only, never blended
+ * across funds, and blank until a partner has held for a year (lib/accounting/reporting-irr.ts).
+ */
+export function LpPortalIrrRow({ enabled, portalOn, onSaved }: { enabled: boolean; portalOn: boolean; onSaved: () => void }) {
+  const [on, setOn] = useState(enabled)
+  const [saving, setSaving] = useState(false)
+
+  const setValue = async (next: boolean) => {
+    setOn(next)
+    setSaving(true)
+    const res = await fetch('/api/settings', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ lpPortalShowIrr: next }),
+    })
+    setSaving(false)
+    if (res.ok) onSaved()
+    else setOn(!next)
+  }
+
+  return (
+    <div className="flex items-center justify-between gap-4 px-3 py-2.5">
+      <div className="min-w-0">
+        <div className="text-sm font-medium">IRR on the portal</div>
+        <div className="text-xs text-muted-foreground">
+          Shows each investor their IRR in each fund on the portal overview. It stays blank until they have held for a year,
+          and is never combined across funds.
+          {!portalOn && ' Needs the LP portal on.'}
+        </div>
+      </div>
+      <div className="flex items-center gap-1.5 shrink-0">
+        {saving && <Loader2 className="h-3.5 w-3.5 animate-spin text-muted-foreground" />}
+        {[{ value: true, label: 'On' }, { value: false, label: 'Off' }].map(opt => (
+          <button
+            key={opt.label}
+            onClick={() => setValue(opt.value)}
+            disabled={saving}
+            className={`px-3 py-1.5 text-xs rounded-md border transition-colors ${ on === opt.value ? 'border-foreground/30 bg-accent font-medium' : 'hover:bg-accent/30' }`}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  )
+}

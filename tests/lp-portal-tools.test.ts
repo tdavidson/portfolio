@@ -151,12 +151,13 @@ describe('the portal switches', () => {
     expect(portalSwitchUpdates({})).toEqual({})
     expect(portalSwitchUpdates({ lpPortalEnabled: 1 })).toEqual({ lp_portal_enabled: true })
     expect(portalSwitchUpdates({ lpPortalEnabled: false, lpAgentEnabled: true })).toEqual({ lp_portal_enabled: false, lp_agent_enabled: true })
+    expect(portalSwitchUpdates({ lpPortalShowIrr: true })).toEqual({ lp_portal_show_irr: true })
   })
 
-  it('applies them and reports both as they stand', async () => {
+  it('applies them and reports all of them as they stand', async () => {
     const { admin, tables } = memoryAdmin(seed())
     const out = await setPortalSwitches(admin, actor, { lpAgentEnabled: true })
-    expect(out).toEqual({ lpPortalEnabled: true, lpAgentEnabled: true, changed: ['lp_agent_enabled'] })
+    expect(out).toEqual({ lpPortalEnabled: true, lpAgentEnabled: true, lpPortalShowIrr: false, changed: ['lp_agent_enabled'] })
     expect(tables.fund_settings[0].lp_agent_enabled).toBe(true)
   })
 })

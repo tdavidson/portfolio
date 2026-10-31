@@ -527,6 +527,7 @@ export async function removeAuthorizedUser(admin: SupabaseClient, fundId: string
 export interface PortalSwitches {
   lpPortalEnabled?: unknown
   lpAgentEnabled?: unknown
+  lpPortalShowIrr?: unknown
 }
 
 /**
@@ -536,18 +537,20 @@ export interface PortalSwitches {
  *   lp_portal_enabled: the LP portal itself.
  *   lp_agent_enabled:  whether investors may connect an assistant to their own portal
  *                      (app/api/portal/mcp). Inert unless the portal is on too; checked live.
+ *   lp_portal_show_irr: whether the portal overview shows each fund's IRR. Off by default.
  */
 export function portalSwitchUpdates(input: PortalSwitches): Record<string, boolean> {
   const out: Record<string, boolean> = {}
   if (input.lpPortalEnabled !== undefined) out.lp_portal_enabled = !!input.lpPortalEnabled
   if (input.lpAgentEnabled !== undefined) out.lp_agent_enabled = !!input.lpAgentEnabled
+  if (input.lpPortalShowIrr !== undefined) out.lp_portal_show_irr = !!input.lpPortalShowIrr
   return out
 }
 
 /** Apply the switches and return both as they now stand. */
 export async function setPortalSwitches(
   admin: SupabaseClient, actor: PortalActor, input: PortalSwitches,
-): Promise<{ lpPortalEnabled: boolean; lpAgentEnabled: boolean; changed: string[] }> {
+): Promise<{ lpPortalEnabled: boolean; lpAgentEnabled: boolean; lpPortalShowIrr: boolean; changed: string[] }> {
   const updates = portalSwitchUpdates(input)
   const changed = Object.keys(updates)
   if (changed.length) {
@@ -557,6 +560,6 @@ export async function setPortalSwitches(
     expireTag('fund-data')
     expireTag('fund-settings')
   }
-  const { data } = await (admin as any).from('fund_settings').select('lp_portal_enabled, lp_agent_enabled').eq('fund_id', actor.fundId).maybeSingle()
-  return { lpPortalEnabled: !!data?.lp_portal_enabled, lpAgentEnabled: !!data?.lp_agent_enabled, changed }
+  const { data } = await (admin as any).from('fund_settings').select('lp_portal_enabled, lp_agent_enabled, lp_portal_show_irr').eq('fund_id', actor.fundId).maybeSingle()
+  return { lpPortalEnabled: !!data?.lp_portal_enabled, lpAgentEnabled: !!data?.lp_agent_enabled, lpPortalShowIrr: !!data?.lp_portal_show_irr, changed }
 }

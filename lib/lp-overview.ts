@@ -15,6 +15,13 @@ export interface OverviewVehicle {
   nav: number | null
   dpi: number | null
   tvpi: number | null
+  /**
+   * The investor's IRR in this vehicle, only when the fund shows IRR on the portal
+   * (fund_settings.lp_portal_show_irr); absent otherwise. Null when there is none to show: under a
+   * year of history, or several of the investor's entities in the vehicle, whose IRRs can't be
+   * combined without their combined cash flows. Never totalled across vehicles for the same reason.
+   */
+  irr?: number | null
 }
 
 export interface OverviewTotals {
@@ -137,6 +144,8 @@ export interface LiveOverviewRow {
   paid_in_capital: number | null
   distributions: number | null
   nav: number | null
+  /** The row's IRR from the live report, set only for a fund that shows IRR on the portal. */
+  irr?: number | null
 }
 
 /**
@@ -163,6 +172,16 @@ export function overviewFromLive(
   for (const v of Array.from(vehicleMap.values())) {
     const rr = lpRatios({ commitment: v.commitment, paidIn: v.called, distributions: v.distributed, nav: v.nav })
     v.dpi = rr.dpi; v.tvpi = rr.tvpi
+  }
+  // IRR per vehicle, and only one entity's: averaging two IRRs is not the IRR of their cash flows.
+  const rowsByVehicle = new Map<string, LiveOverviewRow[]>()
+  for (const r of rows) {
+    const key = (r.portfolio_group ?? '').trim() || 'Investment'
+    rowsByVehicle.set(key, [...(rowsByVehicle.get(key) ?? []), r])
+  }
+  for (const [key, vr] of Array.from(rowsByVehicle.entries())) {
+    if (vr.some(r => r.irr === undefined)) continue
+    vehicleMap.get(key)!.irr = vr.length === 1 ? vr[0].irr ?? null : null
   }
   const tr = lpRatios({ commitment: totals.commitment, paidIn: totals.called, distributions: totals.distributed, nav: totals.nav })
   totals.dpi = tr.dpi; totals.tvpi = tr.tvpi
