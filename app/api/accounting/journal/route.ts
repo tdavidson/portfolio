@@ -18,6 +18,8 @@ import { ACTUAL_BOOK, isLedgerBook, type LedgerBook } from '@/lib/accounting/boo
 import { owningTransactions, planRelease, deleteOwners } from '@/lib/accounting/ownership'
 import { changeEntryState } from '@/lib/accounting/journal-state'
 import { loadMayTouchInvestments, NEEDS_INVESTMENTS_WRITE } from '@/lib/accounting/investment-access'
+import { loadGateAccess } from '@/lib/access/request-context'
+import { isProposer, markProposed, proposerChangeProblem, PROPOSER_REFUSAL } from '@/lib/accounting/proposals'
 
 // A database failure after the owning transactions were already deleted: still generic to the
 // client, but it must say what is gone.
@@ -114,7 +116,31 @@ export async function GET(req: NextRequest) {
     p_adjusting: adjusting,
   })
   if (error) return dbError(error, 'accounting-journal')
-  return NextResponse.json(data ?? { entries: [], total: 0 })
+  const page = (data ?? { entries: [], total: 0 }) as { entries?: { id: string }[]; total?: number }
+  return NextResponse.json({ ...page, entries: await withProposers(admin, gate.fundId, book, page.entries ?? []) })
+}
+
+/**
+ * Who proposed each entry on the page (proposed_by, and their email for the journal's badge). The
+ * search RPC predates proposals, so they are read beside it. Display only: if the read fails the
+ * page still lists, with no badges.
+ */
+async function withProposers<T extends { id: string }>(admin: ReturnType<typeof createAdminClient>, fundId: string, book: LedgerBook, entries: T[]) {
+  if (entries.length === 0) return entries
+  const { data, error } = await (admin as any)
+    .from('journal_entries').select('id, proposed_by').eq('fund_id', fundId).eq('book', book)
+    .in('id', entries.map(e => e.id)).not('proposed_by', 'is', null)
+  if (error || !data?.length) return entries
+  const byId = new Map<string, string>((data as { id: string; proposed_by: string }[]).map(r => [r.id, r.proposed_by]))
+  const emails = new Map<string, string | null>()
+  await Promise.all([...new Set(byId.values())].map(async uid => {
+    const { data: u } = await admin.auth.admin.getUserById(uid)
+    emails.set(uid, u?.user?.email ?? null)
+  }))
+  return entries.map(e => {
+    const uid = byId.get(e.id)
+    return uid ? { ...e, proposed_by: uid, proposed_by_email: emails.get(uid) ?? null } : e
+  })
 }
 
 // PUT — replace a DRAFT entry's postings (and date/memo). Posted entries are
@@ -135,6 +161,11 @@ export async function PUT(req: NextRequest) {
   const { id, entryDate, memo, postings } = body
   if (!id || !Array.isArray(postings) || postings.length === 0) {
     return NextResponse.json({ error: 'id and at least one posting are required' }, { status: 400 })
+  }
+  // A proposer (the `propose` level, not write) edits only their own proposals, while still drafts.
+  if (isProposer(await loadGateAccess(admin, gate))) {
+    const problem = await proposerChangeProblem(admin, { fundId: gate.fundId, entryId: String(id), userId: user.id })
+    if (problem) return NextResponse.json({ error: problem }, { status: 403 })
   }
 
   const { data: existing } = await admin
@@ -225,13 +256,20 @@ export async function POST(req: NextRequest) {
 
   const vendorId = await vendorInFund(admin, gate.fundId, body.vendorId)
   const entry: JournalEntry = { fundId: gate.fundId, entryDate, memo: memo ?? null, sourceType: sourceType ?? 'manual', sourceRef: sourceRef ?? null, reference, adjusting: body.adjusting === true, vendorId, postings: normalized }
+  // A proposer's entry is always a draft, marked as their proposal, whatever status they asked for.
+  const proposing = isProposer(await loadGateAccess(admin, gate))
+  const finalStatus = !proposing && status === 'posted' ? 'posted' : 'draft'
   // Posting adopts any investment lines as transactions — refused without investments write.
-  const adoptOpts = status === 'posted' ? { investments: await loadMayTouchInvestments(admin, gate, user.id) } : {}
-  const result = await persistEntry(admin, gate.fundId, group, user.id, entry, status === 'posted' ? 'posted' : 'draft', ACTUAL_BOOK, true, adoptOpts)
+  const adoptOpts = finalStatus === 'posted' ? { investments: await loadMayTouchInvestments(admin, gate, user.id) } : {}
+  const result = await persistEntry(admin, gate.fundId, group, user.id, entry, finalStatus, ACTUAL_BOOK, true, adoptOpts)
   if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.error === NEEDS_INVESTMENTS_WRITE ? 403 : 400 })
+  if (proposing) {
+    const marked = await markProposed(admin, { fundId: gate.fundId, vehicleId: await vehicleIdByName(admin, gate.fundId, group), entryId: result.entryId, userId: user.id })
+    if (marked) return NextResponse.json({ error: marked.error, id: result.entryId }, { status: 500 })
+  }
 
   const { data: full } = await admin.from('journal_entries' as any).select('*, journal_postings(*)').eq('book', ACTUAL_BOOK).eq('id', result.entryId).single()
-  return NextResponse.json(full ?? { id: result.entryId })
+  return NextResponse.json({ ...((full ?? { id: result.entryId }) as object), ...(proposing ? { proposed: true } : {}) })
 }
 
 // PATCH — change an entry's state:
@@ -254,6 +292,14 @@ export async function PATCH(req: NextRequest) {
   const group = await resolveGroupOr400(admin, gate, body?.group ?? req.nextUrl.searchParams.get('group'))
   if (group instanceof NextResponse) return group
   const vehicleId = await vehicleIdByName(admin, gate.fundId, group)
+
+  // A proposer may only withdraw (void) a draft they proposed. Posting, unposting and reversing
+  // stay with write.
+  if (isProposer(await loadGateAccess(admin, gate))) {
+    if (body?.action !== 'void') return NextResponse.json({ error: PROPOSER_REFUSAL }, { status: 403 })
+    const problem = await proposerChangeProblem(admin, { fundId: gate.fundId, entryId: String(body?.id ?? ''), userId: user.id })
+    if (problem) return NextResponse.json({ error: problem }, { status: 403 })
+  }
 
   // The state change itself is lib/accounting/journal-state.ts, shared with the unpost_entry,
   // reverse_entry and void_entry tools.

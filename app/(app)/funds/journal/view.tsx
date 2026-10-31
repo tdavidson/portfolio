@@ -10,7 +10,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { AllocationModal, ALLOCATION_LABELS, type AllocationAction } from '../allocation-modal'
 import { reversedEntryId } from '@/lib/accounting/reversal'
 import { useLedgerFetch, useVehicle, useVehicleBase } from '@/components/accounting-vehicle'
-import { useCanRead } from '@/components/access-context'
+import { useCanPropose, useCanRead, useCanWrite } from '@/components/access-context'
 import { hasSectionForKind } from '@/lib/accounting/nav'
 import { textAccountName } from '@/lib/accounting/text-ledger'
 import type { Account, AccountType } from '@/lib/accounting/types'
@@ -37,6 +37,9 @@ interface Entry {
   posted_at?: string | null
   adjusting?: boolean
   book?: string
+  /** Set when someone who can only propose made it (lib/accounting/proposals.ts). */
+  proposed_by?: string | null
+  proposed_by_email?: string | null
   journal_postings: Posting[]
 }
 
@@ -55,6 +58,12 @@ export function JournalView({ onPlainText }: { onPlainText?: () => void } = {}) 
   // The tax book only has entries once the tax run has written them; with tax reporting off it
   // is always empty, so the selector is not offered.
   const taxOn = useCanRead('tax')
+  // Someone who can only propose (an auditor, a tax preparer) makes plain entries that save as
+  // drafts for someone with write to post or reject. They get no bulk post or discard, and none
+  // of the built entries, which post as they are made.
+  const canWrite = useCanWrite('accounting')
+  const canPropose = useCanPropose('accounting')
+  const proposesOnly = !canWrite && canPropose
   const router = useRouter()
 
   const [entries, setEntries] = useState<Entry[]>([])
@@ -252,6 +261,11 @@ export function JournalView({ onPlainText }: { onPlainText?: () => void } = {}) 
         {/* New entry is a menu: a plain entry, or one of the standard entries built from their
             inputs with a preview, or the two other ways in (a capital call from the capital
             accounts page, or plain text). */}
+        {proposesOnly ? (
+          <Button size="sm" variant="outline" onClick={() => setEditing({ entryId: null })} title="Saved as a draft for someone with write access to post or reject">
+            <Plus className="h-4 w-4 mr-1" />Propose entry
+          </Button>
+        ) : canWrite && (
         <Popover open={newOpen} onOpenChange={setNewOpen}>
           <PopoverTrigger asChild>
             <Button size="sm" variant="outline">
@@ -307,6 +321,7 @@ export function JournalView({ onPlainText }: { onPlainText?: () => void } = {}) 
             </div>
           </PopoverContent>
         </Popover>
+        )}
         <Input
           value={search}
           onChange={e => setSearch(e.target.value)}
@@ -374,7 +389,7 @@ export function JournalView({ onPlainText }: { onPlainText?: () => void } = {}) 
             presence doesn't depend on what IS ticked and the list below never jumps. The one
             case it's absent is the Voided view, where nothing is actionable and a dead
             select-all checkbox would just be a lie. */}
-        {sel.selectableIds.length > 0 && (
+        {canWrite && sel.selectableIds.length > 0 && (
         <div className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border bg-muted/30 px-3 py-2 text-xs">
           <input
             ref={selectAllRef}
@@ -459,7 +474,7 @@ export function JournalView({ onPlainText }: { onPlainText?: () => void } = {}) 
                       stays on one left edge. The span swallows the click that would
                       otherwise open the entry modal. */}
                   <span className="flex w-4 shrink-0 justify-center pt-0.5" onClick={ev => ev.stopPropagation()}>
-                    {clickable && (
+                    {clickable && canWrite && (
                       <input
                         type="checkbox"
                         checked={selected.has(e.id)}
@@ -474,6 +489,14 @@ export function JournalView({ onPlainText }: { onPlainText?: () => void } = {}) 
                       <span className={`mr-1 rounded px-1 py-0.5 align-middle font-sans text-[9px] font-medium uppercase tracking-wide ${statusCls}`}>{e.status}</span>{' '}
                       {e.reference && <span className="text-muted-foreground">#{e.reference} </span>}
                       <span>&quot;{narration}&quot;</span>
+                      {e.proposed_by && (
+                        <span
+                          className="ml-2 rounded bg-info-subtle px-1 py-0.5 align-middle font-sans text-[9px] font-medium uppercase tracking-wide text-info"
+                          title={e.status === 'draft' ? 'Proposed: waiting for someone with write access to post or reject it' : 'Came in as a proposal'}
+                        >
+                          proposed{e.proposed_by_email ? ` by ${e.proposed_by_email}` : ''}
+                        </span>
+                      )}
                       {e.adjusting && <span className="ml-2 rounded bg-muted px-1 py-0.5 align-middle font-sans text-[9px] font-medium uppercase tracking-wide text-muted-foreground">adjusting</span>}
                       {e.reversed_by && <span className="ml-2 rounded bg-warning/15 px-1 py-0.5 align-middle font-sans text-[9px] font-medium uppercase tracking-wide text-warning">reversed</span>}
                       {reversalOf && <span className="ml-2 rounded bg-muted px-1 py-0.5 align-middle font-sans text-[9px] font-medium uppercase tracking-wide text-muted-foreground">reversal of {reversalOf.slice(0, 8)}</span>}

@@ -72,7 +72,7 @@ export function canSee(
   if (!domain) return true
 
   const level = access(domain, entry.featureKey)
-  return level === 'read' || level === 'write'
+  return level !== 'none'
 }
 
 const NAV_ITEMS: NavItem[] = [

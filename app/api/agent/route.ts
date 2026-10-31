@@ -91,7 +91,7 @@ async function handlePost(req: NextRequest) {
   // `accessDomainForCall` rather than the tool's own domain — an `allocation` call is ordinary
   // accounting until its action is 'carry'.
   const access = await loadCredentialAccess(admin, auth)
-  const denied = authorizeToolUse(tool.scope, auth, access, accessDomainForCall(tool, body?.input ?? {}), accessFeatureFor(tool))
+  const denied = authorizeToolUse(tool.scope, auth, access, accessDomainForCall(tool, body?.input ?? {}), accessFeatureFor(tool), tool.proposable === true)
   if (denied) return NextResponse.json({ error: denied }, { status: 403 })
 
   // RATE LIMIT. This endpoint can post directly to the ledger and close periods, with no human

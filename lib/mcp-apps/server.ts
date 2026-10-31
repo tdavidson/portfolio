@@ -24,6 +24,11 @@ import { isDashboardPayload } from './payload'
 
 export type McpTool = AgentTool | DashboardTool | PendingTool
 
+/** Does calling this tool make a proposal for a proposer (AgentToolMeta.proposable)? */
+function proposableTool(tool: McpTool): boolean {
+  return (tool as AgentTool).proposable === true
+}
+
 /**
  * Everything the MCP endpoint serves: the shared registry, the dashboard tools, and the approval
  * tools a staged write is confirmed with (lib/agent/pending-tools.ts).
@@ -181,7 +186,9 @@ export function listableTools(access: AccessContext): McpTool[] {
     // Destructive tools only where the deployment turned them on (AGENT_DESTRUCTIVE_ACTIONS). This
     // list feeds tools/list, search_tools and call_tool's suggestions alike.
     if (!isToolOffered(tool as AgentTool)) return false
-    return hasAccess(access, accessDomainFor(tool), tool.scope, accessFeatureFor(tool))
+    // A proposable write is listed for a proposer too: calling it makes a proposal.
+    const need = tool.scope === 'write' && proposableTool(tool) ? 'propose' : tool.scope
+    return hasAccess(access, accessDomainFor(tool), need, accessFeatureFor(tool))
   })
 }
 
@@ -211,7 +218,7 @@ export function authorizeMcpTool(tool: McpTool, auth: ResolvedKey, access: Acces
   }
   // The CALL's domain, not just the tool's: `allocation` is ordinary accounting until its action
   // is 'carry'.
-  return authorizeToolUse(tool.scope, auth, access, accessDomainForCall(tool, args), accessFeatureFor(tool))
+  return authorizeToolUse(tool.scope, auth, access, accessDomainForCall(tool, args), accessFeatureFor(tool), proposableTool(tool))
 }
 
 /**

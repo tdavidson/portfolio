@@ -32,7 +32,7 @@ export async function assertDomainAccess(
   admin: SupabaseClient,
   userId: string,
   domain: Domain,
-  need: 'read' | 'write' | 'any',
+  need: 'read' | 'propose' | 'write' | 'any',
   feature?: FeatureKey,
 ): Promise<GateResult | NextResponse> {
   const { data: membership, error } = await admin
@@ -94,8 +94,8 @@ export async function assertRouteAccess(
  * told "not available" learns nothing. The distinction only matters for areas they can't see, so
  * the message stays coarse and the log carries the detail.
  */
-function denied(access: AccessContext, domain: Domain, need: 'read' | 'write'): NextResponse {
-  if (access.role === 'viewer' && need === 'write') {
+function denied(access: AccessContext, domain: Domain, need: 'read' | 'propose' | 'write'): NextResponse {
+  if (access.role === 'viewer' && need !== 'read') {
     return NextResponse.json(
       { error: 'This is a read-only demo. Changes are not allowed.' },
       { status: 403 },
@@ -103,7 +103,7 @@ function denied(access: AccessContext, domain: Domain, need: 'read' | 'write'): 
   }
   const label = DOMAIN_META[domain].label
   return NextResponse.json(
-    { error: need === 'write' ? `You do not have write access to ${label}.` : `You do not have access to ${label}.` },
+    { error: need !== 'read' ? `You do not have write access to ${label}.` : `You do not have access to ${label}.` },
     { status: 403 },
   )
 }

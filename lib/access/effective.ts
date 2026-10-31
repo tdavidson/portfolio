@@ -13,9 +13,14 @@ import {
   type FeatureVisibilityMap,
 } from '@/lib/types/features'
 
-export type AccessLevel = 'none' | 'read' | 'write'
+/**
+ * `propose` sits between read and write: everything read allows, plus putting a change forward for
+ * someone with write to accept. It exists only where the domain says so (DOMAIN_META.proposable,
+ * today accounting alone, where a proposal is a draft journal entry); elsewhere it resolves as read.
+ */
+export type AccessLevel = 'none' | 'read' | 'propose' | 'write'
 
-const RANK: Record<AccessLevel, number> = { none: 0, read: 1, write: 2 }
+const RANK: Record<AccessLevel, number> = { none: 0, read: 1, propose: 2, write: 3 }
 
 export type FundRole = 'admin' | 'member' | 'viewer'
 
@@ -70,7 +75,9 @@ export function effectiveAccess(ctx: AccessContext, domain: Domain, feature?: Fe
   // What the fund's own switch allows this member, before any implication. A domain newer than
   // the fund's default rows falls back to the domain it was split from (`defaultFrom`).
   const fallback = meta.defaultFrom ? (ctx.grants[meta.defaultFrom] ?? ctx.defaults[meta.defaultFrom]) : undefined
-  const own = level === 'admin' ? 'none' : (ctx.grants[domain] ?? ctx.defaults[domain] ?? fallback ?? 'none')
+  const stored = level === 'admin' ? 'none' : (ctx.grants[domain] ?? ctx.defaults[domain] ?? fallback ?? 'none')
+  // A `propose` grant on a domain that has no proposals is a read grant, never more.
+  const own: AccessLevel = stored === 'propose' && !meta.proposable ? 'read' : stored
 
   // …and what another domain confers on this one. Only lp_capital has this, and only from
   // accounting: the partner capital accounts ARE the ledger, so granting the books grants
@@ -79,7 +86,9 @@ export function effectiveAccess(ctx: AccessContext, domain: Domain, feature?: Fe
   // Deliberately AFTER the off/hidden check above, so a hard deny on THIS domain still wins, and
   // deliberately not recursive beyond one hop — `accounting` implies nothing, so this terminates.
   if (!meta.impliedBy) return own
-  const implied = effectiveAccess(ctx, meta.impliedBy)
+  const raw = effectiveAccess(ctx, meta.impliedBy)
+  // Proposing journal entries implies reading partner capital, not proposing anything there.
+  const implied: AccessLevel = raw === 'propose' && !meta.proposable ? 'read' : raw
   return RANK[implied] > RANK[own] ? implied : own
 }
 
@@ -87,10 +96,18 @@ export function effectiveAccess(ctx: AccessContext, domain: Domain, feature?: Fe
 export function hasAccess(
   ctx: AccessContext,
   domain: Domain,
-  need: 'read' | 'write',
+  need: 'read' | 'propose' | 'write',
   feature?: FeatureKey,
 ): boolean {
   return RANK[effectiveAccess(ctx, domain, feature)] >= RANK[need]
+}
+
+/**
+ * Proposes in this domain and no more: a write from this user becomes a proposal for someone with
+ * write to accept (lib/accounting/proposals.ts), never the change itself.
+ */
+export function proposesOnly(ctx: AccessContext, domain: Domain, feature?: FeatureKey): boolean {
+  return effectiveAccess(ctx, domain, feature) === 'propose'
 }
 
 /** Every domain this user can at least read — for the nav and for filtering the MCP tool list. */
@@ -107,7 +124,9 @@ export function readableDomains(ctx: AccessContext): Domain[] {
  * offered one, or the consent screen promises an access their grants then refuse.
  */
 export function canWriteAnywhere(ctx: AccessContext): boolean {
-  return DOMAINS.some(d => hasAccess(ctx, d, 'write'))
+  // A proposer needs a write-scoped token too: a proposal travels as a write call, and the server
+  // turns it into a draft rather than the change.
+  return DOMAINS.some(d => hasAccess(ctx, d, 'propose'))
 }
 
 /**

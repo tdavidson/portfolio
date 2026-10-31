@@ -24,7 +24,7 @@ import { accessExpiryProblem, normalizeExpiry } from '@/lib/access/expiry'
 
 export const dynamic = 'force-dynamic'
 
-const LEVELS = ['none', 'read', 'write']
+const LEVELS = ['none', 'read', 'propose', 'write']
 
 /** `admin` is role-governed, never granted — offering it as a tickbox would be a lie. */
 const GRANTABLE = DOMAINS.filter(d => !DOMAIN_META[d].adminOnly)
@@ -232,6 +232,10 @@ export async function PATCH(req: NextRequest) {
   const level = String(body?.level ?? '')
   if (!GRANTABLE.includes(domain)) return NextResponse.json({ error: 'Unknown domain' }, { status: 400 })
   if (!LEVELS.includes(level)) return NextResponse.json({ error: 'Unknown level' }, { status: 400 })
+  // Proposing exists only where a proposal means something (DOMAIN_META.proposable).
+  if (level === 'propose' && !DOMAIN_META[domain].proposable) {
+    return NextResponse.json({ error: `${DOMAIN_META[domain].label} has no propose level.` }, { status: 400 })
+  }
 
   if (body?.userId) {
     const targetId = String(body.userId)

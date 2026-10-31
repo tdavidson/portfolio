@@ -18,7 +18,7 @@ import { DOMAIN_META, domainFundLevel, domainGrantableToMembers, type Domain } f
 import { FEATURE_META } from '@/lib/types/feature-meta'
 import type { FeatureVisibilityMap } from '@/lib/types/features'
 
-type Level = 'none' | 'read' | 'write'
+type Level = 'none' | 'read' | 'propose' | 'write'
 
 interface DomainInfo { key: Domain; label: string; description: string }
 interface MemberAccess { userId: string; email: string; role: string; grants: Record<string, Level>; entities?: string[]; allEntities?: boolean; accessExpiresAt?: string | null }
@@ -44,6 +44,9 @@ const STATIC_CELL = 'inline-flex h-7 items-center text-[10px] text-muted-foregro
 const LEVELS: { value: Level; label: string }[] = [
   { value: 'none', label: 'None' },
   { value: 'read', label: 'Read' },
+  // Only where the domain has proposals (DOMAIN_META.proposable): read, plus draft journal entries
+  // that someone with write posts or rejects.
+  { value: 'propose', label: 'Read & propose' },
   { value: 'write', label: 'Read & write' },
 ]
 
@@ -232,6 +235,7 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
                 <td key={d.key} className="px-2 py-2 align-top">
                   {domainGrantableToMembers(d.key, featureVisibility) ? (
                     <LevelPicker
+                      domain={d.key}
                       value={defaults[d.key] ?? 'none'}
                       onChange={level => setDefault(d.key, level)}
                       busy={saving === `default:${d.key}`}
@@ -290,6 +294,7 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
                       <span className={STATIC_CELL}>—</span>
                     ) : (
                       <LevelPicker
+                        domain={d.key}
                         // No explicit grant → they follow the default, and the picker says so.
                         value={m.grants[d.key] ?? defaults[d.key] ?? 'none'}
                         inherited={m.grants[d.key] === undefined}
@@ -403,8 +408,9 @@ function EntityPicker({
 }
 
 function LevelPicker({
-  value, onChange, busy, inherited,
-}: { value: Level; onChange: (l: Level) => void; busy?: boolean; inherited?: boolean }) {
+  domain, value, onChange, busy, inherited,
+}: { domain: Domain; value: Level; onChange: (l: Level) => void; busy?: boolean; inherited?: boolean }) {
+  const levels = LEVELS.filter(l => l.value !== 'propose' || DOMAIN_META[domain].proposable)
   return (
     <div className="inline-flex items-center gap-1">
       <select
@@ -413,7 +419,7 @@ function LevelPicker({
         disabled={busy}
         className={`rounded border bg-transparent px-1.5 py-1 text-[11px] ${inherited ? 'text-muted-foreground' : ''}`}
       >
-        {LEVELS.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
+        {levels.map(l => <option key={l.value} value={l.value}>{l.label}</option>)}
       </select>
       {busy && <Loader2 className="h-3 w-3 animate-spin text-muted-foreground" />}
       {inherited && !busy && <span className="text-[9px] text-muted-foreground" title="Following the default for new members">default</span>}

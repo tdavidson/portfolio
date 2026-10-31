@@ -11,6 +11,7 @@ import { carryRecipientIds, combineCarryRecipients, seesIndividualCarry } from '
 import type { FeatureKey } from '@/lib/types/features'
 import { loadPostedLedger, loadEntityNames, loadOwnership, fetchAllRows } from './load'
 import { accountIdByCode, duplicateRefMessage, liveEntryByRef, persistEntry } from './persist'
+import { isProposer, listProposals, markProposed } from './proposals'
 import { vehicleIdByName } from './vehicle-id'
 import { computeCapitalAccounts, totalNav } from './capital-account'
 import { trialBalance, balanceSheet, incomeStatement } from './statements'
@@ -210,7 +211,7 @@ const HANDLERS: Record<string, AgentToolHandler> = {
     return pageResult((data as any[]) ?? [], offset, limit, count, 'list_journal', 'entries')
   },
 
-  post_entry: async ({ admin, fundId, portfolioGroup, userId }, input) => {
+  post_entry: async ({ admin, fundId, portfolioGroup, userId, access }, input) => {
     const codes = await accountIdByCode(admin, fundId, portfolioGroup)
     const postings: Posting[] = (input.postings ?? []).map((p: any) => {
       // BY CODE ONLY. A raw `accountId` used to be accepted and passed straight through, which
@@ -223,9 +224,26 @@ const HANDLERS: Record<string, AgentToolHandler> = {
       return { accountId, amount: Number(p.amount), currency: p.currency ?? 'USD', lpEntityId: p.lpEntityId ?? null }
     })
     const entry: JournalEntry = { fundId, entryDate: input.entryDate, memo: input.memo ?? null, sourceType: input.sourceType ?? 'manual', postings }
-    const result = await persistEntry(admin, fundId, portfolioGroup, userId, entry, input.status === 'draft' ? 'draft' : 'posted')
+    // A proposer's entry is always a draft, marked as theirs, for someone with write to post or reject.
+    const proposing = !!access && !!userId && isProposer(access)
+    const result = await persistEntry(admin, fundId, portfolioGroup, userId, entry, proposing || input.status === 'draft' ? 'draft' : 'posted')
     if ('error' in result) throw new Error(result.error)
+    if (proposing) {
+      const marked = await markProposed(admin, { fundId, vehicleId: await vehicleIdByName(admin, fundId, portfolioGroup), entryId: result.entryId, userId: userId! })
+      if (marked) throw new Error(marked.error)
+      return {
+        entryId: result.entryId, status: 'draft', proposed: true,
+        next: 'Saved as a proposed draft. Nothing is on the books until someone with write access to fund accounting posts it; they can also edit or reject it.',
+      }
+    }
     return { entryId: result.entryId }
+  },
+
+  proposed_entries: async ({ admin, fundId, portfolioGroup }, input) => {
+    const proposals = await listProposals(admin, {
+      fundId, entities: [portfolioGroup], includeClosed: input?.includeClosed === true, limit: Number(input?.limit) || undefined,
+    })
+    return { proposals, count: proposals.length }
   },
 
   add_account: async ({ admin, fundId, portfolioGroup }, input) => {

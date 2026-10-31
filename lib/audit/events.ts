@@ -8,7 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { currentChangeSource, type ChangeSource } from './source'
 
 export type AuditAction =
-  | 'entry.post' | 'entry.unpost' | 'entry.void' | 'entry.reverse'
+  | 'entry.post' | 'entry.unpost' | 'entry.void' | 'entry.reverse' | 'entry.propose'
   | 'entries.bulk_post' | 'entries.bulk_void'
   | 'period.close' | 'period.reopen' | 'close.approve'
   | 'commitment.create' | 'commitment.edit' | 'commitment.delete'

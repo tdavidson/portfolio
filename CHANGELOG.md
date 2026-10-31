@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Proposed journal entries
+- **A new access level, Read & propose, between read and write.** It's offered on Fund accounting, the one area with proposals so far. A member at that level reads everything read allows and puts journal entries forward as drafts marked as theirs; someone with write posts them as they are, edits them first, or discards them. A proposer can change or withdraw only their own proposals while they are drafts, and can't post, unpost, void or reverse anything. Stored on any other area, `propose` resolves as read. `lib/access/effective.ts`, `lib/accounting/proposals.ts`.
+- **The auditor and tax preparer presets propose on the books** instead of only reading them. The fund administrator preset keeps write, so it posts directly; lower it to Read & propose for an administrator who shouldn't.
+- **Every door works the same way.** On the web the journal shows a **Propose entry** button and the entry form saves a proposal; over MCP and the API `post_entry` saves a proposed draft (it runs directly rather than staging, since staging would have the approver run it as themselves and post it), and the new `proposed_entries` tool lists open proposals for `post_drafts` or `discard_drafts`. Proposed entries carry a "proposed by" badge in the journal, and each proposal is an `entry.propose` event in the audit trail.
+- Needs `20261031190000_propose_access_level.sql`: the grant tables accept `propose`, `access_rank` ranks it with read (so no Data API policy treats it as write), and `journal_entries` gains `proposed_by` and `proposed_at`. Additive; apply it before deploying.
+
 ### Management company revenue and expenses by source
 - **A management company's forecast Charts tab shows revenue by source and expenses by source**, as two stacked bar charts over the forecast periods. Each P&L account is a segment; the five largest over the range keep their own colour and the rest fold into "Other". Forecast periods are a lighter tint and the actuals boundary is marked, as on the other forecast charts. Gains, unrealized and FX changes stay out of revenue. `app/(app)/funds/forecast/breakdown.ts`.
 

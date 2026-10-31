@@ -69,6 +69,13 @@ export interface AgentToolMeta {
    * Staging it would only lose its result: the URL or preview would reach the approver, not the chat.
    */
   runsDirectly?: true
+  /**
+   * A member with the `propose` level in this tool's domain may call it, and the call becomes a
+   * proposal instead of the change: post_entry makes a draft marked as theirs
+   * (lib/accounting/proposals.ts), runs directly rather than staging, and someone with write posts
+   * or rejects it. Without this flag a proposer is refused like any reader.
+   */
+  proposable?: true
   inputSchema: Record<string, any>
 }
 
@@ -129,8 +136,11 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
   },
   {
     name: 'post_entry',
-    description: 'Post a balanced double-entry journal entry. Postings use account codes; amounts are signed (debits positive, credits negative) and MUST sum to zero.',
+    description: 'Post a balanced double-entry journal entry. Postings use account codes; amounts are signed (debits positive, credits negative) and MUST sum to zero. ' +
+      'From someone who can only propose journal entries (an auditor, a tax preparer), the entry is saved as a DRAFT marked as their proposal, whatever status is asked for, ' +
+      'and the result says proposed: true; tell them it waits for someone with write access to post or reject it.',
     scope: 'write',
+    proposable: true,
     inputSchema: {
       type: 'object',
       required: ['entryDate', 'postings'],
@@ -153,6 +163,22 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
           },
         },
       },
+    },
+  },
+  {
+    name: 'proposed_entries',
+    description:
+      'Journal entries proposed by someone who can only propose (an auditor, a tax preparer, a fund administrator without posting rights), newest first. ' +
+      'Open proposals are drafts waiting for someone with write access: post one with post_drafts (ids), change it in the journal first if needed, or reject it with discard_drafts (ids). ' +
+      'includeClosed also lists proposals already posted or rejected.',
+    scope: 'read',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        includeClosed: { type: 'boolean', description: 'default false: only proposals still waiting' },
+        limit: { type: 'number', description: 'default 50, max 200' },
+      },
+      additionalProperties: false,
     },
   },
   {

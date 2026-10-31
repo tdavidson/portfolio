@@ -98,7 +98,9 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/quickbooks/tie-out': { domain: 'accounting' },
   'api/accounting/fund-timeseries': { domain: 'accounting' },
   'api/accounting/investments': { domain: 'accounting' },
-  'api/accounting/journal': { domain: 'accounting' },
+  // Proposers (the `propose` level) create, edit and withdraw their own draft proposals here; the
+  // handler holds them to that (lib/accounting/proposals.ts). Everything else on the route is write.
+  'api/accounting/journal': { domain: 'accounting', level: { POST: 'propose', PUT: 'propose', PATCH: 'propose' } },
   'api/accounting/journal/bulk-post': { domain: 'accounting' },
   'api/accounting/journal/bulk-void': { domain: 'accounting' },
   // The journal as a file (CSV, Excel, or QuickBooks' Journal layout) — a read of the same rows.

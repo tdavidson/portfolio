@@ -84,6 +84,13 @@ export interface DomainMeta {
    * Without it a new domain locks every member out until `supabase db push`. See `tax`.
    */
   defaultFrom?: Domain
+  /**
+   * The domain offers the `propose` level: a member may put a change forward for someone with
+   * write to accept, without making it. Only accounting, where a proposal is a draft journal entry
+   * marked with who proposed it (lib/accounting/proposals.ts). Anywhere else a stored `propose`
+   * resolves as `read`, so a stray grant can never be mistaken for write.
+   */
+  proposable?: true
 }
 
 /** Which domain owns a feature key — derived from DOMAIN_META, so the two can't drift. */
@@ -150,6 +157,7 @@ export const DOMAIN_META: Record<Domain, DomainMeta> = {
       'Bank, journal, chart of accounts, periods, statements and the schedule of investments.',
     primaryFeature: 'accounting',
     features: ['accounting'],
+    proposable: true,
   },
   management_company: {
     label: 'Management company',
