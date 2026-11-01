@@ -81,6 +81,7 @@ export const TABLE_RULES: Record<string, TableRule> = {
   company_updates: { scope: 'fund', domain: 'portfolio' },
   company_update_artifacts: { scope: 'fund', domain: 'portfolio' },
   company_update_chunks: { scope: 'fund', domain: 'portfolio' },
+  lp_change_requests: { scope: 'service', note: 'LPs\' requests to change their record or add an authorized user; read and written only by the portal and LP-capital routes and tools (lib/lps/change-requests.ts).' },
   engagements: { scope: 'service', note: 'Outside firms (fund admin, tax, audit, compliance) and their dates; read and written only by the admin settings API (lib/access/engagements.ts).' },
   company_update_backfill_jobs: { scope: 'service', note: 'Operator backfill jobs; status is served by fund-scoped API routes.' },
   company_update_backfill_items: { scope: 'service', note: 'Per-email backfill progress; worker-only.' },

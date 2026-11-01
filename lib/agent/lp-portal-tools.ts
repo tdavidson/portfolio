@@ -35,6 +35,20 @@ import { attachmentNameFor } from '@/lib/lps/attachment-names'
 import { resolveInvestor } from './lp-record-tools'
 import { remotePdfRenderers } from './remote-pdf'
 import { publishNoticesRemotely } from './notice-publish-link'
+import { decideChangeRequest, listChangeRequests } from '@/lib/lps/change-requests'
+import { loadLpScope } from '@/lib/access/lp-scope'
+import { hasAccess } from '@/lib/access/effective'
+
+/** The staff member deciding LP change requests: their LP scope and whether they may change records. */
+async function changeActor(ctx: AgentToolContext) {
+  if (!ctx.userId) throw new Error('This needs a person behind the credential.')
+  const lp = await loadLpScope(ctx.admin, { fundId: ctx.fundId, userId: ctx.userId, role: ctx.access.role })
+  return {
+    fundId: ctx.fundId, userId: ctx.userId, role: ctx.access.role,
+    investorIds: lp.investorIds, entityIds: lp.entityIds,
+    canWrite: hasAccess(ctx.access, 'lp_capital', 'write'),
+  }
+}
 
 const str = (v: unknown) => (typeof v === 'string' ? v.trim() : '')
 
@@ -366,6 +380,17 @@ export const LP_PORTAL_HANDLERS: Record<string, AgentToolHandler> = {
           'with the same id (it does not issue the call twice; it publishes the notices), or use preview_call_notices then publish_call_notices.',
       }
     }
+  },
+
+  // ── LP change requests ───────────────────────────────────────────────────────────────────
+  lp_change_requests: async (ctx, input) => {
+    const actor = await changeActor(ctx)
+    return { requests: unwrap(await listChangeRequests(ctx.admin, actor, { includeClosed: input?.includeClosed === true, limit: Number(input?.limit) || undefined })) }
+  },
+
+  lp_change_request_decide: async (ctx, input) => {
+    const actor = await changeActor(ctx)
+    return unwrap(await decideChangeRequest(ctx.admin, actor, { id: input?.id, decision: input?.decision, note: input?.note }))
   },
 }
 

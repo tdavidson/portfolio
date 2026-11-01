@@ -22,6 +22,7 @@ export type AuditAction =
   | 'tax.adjustments' | 'pending_action.approve' | 'pending_action.reject' | 'pending_action.stage'
   | 'pending_action.undo' | 'pending_action.withdraw'
   | 'agent.write'
+  | 'lp_change.approve' | 'lp_change.reject'
 
 export interface AuditEvent {
   fundId: string

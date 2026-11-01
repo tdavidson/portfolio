@@ -234,6 +234,9 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/positions/import': { domain: 'lp_capital', feature: 'lp_tracking' },
   'api/lps/entities': { domain: 'lp_capital' },
   'api/lps/entities/profile': { domain: 'lp_capital' },
+  // LPs' requests to change their record: read to see, write to decide (re-checked in the handler,
+  // where an authorized-user request is also admin-only).
+  'api/lps/change-requests': { domain: 'lp_capital' },
   'api/lps/export/excel': { domain: 'lp_capital' },
   'api/lps/export/pdf': { domain: 'lp_capital' },
   'api/lps/import': { domain: 'lp_capital' },
@@ -643,6 +646,7 @@ export const UNGATED_ROUTES: Record<string, string> = {
   'api/portal/authorized-users': 'LP portal: resolveLpAccess.',
   'api/portal/connections': 'LP portal: resolveLpAccess; only the signed-in person\'s own investor-connector tokens.',
   'api/portal/contact': 'LP portal: resolveLpAccess.',
+  'api/portal/change-requests': 'LP portal: resolveLpAccess; only the investor\'s primary account may ask, and only for its own investors.',
   'api/portal/documents': 'LP portal: resolveLpAccess.',
   'api/portal/documents/[id]': 'LP portal: resolveLpAccess.',
   'api/portal/letters': 'LP portal: resolveLpAccess.',

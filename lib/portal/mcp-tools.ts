@@ -7,8 +7,9 @@
  * on the web, and every view, download, acknowledgment and message lands in the same LP access log,
  * marked as coming through MCP.
  *
- * Two tools act for the LP, and need the `write` scope they agreed to on the consent screen:
- * acknowledging a capital call wire and messaging the fund. Uploads (onboarding documents) stay on
+ * The tools that act for the LP need the `write` scope they agreed to on the consent screen:
+ * acknowledging a capital call wire, messaging the fund, and asking the fund to change their record
+ * or give someone access (change requests, which change nothing until the fund approves them). Uploads (onboarding documents) stay on
  * the web: a file is not something to hand an assistant.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -17,6 +18,9 @@ import {
   portalNotices, portalOnboarding, portalOverview, portalStatementFunds, PortalError, sendPortalMessage, type LpPrincipal,
 } from './service'
 import { reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
+import {
+  myChangeRequests, portalRecord, requestAuthorizedUser, requestProfileChange, withdrawChangeRequest,
+} from '@/lib/lps/change-requests'
 import { loadBranding } from '@/lib/mcp-apps/branding'
 import type { LpPayload, LpRow } from '@/lib/mcp-apps/payload'
 
@@ -109,6 +113,9 @@ export const PORTAL_TOOLS: PortalTool[] = [
           "Tell the fund I've wired it (acknowledge_capital_call)",
           'Message the fund (send_message, list_messages)',
           'What paperwork is outstanding? (onboarding_status)',
+          'Update my address or signatories (my_record, then request_record_change)',
+          'Give my accountant access (request_authorized_user)',
+          'Where do my requests stand? (my_change_requests)',
         ],
       }
     },
@@ -271,6 +278,82 @@ export const PORTAL_TOOLS: PortalTool[] = [
       additionalProperties: false,
     },
     run: (ctx, args) => sendPortalMessage(ctx.admin, ctx.principal, { subject: args.subject, message: args.message }),
+  },
+  {
+    name: 'my_record',
+    title: 'My investor record',
+    description:
+      "The investor's record as the fund holds it: each entity's type, jurisdiction, address, notice email and signatories, and " +
+      "the investor's contact details. Use it before request_record_change, to show what is on file. canRequest is false for an " +
+      'authorized user, whose access is read-only.',
+    scope: 'read',
+    inputSchema: noArgs,
+    run: ctx => portalRecord(ctx.admin, ctx.principal),
+  },
+  {
+    name: 'my_change_requests',
+    title: 'My change requests',
+    description: 'Changes this investor has asked the fund for, newest first, with whether each is pending, approved, rejected or withdrawn.',
+    scope: 'read',
+    inputSchema: noArgs,
+    run: ctx => myChangeRequests(ctx.admin, ctx.principal),
+  },
+  {
+    name: 'request_record_change',
+    title: 'Ask the fund to change my record',
+    description:
+      "Asks the fund to change one entity's record or the investor's contact details. Nothing changes until someone at the fund " +
+      'approves it. Send only the fields that change. Show the user the change and confirm before calling.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        entity_id: { type: 'string', description: 'The entity id, from my_record.' },
+        entity: {
+          type: 'object',
+          description: 'Entity fields to change: entity_type, formation_jurisdiction, address_line1, address_line2, city, region, ' +
+            'postal_code, country, notice_email, signatories [{ name, title?, email? }] (the full list).',
+        },
+        contact: { type: 'object', description: 'Contact details to change: contact_name, contact_email, contact_phone.' },
+        note: { type: 'string', description: 'Anything the fund should know, such as why.' },
+      },
+      required: ['entity_id'],
+      additionalProperties: false,
+    },
+    run: (ctx, args) => requestProfileChange(ctx.admin, ctx.principal, args),
+  },
+  {
+    name: 'request_authorized_user',
+    title: 'Ask the fund to give someone access',
+    description:
+      'Asks the fund to give someone (an advisor, an accountant) read-only portal access to act for this investor. The fund ' +
+      'invites them once an admin approves. Confirm the name and email with the user before calling.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        email: { type: 'string', description: 'Their email address.' },
+        name: { type: 'string', description: 'Their name.' },
+        investor_id: { type: 'string', description: 'Which investor record, from my_record, when there is more than one.' },
+        note: { type: 'string', description: 'Who they are, for the fund.' },
+      },
+      required: ['email'],
+      additionalProperties: false,
+    },
+    run: (ctx, args) => requestAuthorizedUser(ctx.admin, ctx.principal, args),
+  },
+  {
+    name: 'withdraw_change_request',
+    title: 'Withdraw a change request',
+    description: 'Withdraws one of the investor\'s pending change requests, by id from my_change_requests.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      properties: { id: { type: 'string' } },
+      required: ['id'],
+      additionalProperties: false,
+    },
+    run: (ctx, args) => withdrawChangeRequest(ctx.admin, ctx.principal, args.id),
   },
 ]
 
