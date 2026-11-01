@@ -7,7 +7,7 @@ import { adminOnlyMessage } from '@/lib/access/admin-only'
 import { AGENT_TOOL_CALL } from '@/lib/agent/tool-call-action'
 import { AGENT_RUN, RunStepError, runArgs, type RunResult } from '@/lib/agent/run-action'
 import { undoTargets } from '@/lib/agent/run-undo'
-import { canSeeVehicle } from '@/lib/access/scope'
+import { canSeeVehicle, entityCap, writeAccess } from '@/lib/access/scope'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i
 
@@ -205,8 +205,10 @@ export function stagedBySameCredential(
 ): boolean {
   if (!principal.credentialId) return false
   if (row.created_by !== principal.userId) return false
-  if (row.created_credential) return row.created_credential === principal.credentialId
-  return row.created_via === 'mcp' && principal.credentialId.startsWith('oauth:')
+  // One OAuth client is one credential, whichever door (MCP `oauth:`, /api/v1 `v1:`) it came in by.
+  const client = (id: string) => id.replace(/^v1:/, 'oauth:')
+  if (row.created_credential) return client(row.created_credential) === client(principal.credentialId)
+  return row.created_via === 'mcp' && client(principal.credentialId).startsWith('oauth:')
 }
 
 /**
@@ -249,6 +251,14 @@ export async function approvePendingAction(
   if (existing.status !== 'pending') {
     throw new PendingActionServiceError('Pending action is no longer available.', 409, 'ACTION_NOT_PENDING')
   }
+  // The approver applies it, so the approver needs write in its entity: someone who can only read
+  // (or propose in) Fund II cannot approve a change to Fund II's books or holdings.
+  if (existing.vehicle_id && entityCap(principal.access, existing.vehicle_id)) {
+    throw new PendingActionServiceError(
+      'You cannot approve this: your access to its entity does not include changing it. Ask someone with write access there.',
+      403, 'ENTITY_LEVEL',
+    )
+  }
   // Checked before anything is claimed, so a refusal leaves the row pending for the app.
   const execute = action.personConfirms ? opts.executors?.[existing.action_type] : action.execute
   if (!execute) throw new PendingActionServiceError(CONFIRM_IN_APP_MESSAGE, 409, 'CONFIRM_IN_APP')
@@ -282,7 +292,8 @@ export async function approvePendingAction(
       admin,
       fundId: principal.fundId,
       userId: principal.userId,
-      access: principal.access,
+      // Whatever else the action touches resolves only in entities the approver may change.
+      access: writeAccess(principal.access),
       ...(opts.origin ? { origin: opts.origin } : {}),
     }, existing.args)
     const appliedAt = new Date().toISOString()

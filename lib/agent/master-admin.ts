@@ -27,6 +27,7 @@
  * WHO decides the pool is the deployment owner, through the host's environment. Nothing a fund
  * admin can do in Settings, and nothing in a request, adds an address to it.
  */
+import { randomBytes } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { agentApiEnabled } from '@/lib/oauth/enabled'
 import { fundAllowsLinking, linkedEmails } from '@/lib/account-links'
@@ -44,6 +45,12 @@ export interface MasterAdminPool {
   /** The user who authorized the connection, and the client it was for: the active fund's key. */
   homeUserId: string
   clientId: string
+  /**
+   * The conversation this request belongs to: the MCP session id the server issued at
+   * `initialize` (app/api/accounting/mcp/route.ts), or '' for a client that sends none. The active
+   * fund is stored per conversation, so switching in one chat never moves another chat's writes.
+   */
+  sessionId: string
   funds: PoolFund[]
   activeFundId: string
 }
@@ -83,7 +90,7 @@ export function poolFunds(rows: { user_id: string; email: string; fund_id: strin
  */
 export async function loadPool(
   admin: SupabaseClient,
-  owner: { userId: string; fundId: string; clientId: string },
+  owner: { userId: string; fundId: string; clientId: string; sessionId?: string | null },
 ): Promise<MasterAdminPool | null> {
   const groups = masterAdminGroups()
   // Linked sign-ins (lib/account-links.ts): the same idea, set up by the person rather than the
@@ -117,15 +124,38 @@ export async function loadPool(
   const funds = listed.filter((_, i) => enabled[i])
   if (funds.length < 2) return null
 
-  const { data: active } = await (admin as any)
-    .from('agent_active_funds')
-    .select('fund_id')
-    .eq('user_id', owner.userId)
-    .eq('client_id', owner.clientId)
-    .maybeSingle()
-  const activeFundId = funds.some(f => f.fundId === active?.fund_id) ? active.fund_id : owner.fundId
+  const sessionId = normalizeSessionId(owner.sessionId)
+  const active = await storedActiveFund(admin, owner.userId, owner.clientId, sessionId)
+  // A new conversation starts in the fund the connection was authorized for, whatever another
+  // conversation on the same connection switched to.
+  const activeFundId = active && funds.some(f => f.fundId === active) ? active : owner.fundId
 
-  return { homeUserId: owner.userId, clientId: owner.clientId, funds, activeFundId }
+  return { homeUserId: owner.userId, clientId: owner.clientId, sessionId, funds, activeFundId }
+}
+
+/** An MCP session id we accept as a key: visible ASCII, of a sane length. Anything else is ''. */
+export function normalizeSessionId(raw: unknown): string {
+  return typeof raw === 'string' && /^[\x21-\x7e]{8,128}$/.test(raw) ? raw : ''
+}
+
+/** A fresh MCP session id, issued at `initialize` to a pooled connection. */
+export function newSessionId(): string {
+  return `mcps_${randomBytes(24).toString('base64url')}`
+}
+
+/** Postgres' "undefined column": the session_id migration (20261101180000) isn't applied yet. */
+const missingSessionColumn = (error: { code?: string; message?: string } | null | undefined) =>
+  !!error && (error.code === '42703' || /session_id/.test(error.message ?? ''))
+
+async function storedActiveFund(admin: SupabaseClient, userId: string, clientId: string, sessionId: string): Promise<string | null> {
+  const read = (withSession: boolean) => {
+    let q = (admin as any).from('agent_active_funds').select('fund_id').eq('user_id', userId).eq('client_id', clientId)
+    if (withSession) q = q.eq('session_id', sessionId)
+    return q.maybeSingle()
+  }
+  const { data, error } = await read(true)
+  if (missingSessionColumn(error)) return (await read(false)).data?.fund_id ?? null
+  return data?.fund_id ?? null
 }
 
 export function activeFund(pool: MasterAdminPool): PoolFund {
@@ -146,13 +176,65 @@ export function matchFund(pool: MasterAdminPool, named: unknown): PoolFund | str
 }
 
 export async function setActiveFund(admin: SupabaseClient, pool: MasterAdminPool, fundId: string): Promise<void> {
-  const { error } = await (admin as any)
+  const row = { user_id: pool.homeUserId, client_id: pool.clientId, fund_id: fundId, updated_at: new Date().toISOString() }
+  let { error } = await (admin as any)
     .from('agent_active_funds')
-    .upsert(
-      { user_id: pool.homeUserId, client_id: pool.clientId, fund_id: fundId, updated_at: new Date().toISOString() },
-      { onConflict: 'user_id,client_id' },
-    )
+    .upsert({ ...row, session_id: pool.sessionId }, { onConflict: 'user_id,client_id,session_id' })
+  // Before the migration: the one row per connection, as it was.
+  if (missingSessionColumn(error)) ({ error } = await (admin as any).from('agent_active_funds').upsert(row, { onConflict: 'user_id,client_id' }))
   if (error) throw new Error(`Could not switch fund: ${error.message}`)
+}
+
+/**
+ * The argument every write tool takes on a pooled connection: the fund the model believes it is
+ * working in. A write naming any other fund is refused, so a stale belief (a switch the model
+ * missed) costs a retry, never a change in the wrong fund.
+ */
+export const ACTIVE_FUND_ARG = 'activeFund'
+
+const ACTIVE_FUND_PROPERTY = {
+  type: 'string',
+  description:
+    'The fund this change is for: the active fund, by name or id, as list_funds or use_fund last reported it. ' +
+    'Refused if a different fund is active, so nothing lands in the wrong fund.',
+}
+
+/** A tool's listing with the activeFund argument added and required (write tools only). */
+export function withActiveFundArgument(tool: Record<string, unknown>): Record<string, unknown> {
+  const schema = (tool.inputSchema ?? { type: 'object', properties: {} }) as { properties?: Record<string, unknown>; required?: string[] }
+  return {
+    ...tool,
+    inputSchema: {
+      ...schema,
+      properties: { ...(schema.properties ?? {}), [ACTIVE_FUND_ARG]: ACTIVE_FUND_PROPERTY },
+      required: [...new Set([...(schema.required ?? []), ACTIVE_FUND_ARG])],
+    },
+  }
+}
+
+/**
+ * Check a pooled write's activeFund against the fund that is actually active. Returns the
+ * arguments without it (the tool itself never sees it), or the refusal.
+ */
+export function checkActiveFundArgument(
+  pool: MasterAdminPool,
+  args: Record<string, unknown>,
+): { args: Record<string, unknown> } | { refusal: string } {
+  const { [ACTIVE_FUND_ARG]: named, ...rest } = args
+  const active = activeFund(pool)
+  if (named === undefined || named === null || named === '') {
+    return { refusal: `This connection works in several funds. Say which one this change is for: pass ${ACTIVE_FUND_ARG} (the active fund is ${active.fundName}). Nothing was changed.` }
+  }
+  const match = matchFund(pool, named)
+  if (typeof match === 'string') return { refusal: `${match} Nothing was changed.` }
+  if (match.fundId !== active.fundId) {
+    return {
+      refusal:
+        `${ACTIVE_FUND_ARG} names ${match.fundName}, but the active fund is ${active.fundName}. Nothing was changed. ` +
+        `If the change is for ${match.fundName}, call use_fund first; otherwise retry with ${ACTIVE_FUND_ARG}: "${active.fundName}".`,
+    }
+  }
+  return { args: rest }
 }
 
 export const LIST_FUNDS = 'list_funds'
@@ -171,7 +253,8 @@ export const MASTER_ADMIN_TOOLS = [
   {
     name: USE_FUND,
     description:
-      'Switch the active fund. Every tool call after this one reads and writes that fund until you switch again. ' +
+      'Switch the active fund for this conversation. Every tool call after this one reads and writes that fund until you switch again; ' +
+      'other conversations on the same connection keep their own. ' +
       'Say which fund you switched to before doing anything else in it, and switch back explicitly when the work moves on.',
     inputSchema: {
       type: 'object',

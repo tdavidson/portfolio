@@ -3,7 +3,7 @@ import { memoryAdmin } from '../../../tests/helpers/memory-admin'
 
 // Unscoped (null) or one company (c1): the member-entity question is entity-scope's, tested there.
 let companyIds: string[] | null = null
-vi.mock('@/lib/access/entity-scope', () => ({ entityScopeFor: async () => ({ vehicleNames: null, companyIds }) }))
+vi.mock('@/lib/access/entity-scope', () => ({ entityScopeFor: async () => ({ vehicleNames: null, writableNames: null, companyIds }) }))
 // The memory client has no `.or`; the scoped case only needs "their companies", which `.in` gives.
 vi.mock('@/lib/access/scope', () => ({ filterByCompany: (q: any, ids: string[] | null) => (ids === null ? q : q.in('company_id', ids)) }))
 

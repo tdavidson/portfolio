@@ -384,7 +384,7 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
     const created = await createCompany(admin, {
       fundId,
       userId,
-      vehicleNames: scope.vehicleNames,
+      vehicleNames: scope.writableNames,
       fields: {
         name: String(input?.name ?? ''),
         portfolio_group: list(input?.vehicles) ?? null,
@@ -502,7 +502,7 @@ export async function executeRecordInvestment(
   const { admin, fundId, userId, access } = deps
   const c = await resolveCompany(admin, fundId, input?.company, access)
   // Only into one of the caller's entities (and no company-wide rows from a scoped caller).
-  const writeNames = (await entityScopeFor(admin, access)).vehicleNames
+  const writeNames = (await entityScopeFor(admin, access)).writableNames
   const denied = groupWriteDenial(writeNames, input?.vehicle ?? null)
   if (denied) throw new Error(denied)
   // A conversion moves its source position: the source must be this company's, and the caller's.

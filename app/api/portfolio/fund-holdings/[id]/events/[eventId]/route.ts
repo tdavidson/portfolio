@@ -24,7 +24,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
   const scope = await loadEntityScope(admin, gate)
   const result = await updateFundNotice(
     admin,
-    { fundId: gate.fundId, userId: user.id, vehicleNames: scope.vehicleNames },
+    { fundId: gate.fundId, userId: user.id, vehicleNames: scope.writableNames },
     params.id, params.eventId, noticeChangesFrom(body),
   )
   return outcomeResponse(result, v => v)

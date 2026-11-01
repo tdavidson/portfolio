@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
+import { claimableEmailDomain } from '@/lib/onboarding/wizard'
 
 // GET — list this fund's whitelisted email patterns (admin only). Each fund keeps its own list;
 // the signup gate accepts an address on any of them.
@@ -66,6 +67,14 @@ export async function POST(req: NextRequest) {
   if (!isExact && !isWildcard) {
     return NextResponse.json({
       error: 'Must be an email (user@domain.com) or wildcard (*@domain.com)',
+    }, { status: 400 })
+  }
+
+  // The signup gate honours every fund's list for the whole deployment, so a wildcard on a consumer
+  // mailbox (*@<webmail>) would open signup, and fund creation, to everyone. Name people instead.
+  if (isWildcard && !claimableEmailDomain(pattern.replace(/^\*/, ''))) {
+    return NextResponse.json({
+      error: 'That is a personal email provider. Add people on it one address at a time instead of the whole domain.',
     }, { status: 400 })
   }
 

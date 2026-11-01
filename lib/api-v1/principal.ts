@@ -68,11 +68,12 @@ export async function resolveV1Principal(
     // mint 'demo' here; nothing a client sends can reach this field.
     credentialKind: 'oauth',
     clientId: resolved.clientId,
-    // The same id the MCP door gives this client (lib/accounting/api-keys.ts), so the
-    // pending-actions service treats a change staged over MCP and approved over /api/v1 as the same
-    // credential. An `oauth:` credential may approve its own change (a chat acting on its person's
-    // yes); only a script's key is refused (selfApprovalRefused in lib/pending-actions/service.ts).
-    credentialId: `oauth:${resolved.clientId}`,
+    // `v1:`, not the `oauth:` the MCP door uses: a chat may approve its own change (it acts on its
+    // person's yes in the conversation), but a program calling /api/v1 has no conversation, so it is
+    // refused like a script's key (selfApprovalRefused in lib/pending-actions/service.ts). The
+    // service still counts `v1:<client>` and `oauth:<client>` as one credential, so a change staged
+    // over MCP cannot be self-approved over /api/v1 either.
+    credentialId: `v1:${resolved.clientId}`,
     scopes,
   }
 }

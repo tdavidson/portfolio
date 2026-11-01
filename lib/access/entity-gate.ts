@@ -131,3 +131,74 @@ export async function rowCompanyDenial(
   const { data: links } = await (supabase as any).from('company_vehicles').select('company_id').eq('company_id', companyId).limit(1)
   return ((links as any[]) ?? []).length > 0 ? null : notFound
 }
+
+/**
+ * A change to ONE company, deal, letter, diligence record, note or company row, from a member whose
+ * level in the entities it belongs to is below write (fund_member_vehicles.level: read or propose).
+ * The denials above answer "may they see it"; this answers "may they change it". A company held by
+ * several entities may be changed by a member with write in any one of them.
+ *
+ * Runs only for a write-level request from a member with caps, so it costs nothing otherwise. The
+ * rows are read with the caller's client, like the checks above: what RLS hides was refused there.
+ */
+export async function entityWriteDenial(
+  supabase: SupabaseClient,
+  key: string,
+  pathname: string,
+  access: Pick<AccessContext, 'vehicles'>,
+  level: string,
+): Promise<NextResponse | null> {
+  if (level !== 'write' || access.vehicles.all) return null
+  const caps = access.vehicles.caps
+  if (!caps || Object.keys(caps).length === 0) return null
+  const writable = (id: string | null | undefined) => !!id && access.vehicles.ids.includes(id) && !caps[id]
+  const refused = NextResponse.json(
+    { error: 'Your access to this entity is read-only. Ask an admin for more if you need to change it.' },
+    { status: 403 },
+  )
+  const db = supabase as any
+  const segment = (prefix: string) => {
+    const id = pathname.replace(/^\/+|\/+$/g, '').split('/')[prefix.split('/').indexOf(prefix.includes('[noteId]') ? '[noteId]' : '[id]')]
+    return id ? decodeURIComponent(id) : null
+  }
+  const companyWritable = async (companyId: string) => {
+    const { data } = await db.from('company_vehicles').select('vehicle_id').eq('company_id', companyId)
+    return ((data as { vehicle_id: string }[]) ?? []).some(r => writable(r.vehicle_id))
+  }
+
+  // Rows that carry their own entity, checked first: a note on a shared company belongs to one entity.
+  const row = RLS_ROW_ROUTES.find(r => key === r.prefix || key.startsWith(`${r.prefix}/`))
+  if (row) {
+    const id = segment(row.prefix)
+    if (!id) return null
+    if (row.table === 'lp_letters') {
+      const { data } = await db.from('lp_letters').select('portfolio_group').eq('id', id).maybeSingle()
+      const group = (data as { portfolio_group: string | null } | null)?.portfolio_group
+      if (!group) return refused
+      const { data: vehicles } = await db.from('fund_vehicles').select('id, name, aliases')
+      const match = ((vehicles as any[]) ?? []).find(v => v.name === group || ((v.aliases as string[] | null) ?? []).includes(group))
+      return writable(match?.id) ? null : refused
+    }
+    const { data } = await db.from(row.table).select('vehicle_id').eq('id', id).maybeSingle()
+    return writable((data as { vehicle_id: string | null } | null)?.vehicle_id) ? null : refused
+  }
+
+  const dealId = dealIdForRoute(key, pathname)
+  if (dealId) {
+    const { data } = await db.from('inbound_deals').select('vehicle_id').eq('id', dealId).maybeSingle()
+    return writable((data as { vehicle_id: string | null } | null)?.vehicle_id) ? null : refused
+  }
+
+  const companyId = companyIdForRoute(key, pathname)
+  if (companyId) return (await companyWritable(companyId)) ? null : refused
+
+  const companyRow = ROW_COMPANY_ROUTES.find(r => key === r.prefix || key.startsWith(`${r.prefix}/`))
+  if (companyRow) {
+    const id = segment(companyRow.prefix)
+    if (!id) return null
+    const { data } = await db.from(companyRow.table).select('company_id').eq('id', id).maybeSingle()
+    const cid = (data as { company_id: string | null } | null)?.company_id
+    return cid && (await companyWritable(cid)) ? null : refused
+  }
+  return null
+}

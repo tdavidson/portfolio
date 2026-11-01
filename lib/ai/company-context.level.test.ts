@@ -20,7 +20,7 @@ function admin(tables: string[]) {
   return { from: q } as any
 }
 
-const scope = { access: { fundId: 'f1', vehicles: { all: false, ids: ['v1'] } }, vehicleNames: ['Fund I'], companyIds: ['c1'] } as any
+const scope = { access: { fundId: 'f1', vehicles: { all: false, ids: ['v1'] } }, vehicleNames: ['Fund I'], writableNames: ['Fund I'], companyIds: ['c1'] } as any
 
 describe('buildCompanyContext — company-level only (stored output shown to every entity)', () => {
   it('never reads positions, peers or notes', async () => {

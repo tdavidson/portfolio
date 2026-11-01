@@ -12,7 +12,7 @@ import { DEFAULT_FEATURE_VISIBILITY } from '@/lib/types/features'
 const s = vi.hoisted(() => ({ m: null as any, grants: {} as Record<string, string>, liveCalls: 0 }))
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: 'u' } } }) } }) }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => s.m.admin }))
-vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScopeForUser: async () => ({ access: {}, vehicleNames: null, companyIds: null }) }))
+vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScopeForUser: async () => ({ access: {}, vehicleNames: null, writableNames: null, companyIds: null }) }))
 vi.mock('@/lib/access/effective', async orig => ({
   ...(await orig<typeof import('@/lib/access/effective')>()),
   loadAccessContext: async () => ({

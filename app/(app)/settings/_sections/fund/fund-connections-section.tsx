@@ -61,7 +61,7 @@ export function FundConnectionsSection() {
     if (!email.trim()) return
     const { ok, data } = await send('/api/settings/fund-connections', 'POST', { email })
     if (!ok) { setError(data.error ?? 'Could not send the request.'); return }
-    setEmail(''); setError(null); setNotice(`Request sent to ${data.otherFundName}. Their admin needs to accept it.`)
+    setEmail(''); setError(null); setNotice(data.message ?? 'Request sent.')
     await load()
   }
 

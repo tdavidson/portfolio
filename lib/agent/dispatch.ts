@@ -19,6 +19,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AccessContext } from '@/lib/access/effective'
+import { writeAccess } from '@/lib/access/scope'
 import type { ResolvedKey } from '@/lib/accounting/api-keys'
 import {
   accessDomainForCall, accessFeatureFor, authorizeToolCall, getTool, isLedgerTool, resolveVehicleForTool, type AgentTool,
@@ -301,7 +302,10 @@ export async function runAgentTool(call: AgentCall): Promise<unknown> {
 
 /** Run the write now, as its owner, and record it. */
 async function apply(call: AgentCall): Promise<unknown> {
-  const { admin, tool, input, auth, access, origin, channel } = call
+  const { admin, tool, input, auth, origin, channel } = call
+  // Only the entities this member may change resolve. The ledger keeps the full context: it turns a
+  // propose-level write into a draft itself (assertEntityWrite), and refuses a read-level one.
+  const access = isLedgerTool(tool) ? call.access : writeAccess(call.access)
   const portfolioGroup = await resolveVehicleForTool(tool, admin, auth.fundId, input.vehicle as string | undefined, access)
   const result = await tool.handler({ admin, fundId: auth.fundId, portfolioGroup, userId: auth.userId, access, origin }, input)
   const vehicleId = isLedgerTool(tool) && portfolioGroup ? await vehicleIdByName(admin, auth.fundId, portfolioGroup) : null
@@ -378,7 +382,9 @@ async function stageAsAction(deps: ActionDeps, actionType: string, input: Record
 
 /** Stage the write as a pending action for a person to approve. Nothing else changes. */
 async function stage(call: AgentCall): Promise<StagedResult> {
-  const { admin, tool, input, auth, access, channel, origin } = call
+  const { admin, tool, input, auth, channel, origin } = call
+  // Staging is a proposal, so a propose-level entity may be named; a read-only one may not.
+  const access = writeAccess(call.access, { proposals: true })
   const deps = { admin, fundId: auth.fundId, userId: auth.userId, access }
   const staged = tool.stagesAs
     ? await stageAsAction(deps, tool.stagesAs, input)
@@ -435,7 +441,7 @@ export interface RunCall {
  */
 export async function stageAgentRun(call: RunCall, input: unknown): Promise<StagedResult & { steps: number }> {
   const { admin, auth, access, channel, origin } = call
-  const deps = { admin, fundId: auth.fundId, userId: auth.userId, access }
+  const deps = { admin, fundId: auth.fundId, userId: auth.userId, access: writeAccess(access, { proposals: true }) }
   const { args, vehicleId, preview } = await stageRun(deps, input, (name, stepInput) => {
     const tool = getTool(name)!
     return destructiveRefusal(tool)

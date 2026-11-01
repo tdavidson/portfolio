@@ -3,6 +3,8 @@ import type { WriteAction } from './registry'
 import { resolveVehicle } from '@/lib/accounting/vehicle-resolver'
 import { resolveVehicleWithAccess } from '@/lib/accounting/http-vehicle'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
+import { entityCap } from '@/lib/access/scope'
+import { entityCapRefusal } from '@/lib/accounting/vehicle-visibility'
 
 /**
  * The entity a staged action acts on, resolved once with the stager's access and pinned: the
@@ -22,5 +24,7 @@ export async function stagedTarget(
     ? (await resolveVehicleWithAccess(deps.admin, deps.access, requested, 'read')).name
     : await resolveVehicle(deps.admin, deps.fundId, requested, { access: deps.access })
   const vehicleId = await vehicleIdByName(deps.admin, deps.fundId, name)
+  // Staging is a proposal: a propose-level member may ask, a read-level one may not.
+  if (entityCap(deps.access, vehicleId) === 'read') throw new Error(entityCapRefusal(name, 'read'))
   return { input: { ...input, vehicle: name }, vehicleId }
 }

@@ -21,9 +21,9 @@ const inv = (id: string, group: string, units: number) =>
   ({ id, fund_id: 'f', company_id: 'k1', transaction_type: 'investment', transaction_date: '2026-01-15', portfolio_group: group, investment_cost: units * 100, shares_acquired: units, share_price: 100, round_name: null })
 
 // A member of Fund I only, on a token Fund I and Fund II both hold.
-const fundIOnly = () => ({ access: { vehicles: { all: false, ids: ['v1'] } }, vehicleNames: ['Fund I'], companyIds: ['k1'] })
+const fundIOnly = () => ({ access: { vehicles: { all: false, ids: ['v1'] } }, vehicleNames: ['Fund I'], writableNames: ['Fund I'], companyIds: ['k1'] })
 // A scoped member who sees both entities.
-const bothScoped = () => ({ access: { vehicles: { all: false, ids: ['v1', 'v2'] } }, vehicleNames: ['Fund I', 'Fund II'], companyIds: ['k1'] })
+const bothScoped = () => ({ access: { vehicles: { all: false, ids: ['v1', 'v2'] } }, vehicleNames: ['Fund I', 'Fund II'], writableNames: ['Fund I', 'Fund II'], companyIds: ['k1'] })
 
 const seed = (extra: Record<string, any[]> = {}) => memoryAdmin({
   companies: [{ id: 'k1', fund_id: 'f', name: 'Ether', holding_type: 'crypto', status: 'active', industry: null, stage: null, portfolio_group: ['Fund I', 'Fund II'] }],
@@ -130,7 +130,7 @@ describe('an untagged legacy wallet on a holding two entities hold', () => {
   })
 
   it('is actionable by a caller with unscoped access', async () => {
-    s.scope = { access: { vehicles: { all: true, ids: [] } }, vehicleNames: null, companyIds: null }
+    s.scope = { access: { vehicles: { all: true, ids: [] } }, vehicleNames: null, writableNames: null, companyIds: null }
     expect((await DELETE(req('DELETE', undefined, '?walletId=wu'), ctx)).status).toBe(200)
   })
 })
@@ -238,7 +238,7 @@ describe('scoping edges', () => {
   })
 
   it('will not add in a visible entity that is not linked to this holding', async () => {
-    s.scope = { access: { vehicles: { all: false, ids: ['v1', 'v3'] } }, vehicleNames: ['Fund I', 'Fund III'], companyIds: ['k1'] }
+    s.scope = { access: { vehicles: { all: false, ids: ['v1', 'v3'] } }, vehicleNames: ['Fund I', 'Fund III'], writableNames: ['Fund I', 'Fund III'], companyIds: ['k1'] }
     s.m = seed({ fund_vehicles: [{ id: 'v1', fund_id: 'f', name: 'Fund I' }, { id: 'v2', fund_id: 'f', name: 'Fund II' }, { id: 'v3', fund_id: 'f', name: 'Fund III' }] })
     const res = await POST(req('POST', { action: 'add', vehicleId: 'v3', chain: 'ethereum', address: '0xdddd' }), ctx)
     expect(res.status).toBe(400)

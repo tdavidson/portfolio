@@ -1,3 +1,4 @@
+import { rateLimit } from '@/lib/rate-limit'
 import { NextRequest, NextResponse } from 'next/server'
 import { approvePairs, connectionPairs, removePair, type PairRequest } from '@/lib/fund-connections'
 import { connectionErrorResponse, gateConnectionAdmin } from '@/lib/fund-connections/route-helpers'
@@ -30,6 +31,9 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const { id } = await props.params
   const g = await gateConnectionAdmin()
   if (g instanceof NextResponse) return g
+  // Each answer says whether a name or address is one of the other fund's LPs, so it is metered.
+  const limited = await rateLimit({ key: `fund-connection-pairs:${g.fundId}`, limit: 30, windowSeconds: 3600 })
+  if (limited) return limited
   const body = await req.json().catch(() => ({}))
   const requests = Array.isArray(body?.pairs) ? body.pairs : null
   if (!requests || requests.length === 0 || requests.length > 1000 || !requests.every(isRequest)) {

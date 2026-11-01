@@ -37,7 +37,7 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json()
   const writeScope = await loadEntityScopeForUser(admin, user.id)
-  const out = await createLetter(admin, { fundId, userId: user.id, visible: writeScope ? writeScope.vehicleNames : [] }, body ?? {})
+  const out = await createLetter(admin, { fundId, userId: user.id, visible: writeScope ? writeScope.writableNames : [] }, body ?? {})
   if (!out.ok) return outcomeResponse(out)
   return NextResponse.json(out.value, { status: 201 })
 }

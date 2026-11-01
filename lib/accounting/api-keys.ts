@@ -106,7 +106,16 @@ export async function resolveFundFromApiKey(admin: SupabaseClient, req: Request)
  * every call, so demoting or removing someone instantly downgrades every token
  * they hold without anyone having to hunt those tokens down.
  */
-export async function resolveAgentAuth(admin: SupabaseClient, req: Request): Promise<ResolvedKey | null> {
+export async function resolveAgentAuth(
+  admin: SupabaseClient,
+  req: Request,
+  /**
+   * The MCP conversation (session id) the request belongs to, for a pooled connection's active
+   * fund. Defaults to the request's `Mcp-Session-Id` header; the MCP route passes a freshly issued
+   * one for `initialize`.
+   */
+  opts: { sessionId?: string | null } = {},
+): Promise<ResolvedKey | null> {
   const token = bearerToken(req)
   if (!token) return null
 
@@ -142,7 +151,8 @@ export async function resolveAgentAuth(admin: SupabaseClient, req: Request): Pro
     // Master admin: the connection may be working in another pooled fund. There it acts as that
     // fund's listed member, with that membership's role re-read live like any other.
     const { loadPool } = await import('@/lib/agent/master-admin')
-    const pool = await loadPool(admin, { userId: resolved.userId, fundId: resolved.fundId, clientId: resolved.clientId })
+    const sessionId = opts.sessionId !== undefined ? opts.sessionId : req.headers.get('mcp-session-id')
+    const pool = await loadPool(admin, { userId: resolved.userId, fundId: resolved.fundId, clientId: resolved.clientId, sessionId })
     if (!pool) return home
     if (pool.activeFundId === resolved.fundId) return { ...home, pool }
 

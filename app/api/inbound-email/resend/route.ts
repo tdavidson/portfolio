@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { normalizeResendEmail, toPostmarkPayload, extractEmail } from '@/lib/pipeline/normalizePayload'
 import { runPipeline } from '@/lib/pipeline/processEmail'
 import { checkFundMember } from '@/lib/pipeline/checkFundMember'
+import { resendSenderVerified } from '@/lib/pipeline/sender-auth'
 import { isAuthorizedSender } from '@/lib/pipeline/isAuthorizedSender'
 import { decrypt } from '@/lib/crypto'
 import { scanFileAsync } from '@/lib/security/scan-file'
@@ -116,8 +117,9 @@ async function handleResendInbound(req: NextRequest): Promise<'done' | 'retry'> 
     return 'done'
   }
 
-  // Check if sender is a fund member (determines interaction extraction, bypasses authorized_senders)
-  const fundMember = await checkFundMember(supabase, fundId, fromAddress)
+  // Check if sender is a fund member (determines interaction extraction, bypasses authorized_senders).
+  // Provisional: confirmed against the authentication results once the email is read back below.
+  let fundMember = await checkFundMember(supabase, fundId, fromAddress)
 
   // Check authorized senders (fund members bypass this check)
   if (!fundMember) {
@@ -141,6 +143,15 @@ async function handleResendInbound(req: NextRequest): Promise<'done' | 'retry'> 
   if (rejection) {
     console.warn(`[inbound-email/resend] Rejecting email from ${fromAddress} for fund ${fundId}: ${rejection}`)
     return 'done'
+  }
+  // A member's treatment only for mail shown to be from them (DMARC pass). Otherwise it is mail from
+  // someone claiming a member's address: it needs to be from an authorized sender like anyone else's.
+  if (fundMember && !resendSenderVerified(fetched.email.authentication)) {
+    fundMember = null
+    if (!(await isAuthorizedSender(supabase, fundId, fromAddress))) {
+      console.warn(`[inbound-email/resend] Unverified mail claiming a member's address ${fromAddress} for fund ${fundId}`)
+      return 'done'
+    }
   }
 
   // Normalize to PostmarkPayload format for the unified pipeline

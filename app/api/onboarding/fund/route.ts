@@ -28,7 +28,7 @@ import {
   stillOnboarding,
 } from '@/lib/onboarding/wizard-server'
 import type { FeatureVisibilityMap } from '@/lib/types/features'
-import { createFund, newSettingsRow } from '@/lib/onboarding/create-fund'
+import { createFund, fundCreationRefusal, newSettingsRow } from '@/lib/onboarding/create-fund'
 
 // This route is UNGATED in lib/access/route-domains.ts — the caller of POST has no fund yet, so
 // there is no grant to check. Every branch that touches an existing fund therefore checks the
@@ -222,6 +222,10 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  // The same rule the OAuth consent screen applies: an LP's portal invite put them on the signup
+  // allow-list, which is no licence to start a fund (and become its admin).
+  const refusal = await fundCreationRefusal(admin as any, user.id)
+  if (refusal) return NextResponse.json({ error: refusal }, { status: 403 })
   const created = await createFund(admin as any, { userId: user.id, email: user.email, fundName, ai })
   if (!created.ok) return NextResponse.json({ error: created.error }, { status: created.status })
   await recordAIMode(admin, created.fundId, body, ai)

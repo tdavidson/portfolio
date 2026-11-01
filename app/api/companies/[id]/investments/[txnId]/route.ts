@@ -32,7 +32,7 @@ export async function PATCH(
 
   const result = await updateInvestmentTransaction(
     admin,
-    { fundId: writeCheck.fundId, userId: user.id, vehicleNames: scope.vehicleNames },
+    { fundId: writeCheck.fundId, userId: user.id, vehicleNames: scope.writableNames },
     params.id, params.txnId, body,
   )
   return outcomeResponse(result, ({ transaction, ledger }) => ({ ...(transaction as object), ledger }))
@@ -60,7 +60,7 @@ export async function DELETE(
 
   const result = await deleteInvestmentTransaction(
     admin,
-    { fundId: writeCheck.fundId, userId: user.id, vehicleNames: scope.vehicleNames },
+    { fundId: writeCheck.fundId, userId: user.id, vehicleNames: scope.writableNames },
     params.id, params.txnId,
   )
   return outcomeResponse(result, ({ ledger }) => ({ success: true, ledger, ...(ledger.warning ? { warning: ledger.warning } : {}) }))

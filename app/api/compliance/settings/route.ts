@@ -38,7 +38,7 @@ export async function POST(req: NextRequest) {
   const scope = await loadEntityScope(admin, writeCheck)
   for (const s of settings) {
     const group = s.portfolio_group ? parseGroupKey(String(s.portfolio_group)).portfolioGroup : ''
-    const denied = group ? groupWriteDenial(scope.vehicleNames, group) : null
+    const denied = group ? groupWriteDenial(scope.writableNames, group) : null
     if (denied) return NextResponse.json({ error: denied }, { status: 403 })
   }
 
@@ -91,7 +91,7 @@ export async function PATCH(req: NextRequest) {
   const pgKey = portfolio_group ? String(portfolio_group).slice(0, 200) : ''
   {
     const group = pgKey ? parseGroupKey(pgKey).portfolioGroup : ''
-    const denied = group ? groupWriteDenial((await loadEntityScope(admin, writeCheck)).vehicleNames, group) : null
+    const denied = group ? groupWriteDenial((await loadEntityScope(admin, writeCheck)).writableNames, group) : null
     if (denied) return NextResponse.json({ error: denied }, { status: 403 })
   }
   const clip = (v: unknown) => (v ? String(v).slice(0, 2000) : null)

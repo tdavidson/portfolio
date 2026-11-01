@@ -120,7 +120,7 @@ export async function listConnections(db: Db, fundId: string): Promise<Connectio
       status: c.status,
       direction: side === 'requester' ? 'outgoing' : 'incoming',
       otherFundId,
-      otherFundName: names.get(otherFundId) ?? 'Another fund',
+      otherFundName: side === 'requester' && c.status === 'pending' ? PENDING_OTHER_FUND : names.get(otherFundId) ?? 'Another fund',
       requestedAt: c.requested_at,
       respondedAt: c.responded_at,
       pairs: {
@@ -133,23 +133,34 @@ export async function listConnections(db: Db, fundId: string): Promise<Connectio
 }
 
 /** Ask the fund that `email` is an admin of to connect. */
-export async function requestConnection(db: Db, opts: { fundId: string; userId: string; email: string }): Promise<{ id: string; otherFundName: string }> {
+/**
+ * Ask the fund `email` is an admin of to connect. The answer is the same whether or not the address
+ * is an admin anywhere here, and names no fund: otherwise any admin could learn who administers
+ * which fund one address at a time. `id` is null when no request was made; the caller never shows it.
+ */
+export async function requestConnection(db: Db, opts: { fundId: string; userId: string; email: string }): Promise<{ id: string | null }> {
   const email = opts.email.trim().toLowerCase()
   if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) throw new ConnectionError('Enter the email address of an admin of the other fund.')
   const { data: target, error } = await db.rpc('fund_for_admin_email', { p_email: email })
   if (error) throw error
   const fund = ((target ?? []) as { fund_id: string; fund_name: string }[])[0]
-  if (!fund) throw new ConnectionError('No fund on this platform has an admin with that email address.', 404)
-  if (fund.fund_id === opts.fundId) throw new ConnectionError('That address is an admin of this fund.')
+  if (!fund || fund.fund_id === opts.fundId) return { id: null }
 
   const { data: row, error: insertError } = await db.from('fund_connections')
     .insert({ requester_fund_id: opts.fundId, recipient_fund_id: fund.fund_id, requested_by: opts.userId })
     .select('id').single()
-  if (insertError?.code === '23505') throw new ConnectionError(`This fund already has a connection with ${fund.fund_name}, or a request waiting.`, 409)
+  // Already connected or asked: say nothing new either.
+  if (insertError?.code === '23505') return { id: null }
   if (insertError) throw insertError
   await logEvent(db, row.id, opts.fundId, opts.userId, 'requested', { recipient_fund_id: fund.fund_id })
-  return { id: row.id, otherFundName: fund.fund_name }
+  return { id: row.id }
 }
+
+/** What the person who asked is told, whatever happened. */
+export const CONNECTION_REQUEST_SENT = "If that address belongs to an admin of another fund here, they'll see your request. You'll see the fund's name here once they accept."
+
+/** An outgoing request's other side, until it is accepted: its name would answer who that admin is. */
+export const PENDING_OTHER_FUND = 'Waiting for an answer'
 
 /** Accept or decline a request made to the caller's fund. */
 export async function respondToConnection(db: Db, opts: { fundId: string; userId: string; connectionId: string; accept: boolean }) {

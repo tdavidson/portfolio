@@ -25,7 +25,7 @@ export function ledgerEffectText(input: RecordInvestmentInput): string {
 export async function previewRecordInvestment(deps: ActionDeps, input: RecordInvestmentInput): Promise<PreviewResult> {
   const c = await resolveCompany(deps.admin, deps.fundId, input.company, deps.access)
   // The same entity rule the write applies — refused when staged, not only when approved.
-  const writeNames = (await entityScopeFor(deps.admin, deps.access)).vehicleNames
+  const writeNames = (await entityScopeFor(deps.admin, deps.access)).writableNames
   const denied = groupWriteDenial(writeNames, input?.vehicle ?? null)
   if (denied) throw new Error(denied)
   if (input.converts_from_txn_id) {

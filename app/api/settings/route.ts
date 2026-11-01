@@ -263,7 +263,7 @@ export async function PATCH(req: NextRequest) {
   }
 
   if (postmarkInboundAddress !== undefined) {
-    settingsUpdates.postmark_inbound_address = postmarkInboundAddress?.trim() || null
+    settingsUpdates.postmark_inbound_address = postmarkInboundAddress?.trim().toLowerCase() || null
   }
 
   if (retainResolvedReviews !== undefined) {
@@ -536,12 +536,27 @@ export async function PATCH(req: NextRequest) {
     settingsUpdates.feature_visibility = merged
   }
 
+  // An inbound domain or address belongs to one fund: another fund's mail must not route here.
+  for (const column of ['resend_inbound_domain', 'postmark_inbound_address'] as const) {
+    const value = settingsUpdates[column]
+    if (typeof value !== 'string' || !value) continue
+    const { data: taken } = await (admin as any).from('fund_settings').select('fund_id')
+      .ilike(column, value.replace(/[\\%_]/g, c => `\\${c}`)).neq('fund_id', membership.fund_id).limit(1)
+    if (((taken as unknown[]) ?? []).length > 0) {
+      return NextResponse.json({ error: 'Another fund already uses that inbound address. Choose a different one.' }, { status: 409 })
+    }
+  }
+
   if (Object.keys(settingsUpdates).length > 0) {
     const { error } = await admin
       .from('fund_settings')
       .update(settingsUpdates)
       .eq('fund_id', membership.fund_id)
 
+    // The unique indexes (20261101210000) catch a race the check above missed.
+    if (error?.code === '23505') {
+      return NextResponse.json({ error: 'Another fund already uses that inbound address. Choose a different one.' }, { status: 409 })
+    }
     if (error) return dbError(error, 'settings')
   }
 

@@ -34,7 +34,7 @@ const seeOne = () => { s.scope = { ...s.scope, access: { vehicles: { all: false,
 
 beforeEach(() => {
   s.booked = []
-  s.scope = { access: { vehicles: { all: false, ids: ['v1'] } }, vehicleNames: ['Fund I'], companyIds: ['k1'] }
+  s.scope = { access: { vehicles: { all: false, ids: ['v1'] } }, vehicleNames: ['Fund I'], writableNames: ['Fund I'], companyIds: ['k1'] }
   s.m = memoryAdmin({
     companies: [{ id: 'k1', fund_id: 'f', name: 'Ether', holding_type: 'crypto', status: 'active', industry: null, stage: null, portfolio_group: ['Fund I', 'Fund II'] }],
     company_vehicles: [{ fund_id: 'f', company_id: 'k1', vehicle_id: 'v1' }, { fund_id: 'f', company_id: 'k1', vehicle_id: 'v2' }],

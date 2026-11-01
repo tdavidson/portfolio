@@ -48,7 +48,7 @@ export async function listPortalAccounts(admin: SupabaseClient, fundId: string):
   const a = admin as any
   const { data, error } = await a
     .from('lp_account_links')
-    .select('id, lp_investor_id, created_at, lp_accounts(id, email, display_name, status, kind, auth_user_id), lp_investors(name)')
+    .select('*, lp_accounts(id, email, display_name, status, kind, auth_user_id), lp_investors(name)')
     .eq('fund_id', fundId)
     .order('created_at', { ascending: false })
   if (error) return dbFail(error, 'lps-invites')
@@ -75,7 +75,9 @@ export async function listPortalAccounts(admin: SupabaseClient, fundId: string):
       id: l.id,
       lp_investor_id: l.lp_investor_id,
       created_at: l.created_at,
-      lp_accounts: acct ? { id: acct.id, email: acct.email, display_name: acct.display_name, status: acct.status, kind: acct.kind } : null,
+      // Disabled in this fund (lp_account_links.disabled_at) reads as disabled here, whatever the
+      // account's status in the other funds it belongs to.
+      lp_accounts: acct ? { id: acct.id, email: acct.email, display_name: acct.display_name, status: l.disabled_at ? 'disabled' : acct.status, kind: acct.kind } : null,
       lp_investors: l.lp_investors ?? null,
       last_login_at: acct ? (lastLogin.get(acct.id) ?? null) : null,
       last_invite_at: inv?.at ?? null,
@@ -177,12 +179,28 @@ export async function setPortalAccountStatus(
   // still has to finish the welcome flow, and 'active' without a bound auth user is the
   // corrupted state the activate route refuses to bind by email.
   const next = status === 'active' && !link.lp_accounts.auth_user_id ? 'invited' : status
-  const { error } = await a
-    .from('lp_accounts')
-    .update({ status: next, updated_at: new Date().toISOString() })
-    .eq('id', lpAccountId)
-  if (error) return dbFail(error, 'lps-invites')
-  return done({ ok: true, status: next })
+
+  // Per fund (20261101220000): disabling an LP here cuts their access to THIS fund's investors and
+  // this fund's emails, not their portal in every other fund they invest in.
+  const { error: linkErr } = await a
+    .from('lp_account_links')
+    .update({ disabled_at: status === 'disabled' ? new Date().toISOString() : null })
+    .eq('fund_id', fundId).eq('lp_account_id', lpAccountId)
+  if (linkErr && linkErr.code !== '42703') return dbFail(linkErr, 'lps-invites')
+  const perFund = !linkErr
+
+  // The account-wide status changes only before that migration (the old, global behaviour), or to
+  // lift a global disable an admin set before it, which only applied because it was global.
+  if (!perFund || (status === 'active' && link.lp_accounts.status === 'disabled')) {
+    const { error } = await a
+      .from('lp_accounts')
+      .update({ status: next, updated_at: new Date().toISOString() })
+      .eq('id', lpAccountId)
+    if (error) return dbFail(error, 'lps-invites')
+  }
+  if (!perFund || status === 'disabled') return done({ ok: true, status: next })
+  // Re-enabled here: whatever the account is everywhere else (invited until they finish signing up).
+  return done({ ok: true, status: link.lp_accounts.status === 'disabled' ? next : link.lp_accounts.status })
 }
 
 /** Revoke a direct LP-investor link (lp_account_links.id) for this fund. */
@@ -210,12 +228,12 @@ export async function resendInvite(
   if (!lpAccountId) return fail(400, 'lp_account_id is required')
   const { data: link } = await a
     .from('lp_account_links')
-    .select('lp_investor_id, lp_accounts(id, email, status, auth_user_id)')
+    .select('*, lp_accounts(id, email, status, auth_user_id)')
     .eq('fund_id', fundId).eq('lp_account_id', lpAccountId).limit(1).maybeSingle()
   const account = link?.lp_accounts
   if (!account) return fail(404, 'Account not found in your fund')
+  if (account.status === 'disabled' || link.disabled_at) return fail(409, 'This account is disabled. Re-enable it first.')
   if (account.status === 'active') return fail(409, 'This LP has already activated their access.')
-  if (account.status === 'disabled') return fail(409, 'This account is disabled. Re-enable it first.')
 
   const result = await sendLpInvite(admin, {
     fundId, fundName: await fundNameOf(admin, fundId), email: account.email, lpAccountId: account.id,

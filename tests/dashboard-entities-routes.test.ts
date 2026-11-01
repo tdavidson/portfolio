@@ -41,7 +41,7 @@ function chain(table: string) {
 
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { getUser: async () => ({ data: { user: m.user } }) } }) }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({ from: (t: string) => chain(t) }) }))
-vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScope: async () => ({ access: m.access, vehicleNames: [], companyIds: [] }) }))
+vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScope: async () => ({ access: m.access, vehicleNames: [], writableNames: [], companyIds: [] }) }))
 vi.mock('@/lib/access/effective', async (orig) => ({ ...(await orig<any>()), loadAccessContext: async () => ({ fundId: 'f1', vehicles: { all: true, ids: [] } }) }))
 vi.mock('@/lib/dashboard/entity-selection-load', () => ({
   loadActiveEntityOptions: async () => [{ id: 'v3', name: 'Northwind Holdings LP', names: ['Northwind Holdings LP'] }],

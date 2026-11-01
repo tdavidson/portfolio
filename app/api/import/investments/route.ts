@@ -250,7 +250,7 @@ ${text}`,
   // they cannot see. One refusal stops the import: a partial import silently missing rows is worse.
   const scope = await loadEntityScope(admin, writeCheck)
   for (const t of parsed.transactions) {
-    const denied = groupWriteDenial(scope.vehicleNames, t.portfolio_group)
+    const denied = groupWriteDenial(scope.writableNames, t.portfolio_group)
     if (denied) return NextResponse.json({ error: `${t.company_name ?? 'A row'}: ${denied}` }, { status: 403 })
   }
   await ensureVehiclesByName(admin, fundId, parsed.transactions.map(t => t.portfolio_group))

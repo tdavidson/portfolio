@@ -5,8 +5,8 @@ vi.mock('@/lib/accounting/live-report', () => ({ generateLiveReport: m.live }))
 // A member granted Fund I: LP entity e1 (Cranmore) has a position there; e2 (Aldis) only in Fund II.
 vi.mock('@/lib/access/entity-scope', () => ({
   entityScopeFor: async (_a: any, access: any) => access.vehicles.all
-    ? { access, vehicleNames: null, companyIds: null }
-    : { access, vehicleNames: ['Fund I'], companyIds: [] },
+    ? { access, vehicleNames: null, writableNames: null, companyIds: null }
+    : { access, vehicleNames: ['Fund I'], writableNames: ['Fund I'], companyIds: [] },
 }))
 vi.mock('@/lib/access/lp-scope', async orig => ({
   ...(await orig<typeof import('@/lib/access/lp-scope')>()),

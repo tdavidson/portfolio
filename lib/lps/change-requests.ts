@@ -350,28 +350,35 @@ export async function decideChangeRequest(
     return fail(403, 'Only an admin can give someone portal access. An admin can approve this request.')
   }
 
-  let result: unknown
-  if (decision === 'approve') {
-    if (req.kind === 'profile') {
-      const out = await updateEntityProfile(admin, { fundId: actor.fundId, userId: actor.userId, visibleEntityIds: actor.entityIds }, req.lp_entity_id, {
-        entity: req.payload?.entity, investor: req.payload?.investor,
-      })
-      if (!out.ok) return out
-      result = out.value
-    } else {
-      const out = await addAuthorizedUser(admin, { fundId: actor.fundId, userId: actor.userId }, {
-        lpInvestorId: req.lp_investor_id, email: req.payload?.email ?? '', displayName: req.payload?.display_name ?? null,
-      })
-      if (!out.ok) return out
-      result = out.value
-    }
-  }
-
+  // Claim first, apply second: two approvals racing (a double click, two admins) must not both
+  // apply. Only the call whose conditional update moved the row off 'pending' goes on.
   const status = decision === 'approve' ? 'approved' : 'rejected'
-  const { error: upErr } = await db.from('lp_change_requests')
+  const { data: claimed, error: upErr } = await db.from('lp_change_requests')
     .update({ status, decided_by: actor.userId, decided_at: new Date().toISOString(), decision_note: cleanNote(input.note) })
     .eq('id', req.id).eq('status', 'pending')
+    .select('id')
   if (upErr) return dbFail(upErr, 'lp-change-requests-decide')
+  if (!((claimed as unknown[]) ?? []).length) return fail(409, 'This request was already decided.')
+
+  let result: unknown
+  if (decision === 'approve') {
+    const out = req.kind === 'profile'
+      ? await updateEntityProfile(admin, { fundId: actor.fundId, userId: actor.userId, visibleEntityIds: actor.entityIds }, req.lp_entity_id, {
+        entity: req.payload?.entity, investor: req.payload?.investor,
+      })
+      : await addAuthorizedUser(admin, { fundId: actor.fundId, userId: actor.userId }, {
+        lpInvestorId: req.lp_investor_id, email: req.payload?.email ?? '', displayName: req.payload?.display_name ?? null,
+      })
+    if (!out.ok) {
+      // Nothing applied: put it back so it can be decided again.
+      await db.from('lp_change_requests')
+        .update({ status: 'pending', decided_by: null, decided_at: null, decision_note: null })
+        .eq('id', req.id).eq('status', status)
+      return out
+    }
+    result = out.value
+  }
+
   await recordAudit(admin, {
     fundId: actor.fundId, actorId: actor.userId,
     action: decision === 'approve' ? 'lp_change.approve' : 'lp_change.reject',

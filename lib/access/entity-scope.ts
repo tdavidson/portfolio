@@ -1,6 +1,6 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadAccessContext, type AccessContext } from './effective'
-import { visibleCompanyIds, visibleVehicleIds } from './scope'
+import { visibleCompanyIds, visibleVehicleIds, writeAccess } from './scope'
 
 /**
  * Everything a cross-entity read needs to scope itself, resolved once per request: which entity
@@ -10,6 +10,12 @@ import { visibleCompanyIds, visibleVehicleIds } from './scope'
 export interface EntityScope {
   access: AccessContext
   vehicleNames: string[] | null
+  /**
+   * The names of the entities this caller may CHANGE (vehicleNames less any capped at read or
+   * propose, fund_member_vehicles.level). Every write check takes these, never vehicleNames: a
+   * member who can read Fund II must not be able to record a row against it.
+   */
+  writableNames: string[] | null
   companyIds: string[] | null
 }
 
@@ -24,18 +30,22 @@ export async function loadEntityScope(
 /** The same, from an access context the caller already holds (a page's `resolvePageAccess`). */
 export async function entityScopeFor(admin: SupabaseClient, access: AccessContext): Promise<EntityScope> {
   const ids = visibleVehicleIds(access)
-  if (ids === null) return { access, vehicleNames: null, companyIds: null }
-  if (ids.length === 0) return { access, vehicleNames: [], companyIds: [] }
+  if (ids === null) return { access, vehicleNames: null, writableNames: null, companyIds: null }
+  if (ids.length === 0) return { access, vehicleNames: [], writableNames: [], companyIds: [] }
+  const writable = new Set(visibleVehicleIds(writeAccess(access)) ?? ids)
   const [{ data: vehicles, error }, companyIds] = await Promise.all([
-    (admin as any).from('fund_vehicles').select('name, aliases').eq('fund_id', access.fundId).in('id', ids),
+    (admin as any).from('fund_vehicles').select('id, name, aliases').eq('fund_id', access.fundId).in('id', ids),
     visibleCompanyIds(admin, access),
   ])
   // THROWS: a failed read is not "no entity names" — that would show a scoped member an empty
   // portfolio and refuse their writes as if they had no entity.
   if (error) throw new Error(`fund_vehicles read failed: ${error.message}`)
-  const vehicleNames = Array.from(new Set(((vehicles as any[]) ?? [])
+  const namesOf = (rows: any[]) => Array.from(new Set(rows
     .flatMap(v => [v.name as string, ...((v.aliases as string[] | null) ?? [])]))).sort()
-  return { access, vehicleNames, companyIds }
+  const rows = (vehicles as any[]) ?? []
+  const vehicleNames = namesOf(rows)
+  const writableNames = writable.size === ids.length ? vehicleNames : namesOf(rows.filter(v => writable.has(v.id)))
+  return { access, vehicleNames, writableNames, companyIds }
 }
 
 /**

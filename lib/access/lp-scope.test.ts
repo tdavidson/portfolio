@@ -30,7 +30,7 @@ const world = () => admin({
 })
 const scope = (ids: string[] | null, names: string[] | null) => ({
   access: { fundId: 'f1', vehicles: ids === null ? { all: true, ids: [] } : { all: false, ids } } as any,
-  vehicleNames: names, companyIds: null,
+  vehicleNames: names, writableNames: names, companyIds: null,
 })
 
 describe('visibleLpEntityIds — the same rule as lp_entity_ids_readable()', () => {

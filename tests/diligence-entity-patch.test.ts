@@ -16,7 +16,7 @@ function chain(table: string) {
 }
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) } }) }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => ({ from: (t: string) => chain(t) }) }))
-vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScopeForUser: async () => ({ access: m.access, vehicleNames: ['Fund I'], companyIds: [] }) }))
+vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScopeForUser: async () => ({ access: m.access, vehicleNames: ['Fund I'], writableNames: ['Fund I'], companyIds: [] }) }))
 
 import { PATCH } from '@/app/api/diligence/[id]/route'
 

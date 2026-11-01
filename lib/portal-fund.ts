@@ -32,13 +32,13 @@ export async function getPortalFund(): Promise<PortalFund | null> {
   const accountId = (account as { id: string }).id
 
   // Direct link first, then a delegated (authorized-user) link.
-  const { data: link } = await admin
+  // A link disabled in its fund (lp_account_links.disabled_at) does not count.
+  const { data: linkRows } = await admin
     .from('lp_account_links')
-    .select('lp_investor_id')
+    .select('*')
     .eq('lp_account_id', accountId)
-    .limit(1)
-    .maybeSingle()
-  let investorId = (link as { lp_investor_id: string } | null)?.lp_investor_id
+  const link = ((linkRows ?? []) as { lp_investor_id: string; disabled_at?: string | null }[]).find(l => !l.disabled_at) ?? null
+  let investorId = link?.lp_investor_id
   if (!investorId) {
     const { data: del } = await admin
       .from('lp_authorized_users')
