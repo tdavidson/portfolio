@@ -9,7 +9,7 @@ import { assertBalanced } from './ledger'
 import { closedPeriodRanges, dateInAnyClosedPeriod } from './periods'
 import { fundCurrency } from './currency'
 import { vehicleIdByName } from './vehicle-id'
-import type { JournalEntry } from './types'
+import type { JournalEntry, Posting } from './types'
 import { ACTUAL_BOOK, type LedgerBook } from './books'
 import { adoptEntry, keptAsDraft, removeAdopted, settleLostRace, type AdoptOptions } from './adoption'
 
@@ -168,44 +168,8 @@ export async function persistEntry(
     return { error: `Unknown vehicle "${group}" — add it in Settings before booking to it.` }
   }
 
-  // EVERY ACCOUNT MUST BELONG TO THIS FUND *AND* THIS VEHICLE.
-  //
-  // `accountId` arrives from request bodies (the journal route, the external agent's
-  // post_entry) and was written verbatim. The balance trigger doesn't catch a foreign account —
-  // it sums amounts and never looks at which account they're on. But every statement builds
-  // from THIS vehicle's chart and joins postings to it, so a leg pointed at another vehicle's
-  // account is silently DROPPED from the trial balance, the balance sheet, everything. Cash
-  // goes up and nothing offsets it: the books stop balancing, and the missing leg appears in no
-  // report at all.
-  //
-  // One check here covers the journal route, the agent, and anything written later.
-  const { data: ownAccounts } = await admin
-    .from('chart_of_accounts' as any)
-    .select('id')
-    .eq('fund_id', fundId)
-    .eq('vehicle_id', vehicleId)
-  const valid = new Set(((ownAccounts as any[]) ?? []).map(a => a.id as string))
-
-  const foreign = entry.postings.map(p => p.accountId).filter(id => !valid.has(id))
-  if (foreign.length > 0) {
-    return { error: `Posting to an account that doesn't belong to ${group}: ${foreign.join(', ')}` }
-  }
-
-  // Same for the partner on a posting. `ensureCapitalAccounts` already refuses a foreign
-  // lp_entity_id, but the journal and agent paths don't go through it.
-  const lpIds = Array.from(new Set(entry.postings.map(p => p.lpEntityId).filter(Boolean) as string[]))
-  if (lpIds.length > 0) {
-    const { data: ents } = await admin
-      .from('lp_entities' as any)
-      .select('id')
-      .eq('fund_id', fundId)
-      .in('id', lpIds)
-    const known = new Set(((ents as any[]) ?? []).map(e => e.id as string))
-    const strangers = lpIds.filter(id => !known.has(id))
-    if (strangers.length > 0) {
-      return { error: `Posting to a partner who isn't in this fund: ${strangers.join(', ')}` }
-    }
-  }
+  const postingProblem = await validatePostings(admin, fundId, vehicleId, group, entry.postings)
+  if (postingProblem) return { error: postingProblem }
 
   // ADOPT BEFORE POSTING (plans/spec-ledger-one-writer.md §1). A posted actual-book entry is
   // written as a DRAFT first, its postings next, then any investment lines nobody owns are adopted
@@ -313,4 +277,57 @@ export async function persistEntry(
   }
 
   return { entryId }
+}
+
+/**
+ * Why these postings may not be written to this fund's `group` (vehicle `vehicleId`), or null when
+ * they may. Shared by every path that writes postings: persistEntry, and editing a draft in place
+ * (PUT /api/accounting/journal), which used to insert the body's account and partner ids as given.
+ */
+export async function validatePostings(
+  admin: SupabaseClient,
+  fundId: string,
+  vehicleId: string,
+  group: string,
+  postings: { accountId: string; lpEntityId?: string | null }[],
+): Promise<string | null> {
+  // EVERY ACCOUNT MUST BELONG TO THIS FUND *AND* THIS VEHICLE.
+  //
+  // `accountId` arrives from request bodies (the journal route, the external agent's
+  // post_entry) and was written verbatim. The balance trigger doesn't catch a foreign account —
+  // it sums amounts and never looks at which account they're on. But every statement builds
+  // from THIS vehicle's chart and joins postings to it, so a leg pointed at another vehicle's
+  // account is silently DROPPED from the trial balance, the balance sheet, everything. Cash
+  // goes up and nothing offsets it: the books stop balancing, and the missing leg appears in no
+  // report at all.
+  //
+  // One check here covers the journal route, the agent, and anything written later.
+  const { data: ownAccounts } = await admin
+    .from('chart_of_accounts' as any)
+    .select('id')
+    .eq('fund_id', fundId)
+    .eq('vehicle_id', vehicleId)
+  const valid = new Set(((ownAccounts as any[]) ?? []).map(a => a.id as string))
+
+  const foreign = postings.map(p => p.accountId).filter(id => !valid.has(id))
+  if (foreign.length > 0) {
+    return `Posting to an account that doesn't belong to ${group}: ${foreign.join(', ')}`
+  }
+
+  // Same for the partner on a posting. `ensureCapitalAccounts` already refuses a foreign
+  // lp_entity_id, but the journal and agent paths don't go through it.
+  const lpIds = Array.from(new Set(postings.map(p => p.lpEntityId).filter(Boolean) as string[]))
+  if (lpIds.length > 0) {
+    const { data: ents } = await admin
+      .from('lp_entities' as any)
+      .select('id')
+      .eq('fund_id', fundId)
+      .in('id', lpIds)
+    const known = new Set(((ents as any[]) ?? []).map(e => e.id as string))
+    const strangers = lpIds.filter(id => !known.has(id))
+    if (strangers.length > 0) {
+      return `Posting to a partner who isn't in this fund: ${strangers.join(', ')}`
+    }
+  }
+  return null
 }

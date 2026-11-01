@@ -12,6 +12,7 @@ vi.mock('@/lib/accounting/vehicle-id', () => ({ vehicleIdByName: async () => 'v'
 vi.mock('@/lib/accounting/periods', () => ({ closedPeriodRanges: async () => [], dateInAnyClosedPeriod: () => false }))
 vi.mock('@/lib/accounting/continuous-allocation', () => ({ setGeneratedAllocationStatus: async () => ({}), postExistingEntryWithAllocation: async () => ({ allocationEntryIds: [] }) }))
 vi.mock('@/lib/accounting/persist', () => ({
+  validatePostings: async () => null,
   persistEntry: async (_a: any, fundId: string, _g: string, _u: any, entry: any, status: string) => {
     if (s.persistFails) return { error: 'allocation failed' }
     const id = `new-${++s.n}`

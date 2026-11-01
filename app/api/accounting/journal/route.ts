@@ -7,7 +7,7 @@ import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { dbError } from '@/lib/api-error'
-import { persistEntry } from '@/lib/accounting/persist'
+import { persistEntry, validatePostings } from '@/lib/accounting/persist'
 import { assertBalanced } from '@/lib/accounting/ledger'
 import { closedPeriodRanges, dateInAnyClosedPeriod } from '@/lib/accounting/periods'
 import { fundCurrency } from '@/lib/accounting/currency'
@@ -192,6 +192,11 @@ export async function PUT(req: NextRequest) {
   if (normalized.some(p => !p.accountId || !Number.isFinite(p.amount))) {
     return NextResponse.json({ error: 'Each posting needs an accountId and a numeric amount' }, { status: 400 })
   }
+  // The same account and partner checks as a new entry (persistEntry): a leg on another entity's
+  // account would drop out of every statement, and a partner from elsewhere would be booked here.
+  if (!vehicleId) return NextResponse.json({ error: 'Entry not found' }, { status: 404 })
+  const postingProblem = await validatePostings(admin, gate.fundId, vehicleId, group, normalized)
+  if (postingProblem) return NextResponse.json({ error: postingProblem }, { status: 400 })
   const newDate = entryDate || (existing as any).entry_date
   const entry: JournalEntry = { fundId: gate.fundId, entryDate: newDate, memo: memo ?? null, sourceType, postings: normalized }
   try { assertBalanced(entry) } catch (e) { return NextResponse.json({ error: (e as Error).message }, { status: 400 }) }
