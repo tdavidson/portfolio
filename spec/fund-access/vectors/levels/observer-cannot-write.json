@@ -1,0 +1,22 @@
+{
+  "id": "observer-cannot-write",
+  "fundAccess": "0.1",
+  "title": "An observer changes nothing",
+  "tags": [
+    "levels"
+  ],
+  "fund": {},
+  "party": {
+    "role": "observer",
+    "entities": "all"
+  },
+  "call": {
+    "action": "write",
+    "area": "portfolio",
+    "credential": "person"
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "observer"
+  }
+}

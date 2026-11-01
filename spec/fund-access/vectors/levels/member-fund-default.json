@@ -1,0 +1,27 @@
+{
+  "id": "member-fund-default",
+  "fundAccess": "0.1",
+  "title": "A fund default applies to a member with no grant",
+  "description": "The fund gives members read on accounting by default.",
+  "tags": [
+    "levels"
+  ],
+  "fund": {
+    "defaults": {
+      "accounting": "read"
+    }
+  },
+  "party": {
+    "role": "member",
+    "grants": {},
+    "entities": "all"
+  },
+  "call": {
+    "action": "read",
+    "area": "accounting",
+    "credential": "person"
+  },
+  "expect": {
+    "outcome": "allow"
+  }
+}

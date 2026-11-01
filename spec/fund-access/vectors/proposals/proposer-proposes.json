@@ -1,0 +1,26 @@
+{
+  "id": "proposer-proposes",
+  "fundAccess": "0.1",
+  "title": "A proposer's proposable write becomes a proposal",
+  "description": "A journal entry from an auditor is a draft for someone with write to post.",
+  "tags": [
+    "proposals"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "propose"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "write",
+    "area": "accounting",
+    "credential": "person",
+    "proposable": true
+  },
+  "expect": {
+    "outcome": "propose"
+  }
+}

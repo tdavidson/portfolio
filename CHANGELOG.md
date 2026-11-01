@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Fund Access: an open spec for outside access
+- **A draft open spec** in `spec/fund-access/` for who may do what with a fund's data when outside firms and LPs work through the web, an assistant or a script. It names the standard areas, the four levels, the fund's switch, entity scope and caps, and the decision for a read, a write and a record filing: allow, propose, stage, stage for an admin, or refuse. It also specifies engagements, LP change requests, records and what every door must show. Written in the same shape as Walter: spec pages, a JSON Schema, 43 test vectors and a small reference engine. "Fund Access" is a working name.
+- **Portfolio passes all 43 vectors** with its own checks (`tests/fund-access-portfolio.test.ts`), and a test pins Portfolio's areas and their relations to the spec's.
+
 ### Fund records: what a session concluded, kept by the fund
 - **File a record, from anywhere.** A record is what was concluded, decided or said in a working session: a summary, a decision, a memo, a transcript excerpt or a note. It sits in one area of the fund (accounting, tax, compliance and so on) and usually one entity, and can point at the company, LP investor, journal entry or deal it is about. File one on the new **Records** page, or from Claude or another assistant with `file_to_record` at the end of a session. An MCP server sees tool calls, not the conversation, so this is how the conversation's outcome becomes the fund's. `lib/records`, `/api/records`.
 - **Read is enough to file.** Filing and reading both need read on the record's area and the entity in your scope, so an auditor files a journal review into accounting and a tax preparer files into tax. A fund-wide record (no entity) is for people who see every entity. The credential must still carry write to file, and the read-only demo files nothing. Filing runs directly from a chat rather than staging, since it changes nothing else.

@@ -1,0 +1,26 @@
+{
+  "id": "record-unreadable-area",
+  "fundAccess": "0.1",
+  "title": "Nobody files in an area they cannot read",
+  "tags": [
+    "records"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "portfolio": "write"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "file_record",
+    "area": "tax",
+    "credential": "person",
+    "entity": "fund-i"
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "no_access"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "proposer-assistant-not-staged",
+  "fundAccess": "0.1",
+  "title": "A proposal from an assistant runs at once, not staged",
+  "description": "Staging would have the approver run it as themselves and post it outright.",
+  "tags": [
+    "proposals"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "propose"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "write",
+    "area": "accounting",
+    "credential": "assistant",
+    "proposable": true
+  },
+  "expect": {
+    "outcome": "propose"
+  }
+}

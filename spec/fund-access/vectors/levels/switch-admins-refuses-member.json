@@ -1,0 +1,30 @@
+{
+  "id": "switch-admins-refuses-member",
+  "fundAccess": "0.1",
+  "title": "An admins-only switch closes the area to members whatever they were granted",
+  "description": "The member holds write; the fund has the area on for admins only.",
+  "tags": [
+    "levels"
+  ],
+  "fund": {
+    "switches": {
+      "compliance": "admins"
+    }
+  },
+  "party": {
+    "role": "member",
+    "grants": {
+      "compliance": "write"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "read",
+    "area": "compliance",
+    "credential": "person"
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "no_access"
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "admin-only-member-assistant",
+  "fundAccess": "0.1",
+  "title": "An admin-only write from a member's assistant waits for an admin",
+  "description": "The member asked; an admin decides.",
+  "tags": [
+    "staging"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "portfolio": "write"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "write",
+    "area": "portfolio",
+    "credential": "assistant",
+    "adminOnly": true
+  },
+  "expect": {
+    "outcome": "stage_for_admin"
+  }
+}

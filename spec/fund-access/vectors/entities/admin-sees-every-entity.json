@@ -1,0 +1,26 @@
+{
+  "id": "admin-sees-every-entity",
+  "fundAccess": "0.1",
+  "title": "An admin sees every entity, including ones not listed",
+  "tags": [
+    "entities"
+  ],
+  "fund": {},
+  "party": {
+    "role": "admin",
+    "entities": [
+      {
+        "id": "fund-i"
+      }
+    ]
+  },
+  "call": {
+    "action": "read",
+    "area": "accounting",
+    "credential": "person",
+    "entity": "fund-ii"
+  },
+  "expect": {
+    "outcome": "allow"
+  }
+}

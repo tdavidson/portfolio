@@ -1,0 +1,29 @@
+{
+  "id": "entity-in-scope",
+  "fundAccess": "0.1",
+  "title": "An entity in scope gets the area level",
+  "tags": [
+    "entities"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "write"
+    },
+    "entities": [
+      {
+        "id": "fund-i"
+      }
+    ]
+  },
+  "call": {
+    "action": "write",
+    "area": "accounting",
+    "credential": "script",
+    "entity": "fund-i"
+  },
+  "expect": {
+    "outcome": "allow"
+  }
+}

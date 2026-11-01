@@ -65,6 +65,24 @@ export function matchEntity(names: Map<string, string>, raw: string): string | n
   return hits[0] ?? null
 }
 
+/**
+ * The entity a filing goes on: the one named (by id or name, in scope), or with none named, the
+ * caller's only entity, or fund-wide (null) for someone who sees every entity. Pure, so the Fund
+ * Access vectors run it (tests/fund-access-portfolio.test.ts).
+ */
+export function recordEntity(access: AccessContext, names: Map<string, string>, raw: string): Outcome<string | null> {
+  if (raw) {
+    const hit = matchEntity(names, raw)
+    if (hit === 'ambiguous') return fail(400, `More than one entity is called "${raw}". Use its id.`)
+    if (!hit || !canSeeVehicle(access, hit)) return fail(404, `No entity "${raw}" in your scope.`)
+    return done(hit)
+  }
+  if (access.vehicles.all) return done(null)
+  const mine = access.vehicles.ids.filter(id => names.has(id))
+  if (mine.length !== 1) return fail(400, 'Name the entity the record is about. You work in more than one, and a fund-wide record needs access to every entity.')
+  return done(mine[0])
+}
+
 /** Validate a filing's shape. Pure, so it is pinned by tests without a database. */
 export function parseFiling(input: any): { error: string } | {
   area: RecordArea; kind: RecordKind; title: string; body: string; entity: string; subjectType: RecordSubject | null; subjectId: string | null
@@ -97,17 +115,9 @@ export async function fileRecord(admin: SupabaseClient, actor: RecordActor, inpu
   if ('error' in f) return fail(400, f.error)
 
   const names = await entityNames(admin, access.fundId)
-  let vehicleId: string | null = null
-  if (f.entity) {
-    const hit = matchEntity(names, f.entity)
-    if (hit === 'ambiguous') return fail(400, `More than one entity is called "${f.entity}". Use its id.`)
-    if (!hit || !canSeeVehicle(access, hit)) return fail(404, `No entity "${f.entity}" in your scope.`)
-    vehicleId = hit
-  } else if (!access.vehicles.all) {
-    const mine = access.vehicles.ids.filter(id => names.has(id))
-    if (mine.length !== 1) return fail(400, 'Name the entity the record is about. You work in more than one, and a fund-wide record needs access to every entity.')
-    vehicleId = mine[0]
-  }
+  const chosen = recordEntity(access, names, f.entity)
+  if (!chosen.ok) return chosen
+  const vehicleId = chosen.value
 
   if (f.subjectType && f.subjectId) {
     const { data, error } = await (admin as any).from(SUBJECT_TABLE[f.subjectType]).select('id').eq('fund_id', access.fundId).eq('id', f.subjectId).maybeSingle()

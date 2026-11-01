@@ -1,0 +1,24 @@
+{
+  "id": "script-write-runs",
+  "fundAccess": "0.1",
+  "title": "A script's write runs: a key has no one to ask",
+  "tags": [
+    "staging"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "portfolio": "write"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "write",
+    "area": "portfolio",
+    "credential": "script"
+  },
+  "expect": {
+    "outcome": "allow"
+  }
+}

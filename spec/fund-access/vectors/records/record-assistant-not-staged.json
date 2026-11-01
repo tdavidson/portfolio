@@ -1,0 +1,25 @@
+{
+  "id": "record-assistant-not-staged",
+  "fundAccess": "0.1",
+  "title": "Filing from an assistant runs at once",
+  "tags": [
+    "records"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "read"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "file_record",
+    "area": "accounting",
+    "credential": "assistant",
+    "entity": "fund-i"
+  },
+  "expect": {
+    "outcome": "allow"
+  }
+}

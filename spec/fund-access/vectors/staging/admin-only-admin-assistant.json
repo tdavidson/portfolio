@@ -1,0 +1,21 @@
+{
+  "id": "admin-only-admin-assistant",
+  "fundAccess": "0.1",
+  "title": "An admin's assistant stages an admin-only write for the admin",
+  "tags": [
+    "staging"
+  ],
+  "fund": {},
+  "party": {
+    "role": "admin"
+  },
+  "call": {
+    "action": "write",
+    "area": "portfolio",
+    "credential": "assistant",
+    "adminOnly": true
+  },
+  "expect": {
+    "outcome": "stage"
+  }
+}

@@ -1,0 +1,33 @@
+{
+  "id": "entity-cap-never-raises",
+  "fundAccess": "0.1",
+  "title": "A cap never raises the area level",
+  "description": "Read on the area, propose cap on the entity: still read.",
+  "tags": [
+    "entities"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "read"
+    },
+    "entities": [
+      {
+        "id": "fund-ii",
+        "cap": "propose"
+      }
+    ]
+  },
+  "call": {
+    "action": "write",
+    "area": "accounting",
+    "credential": "script",
+    "entity": "fund-ii",
+    "proposable": true
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "no_access"
+  }
+}

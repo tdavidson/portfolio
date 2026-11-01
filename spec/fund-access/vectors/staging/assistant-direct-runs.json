@@ -1,0 +1,26 @@
+{
+  "id": "assistant-direct-runs",
+  "fundAccess": "0.1",
+  "title": "A write that changes nothing anyone relies on runs at once",
+  "description": "An upload URL or a preview.",
+  "tags": [
+    "staging"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "portfolio": "write"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "write",
+    "area": "portfolio",
+    "credential": "assistant",
+    "direct": true
+  },
+  "expect": {
+    "outcome": "allow"
+  }
+}

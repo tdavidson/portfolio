@@ -1,0 +1,23 @@
+{
+  "id": "record-observer",
+  "fundAccess": "0.1",
+  "title": "An observer files nothing",
+  "tags": [
+    "records"
+  ],
+  "fund": {},
+  "party": {
+    "role": "observer",
+    "entities": "all"
+  },
+  "call": {
+    "action": "file_record",
+    "area": "accounting",
+    "credential": "person",
+    "entity": "fund-i"
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "observer"
+  }
+}

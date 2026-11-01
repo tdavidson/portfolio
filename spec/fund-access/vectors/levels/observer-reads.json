@@ -1,0 +1,22 @@
+{
+  "id": "observer-reads",
+  "fundAccess": "0.1",
+  "title": "An observer reads every area that is switched on",
+  "description": "The read-only role: a demo, a board observer.",
+  "tags": [
+    "levels"
+  ],
+  "fund": {},
+  "party": {
+    "role": "observer",
+    "entities": "all"
+  },
+  "call": {
+    "action": "read",
+    "area": "tax",
+    "credential": "person"
+  },
+  "expect": {
+    "outcome": "allow"
+  }
+}

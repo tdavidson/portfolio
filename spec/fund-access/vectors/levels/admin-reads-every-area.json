@@ -1,0 +1,21 @@
+{
+  "id": "admin-reads-every-area",
+  "fundAccess": "0.1",
+  "title": "An admin reads any area that is switched on",
+  "description": "Admins hold write in every area the fund has not switched off.",
+  "tags": [
+    "levels"
+  ],
+  "fund": {},
+  "party": {
+    "role": "admin"
+  },
+  "call": {
+    "action": "read",
+    "area": "gp_economics",
+    "credential": "person"
+  },
+  "expect": {
+    "outcome": "allow"
+  }
+}

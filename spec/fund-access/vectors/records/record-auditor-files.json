@@ -1,0 +1,26 @@
+{
+  "id": "record-auditor-files",
+  "fundAccess": "0.1",
+  "title": "An auditor files a record in accounting",
+  "description": "Read is enough to file: a record changes nothing else.",
+  "tags": [
+    "records"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "propose"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "file_record",
+    "area": "accounting",
+    "credential": "person",
+    "entity": "fund-i"
+  },
+  "expect": {
+    "outcome": "allow"
+  }
+}

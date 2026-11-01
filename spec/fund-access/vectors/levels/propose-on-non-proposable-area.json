@@ -1,0 +1,27 @@
+{
+  "id": "propose-on-non-proposable-area",
+  "fundAccess": "0.1",
+  "title": "Propose on an area without proposals is read",
+  "description": "A stored propose on compliance reads as read.",
+  "tags": [
+    "levels"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "compliance": "propose"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "write",
+    "area": "compliance",
+    "credential": "person",
+    "proposable": true
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "no_access"
+  }
+}

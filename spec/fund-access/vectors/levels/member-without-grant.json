@@ -1,0 +1,24 @@
+{
+  "id": "member-without-grant",
+  "fundAccess": "0.1",
+  "title": "A member with no grant and no default sees nothing",
+  "description": "No grant, no fund default: none.",
+  "tags": [
+    "levels"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {},
+    "entities": "all"
+  },
+  "call": {
+    "action": "read",
+    "area": "accounting",
+    "credential": "person"
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "no_access"
+  }
+}

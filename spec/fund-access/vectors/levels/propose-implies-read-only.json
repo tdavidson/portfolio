@@ -1,0 +1,27 @@
+{
+  "id": "propose-implies-read-only",
+  "fundAccess": "0.1",
+  "title": "Proposing on the books confers read on partner capital, not propose",
+  "description": "lp_capital has no proposals.",
+  "tags": [
+    "levels"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "propose"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "write",
+    "area": "lp_capital",
+    "credential": "person",
+    "proposable": true
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "no_access"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "writer-proposable-direct",
+  "fundAccess": "0.1",
+  "title": "Someone with write makes a proposable change directly",
+  "tags": [
+    "proposals"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "write"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "write",
+    "area": "accounting",
+    "credential": "person",
+    "proposable": true
+  },
+  "expect": {
+    "outcome": "allow"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "tax-defaults-from-accounting",
+  "fundAccess": "0.1",
+  "title": "Tax falls back to the accounting grant when it has none of its own",
+  "description": "A member with write on the books and no tax grant writes tax.",
+  "tags": [
+    "levels"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "write"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "write",
+    "area": "tax",
+    "credential": "person"
+  },
+  "expect": {
+    "outcome": "allow"
+  }
+}
