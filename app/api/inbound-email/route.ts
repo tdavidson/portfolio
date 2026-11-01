@@ -7,6 +7,7 @@ import {
   type PostmarkPayload,
 } from '@/lib/pipeline/processEmail'
 import { checkFundMember } from '@/lib/pipeline/checkFundMember'
+import { postmarkSenderVerified } from '@/lib/pipeline/sender-auth'
 import { isAuthorizedSender } from '@/lib/pipeline/isAuthorizedSender'
 import { rateLimit, getClientIp } from '@/lib/rate-limit'
 import { scanFileAsync } from '@/lib/security/scan-file'
@@ -62,8 +63,12 @@ async function handleInbound(req: NextRequest) {
   }
   const { fundId, isGlobal } = fundInfo
 
-  // Step 1b: Check if sender is a fund member (determines interaction extraction, bypasses authorized_senders)
-  const fundMember = await checkFundMember(supabase, fundId, fromAddress)
+  // Step 1b: Check if sender is a fund member (determines interaction extraction, bypasses authorized_senders).
+  // Only when the receiving server shows the mail really is from that address: a From header alone
+  // is the sender's own claim.
+  const fundMember = postmarkSenderVerified(fromAddress, payload.Headers)
+    ? await checkFundMember(supabase, fundId, fromAddress)
+    : null
 
   // Step 2: Check authorized senders (fund members bypass this check)
   if (!fundMember && !isGlobal) {

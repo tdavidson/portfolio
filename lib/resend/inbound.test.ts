@@ -29,9 +29,13 @@ describe('authenticationRejection', () => {
     expect(authenticationRejection({ spf: 'fail', dkim: 'fail', dmarc: 'fail' })).toMatch(/DMARC failed/)
   })
 
-  it('accepts pass, gray, missing results, and mail from before the field existed', () => {
+  it('refuses mail that passed neither SPF nor DKIM', () => {
+    expect(authenticationRejection({ spf: 'gray', dkim: 'unknown', dmarc: 'gray' })).toMatch(/neither SPF nor DKIM/)
+  })
+
+  it('accepts a pass, missing results, and mail from before the field existed', () => {
     expect(authenticationRejection({ spf: 'pass', dkim: 'pass', dmarc: 'pass' })).toBeNull()
-    expect(authenticationRejection({ spf: 'gray', dkim: 'unknown', dmarc: 'gray' })).toBeNull()
+    expect(authenticationRejection({ spf: 'gray', dkim: 'pass', dmarc: 'gray' })).toBeNull()
     expect(authenticationRejection({})).toBeNull()
     expect(authenticationRejection(null)).toBeNull()
   })

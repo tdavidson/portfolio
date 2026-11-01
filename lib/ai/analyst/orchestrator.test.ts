@@ -187,7 +187,7 @@ describe('runAnalyst', () => {
 
     expect(mocks.buildPortfolioContext).toHaveBeenCalledWith(admin, 'fund-1', {
       includeTeamNotes: false,
-      scope: expect.objectContaining({ vehicleNames: null, companyIds: null }),
+      scope: expect.objectContaining({ vehicleNames: null, writableNames: null, companyIds: null }),
     })
   })
 
@@ -218,7 +218,7 @@ describe('runAnalyst', () => {
     await runAnalyst(member, { messages: [{ role: 'user', content: 'How is the portfolio?' }] },
       { admin: scopedAdmin, isRateLimited: async () => false }).catch(() => {})
     expect(mocks.buildPortfolioContext).toHaveBeenLastCalledWith(scopedAdmin, 'fund-1', expect.objectContaining({
-      scope: expect.objectContaining({ vehicleNames: ['Fund I'], companyIds: ['c1'] }),
+      scope: expect.objectContaining({ vehicleNames: ['Fund I'], writableNames: ['Fund I'], companyIds: ['c1'] }),
     }))
   })
 

@@ -8,7 +8,7 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => s.m.admin }))
 vi.mock('@/lib/metrics/seed-default-metrics', () => ({ seedCompanyFromDefaults: vi.fn(async (_a: unknown, _f: string, id: string) => { s.seeded.push(id) }) }))
 vi.mock('@/lib/activity', () => ({ logActivity: vi.fn() }))
 vi.mock('@/lib/accounting/vehicle-id', () => ({ ensureVehiclesByName: vi.fn(async () => {}) }))
-vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScopeForUser: async () => ({ access: {}, vehicleNames: ['Fund I'], companyIds: [] }) }))
+vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScopeForUser: async () => ({ access: {}, vehicleNames: ['Fund I'], writableNames: ['Fund I'], companyIds: [] }) }))
 vi.mock('@/lib/access/effective', () => ({ loadAccessContext: async () => ({}), hasAccess: () => s.canInvest }))
 import { POST } from '@/app/api/companies/route'
 

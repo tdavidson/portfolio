@@ -46,6 +46,8 @@ export interface PostmarkPayload {
   TextBody?: string
   HtmlBody?: string
   MessageID?: string
+  /** The message's headers, topmost first. */
+  Headers?: Array<{ Name: string; Value: string }>
   Attachments?: Array<{
     Name: string
     ContentType: string

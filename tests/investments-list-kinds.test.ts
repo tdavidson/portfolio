@@ -11,7 +11,7 @@ import { GET } from '@/app/api/portfolio/investments/route'
 
 const t = (o: Record<string, unknown>) => ({ fund_id: 'f', portfolio_group: 'Fund I', transaction_date: '2026-01-15', round_name: null, ...o })
 const co = (id: string, name: string, holding_type: string, portfolio_group = ['Fund I']) => ({ id, fund_id: 'f', name, status: 'active', portfolio_group, holding_type })
-const open = { access: {}, vehicleNames: null, companyIds: null }
+const open = { access: {}, vehicleNames: null, writableNames: null, companyIds: null }
 
 describe('GET /api/portfolio/investments', () => {
   it('lists companies, fund holdings and digital assets, each with its kind and its value', async () => {
@@ -40,7 +40,7 @@ describe('GET /api/portfolio/investments', () => {
   })
 
   it('lists a fund holding or digital asset with no transactions yet as an empty entry, within entity scope', async () => {
-    s.scope = { access: {}, vehicleNames: ['Fund I'], companyIds: ['f1', 'k1', 'c2'] }
+    s.scope = { access: {}, vehicleNames: ['Fund I'], writableNames: ['Fund I'], companyIds: ['f1', 'k1', 'c2'] }
     s.m = memoryAdmin({
       fund_members: [{ user_id: 'u', fund_id: 'f', role: 'member' }],
       companies: [

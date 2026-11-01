@@ -1,8 +1,8 @@
 import { describe, it, expect } from 'vitest'
 import { noteVisible, noteEntityCandidates, resolveNoteEntity } from './entity'
 
-const member = { access: { fundId: 'f1', vehicles: { all: false, ids: ['v1', 'v3'] } }, vehicleNames: ['Fund I', 'Fund III'], companyIds: ['c1'] } as any
-const everyone = { access: { fundId: 'f1', vehicles: { all: true, ids: [] } }, vehicleNames: null, companyIds: null } as any
+const member = { access: { fundId: 'f1', vehicles: { all: false, ids: ['v1', 'v3'] } }, vehicleNames: ['Fund I', 'Fund III'], writableNames: ['Fund I', 'Fund III'], companyIds: ['c1'] } as any
+const everyone = { access: { fundId: 'f1', vehicles: { all: true, ids: [] } }, vehicleNames: null, writableNames: null, companyIds: null } as any
 
 describe('noteVisible — every note belongs to an entity', () => {
   it('a member sees notes for their entities, about no company or about a company of theirs', () => {

@@ -51,8 +51,14 @@ export function matchInboundDomain<T extends { resend_inbound_domain: string | n
     const recipient = extractAddress(raw).toLowerCase()
     const domain = recipient.split('@')[1]
     if (!domain) continue
-    const match = settings.find(s => s.resend_inbound_domain?.trim().toLowerCase() === domain)
-    if (match) return { settings: match, recipient }
+    const matches = settings.filter(s => s.resend_inbound_domain?.trim().toLowerCase() === domain)
+    // Two funds claiming one domain is a misconfiguration or a takeover attempt: deliver to neither,
+    // rather than to whichever row came first (20261101210000 makes it impossible from now on).
+    if (matches.length > 1) {
+      console.warn(`[inbound-email/resend] ${matches.length} funds claim the inbound domain ${domain}; delivering to none`)
+      return null
+    }
+    if (matches.length === 1) return { settings: matches[0], recipient }
   }
   return null
 }
@@ -60,13 +66,18 @@ export function matchInboundDomain<T extends { resend_inbound_domain: string | n
 /**
  * Why an email should be refused on its authentication results, or null to accept it.
  *
- * Refuses only a DMARC `fail`: the sender's own domain published a policy and this message broke
- * it, which is what a spoofed From looks like. `gray` (no policy, softfail) and missing results
- * are accepted, since plenty of legitimate small senders have no DMARC record.
+ * Refuses a DMARC `fail` (the sender's own domain published a policy and this message broke it,
+ * which is what a spoofed From looks like) and a message that passed neither SPF nor DKIM. A
+ * message with no DMARC record that passed one of them is accepted, but gets no member's treatment
+ * (lib/pipeline/sender-auth.ts). Missing results (mail from before Resend reported them) are accepted.
  */
 export function authenticationRejection(auth: ResendAuthentication | null): string | null {
   if (auth?.dmarc === 'fail') {
     return `DMARC failed (spf=${auth.spf ?? 'unknown'}, dkim=${auth.dkim ?? 'unknown'})`
+  }
+  // Neither SPF nor DKIM passed: nothing at all says this came from where it claims.
+  if (auth && (auth.spf || auth.dkim) && auth.spf !== 'pass' && auth.dkim !== 'pass') {
+    return `neither SPF nor DKIM passed (spf=${auth.spf ?? 'unknown'}, dkim=${auth.dkim ?? 'unknown'})`
   }
   return null
 }

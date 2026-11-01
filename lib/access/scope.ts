@@ -61,7 +61,7 @@ export function vehicleScopeFromRow(role: FundRole, vehicles: unknown, vehiclesA
 
 /** This member's cap in one entity, or null when there is none (write, or unscoped). */
 export function entityCap(access: Pick<AccessContext, 'vehicles'>, vehicleId: string | null): EntityCap | null {
-  if (access.vehicles.all || !vehicleId) return null
+  if (!access?.vehicles || access.vehicles.all || !vehicleId) return null
   return access.vehicles.caps?.[vehicleId] ?? null
 }
 

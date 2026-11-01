@@ -13,8 +13,8 @@ function admin(t: { links?: any[]; company?: any; txns?: any[] }) {
     },
   } as any
 }
-const member = { access: { fundId: 'f1', vehicles: { all: false, ids: ['v1'] } }, vehicleNames: ['Fund I'], companyIds: ['c1'] } as any
-const everyone = { access: { fundId: 'f1', vehicles: { all: true, ids: [] } }, vehicleNames: null, companyIds: null } as any
+const member = { access: { fundId: 'f1', vehicles: { all: false, ids: ['v1'] } }, vehicleNames: ['Fund I'], writableNames: ['Fund I'], companyIds: ['c1'] } as any
+const everyone = { access: { fundId: 'f1', vehicles: { all: true, ids: [] } }, vehicleNames: null, writableNames: null, companyIds: null } as any
 
 describe('companyDeleteDenial — a member deletes only what is wholly theirs', () => {
   it('allows a company held only by their entities', async () => {

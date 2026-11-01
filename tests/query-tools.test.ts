@@ -11,7 +11,7 @@ import { memoryAdmin } from './helpers/memory-admin'
 
 vi.mock('@/lib/access/entity-scope', () => ({
   entityScopeFor: async (_: unknown, a: AccessContext) =>
-    a.vehicles.all ? { access: a, vehicleNames: null, companyIds: null } : { access: a, vehicleNames: ['Fund I'], companyIds: ['c1'] },
+    a.vehicles.all ? { access: a, vehicleNames: null, writableNames: null, companyIds: null } : { access: a, vehicleNames: ['Fund I'], writableNames: ['Fund I'], companyIds: ['c1'] },
 }))
 vi.mock('@/lib/access/scope', async importOriginal => ({
   ...(await importOriginal<typeof import('@/lib/access/scope')>()),

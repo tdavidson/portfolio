@@ -7,7 +7,7 @@ const s = vi.hoisted(() => ({ m: null as any, retract: vi.fn(), redraft: vi.fn()
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: 'u' } } }) } }) }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => s.m.admin }))
 vi.mock('@/lib/api-helpers', async (orig) => ({ ...(await orig<any>()), assertWriteAccess: async () => ({ fundId: 'f', userId: 'u', role: 'admin' }) }))
-vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScope: async () => ({ vehicleNames: null, companyIds: null, access: {} }) }))
+vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScope: async () => ({ vehicleNames: null, writableNames: null, companyIds: null, access: {} }) }))
 vi.mock('@/lib/accounting/from-portfolio', () => ({ retractEntriesForTransaction: s.retract, draftEntryForTransaction: s.redraft }))
 vi.mock('@/lib/activity', () => ({ logActivity: () => {} }))
 import { DELETE, PATCH } from '@/app/api/companies/[id]/investments/[txnId]/route'
