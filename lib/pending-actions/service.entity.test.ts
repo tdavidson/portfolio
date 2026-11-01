@@ -75,4 +75,18 @@ describe('pending actions — only the caller\'s entities', () => {
     expect(a.updates).toEqual([])
     expect(m.execute).not.toHaveBeenCalled()
   })
+
+  it('a member who can only read the action\'s entity cannot approve it, and nothing is claimed', async () => {
+    const memberAction = { ...row('00000000-0000-4000-8000-000000000004', 'Fund I'), action_type: 'record_metric_value' }
+    rows.push(memberAction)
+    const a = admin()
+    const reader = principal(false)
+    reader.access.vehicles = { all: false, ids: ['v1'], caps: { v1: 'read' } }
+    await expect(approvePendingAction(a, reader, memberAction.id)).rejects.toMatchObject({ status: 403, code: 'ENTITY_LEVEL' })
+    reader.access.vehicles = { all: false, ids: ['v1'], caps: { v1: 'propose' } }
+    await expect(approvePendingAction(a, reader, memberAction.id)).rejects.toMatchObject({ status: 403, code: 'ENTITY_LEVEL' })
+    expect(a.updates).toEqual([])
+    expect(m.execute).not.toHaveBeenCalled()
+    rows.pop()
+  })
 })

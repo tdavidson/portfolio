@@ -66,6 +66,26 @@ export function entityCap(access: Pick<AccessContext, 'vehicles'>, vehicleId: st
 }
 
 /**
+ * The same access, narrowed to the entities this member may change: an entity capped at read (or,
+ * unless `proposals`, at propose) is dropped. Everything that resolves an entity, a company or a
+ * scope from it then sees only those, so a write path that resolves through it cannot reach a
+ * read-only entity. Unchanged for a caller with no caps.
+ */
+export function writeAccess<A extends Pick<AccessContext, 'vehicles'>>(access: A, opts: { proposals?: boolean } = {}): A {
+  const caps = access.vehicles.caps
+  if (access.vehicles.all || !caps || Object.keys(caps).length === 0) return access
+  const ids = access.vehicles.ids.filter(id => !caps[id] || (opts.proposals && caps[id] === 'propose'))
+  // A propose cap that survives stays a cap, so the ledger still turns those writes into drafts.
+  const kept = Object.fromEntries(Object.entries(caps).filter(([id]) => ids.includes(id)))
+  return { ...access, vehicles: { ...access.vehicles, ids, caps: kept } }
+}
+
+/** The entity ids this caller may change, or null for no filter. */
+export function writableVehicleIds(access: Pick<AccessContext, 'vehicles'>): string[] | null {
+  return visibleVehicleIds(writeAccess(access))
+}
+
+/**
  * May this caller see this entity? `null` is a legacy entity known only by a `portfolio_group`
  * string with no fund_vehicles row: it cannot be granted, so only a caller who sees everything
  * sees it.

@@ -68,7 +68,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'portfolioGroup, flowDate, flowType, and amount are required' }, { status: 400 })
   }
   const writeScope = await loadEntityScopeForUser(admin, user.id)
-  const denied = groupWriteDenial((writeScope ? writeScope.vehicleNames : []), portfolioGroup)
+  const denied = groupWriteDenial((writeScope ? writeScope.writableNames : []), portfolioGroup)
   if (denied) return NextResponse.json({ error: denied }, { status: 403 })
 
   if (!['commitment', 'called_capital', 'distribution'].includes(flowType)) {
@@ -201,7 +201,7 @@ async function cashFlowDenial(
   admin: ReturnType<typeof createAdminClient>, userId: string, fundId: string, id: string, newGroup: string | undefined,
 ): Promise<NextResponse | null> {
   const scope = await loadEntityScopeForUser(admin, userId)
-  const names = scope ? scope.vehicleNames : []
+  const names = scope ? scope.writableNames : []
   if (names === null) return null
   const { data: row } = await admin.from('fund_cash_flows' as any).select('portfolio_group').eq('id', id).eq('fund_id', fundId).maybeSingle()
   if (!row || groupWriteDenial(names, (row as any).portfolio_group)) return NextResponse.json({ error: 'Not found' }, { status: 404 })

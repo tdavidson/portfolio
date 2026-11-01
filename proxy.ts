@@ -9,7 +9,7 @@ import { DOMAIN_META } from '@/lib/access/domains'
 import { adminOnlyMessage, adminOnlyRule, adminRuleNeedsBody, UNREADABLE } from '@/lib/access/admin-only'
 import { buildReportOnlyCsp, generateNonce, NONCE_HEADER, REPORT_ONLY_HEADER } from '@/lib/security/csp'
 import { buildEnforcingCsp } from '@/lib/security/csp-enforcing.mjs'
-import { companyEntityDenial, dealEntityDenial, rlsRowDenial, rowCompanyDenial } from '@/lib/access/entity-gate'
+import { companyEntityDenial, dealEntityDenial, rlsRowDenial, entityWriteDenial, rowCompanyDenial } from '@/lib/access/entity-gate'
 
 // The ENFORCING policy, on every response this proxy produces, carrying the page's nonce.
 //
@@ -328,7 +328,8 @@ async function gateApiRequest(
     return (await companyEntityDenial(supabase as never, key, request.nextUrl.pathname, access))
       ?? (await dealEntityDenial(supabase as never, key, request.nextUrl.pathname, access))
       ?? (await rlsRowDenial(supabase as never, key, request.nextUrl.pathname, access))
-      ?? rowCompanyDenial(supabase as never, key, request.nextUrl.pathname, access)
+      ?? (await rowCompanyDenial(supabase as never, key, request.nextUrl.pathname, access))
+      ?? entityWriteDenial(supabase as never, key, request.nextUrl.pathname, access, level)
   }
 
   // A proposal is a change too: the demo makes none.

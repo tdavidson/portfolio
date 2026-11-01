@@ -127,7 +127,7 @@ export async function POST(req: NextRequest) {
   const created = await createCompany(admin, {
     fundId: membership.fund_id,
     userId: user.id,
-    vehicleNames: createScope ? createScope.vehicleNames : [],
+    vehicleNames: createScope ? createScope.writableNames : [],
     fields: { name, aliases, tags, stage, industry, notes, overview, founders, why_invested, current_update, contact_email, portfolio_group },
     holdingType: holdingType as 'company' | 'crypto',
     defaultMetricIds,

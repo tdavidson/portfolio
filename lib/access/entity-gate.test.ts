@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { companyIdForRoute, companyEntityDenial } from './entity-gate'
+import { companyIdForRoute, companyEntityDenial, entityWriteDenial } from './entity-gate'
 
 describe('companyIdForRoute — which company a request is about', () => {
   it('reads the company from a company route', () => {
@@ -159,5 +159,51 @@ describe('rlsRowDenial — diligence records', () => {
   })
   it('ignores diligence routes about no single record', async () => {
     expect(await rlsRowDenial(client([]), 'api/diligence/inbox', '/api/diligence/inbox', member)).toBeNull()
+  })
+})
+
+/** A caller's client over a few tables, filtered by `eq` like PostgREST. */
+function tables(data: Record<string, Record<string, any>[]>) {
+  return {
+    from: (t: string) => {
+      const filters: [string, any][] = []
+      const rows = () => (data[t] ?? []).filter(r => filters.every(([k, v]) => r[k] === v))
+      const chain: any = {
+        select: () => chain, limit: () => chain,
+        eq: (k: string, v: any) => { filters.push([k, v]); return chain },
+        maybeSingle: async () => ({ data: rows()[0] ?? null, error: null }),
+        then: (res: any) => res({ data: rows(), error: null }),
+      }
+      return chain
+    },
+  } as any
+}
+
+describe('entityWriteDenial — a change needs write in the entity, not just sight of it', () => {
+  const capped = { vehicles: { all: false, ids: ['v1', 'v2'], caps: { v2: 'read' as const } } }
+  const db = tables({
+    company_vehicles: [{ company_id: 'c1', vehicle_id: 'v1' }, { company_id: 'c2', vehicle_id: 'v2' }],
+    inbound_deals: [{ id: 'd2', vehicle_id: 'v2' }, { id: 'd1', vehicle_id: 'v1' }],
+    company_notes: [{ id: 'n2', vehicle_id: 'v2' }],
+    lp_letters: [{ id: 'l2', portfolio_group: 'Fund II' }],
+    fund_vehicles: [{ id: 'v1', name: 'Fund I', aliases: null }, { id: 'v2', name: 'Fund II', aliases: null }],
+  })
+
+  it('costs nothing for a read, or for a member with no caps', async () => {
+    const none = { from: () => { throw new Error('should not query') } } as any
+    expect(await entityWriteDenial(none, 'api/companies/[id]', '/api/companies/c2', capped, 'read')).toBeNull()
+    expect(await entityWriteDenial(none, 'api/companies/[id]', '/api/companies/c2', { vehicles: { all: false, ids: ['v2'] } }, 'write')).toBeNull()
+  })
+
+  it('refuses a change to a company, deal, note or letter held only by a read-level entity', async () => {
+    expect((await entityWriteDenial(db, 'api/companies/[id]', '/api/companies/c2', capped, 'write'))?.status).toBe(403)
+    expect((await entityWriteDenial(db, 'api/deals/[id]', '/api/deals/d2', capped, 'write'))?.status).toBe(403)
+    expect((await entityWriteDenial(db, 'api/companies/[id]/notes/[noteId]', '/api/companies/c1/notes/n2', capped, 'write'))?.status).toBe(403)
+    expect((await entityWriteDenial(db, 'api/lp-letters/[id]', '/api/lp-letters/l2', capped, 'write'))?.status).toBe(403)
+  })
+
+  it('lets a change through in an entity they may write', async () => {
+    expect(await entityWriteDenial(db, 'api/companies/[id]', '/api/companies/c1', capped, 'write')).toBeNull()
+    expect(await entityWriteDenial(db, 'api/deals/[id]', '/api/deals/d1', capped, 'write')).toBeNull()
   })
 })

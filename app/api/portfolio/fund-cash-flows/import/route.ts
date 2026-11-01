@@ -171,7 +171,7 @@ ${rawData}`,
       continue
     }
 
-    const denied = groupWriteDenial(writeScope.vehicleNames, String(cf.portfolio_group).trim())
+    const denied = groupWriteDenial(writeScope.writableNames, String(cf.portfolio_group).trim())
     if (denied) {
       errors.push(`Row ${i + 1}: ${denied}`)
       continue

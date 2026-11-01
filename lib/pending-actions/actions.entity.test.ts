@@ -6,7 +6,7 @@ vi.mock('@/lib/access/scope', async orig => ({
   visibleCompanyIds: async () => ['c1'],
 }))
 vi.mock('@/lib/access/entity-scope', () => ({
-  entityScopeFor: async (_a: any, access: any) => ({ access, vehicleNames: ['Fund I'], companyIds: ['c1'] }),
+  entityScopeFor: async (_a: any, access: any) => ({ access, vehicleNames: ['Fund I'], writableNames: ['Fund I'], companyIds: ['c1'] }),
 }))
 
 import { previewMetricValue } from './metric-value'

@@ -36,7 +36,7 @@ function needUser(ctx: AgentToolContext): string {
 export const HOLDING_HANDLERS: Record<string, AgentToolHandler> = {
   update_company: async (ctx: AgentToolContext, input: any) => {
     const company = await resolveCompany(ctx.admin, ctx.fundId, String(input?.company ?? ''), ctx.access)
-    const vehicleNames = (await entityScopeFor(ctx.admin, ctx.access)).vehicleNames
+    const vehicleNames = (await entityScopeFor(ctx.admin, ctx.access)).writableNames
     return unwrap(await updateCompanyDetails(ctx.admin, { fundId: ctx.fundId, userId: ctx.userId ?? null, vehicleNames }, company.id, companyChangeFromInput(input)))
   },
 
@@ -49,7 +49,7 @@ export const HOLDING_HANDLERS: Record<string, AgentToolHandler> = {
     if (!input?.transaction_id) throw new Error('transaction_id is required (list_investments gives it)')
     const from = await resolveCompany(ctx.admin, ctx.fundId, String(input?.company ?? ''), ctx.access)
     const to = await resolveCompany(ctx.admin, ctx.fundId, String(input?.to_company ?? ''), ctx.access)
-    const vehicleNames = (await entityScopeFor(ctx.admin, ctx.access)).vehicleNames
+    const vehicleNames = (await entityScopeFor(ctx.admin, ctx.access)).writableNames
     const out = unwrap(await moveInvestmentTransaction(ctx.admin, { fundId: ctx.fundId, userId: ctx.userId ?? null, vehicleNames }, from.id, String(input.transaction_id), to.id))
     return { moved: input.transaction_id, from: out.from, to: out.to, transaction: out.transaction, ledger: out.ledger }
   },
@@ -102,7 +102,7 @@ export const HOLDING_HANDLERS: Record<string, AgentToolHandler> = {
       if (!eventId) throw new Error(`No notice on ${holding.name} owns transaction ${input.transaction_id}.`)
     }
     if (!eventId) throw new Error('event_id or transaction_id is required.')
-    const vehicleNames = (await entityScopeFor(ctx.admin, ctx.access)).vehicleNames
+    const vehicleNames = (await entityScopeFor(ctx.admin, ctx.access)).writableNames
     const out = unwrap(await updateFundNotice(ctx.admin, { fundId: ctx.fundId, userId: ctx.userId ?? null, vehicleNames },
       holding.id, eventId, noticeChangesFrom(input), { recalculateCharacter: input?.recalculate_character === true }))
     return { holding: holding.name, ...out }
@@ -111,7 +111,7 @@ export const HOLDING_HANDLERS: Record<string, AgentToolHandler> = {
   recalculate_fund_distributions: async (ctx: AgentToolContext, input: any) => {
     const holding = await resolveCompany(ctx.admin, ctx.fundId, String(input?.company ?? ''), ctx.access)
     const vehicleId = await holdingVehicle(ctx, holding.id, input?.vehicle)
-    const vehicleNames = (await entityScopeFor(ctx.admin, ctx.access)).vehicleNames
+    const vehicleNames = (await entityScopeFor(ctx.admin, ctx.access)).writableNames
     return unwrap(await recalculateFundDistributions(ctx.admin, { fundId: ctx.fundId, userId: ctx.userId ?? null, vehicleNames },
       holding.id, vehicleId, { dryRun: input?.dry_run === true }))
   },

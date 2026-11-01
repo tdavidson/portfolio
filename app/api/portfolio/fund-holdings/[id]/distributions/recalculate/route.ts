@@ -28,7 +28,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
 
   const scope = await loadEntityScope(admin, gate)
   const result = await recalculateFundDistributions(
-    admin, { fundId: gate.fundId, userId: user.id, vehicleNames: scope.vehicleNames },
+    admin, { fundId: gate.fundId, userId: user.id, vehicleNames: scope.writableNames },
     params.id, resolved.vehicleId, { dryRun: body?.dryRun === true },
   )
   return outcomeResponse(result, v => v)

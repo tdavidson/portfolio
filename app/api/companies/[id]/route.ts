@@ -89,7 +89,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     // A member edits only their own entities' part: the ones they cannot see are kept as they were,
     // and naming one they cannot see is refused (before ensureVehiclesByName could create it).
     const scope = await loadEntityScope(admin, writeCheck)
-    const merged = mergeGroupsForWrite((company as any).portfolio_group, portfolio_group, scope.vehicleNames)
+    const merged = mergeGroupsForWrite((company as any).portfolio_group, portfolio_group, scope.writableNames)
     if ('error' in merged) return NextResponse.json({ error: merged.error }, { status: 403 })
     // Every stored portfolio_group name must be backed by a real fund_vehicles row — never a
     // disconnected string. Resolve/create before the write, not after.

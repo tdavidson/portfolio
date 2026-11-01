@@ -64,7 +64,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'portfolioGroup is required' }, { status: 400 })
   }
   const writeScope = await loadEntityScopeForUser(admin, user.id)
-  const denied = groupWriteDenial((writeScope ? writeScope.vehicleNames : []), portfolioGroup)
+  const denied = groupWriteDenial((writeScope ? writeScope.writableNames : []), portfolioGroup)
   if (denied) return NextResponse.json({ error: denied }, { status: 403 })
 
   const row: Record<string, any> = {
