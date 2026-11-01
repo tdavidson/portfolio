@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Linked sign-ins: one connection across the funds you work for
+- **For people who work for several funds here,** usually an outside fund administrator, tax preparer or auditor. In Settings, under **Linked sign-ins**, get a code while signed in to one fund and enter it while signed in to another. Their sign-ins are then linked, and one Claude or ChatGPT connection made with any of them lists those funds (`list_funds`) and switches between them (`use_fund`). In each fund it acts as that fund's own member, with that member's role, grants, entity caps and audit trail, so a link never widens anyone's access. Codes are single-use, last ten minutes and are stored hashed. Up to 12 sign-ins can be linked. `lib/account-links.ts`.
+- **Each fund decides.** Admins see who in their fund has linked, under Settings → Team, and can switch linking off. A fund that does that drops out of every linked connection at once, and its own members' connections get no linked funds. It's on by default, since a link lets a person do only what they could already do with one connection per fund.
+- Built on the existing master-admin pooling (`MASTER_ADMIN_EMAILS`), which still works and is still set by the deployment owner. One email is still one fund.
+- Needs `20261101160000_linked_sign_ins.sql`: the `account_links` and `account_link_codes` tables (service role only) and `fund_settings.allow_linked_sign_ins`. Additive; apply it before deploying.
+
 ### Fund Access: an open spec for outside access
 - **A draft open spec** in `spec/fund-access/` for who may do what with a fund's data when outside firms and LPs work through the web, an assistant or a script. It names the standard areas, the four levels, the fund's switch, entity scope and caps, and the decision for a read, a write and a record filing: allow, propose, stage, stage for an admin, or refuse. It also specifies engagements, LP change requests, records and what every door must show. Written in the same shape as Walter: spec pages, a JSON Schema, 43 test vectors and a small reference engine. "Fund Access" is a working name.
 - **Portfolio passes all 43 vectors** with its own checks (`tests/fund-access-portfolio.test.ts`), and a test pins Portfolio's areas and their relations to the spec's.

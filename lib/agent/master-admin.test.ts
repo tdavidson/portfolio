@@ -9,12 +9,30 @@ const ROWS = [
   { user_id: 'u-rb', email: 't@riverbend.example', fund_id: 'f-rb', fund_name: 'Riverbend Capital' },
 ]
 
-function fakeAdmin(rows: unknown[], active: string | null = null) {
+/**
+ * A client that answers the three tables loadPool reads: agent_active_funds (the stored choice),
+ * account_links (linked sign-ins: user → group) and fund_settings (whether a fund allows linking).
+ */
+function fakeAdmin(rows: unknown[], active: string | null = null, opts: { links?: Record<string, string>; emails?: Record<string, string>; noLinking?: string[] } = {}) {
+  const links = opts.links ?? {}
   return {
     rpc: vi.fn(async () => ({ data: rows, error: null })),
-    from: () => ({
-      select: () => ({ eq: () => ({ eq: () => ({ maybeSingle: async () => ({ data: active ? { fund_id: active } : null }) }) }) }),
-    }),
+    auth: { admin: { getUserById: async (id: string) => ({ data: { user: { email: opts.emails?.[id] } } }) } },
+    from: (table: string) => {
+      const filters: Record<string, string> = {}
+      const chain: any = {
+        select: () => chain,
+        eq: (col: string, val: string) => { filters[col] = val; return chain },
+        maybeSingle: async () => {
+          if (table === 'agent_active_funds') return { data: active ? { fund_id: active } : null }
+          if (table === 'account_links') return { data: links[filters.user_id] ? { group_id: links[filters.user_id] } : null }
+          if (table === 'fund_settings') return { data: { allow_linked_sign_ins: !(opts.noLinking ?? []).includes(filters.fund_id) } }
+          return { data: null }
+        },
+        then: (r: any) => r({ data: table === 'account_links' ? Object.entries(links).filter(([, g]) => g === filters.group_id).map(([user_id]) => ({ user_id })) : [], error: null }),
+      }
+      return chain
+    },
   } as any
 }
 
@@ -140,5 +158,27 @@ describe('matchFund', () => {
     expect(matchFund(pool, 'nope')).toMatch(/Choose from: Northwind Holdings, Riverbend Capital/)
     expect(matchFund(pool, 'd')).toMatch(/more than one fund/)
     expect(matchFund(pool, '')).toMatch(/Name the fund/)
+  })
+})
+
+describe('loadPool with linked sign-ins', () => {
+  const emails = { 'u-nw': 't@northwind.example', 'u-rb': 't@riverbend.example' }
+  const links = { 'u-nw': 'g1', 'u-rb': 'g1' }
+
+  it('pools linked sign-ins with no deployment variable at all', async () => {
+    const pool = await loadPool(fakeAdmin(ROWS, null, { links, emails }), { userId: 'u-nw', fundId: 'f-nw', clientId: 'c1' })
+    expect(pool?.funds.map(f => f.fundId)).toEqual(['f-nw', 'f-rb'])
+  })
+
+  it('leaves out a fund that does not allow linking', async () => {
+    expect(await loadPool(fakeAdmin(ROWS, null, { links, emails, noLinking: ['f-rb'] }), { userId: 'u-nw', fundId: 'f-nw', clientId: 'c1' })).toBeNull()
+  })
+
+  it('gives no linked funds to a connection whose own fund refuses linking', async () => {
+    expect(await loadPool(fakeAdmin(ROWS, null, { links, emails, noLinking: ['f-nw'] }), { userId: 'u-nw', fundId: 'f-nw', clientId: 'c1' })).toBeNull()
+  })
+
+  it('does nothing for a sign-in that is not linked', async () => {
+    expect(await loadPool(fakeAdmin(ROWS, null, { emails }), { userId: 'u-nw', fundId: 'f-nw', clientId: 'c1' })).toBeNull()
   })
 })

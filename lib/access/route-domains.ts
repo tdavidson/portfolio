@@ -531,6 +531,9 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // The member's own OAuth connections (MCP connector, v1 API): listing and revoking their own
   // tokens, scoped to their user and fund in the handler.
   'api/settings/connected-apps': { domain: 'portfolio', level: 'any' },
+  // The caller's own linked sign-ins (lib/account-links.ts): a user's own data, like connected apps.
+  'api/account/links': { domain: 'portfolio', level: 'any' },
+  'api/settings/linked-sign-ins': { domain: 'admin' },
   'api/settings/reminders': { domain: 'admin' },
   'api/settings/dashboard-entities': { domain: 'admin' },
   // Entity groups: managing them is administration (and admins only in the handler).

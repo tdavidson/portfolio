@@ -6,6 +6,7 @@ import { Loader2, Shield } from 'lucide-react'
 import { Section } from '@/components/settings/section'
 import { AccessGrid } from '@/components/settings-access-grid'
 import { EngagementsPanel } from '@/components/settings-engagements'
+import { LinkedSignInsPolicy } from '@/components/settings-linked-sign-ins'
 import type { FeatureVisibilityMap } from '@/lib/types/features'
 
 interface Member {
@@ -215,6 +216,7 @@ export function TeamSection({ isAdmin, featureVisibility }: { isAdmin: boolean; 
             <div className="pt-2 border-t">
               <p className="text-xs font-medium mb-2 mt-3">Engagements</p>
               <EngagementsPanel />
+              <LinkedSignInsPolicy />
             </div>
           )}
         </div>
