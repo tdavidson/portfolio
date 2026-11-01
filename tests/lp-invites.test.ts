@@ -22,6 +22,7 @@ import { POST, PATCH } from '@/app/api/lps/invites/route'
 
 let deliveries: Record<string, unknown>[] = []
 let accountUpdates: Record<string, unknown>[] = []
+let linkUpdates: Record<string, unknown>[] = []
 let links: Record<string, unknown>[] = []
 let entitiesCreated: Record<string, unknown>[] = []
 let existingAccount: { id: string; auth_user_id: string | null; status: string } | null = null
@@ -59,9 +60,9 @@ function stub() {
         if (table === 'lp_entities') { entitiesCreated.push(row); return { select: () => ({ single: async () => ({ data: { id: 'ent-new' }, error: null }) }) } }
         return Promise.resolve({ error: null })
       },
-      update: (patch: Record<string, unknown>) => ({
-        eq: async (_c: string, id: string) => { accountUpdates.push({ id, ...patch }); return { error: null } },
-      }),
+      update: (patch: Record<string, unknown>) => table === 'lp_account_links'
+        ? { eq: (_c: string, fund: string) => ({ eq: async (_c2: string, acct: string) => { linkUpdates.push({ fund, acct, ...patch }); return { error: null } } }) }
+        : { eq: async (_c: string, id: string) => { accountUpdates.push({ id, ...patch }); return { error: null } } },
     }
     return chain
   })
@@ -71,7 +72,7 @@ const req = (body: Record<string, unknown>) => ({ json: async () => body, url: '
 
 beforeEach(() => {
   vi.clearAllMocks()
-  deliveries = []; accountUpdates = []; links = []; entitiesCreated = []
+  deliveries = []; accountUpdates = []; linkUpdates = []; links = []; entitiesCreated = []
   existingAccount = null
   linkedAccounts = {}
   getUser.mockResolvedValue({ data: { user: { id: 'admin-1', email: 'gp@example.com' } } })
@@ -150,14 +151,24 @@ describe('POST /api/lps/invites', () => {
 })
 
 describe('PATCH /api/lps/invites', () => {
-  it('disables an account linked to this fund', async () => {
+  it('disables an account in this fund only: its other funds are untouched', async () => {
     linkedAccounts = { 'acct-1': { id: 'acct-1', status: 'active', auth_user_id: 'auth-1' } }
     const res = await PATCH(req({ lp_account_id: 'acct-1', status: 'disabled' }))
     expect(res.status).toBe(200)
-    expect(accountUpdates).toEqual([expect.objectContaining({ id: 'acct-1', status: 'disabled' })])
+    expect(await res.json()).toMatchObject({ ok: true, status: 'disabled' })
+    expect(linkUpdates).toEqual([expect.objectContaining({ fund: 'fund-1', acct: 'acct-1', disabled_at: expect.any(String) })])
+    expect(accountUpdates).toHaveLength(0)
   })
 
-  it('re-enabling an account that never activated puts it back to invited, not active', async () => {
+  it('re-enabling here clears this fund\'s switch, and keeps the account as it is elsewhere', async () => {
+    linkedAccounts = { 'acct-1': { id: 'acct-1', status: 'active', auth_user_id: 'auth-1' } }
+    const res = await PATCH(req({ lp_account_id: 'acct-1', status: 'active' }))
+    expect(await res.json()).toMatchObject({ ok: true, status: 'active' })
+    expect(linkUpdates).toEqual([expect.objectContaining({ disabled_at: null })])
+    expect(accountUpdates).toHaveLength(0)
+  })
+
+  it('re-enabling an account disabled everywhere (before the switch was per fund) puts it back to invited if it never activated', async () => {
     linkedAccounts = { 'acct-1': { id: 'acct-1', status: 'disabled', auth_user_id: null } }
     const res = await PATCH(req({ lp_account_id: 'acct-1', status: 'active' }))
     expect(await res.json()).toMatchObject({ ok: true, status: 'invited' })

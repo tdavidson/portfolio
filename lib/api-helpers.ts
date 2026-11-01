@@ -162,7 +162,8 @@ export async function resolveLpAccess(
   }
 
   const [{ data: links }, { data: delegated }] = await Promise.all([
-    admin.from('lp_account_links').select('lp_investor_id').eq('lp_account_id', account.id),
+    // `*` rather than naming disabled_at, so this reads the same before 20261101220000 runs.
+    admin.from('lp_account_links').select('*').eq('lp_account_id', account.id),
     // Embed the principal account's status: a delegation grants access only
     // while the principal LP it acts for is still active. Disabling the LP must
     // also cut their authorized users.
@@ -172,11 +173,17 @@ export async function resolveLpAccess(
       .eq('authorized_user_account_id', account.id),
   ])
 
+  // A delegation lapses where its principal was disabled in that investor's fund.
+  const delegatedRows = ((delegated ?? []) as any[]).filter(d => d.lp_accounts?.status === 'active')
+  const delegatedIds = delegatedRows.map(d => d.lp_investor_id as string)
+  const { data: cut } = delegatedIds.length
+    ? await (admin as any).from('lp_account_links').select('*').in('lp_investor_id', delegatedIds)
+    : { data: [] }
+  const disabledInvestors = new Set(((cut ?? []) as any[]).filter(l => l.disabled_at).map(l => l.lp_investor_id as string))
+
   const investorIds = Array.from(new Set([
-    ...((links ?? []) as { lp_investor_id: string }[]).map(l => l.lp_investor_id),
-    ...((delegated ?? []) as any[])
-      .filter(d => d.lp_accounts?.status === 'active')
-      .map(d => d.lp_investor_id as string),
+    ...((links ?? []) as { lp_investor_id: string; disabled_at?: string | null }[]).filter(l => !l.disabled_at).map(l => l.lp_investor_id),
+    ...delegatedIds.filter(id => !disabledInvestors.has(id)),
   ]))
 
   return { lpAccountId: account.id as string, investorIds }

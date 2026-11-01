@@ -26,12 +26,14 @@ export async function resolveLpRecipients(
   if (investorIds.length === 0) return []
 
   // Primary links: investor -> lp_account (scoped to this fund).
-  const { data: links } = await (admin as any)
+  // `*` so this reads the same before 20261101220000; a link disabled in this fund gets no email.
+  const { data: allLinks } = await (admin as any)
     .from('lp_account_links')
-    .select('lp_account_id, lp_investor_id')
+    .select('*')
     .eq('fund_id', fundId)
     .in('lp_investor_id', investorIds)
-  if (!links || links.length === 0) return []
+  const links = ((allLinks ?? []) as any[]).filter(l => !l.disabled_at)
+  if (links.length === 0) return []
 
   const primaryAccountIds = Array.from(new Set(links.map((l: any) => l.lp_account_id as string)))
   const { data: accounts } = await (admin as any)

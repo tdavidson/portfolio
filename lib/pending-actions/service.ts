@@ -205,8 +205,10 @@ export function stagedBySameCredential(
 ): boolean {
   if (!principal.credentialId) return false
   if (row.created_by !== principal.userId) return false
-  if (row.created_credential) return row.created_credential === principal.credentialId
-  return row.created_via === 'mcp' && principal.credentialId.startsWith('oauth:')
+  // One OAuth client is one credential, whichever door (MCP `oauth:`, /api/v1 `v1:`) it came in by.
+  const client = (id: string) => id.replace(/^v1:/, 'oauth:')
+  if (row.created_credential) return client(row.created_credential) === client(principal.credentialId)
+  return row.created_via === 'mcp' && client(principal.credentialId).startsWith('oauth:')
 }
 
 /**
