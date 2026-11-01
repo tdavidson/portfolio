@@ -13,7 +13,7 @@ import type { AccessContext } from '@/lib/access/effective'
 import { hasAccess } from '@/lib/access/effective'
 import { authorizeToolUse, type ResolvedKey } from '@/lib/accounting/api-keys'
 import {
-  AGENT_TOOLS, accessDomainFor, accessDomainForCall, accessFeatureFor,
+  AGENT_TOOLS, accessDomainFor, accessDomainForCall, accessFeatureFor, toolListedFor,
   type AgentTool,
 } from '@/lib/accounting/agent-tools'
 import { DASHBOARD_TOOLS, type DashboardTool } from '@/lib/agent/dashboard-tools'
@@ -187,8 +187,7 @@ export function listableTools(access: AccessContext): McpTool[] {
     // list feeds tools/list, search_tools and call_tool's suggestions alike.
     if (!isToolOffered(tool as AgentTool)) return false
     // A proposable write is listed for a proposer too: calling it makes a proposal.
-    const need = tool.scope === 'write' && proposableTool(tool) ? 'propose' : tool.scope
-    return hasAccess(access, accessDomainFor(tool), need, accessFeatureFor(tool))
+    return toolListedFor(access, tool as AgentTool)
   })
 }
 

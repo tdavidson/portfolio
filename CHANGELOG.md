@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### The web, MCP and the API give the same answer
+- **A parity test** (`tests/three-door-parity.test.ts`) puts every role a fund hands out through each of its three doors: every access preset, an admin, the demo viewer, and a member with nothing. It checks pairs of a web route and the tool that does the same thing (journal entries, proposals, voids, periods, waterfall terms, commitments, LP records, portal access, LP change requests, deletes) and requires the same answer from the web, MCP and the API. It also requires MCP's tool list and the API's to show each person the same tools. A new tool that mirrors a route gets a pair there.
+- **Waterfall terms are admin-only from chat too.** The web refused a non-admin saving them, but a member with write on GP economics could stage `set_waterfall_terms` from a chat and approve it themselves. Approving it now needs an admin, as saving does.
+- **The API lists `post_entry` for a proposer.** MCP listed it and both accepted the call, but `GET /api/agent` hid it. Both lists now use one rule (`toolListedFor`).
+- **`withdraw_proposal`** lets a proposer withdraw their own proposal over MCP and the API, as the journal's Withdraw does on the web.
+
 ### LP change requests
 - **LPs ask, the fund approves.** In the portal's Settings, under **Your details**, an investor sees what the fund has on file (entity type, jurisdiction, address, notice email, signatories, contact details) and asks for a change, or asks the fund to give an advisor or accountant read-only portal access. Nothing changes on asking. The request is emailed to the fund's admins, listed with its state, and can be withdrawn while pending. Only the investor's own portal account can ask; an authorized user's access stays read-only. The fund's own notes and the onboarding checklist aren't the LP's to change. `lib/lps/change-requests.ts`.
 - **Staff review them on the Partners page**, each record change shown from what is on file to what was asked. Approving makes the change through the same function a direct edit uses, as the approver: a record change needs write on LP capital and the LP in their scope, and portal access for an authorized user needs an admin, as it does directly. Rejecting takes a note the LP sees. Every decision is an `lp_change.approve` or `lp_change.reject` event in the audit trail.

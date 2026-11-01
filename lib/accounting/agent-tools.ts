@@ -7,11 +7,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { AGENT_TOOL_MANIFEST, type AgentToolMeta } from './agent-tools-manifest'
 import type { Domain } from '@/lib/access/domains'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
+import { changeEntryState } from './journal-state'
 import { carryRecipientIds, combineCarryRecipients, seesIndividualCarry } from '@/lib/access/carry-visibility'
 import type { FeatureKey } from '@/lib/types/features'
 import { loadPostedLedger, loadEntityNames, loadOwnership, fetchAllRows } from './load'
 import { accountIdByCode, duplicateRefMessage, liveEntryByRef, persistEntry } from './persist'
-import { isProposer, listProposals, markProposed } from './proposals'
+import { isProposer, listProposals, markProposed, proposerChangeProblem } from './proposals'
 import { vehicleIdByName } from './vehicle-id'
 import { computeCapitalAccounts, totalNav } from './capital-account'
 import { trialBalance, balanceSheet, incomeStatement } from './statements'
@@ -239,6 +240,21 @@ const HANDLERS: Record<string, AgentToolHandler> = {
       }
     }
     return { entryId: result.entryId }
+  },
+
+  // The journal's Withdraw for a proposer: their own proposal, while it is a draft, on the same
+  // checks as PATCH /api/accounting/journal { action: 'void' }.
+  withdraw_proposal: async ({ admin, fundId, portfolioGroup, userId, access }, input) => {
+    if (!userId) throw new Error('This needs a person behind the credential.')
+    const entryId = String(input?.entry_id ?? '')
+    const problem = await proposerChangeProblem(admin, { fundId, entryId, userId })
+    if (problem) throw new Error(problem)
+    const vehicleId = await vehicleIdByName(admin, fundId, portfolioGroup)
+    const out = await changeEntryState(admin, {
+      fundId, role: access.role, userId, mayTouchInvestments: async () => false,
+    }, portfolioGroup, vehicleId, { id: entryId, action: 'void', reason: 'Proposal withdrawn' })
+    if (out.status >= 400) throw new Error(String(out.body.error ?? 'The proposal could not be withdrawn.'))
+    return { entryId, withdrawn: true }
   },
 
   proposed_entries: async ({ admin, fundId, portfolioGroup }, input) => {
@@ -669,6 +685,16 @@ export function accessDomainFor(tool: AgentToolMeta): Domain {
  */
 export function accessFeatureFor(tool: AgentToolMeta): FeatureKey | undefined {
   return tool.accessFeature
+}
+
+/**
+ * Does this caller's tool list show this tool? One rule for MCP's tools/list and the API's GET, so
+ * the two doors never disagree (tests/three-door-parity.test.ts): read or write at the tool's own
+ * level, and a proposable write for a proposer too, since calling it makes a proposal.
+ */
+export function toolListedFor(access: AccessContext, tool: AgentToolMeta): boolean {
+  const need = tool.scope === 'write' && tool.proposable === true ? 'propose' : tool.scope
+  return hasAccess(access, accessDomainFor(tool), need, accessFeatureFor(tool))
 }
 
 /**

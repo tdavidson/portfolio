@@ -182,6 +182,20 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
     },
   },
   {
+    name: 'withdraw_proposal',
+    description:
+      'Withdraw one of your own proposed journal entries while it is still a draft (the journal\'s Withdraw). For someone who can only propose; ' +
+      'someone with write rejects a proposal with discard_drafts instead.',
+    scope: 'write',
+    proposable: true,
+    inputSchema: {
+      type: 'object',
+      properties: { entry_id: { type: 'string', description: 'The proposal\'s entry id, from proposed_entries.' } },
+      required: ['entry_id'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'add_account',
     description: "Add one account to the vehicle's chart of accounts (code, name, type). Refuses a code the vehicle already has.",
     scope: 'write',
