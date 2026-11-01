@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import { memoryAdmin } from '../../tests/helpers/memory-admin'
 import {
   approvePairs, approvedCounterparts, connectionPairs, endConnection, listConnections, removePair,
-  requestConnection, respondToConnection,
+  requestConnection, respondToConnection, PENDING_OTHER_FUND,
 } from './index'
 
 const A = 'fund-a'
@@ -45,25 +45,33 @@ function setup() {
 
 async function connected() {
   const s = setup()
-  const { id } = await requestConnection(s.admin, { fundId: A, userId: 'ua', email: 'Beta-Admin@b.com' })
+  const id = (await requestConnection(s.admin, { fundId: A, userId: 'ua', email: 'Beta-Admin@b.com' })).id!
   await respondToConnection(s.admin, { fundId: B, userId: 'ub', connectionId: id, accept: true })
   return { ...s, id }
 }
 
 describe('fund connections', () => {
-  it('asks the fund an admin email belongs to, and refuses a second live request either way', async () => {
+  it('asks the fund an admin email belongs to, and makes no second live request either way', async () => {
     const { admin } = setup()
     const r = await requestConnection(admin, { fundId: A, userId: 'ua', email: 'beta-admin@b.com' })
-    expect(r.otherFundName).toBe('Beta Fund')
-    await expect(requestConnection(admin, { fundId: B, userId: 'ub', email: 'alpha-admin@a.com' })).rejects.toMatchObject({ status: 409 })
-    await expect(requestConnection(admin, { fundId: A, userId: 'ua', email: 'nobody@z.com' })).rejects.toMatchObject({ status: 404 })
-    await expect(requestConnection(admin, { fundId: A, userId: 'ua', email: 'alpha-admin@a.com' })).rejects.toThrow(/this fund/)
+    expect(r.id).toBeTruthy()
+    expect(r).not.toHaveProperty('otherFundName')
+    await expect(requestConnection(admin, { fundId: B, userId: 'ub', email: 'alpha-admin@a.com' })).resolves.toEqual({ id: null })
     expect((await listConnections(admin, B))[0]).toMatchObject({ direction: 'incoming', status: 'pending', otherFundName: 'Alpha Fund' })
+  })
+
+  it('answers the same for an address that is no admin anywhere, and names no fund until accepted', async () => {
+    const { admin } = setup()
+    await expect(requestConnection(admin, { fundId: A, userId: 'ua', email: 'nobody@z.com' })).resolves.toEqual({ id: null })
+    await expect(requestConnection(admin, { fundId: A, userId: 'ua', email: 'alpha-admin@a.com' })).resolves.toEqual({ id: null })
+    expect(await listConnections(admin, A)).toEqual([])
+    await requestConnection(admin, { fundId: A, userId: 'ua', email: 'beta-admin@b.com' })
+    expect((await listConnections(admin, A))[0]).toMatchObject({ direction: 'outgoing', otherFundName: PENDING_OTHER_FUND })
   })
 
   it('only the fund that was asked can accept, and a fund outside the connection sees nothing', async () => {
     const { admin } = setup()
-    const { id } = await requestConnection(admin, { fundId: A, userId: 'ua', email: 'beta-admin@b.com' })
+    const id = (await requestConnection(admin, { fundId: A, userId: 'ua', email: 'beta-admin@b.com' })).id!
     await expect(respondToConnection(admin, { fundId: A, userId: 'ua', connectionId: id, accept: true })).rejects.toMatchObject({ status: 403 })
     await expect(respondToConnection(admin, { fundId: C, userId: 'uc', connectionId: id, accept: true })).rejects.toMatchObject({ status: 404 })
     await expect(connectionPairs(admin, { fundId: A, connectionId: id })).rejects.toMatchObject({ status: 409 })
@@ -135,6 +143,6 @@ describe('fund connections', () => {
       'requested', 'accepted', 'pair_proposed', 'pair_proposed', 'pair_approved', 'pair_approved', 'pair_removed', 'disconnected',
     ])
     // A new request may follow a disconnect.
-    await expect(requestConnection(admin, { fundId: B, userId: 'ub', email: 'alpha-admin@a.com' })).resolves.toMatchObject({ otherFundName: 'Alpha Fund' })
+    await expect(requestConnection(admin, { fundId: B, userId: 'ub', email: 'alpha-admin@a.com' })).resolves.toMatchObject({ id: expect.any(String) })
   })
 })
