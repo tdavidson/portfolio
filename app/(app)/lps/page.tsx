@@ -26,6 +26,7 @@ import { AnalystPanel } from '@/components/analyst-panel'
 import { AnalystDomainScope } from '@/components/analyst-scope'
 import { PortfolioNotesProvider, PortfolioNotesButton, PortfolioNotesPanel } from '@/components/portfolio-notes'
 import { RenameInvestorDialog } from '@/components/lp/rename-investor-dialog'
+import { LpChangeRequests } from '@/components/lp-change-requests'
 import { lpRatios } from '@/lib/lp-metrics'
 import { SortTh, nextSort, compareVals, type SortState } from '@/components/sortable-th'
 import { Metric as Stat } from '@/components/ui/metric'
@@ -266,6 +267,9 @@ function LpsInner() {
           <AnalystToggleButton />
         </div>
       </div>
+
+      {/* What LPs asked to change from their portal. Renders nothing while none are waiting. */}
+      <LpChangeRequests />
 
       <div className="flex flex-col lg:flex-row gap-6 items-start">
         <div className="flex-1 min-w-0 w-full space-y-6">

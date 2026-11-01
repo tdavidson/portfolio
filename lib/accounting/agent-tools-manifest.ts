@@ -69,6 +69,21 @@ export interface AgentToolMeta {
    * Staging it would only lose its result: the URL or preview would reach the approver, not the chat.
    */
   runsDirectly?: true
+  /**
+   * A member with the `propose` level in this tool's domain may call it, and the call becomes a
+   * proposal instead of the change: post_entry makes a draft marked as theirs
+   * (lib/accounting/proposals.ts), runs directly rather than staging, and someone with write posts
+   * or rejects it. Without this flag a proposer is refused like any reader.
+   */
+  proposable?: true
+  /**
+   * The tool's domain is the `area` its input names (lib/records/areas.ts), and every call needs
+   * only read there, writes included: filing a record adds the fund's note about what the caller
+   * can already see and changes nothing else. A call with no area (a list, a read by id) needs
+   * read on some area, and the handler trims to the areas the caller reads. The credential must
+   * still carry write to file, and the read-only demo files nothing. `accessDomain` is unused.
+   */
+  areaInput?: true
   inputSchema: Record<string, any>
 }
 
@@ -129,8 +144,11 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
   },
   {
     name: 'post_entry',
-    description: 'Post a balanced double-entry journal entry. Postings use account codes; amounts are signed (debits positive, credits negative) and MUST sum to zero.',
+    description: 'Post a balanced double-entry journal entry. Postings use account codes; amounts are signed (debits positive, credits negative) and MUST sum to zero. ' +
+      'From someone who can only propose journal entries (an auditor, a tax preparer), the entry is saved as a DRAFT marked as their proposal, whatever status is asked for, ' +
+      'and the result says proposed: true; tell them it waits for someone with write access to post or reject it.',
     scope: 'write',
+    proposable: true,
     inputSchema: {
       type: 'object',
       required: ['entryDate', 'postings'],
@@ -153,6 +171,36 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
           },
         },
       },
+    },
+  },
+  {
+    name: 'proposed_entries',
+    description:
+      'Journal entries proposed by someone who can only propose (an auditor, a tax preparer, a fund administrator without posting rights), newest first. ' +
+      'Open proposals are drafts waiting for someone with write access: post one with post_drafts (ids), change it in the journal first if needed, or reject it with discard_drafts (ids). ' +
+      'includeClosed also lists proposals already posted or rejected.',
+    scope: 'read',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        includeClosed: { type: 'boolean', description: 'default false: only proposals still waiting' },
+        limit: { type: 'number', description: 'default 50, max 200' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'withdraw_proposal',
+    description:
+      'Withdraw one of your own proposed journal entries while it is still a draft (the journal\'s Withdraw). For someone who can only propose; ' +
+      'someone with write rejects a proposal with discard_drafts instead.',
+    scope: 'write',
+    proposable: true,
+    inputSchema: {
+      type: 'object',
+      properties: { entry_id: { type: 'string', description: 'The proposal\'s entry id, from proposed_entries.' } },
+      required: ['entry_id'],
+      additionalProperties: false,
     },
   },
   {

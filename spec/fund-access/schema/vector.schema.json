@@ -1,0 +1,75 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://hemrock.com/spec/fund-access/0.1/vector.schema.json",
+  "title": "Fund Access test vector",
+  "type": "object",
+  "required": ["id", "fundAccess", "title", "tags", "fund", "party", "call", "expect"],
+  "additionalProperties": false,
+  "$defs": {
+    "area": { "enum": ["portfolio", "relationships", "dealflow", "diligence", "accounting", "management_company", "lp_capital", "gp_economics", "lp_relations", "compliance", "tax", "admin"] },
+    "level": { "enum": ["none", "read", "propose", "write"] },
+    "levels": { "type": "object", "propertyNames": { "$ref": "#/$defs/area" }, "additionalProperties": { "$ref": "#/$defs/level" } }
+  },
+  "properties": {
+    "id": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+    "fundAccess": { "const": "0.1" },
+    "title": { "type": "string", "minLength": 1 },
+    "description": { "type": "string" },
+    "tags": { "type": "array", "items": { "enum": ["levels", "proposals", "staging", "entities", "records"] }, "minItems": 1 },
+    "fund": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "switches": { "type": "object", "propertyNames": { "$ref": "#/$defs/area" }, "additionalProperties": { "enum": ["everyone", "admins", "off"] } },
+        "defaults": { "$ref": "#/$defs/levels" }
+      }
+    },
+    "party": {
+      "type": "object",
+      "required": ["role"],
+      "additionalProperties": false,
+      "properties": {
+        "role": { "enum": ["admin", "member", "observer"] },
+        "grants": { "$ref": "#/$defs/levels" },
+        "entities": {
+          "oneOf": [
+            { "const": "all" },
+            {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["id"],
+                "additionalProperties": false,
+                "properties": { "id": { "type": "string" }, "cap": { "enum": ["read", "propose"] } }
+              }
+            }
+          ]
+        }
+      }
+    },
+    "call": {
+      "type": "object",
+      "required": ["action", "area", "credential"],
+      "additionalProperties": false,
+      "properties": {
+        "action": { "enum": ["read", "write", "file_record"] },
+        "area": { "$ref": "#/$defs/area" },
+        "entity": { "type": ["string", "null"] },
+        "credential": { "enum": ["person", "assistant", "script"] },
+        "scopes": { "type": "array", "items": { "enum": ["read", "write"] }, "uniqueItems": true },
+        "proposable": { "type": "boolean" },
+        "adminOnly": { "type": "boolean" },
+        "direct": { "type": "boolean" }
+      }
+    },
+    "expect": {
+      "type": "object",
+      "required": ["outcome"],
+      "additionalProperties": false,
+      "properties": {
+        "outcome": { "enum": ["allow", "propose", "stage", "stage_for_admin", "refuse"] },
+        "reason": { "enum": ["credential_read_only", "entity_not_visible", "no_access", "observer", "fund_wide_record", "not_proposable", "admin_only"] }
+      }
+    }
+  }
+}

@@ -1,0 +1,26 @@
+{
+  "id": "admin-only-member-person",
+  "fundAccess": "0.1",
+  "title": "An admin-only write from a member on the web is refused",
+  "tags": [
+    "staging"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "portfolio": "write"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "write",
+    "area": "portfolio",
+    "credential": "person",
+    "adminOnly": true
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "admin_only"
+  }
+}

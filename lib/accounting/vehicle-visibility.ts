@@ -1,7 +1,7 @@
 import { loadGateAccess } from '@/lib/access/request-context'
 import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { canSeeVehicle, visibleVehicleIds } from '@/lib/access/scope'
+import { canSeeVehicle, entityCap, visibleVehicleIds } from '@/lib/access/scope'
 import { vehicleIdByName } from './vehicle-id'
 import type { VehicleGate } from './vehicle-domain'
 
@@ -30,6 +30,40 @@ export async function assertVehicleVisible(
   }
   if (canSeeVehicle(access, id)) return null
   return NextResponse.json({ error: "You don't have access to that entity." }, { status: 403 })
+}
+
+/**
+ * The level half: a member may see an entity but be capped below write there
+ * (fund_member_vehicles.level). Checked only for a write; reads pass. A `read` cap refuses every
+ * write. A `propose` cap refuses every write except on a route that turns a write into a proposal
+ * (`proposals`: the journal), which then makes it a proposal itself (lib/accounting/proposals.ts).
+ */
+export async function assertEntityLevel(
+  admin: SupabaseClient,
+  gate: VehicleGate,
+  name: string,
+  opts: { proposals?: boolean } = {},
+): Promise<NextResponse | null> {
+  if (gate.need !== 'write') return null
+  const access = await loadGateAccess(admin, gate)
+  if (access.vehicles.all || !access.vehicles.caps || Object.keys(access.vehicles.caps).length === 0) return null
+  let id: string | null
+  try {
+    id = await vehicleIdByName(admin, gate.fundId, name)
+  } catch {
+    return NextResponse.json({ error: 'Could not check access to that entity. Try again.' }, { status: 500 })
+  }
+  const cap = entityCap(access, id)
+  if (!cap) return null
+  if (cap === 'propose' && opts.proposals) return null
+  return NextResponse.json({ error: entityCapRefusal(name, cap) }, { status: 403 })
+}
+
+/** The refusal for a write above a member's level in an entity. Shared with the MCP and API path. */
+export function entityCapRefusal(name: string, cap: 'read' | 'propose'): string {
+  return cap === 'read'
+    ? `You have read access to ${name}. Ask an admin for more if you need to change it.`
+    : `You can propose journal entries in ${name}, not change its books directly. Your entries there are saved as drafts for someone with write access to post.`
 }
 
 /**

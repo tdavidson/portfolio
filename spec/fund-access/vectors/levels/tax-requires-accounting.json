@@ -1,0 +1,27 @@
+{
+  "id": "tax-requires-accounting",
+  "fundAccess": "0.1",
+  "title": "Tax is closed to anyone who cannot read the books",
+  "description": "Every tax figure is a ledger figure. A tax grant alone opens nothing.",
+  "tags": [
+    "levels"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "tax": "write",
+      "accounting": "none"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "read",
+    "area": "tax",
+    "credential": "person"
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "no_access"
+  }
+}

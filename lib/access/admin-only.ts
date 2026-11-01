@@ -154,6 +154,10 @@ export const ADMIN_ONLY_TOOLS: Record<string, { label: string; when?: (input: an
   void_entry: { label: HANDLER_CHECKED.voidPostedEntry },
   // Not a destructive tool (always offered), but admin-only like the Periods page's Reopen.
   reopen_period: { label: 'reopen a closed period' },
+  // As api/accounting/waterfall-terms PUT: the partners' carry terms are the fund's structure. It
+  // always stages (stagesAs), so ADMIN_ONLY_ACTIONS below holds its approval to an admin too.
+  // tests/three-door-parity.test.ts found a CFO could approve this from chat but not save it on the web.
+  set_waterfall_terms: { label: 'change waterfall terms' },
 
   // As api/lps/documents and its upload-url, which only an admin may call: recording an LP document
   // is what shows it in LPs' portals. The URL tool runs directly from a chat, so its handler checks too.
@@ -165,6 +169,7 @@ export const ADMIN_ONLY_TOOLS: Record<string, { label: string; when?: (input: an
 export const ADMIN_ONLY_ACTIONS: Record<string, string> = {
   issue_capital_call: 'issue a capital call',
   publish_call_notices: 'publish notices to LPs',
+  set_waterfall_terms: 'change waterfall terms',
 }
 
 /** Does this route need the body to decide? Then the middleware has to read it. */

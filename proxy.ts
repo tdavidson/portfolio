@@ -331,12 +331,14 @@ async function gateApiRequest(
       ?? rowCompanyDenial(supabase as never, key, request.nextUrl.pathname, access)
   }
 
-  if (access.role === 'viewer' && level === 'write') {
+  // A proposal is a change too: the demo makes none.
+  const changes = level === 'write' || level === 'propose'
+  if (access.role === 'viewer' && changes) {
     return NextResponse.json({ error: 'This is a read-only demo. Changes are not allowed.' }, { status: 403 })
   }
   const label = DOMAIN_META[entry.domain].label
   return NextResponse.json(
-    { error: level === 'write' ? `You do not have write access to ${label}.` : `You do not have access to ${label}.` },
+    { error: changes ? `You do not have write access to ${label}.` : `You do not have access to ${label}.` },
     { status: 403 },
   )
 }

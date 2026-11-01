@@ -16,14 +16,20 @@
  *
  *   MASTER_ADMIN_EMAILS=jane@fund-a.example,jane@fund-b.example | sam@fund-a.example,sam@fund-b.example
  *
- * Unset (the default) is a deployment with no pooling at all: every function here returns the
- * credential unchanged.
+ * Unset (the default) is a deployment with no deployment-set pooling.
+ *
+ * LINKED SIGN-INS (lib/account-links.ts) pool the same way, set up by the person: someone who holds
+ * a sign-in in several funds (an outside fund administrator, say) links them by entering a code
+ * shown to one while signed in as the other. Each fund can switch linking off for its members
+ * (fund_settings.allow_linked_sign_ins); a fund reached only through a link must allow it, and a
+ * connection whose own fund refuses it gets no linked funds at all.
  *
  * WHO decides the pool is the deployment owner, through the host's environment. Nothing a fund
  * admin can do in Settings, and nothing in a request, adds an address to it.
  */
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { agentApiEnabled } from '@/lib/oauth/enabled'
+import { fundAllowsLinking, linkedEmails } from '@/lib/account-links'
 
 export interface PoolFund {
   fundId: string
@@ -80,9 +86,12 @@ export async function loadPool(
   owner: { userId: string; fundId: string; clientId: string },
 ): Promise<MasterAdminPool | null> {
   const groups = masterAdminGroups()
-  if (!groups.length) return null
+  // Linked sign-ins (lib/account-links.ts): the same idea, set up by the person rather than the
+  // deployment owner, and each fund may refuse it.
+  const linked = await linkedEmails(admin, owner.userId)
+  if (!groups.length && linked.length < 2) return null
 
-  const { data, error } = await (admin as any).rpc('master_admin_pool', { p_emails: groups.flat() })
+  const { data, error } = await (admin as any).rpc('master_admin_pool', { p_emails: [...new Set([...groups.flat(), ...linked])] })
   if (error) {
     console.error('[master-admin] pool lookup failed:', error.message)
     return null
@@ -90,14 +99,21 @@ export async function loadPool(
   const rows = (data ?? []) as { user_id: string; email: string; fund_id: string; fund_name: string; role?: string }[]
   // The owner's pool is the first that lists their own address; only that pool's addresses count.
   const ownerEmail = rows.find(r => r.user_id === owner.userId)?.email
-  const group = ownerEmail ? groups.find(g => g.includes(ownerEmail)) : undefined
-  if (!group) return null
+  const envGroup = ownerEmail ? groups.find(g => g.includes(ownerEmail)) ?? [] : []
+  const linkedGroup = linked.length >= 2 && await fundAllowsLinking(admin, owner.fundId) ? linked : []
+  const group = [...new Set([...envGroup, ...linkedGroup])]
+  if (group.length < 2) return null
   const listed = poolFunds(rows.filter(r => group.includes(r.email)))
   if (!listed.some(f => f.userId === owner.userId && f.fundId === owner.fundId)) return null
   // A fund whose admin has agent access switched off stays out of reach, as it would for its own
   // connection. Filtering here (not refusing later) keeps a connection from switching into a fund
-  // that then refuses every request, use_fund included.
-  const enabled = await Promise.all(listed.map(f => f.fundId === owner.fundId ? true : agentApiEnabled(admin, f.fundId)))
+  // that then refuses every request, use_fund included. A fund reached only through a linked
+  // sign-in must also allow linking.
+  const enabled = await Promise.all(listed.map(async f => {
+    if (f.fundId === owner.fundId) return true
+    if (!(await agentApiEnabled(admin, f.fundId))) return false
+    return envGroup.includes(f.email) || fundAllowsLinking(admin, f.fundId)
+  }))
   const funds = listed.filter((_, i) => enabled[i])
   if (funds.length < 2) return null
 

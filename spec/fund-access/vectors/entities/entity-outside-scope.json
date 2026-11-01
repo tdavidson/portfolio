@@ -1,0 +1,30 @@
+{
+  "id": "entity-outside-scope",
+  "fundAccess": "0.1",
+  "title": "An entity outside a member's scope does not exist for them",
+  "tags": [
+    "entities"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "write"
+    },
+    "entities": [
+      {
+        "id": "fund-i"
+      }
+    ]
+  },
+  "call": {
+    "action": "read",
+    "area": "accounting",
+    "credential": "person",
+    "entity": "fund-ii"
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "entity_not_visible"
+  }
+}

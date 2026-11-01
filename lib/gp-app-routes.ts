@@ -27,6 +27,7 @@ export const GP_APP_SEGMENTS: ReadonlySet<string> = new Set([
   'manco',
   'notes',
   'pending-actions',
+  'records',
   'requests',
   'review',
   'settings',

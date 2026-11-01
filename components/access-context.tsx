@@ -52,7 +52,7 @@ export function useAccess(): (domain: Domain, feature?: FeatureKey) => AccessLev
 export function useCanRead(domain: Domain, feature?: FeatureKey): boolean {
   const access = useAccess()
   const level = access(domain, feature)
-  return level === 'read' || level === 'write'
+  return level !== 'none'
 }
 
 /** Is the user a fund admin? For affordances only; the routes enforce it. */
@@ -63,4 +63,10 @@ export function useIsAdmin(): boolean {
 /** Can the user change things in this domain? */
 export function useCanWrite(domain: Domain, feature?: FeatureKey): boolean {
   return useAccess()(domain, feature) === 'write'
+}
+
+/** Can the user put changes forward here, for someone with write to accept? True for writers too. */
+export function useCanPropose(domain: Domain, feature?: FeatureKey): boolean {
+  const level = useAccess()(domain, feature)
+  return level === 'propose' || level === 'write'
 }

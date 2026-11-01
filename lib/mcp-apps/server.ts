@@ -11,9 +11,9 @@
 
 import type { AccessContext } from '@/lib/access/effective'
 import { hasAccess } from '@/lib/access/effective'
-import { authorizeToolUse, type ResolvedKey } from '@/lib/accounting/api-keys'
+import type { ResolvedKey } from '@/lib/accounting/api-keys'
 import {
-  AGENT_TOOLS, accessDomainFor, accessDomainForCall, accessFeatureFor,
+  AGENT_TOOLS, accessDomainFor, accessDomainForCall, accessFeatureFor, authorizeToolCall, toolListedFor,
   type AgentTool,
 } from '@/lib/accounting/agent-tools'
 import { DASHBOARD_TOOLS, type DashboardTool } from '@/lib/agent/dashboard-tools'
@@ -181,7 +181,8 @@ export function listableTools(access: AccessContext): McpTool[] {
     // Destructive tools only where the deployment turned them on (AGENT_DESTRUCTIVE_ACTIONS). This
     // list feeds tools/list, search_tools and call_tool's suggestions alike.
     if (!isToolOffered(tool as AgentTool)) return false
-    return hasAccess(access, accessDomainFor(tool), tool.scope, accessFeatureFor(tool))
+    // A proposable write is listed for a proposer too: calling it makes a proposal.
+    return toolListedFor(access, tool as AgentTool)
   })
 }
 
@@ -211,7 +212,7 @@ export function authorizeMcpTool(tool: McpTool, auth: ResolvedKey, access: Acces
   }
   // The CALL's domain, not just the tool's: `allocation` is ordinary accounting until its action
   // is 'carry'.
-  return authorizeToolUse(tool.scope, auth, access, accessDomainForCall(tool, args), accessFeatureFor(tool))
+  return authorizeToolCall(tool as AgentTool, auth, access, args)
 }
 
 /**

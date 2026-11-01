@@ -1,0 +1,21 @@
+{
+  "id": "admin-only-admin-person",
+  "fundAccess": "0.1",
+  "title": "An admin makes an admin-only write directly",
+  "tags": [
+    "staging"
+  ],
+  "fund": {},
+  "party": {
+    "role": "admin"
+  },
+  "call": {
+    "action": "write",
+    "area": "portfolio",
+    "credential": "person",
+    "adminOnly": true
+  },
+  "expect": {
+    "outcome": "allow"
+  }
+}

@@ -112,7 +112,7 @@ const CREATE_ACTIONS: CreateAction[] = [
 
 const canRead = (can: Can, g: Gated) => {
   const level = can(g.domain, g.feature)
-  return level === 'read' || level === 'write'
+  return level !== 'none'
 }
 
 /**

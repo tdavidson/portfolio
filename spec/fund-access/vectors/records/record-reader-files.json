@@ -1,0 +1,26 @@
+{
+  "id": "record-reader-files",
+  "fundAccess": "0.1",
+  "title": "A member with read files in that area",
+  "tags": [
+    "records"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "tax": "read",
+      "accounting": "read"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "file_record",
+    "area": "tax",
+    "credential": "person",
+    "entity": "fund-i"
+  },
+  "expect": {
+    "outcome": "allow"
+  }
+}

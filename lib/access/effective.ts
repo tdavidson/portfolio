@@ -6,16 +6,21 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { DOMAIN_META, DOMAINS, type Domain } from './domains'
-import { vehicleScopeFromRow, type VehicleScope } from './scope'
+import { entityCap, vehicleScopeFromRow, type VehicleScope } from './scope'
 import {
   DEFAULT_FEATURE_VISIBILITY,
   type FeatureKey,
   type FeatureVisibilityMap,
 } from '@/lib/types/features'
 
-export type AccessLevel = 'none' | 'read' | 'write'
+/**
+ * `propose` sits between read and write: everything read allows, plus putting a change forward for
+ * someone with write to accept. It exists only where the domain says so (DOMAIN_META.proposable,
+ * today accounting alone, where a proposal is a draft journal entry); elsewhere it resolves as read.
+ */
+export type AccessLevel = 'none' | 'read' | 'propose' | 'write'
 
-const RANK: Record<AccessLevel, number> = { none: 0, read: 1, write: 2 }
+const RANK: Record<AccessLevel, number> = { none: 0, read: 1, propose: 2, write: 3 }
 
 export type FundRole = 'admin' | 'member' | 'viewer'
 
@@ -70,7 +75,9 @@ export function effectiveAccess(ctx: AccessContext, domain: Domain, feature?: Fe
   // What the fund's own switch allows this member, before any implication. A domain newer than
   // the fund's default rows falls back to the domain it was split from (`defaultFrom`).
   const fallback = meta.defaultFrom ? (ctx.grants[meta.defaultFrom] ?? ctx.defaults[meta.defaultFrom]) : undefined
-  const own = level === 'admin' ? 'none' : (ctx.grants[domain] ?? ctx.defaults[domain] ?? fallback ?? 'none')
+  const stored = level === 'admin' ? 'none' : (ctx.grants[domain] ?? ctx.defaults[domain] ?? fallback ?? 'none')
+  // A `propose` grant on a domain that has no proposals is a read grant, never more.
+  const own: AccessLevel = stored === 'propose' && !meta.proposable ? 'read' : stored
 
   // …and what another domain confers on this one. Only lp_capital has this, and only from
   // accounting: the partner capital accounts ARE the ledger, so granting the books grants
@@ -79,7 +86,9 @@ export function effectiveAccess(ctx: AccessContext, domain: Domain, feature?: Fe
   // Deliberately AFTER the off/hidden check above, so a hard deny on THIS domain still wins, and
   // deliberately not recursive beyond one hop — `accounting` implies nothing, so this terminates.
   if (!meta.impliedBy) return own
-  const implied = effectiveAccess(ctx, meta.impliedBy)
+  const raw = effectiveAccess(ctx, meta.impliedBy)
+  // Proposing journal entries implies reading partner capital, not proposing anything there.
+  const implied: AccessLevel = raw === 'propose' && !meta.proposable ? 'read' : raw
   return RANK[implied] > RANK[own] ? implied : own
 }
 
@@ -87,10 +96,32 @@ export function effectiveAccess(ctx: AccessContext, domain: Domain, feature?: Fe
 export function hasAccess(
   ctx: AccessContext,
   domain: Domain,
-  need: 'read' | 'write',
+  need: 'read' | 'propose' | 'write',
   feature?: FeatureKey,
 ): boolean {
   return RANK[effectiveAccess(ctx, domain, feature)] >= RANK[need]
+}
+
+/**
+ * Proposes in this domain and no more: a write from this user becomes a proposal for someone with
+ * write to accept (lib/accounting/proposals.ts), never the change itself.
+ */
+export function proposesOnly(ctx: AccessContext, domain: Domain, feature?: FeatureKey): boolean {
+  return effectiveAccess(ctx, domain, feature) === 'propose'
+}
+
+/**
+ * What this user may do in this domain IN ONE ENTITY: the area level, lowered to the entity's cap
+ * (fund_member_vehicles.level) when there is one. A cap never raises a level, and a `propose` cap
+ * on a domain with no proposals is read. Visibility is a separate question (canSeeVehicle); this
+ * assumes the caller may see the entity.
+ */
+export function entityAccess(ctx: AccessContext, domain: Domain, vehicleId: string | null, feature?: FeatureKey): AccessLevel {
+  const own = effectiveAccess(ctx, domain, feature)
+  const cap = entityCap(ctx, vehicleId)
+  if (!cap) return own
+  const capped: AccessLevel = RANK[cap] < RANK[own] ? cap : own
+  return capped === 'propose' && !DOMAIN_META[domain].proposable ? 'read' : capped
 }
 
 /** Every domain this user can at least read — for the nav and for filtering the MCP tool list. */
@@ -107,7 +138,9 @@ export function readableDomains(ctx: AccessContext): Domain[] {
  * offered one, or the consent screen promises an access their grants then refuse.
  */
 export function canWriteAnywhere(ctx: AccessContext): boolean {
-  return DOMAINS.some(d => hasAccess(ctx, d, 'write'))
+  // A proposer needs a write-scoped token too: a proposal travels as a write call, and the server
+  // turns it into a draft rather than the change.
+  return DOMAINS.some(d => hasAccess(ctx, d, 'propose'))
 }
 
 /**
@@ -152,6 +185,8 @@ interface AccessContextRow {
   vehicles?: unknown
   /** True for an admin or a member holding "All entities" — see vehicleScopeFromRow. */
   vehicles_all?: unknown
+  /** Per-entity caps below write. Absent before 20261101100000 — see entityCapsFromRow. */
+  vehicle_levels?: unknown
 }
 
 /**
@@ -181,7 +216,7 @@ export async function loadAccessContext(
     grants: recordToLevels(row?.grants),
     defaults: recordToLevels(row?.defaults),
     // No row at all (not a member): nothing. A row without the key: the RPC predates entity access.
-    vehicles: row ? vehicleScopeFromRow(normalizeRole(role ?? row.role), row.vehicles, row.vehicles_all) : { all: false, ids: [] },
+    vehicles: row ? vehicleScopeFromRow(normalizeRole(role ?? row.role), row.vehicles, row.vehicles_all, row.vehicle_levels) : { all: false, ids: [] },
   }
 }
 
@@ -207,7 +242,7 @@ export async function resolveAccessContext(
     features: { ...DEFAULT_FEATURE_VISIBILITY, ...(row.features ?? {}) },
     grants: recordToLevels(row.grants),
     defaults: recordToLevels(row.defaults),
-    vehicles: vehicleScopeFromRow(normalizeRole(row.role), row.vehicles, row.vehicles_all),
+    vehicles: vehicleScopeFromRow(normalizeRole(row.role), row.vehicles, row.vehicles_all, row.vehicle_levels),
   }
 }
 

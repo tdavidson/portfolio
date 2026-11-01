@@ -8,7 +8,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { currentChangeSource, type ChangeSource } from './source'
 
 export type AuditAction =
-  | 'entry.post' | 'entry.unpost' | 'entry.void' | 'entry.reverse'
+  | 'entry.post' | 'entry.unpost' | 'entry.void' | 'entry.reverse' | 'entry.propose'
   | 'entries.bulk_post' | 'entries.bulk_void'
   | 'period.close' | 'period.reopen' | 'close.approve'
   | 'commitment.create' | 'commitment.edit' | 'commitment.delete'
@@ -22,6 +22,7 @@ export type AuditAction =
   | 'tax.adjustments' | 'pending_action.approve' | 'pending_action.reject' | 'pending_action.stage'
   | 'pending_action.undo' | 'pending_action.withdraw'
   | 'agent.write'
+  | 'lp_change.approve' | 'lp_change.reject'
 
 export interface AuditEvent {
   fundId: string

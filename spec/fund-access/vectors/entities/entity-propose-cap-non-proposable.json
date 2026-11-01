@@ -1,0 +1,32 @@
+{
+  "id": "entity-propose-cap-non-proposable",
+  "fundAccess": "0.1",
+  "title": "A propose cap on an area without proposals is read",
+  "tags": [
+    "entities"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "gp_economics": "write"
+    },
+    "entities": [
+      {
+        "id": "fund-ii",
+        "cap": "propose"
+      }
+    ]
+  },
+  "call": {
+    "action": "write",
+    "area": "gp_economics",
+    "credential": "script",
+    "entity": "fund-ii",
+    "proposable": true
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "no_access"
+  }
+}

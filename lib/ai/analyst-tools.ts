@@ -2,11 +2,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   AGENT_TOOLS,
   getTool,
-  accessDomainFor,
   accessDomainForCall,
   accessFeatureFor,
   resolveVehicleForTool,
+  toolListedFor,
 } from '@/lib/accounting/agent-tools'
+import { recordAccessProblem } from '@/lib/records/areas'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
 import type { ToolDefinition, ToolExecutor, ToolInvocation } from '@/lib/ai/types'
 import { WRITE_ACTIONS, getWriteAction } from '@/lib/pending-actions/registry'
@@ -88,7 +89,7 @@ export interface AnalystToolDeps {
  */
 export function buildAnalystTools(deps: AnalystToolDeps): { tools: ToolDefinition[]; executeTool: ToolExecutor } {
   const readTools = AGENT_TOOLS.filter(
-    t => t.scope === 'read' && hasAccess(deps.access, accessDomainFor(t), 'read', accessFeatureFor(t)),
+    t => t.scope === 'read' && toolListedFor(deps.access, t),
   )
   const tools: ToolDefinition[] = readTools.map(t => ({
     name: t.name,
@@ -208,7 +209,10 @@ export function buildAnalystTools(deps: AnalystToolDeps): { tools: ToolDefinitio
     if (!tool || tool.scope !== 'read') {
       return JSON.stringify({ error: `Unknown or non-readable tool: ${call.name}` })
     }
-    if (!hasAccess(deps.access, accessDomainForCall(tool, call.input), 'read', accessFeatureFor(tool))) {
+    const denied = tool.areaInput
+      ? recordAccessProblem(deps.access, { area: (call.input as any)?.area, filing: false }) !== null
+      : !hasAccess(deps.access, accessDomainForCall(tool, call.input), 'read', accessFeatureFor(tool))
+    if (denied) {
       return JSON.stringify({ error: 'Access denied' })
     }
     try {

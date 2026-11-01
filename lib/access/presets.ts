@@ -10,7 +10,7 @@
 import type { Domain } from './domains'
 import type { AccessLevel } from './effective'
 
-export type PresetKey = 'cfo' | 'fund_admin' | 'tax' | 'auditor' | 'investment_team' | 'investor_relations'
+export type PresetKey = 'cfo' | 'fund_admin' | 'tax' | 'auditor' | 'compliance' | 'investment_team' | 'investor_relations'
 
 export interface AccessPreset {
   key: PresetKey
@@ -50,26 +50,39 @@ export const ACCESS_PRESETS: AccessPreset[] = [
   },
   {
     // Reads the ledger, partner capital and carry, and does the tax work in the Tax area:
-    // book-to-tax adjustments, the tax-year close, K-1 packages and partner tax forms. Never
-    // changes the books themselves. Finalizing, amending and delivering K-1s, and reopening a
-    // closed tax year, are admin-only.
+    // book-to-tax adjustments, the tax-year close, K-1 packages and partner tax forms. Proposes
+    // journal entries to the books (drafts someone with write posts or rejects) but never posts
+    // them. Finalizing, amending and delivering K-1s, and reopening a closed tax year, are
+    // admin-only.
     key: 'tax',
     label: 'Tax preparer',
-    description: 'Reads the books, partner capital and carry, posts tax adjustments and prepares K-1s. An admin finalizes and delivers them.',
+    description: 'Reads the books, partner capital and carry, proposes journal entries, posts tax adjustments and prepares K-1s. An admin finalizes and delivers them.',
     grants: {
-      ...NONE, portfolio: 'read', accounting: 'read', management_company: 'read', lp_capital: 'read',
+      ...NONE, portfolio: 'read', accounting: 'propose', management_company: 'read', lp_capital: 'read',
       gp_economics: 'read', compliance: 'read', tax: 'write',
     },
   },
   {
-    // Every financial area and what was sent to LPs, read-only. The audit trail is on each
+    // Every financial area and what was sent to LPs, read-only, plus proposed audit adjustments:
+    // draft journal entries someone with write posts or rejects. The audit trail is on each
     // entity's Admin page under Fund accounting.
     key: 'auditor',
     label: 'Auditor',
-    description: 'Reads every financial area and LP document, and the audit trail. Changes nothing.',
+    description: 'Reads every financial area and LP document, and the audit trail, and proposes journal entries. Changes nothing directly.',
     grants: {
-      ...NONE, portfolio: 'read', accounting: 'read', management_company: 'read', lp_capital: 'read',
+      ...NONE, portfolio: 'read', accounting: 'propose', management_company: 'read', lp_capital: 'read',
       gp_economics: 'read', lp_relations: 'read', compliance: 'read', tax: 'read',
+    },
+  },
+  {
+    // An outside compliance vendor: keeps the compliance calendar, filings and policies, and reads
+    // what they check against: what was sent to LPs, partner capital and the books. Changes no
+    // numbers.
+    key: 'compliance',
+    label: 'Compliance vendor',
+    description: 'Keeps the compliance calendar and filings, and reads LP documents, partner capital and the books. Changes no financial data.',
+    grants: {
+      ...NONE, portfolio: 'read', accounting: 'read', lp_capital: 'read', lp_relations: 'read', compliance: 'write',
     },
   },
   {

@@ -7,10 +7,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { AGENT_TOOL_MANIFEST, type AgentToolMeta } from './agent-tools-manifest'
 import type { Domain } from '@/lib/access/domains'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
+import { changeEntryState } from './journal-state'
 import { carryRecipientIds, combineCarryRecipients, seesIndividualCarry } from '@/lib/access/carry-visibility'
 import type { FeatureKey } from '@/lib/types/features'
 import { loadPostedLedger, loadEntityNames, loadOwnership, fetchAllRows } from './load'
 import { accountIdByCode, duplicateRefMessage, liveEntryByRef, persistEntry } from './persist'
+import { isProposer, listProposals, markProposed, proposerChangeProblem } from './proposals'
 import { vehicleIdByName } from './vehicle-id'
 import { computeCapitalAccounts, totalNav } from './capital-account'
 import { trialBalance, balanceSheet, incomeStatement } from './statements'
@@ -84,7 +86,7 @@ import { SERVER_AI_TOOL_MANIFEST } from '@/lib/agent/server-ai-tools-manifest'
 import { SERVER_AI_HANDLERS } from '@/lib/agent/server-ai-tools'
 import { reopenClosedPeriods } from './reopen'
 import { resolveVehicle } from './vehicle-resolver'
-import { resolveVehicleWithAccess } from './http-vehicle'
+import { assertEntityWrite, resolveVehicleWithAccess } from './http-vehicle'
 import { ACTUAL_BOOK } from './books'
 import { readBulkScope, runBulkDraftAction } from './journal-bulk'
 import { addEntityDocument, entityDocumentUploadUrl, listEntityDocuments } from '@/lib/entity-documents/agent'
@@ -98,6 +100,10 @@ import { ILPA_TOOL_MANIFEST } from '@/lib/agent/ilpa-tools-manifest'
 import { ILPA_HANDLERS } from '@/lib/agent/ilpa-tools'
 import { CREDIT_FACILITY_TOOL_MANIFEST } from '@/lib/agent/credit-facility-tools-manifest'
 import { CREDIT_FACILITY_HANDLERS } from '@/lib/agent/credit-facility-tools'
+import { RECORD_TOOL_MANIFEST } from '@/lib/agent/record-tools-manifest'
+import { RECORD_HANDLERS } from '@/lib/agent/record-tools'
+import { isRecordArea, readableAreas, recordAccessProblem } from '@/lib/records/areas'
+import { authorizeToolUse, type ResolvedKey } from './api-keys'
 
 export { resolveVehicle } from './vehicle-resolver'
 
@@ -210,7 +216,7 @@ const HANDLERS: Record<string, AgentToolHandler> = {
     return pageResult((data as any[]) ?? [], offset, limit, count, 'list_journal', 'entries')
   },
 
-  post_entry: async ({ admin, fundId, portfolioGroup, userId }, input) => {
+  post_entry: async ({ admin, fundId, portfolioGroup, userId, access }, input) => {
     const codes = await accountIdByCode(admin, fundId, portfolioGroup)
     const postings: Posting[] = (input.postings ?? []).map((p: any) => {
       // BY CODE ONLY. A raw `accountId` used to be accepted and passed straight through, which
@@ -223,9 +229,43 @@ const HANDLERS: Record<string, AgentToolHandler> = {
       return { accountId, amount: Number(p.amount), currency: p.currency ?? 'USD', lpEntityId: p.lpEntityId ?? null }
     })
     const entry: JournalEntry = { fundId, entryDate: input.entryDate, memo: input.memo ?? null, sourceType: input.sourceType ?? 'manual', postings }
-    const result = await persistEntry(admin, fundId, portfolioGroup, userId, entry, input.status === 'draft' ? 'draft' : 'posted')
+    // A proposer's entry is always a draft, marked as theirs, for someone with write to post or reject.
+    // That is the area level, lowered to their level in this entity (fund_member_vehicles.level).
+    const vehicleId = access && userId ? await vehicleIdByName(admin, fundId, portfolioGroup) : null
+    const proposing = !!access && !!userId && isProposer(access, vehicleId)
+    const result = await persistEntry(admin, fundId, portfolioGroup, userId, entry, proposing || input.status === 'draft' ? 'draft' : 'posted')
     if ('error' in result) throw new Error(result.error)
+    if (proposing) {
+      const marked = await markProposed(admin, { fundId, vehicleId, entryId: result.entryId, userId: userId! })
+      if (marked) throw new Error(marked.error)
+      return {
+        entryId: result.entryId, status: 'draft', proposed: true,
+        next: 'Saved as a proposed draft. Nothing is on the books until someone with write access to fund accounting posts it; they can also edit or reject it.',
+      }
+    }
     return { entryId: result.entryId }
+  },
+
+  // The journal's Withdraw for a proposer: their own proposal, while it is a draft, on the same
+  // checks as PATCH /api/accounting/journal { action: 'void' }.
+  withdraw_proposal: async ({ admin, fundId, portfolioGroup, userId, access }, input) => {
+    if (!userId) throw new Error('This needs a person behind the credential.')
+    const entryId = String(input?.entry_id ?? '')
+    const problem = await proposerChangeProblem(admin, { fundId, entryId, userId })
+    if (problem) throw new Error(problem)
+    const vehicleId = await vehicleIdByName(admin, fundId, portfolioGroup)
+    const out = await changeEntryState(admin, {
+      fundId, role: access.role, userId, mayTouchInvestments: async () => false,
+    }, portfolioGroup, vehicleId, { id: entryId, action: 'void', reason: 'Proposal withdrawn' })
+    if (out.status >= 400) throw new Error(String(out.body.error ?? 'The proposal could not be withdrawn.'))
+    return { entryId, withdrawn: true }
+  },
+
+  proposed_entries: async ({ admin, fundId, portfolioGroup }, input) => {
+    const proposals = await listProposals(admin, {
+      fundId, entities: [portfolioGroup], includeClosed: input?.includeClosed === true, limit: Number(input?.limit) || undefined,
+    })
+    return { proposals, count: proposals.length }
   },
 
   add_account: async ({ admin, fundId, portfolioGroup }, input) => {
@@ -604,6 +644,7 @@ export const AGENT_TOOLS: AgentTool[] = [
   ...bind(QUERY_TOOL_MANIFEST, QUERY_HANDLERS),
   ...bind(OPERATIONS_TOOL_MANIFEST, OPERATIONS_HANDLERS),
   ...bind(LP_PORTAL_TOOL_MANIFEST, LP_PORTAL_HANDLERS),
+  ...bind(RECORD_TOOL_MANIFEST, RECORD_HANDLERS),
 
   // Offered only with AGENT_DESTRUCTIVE_ACTIONS=true, and always staged for an admin (lib/agent/destructive.ts).
   ...bindLedger(DESTRUCTIVE_LEDGER_TOOL_MANIFEST, DESTRUCTIVE_HANDLERS), ...bind(DESTRUCTIVE_TOOL_MANIFEST, DESTRUCTIVE_HANDLERS),
@@ -652,6 +693,19 @@ export function accessFeatureFor(tool: AgentToolMeta): FeatureKey | undefined {
 }
 
 /**
+ * Does this caller's tool list show this tool? One rule for MCP's tools/list and the API's GET, so
+ * the two doors never disagree (tests/three-door-parity.test.ts): read or write at the tool's own
+ * level, and a proposable write for a proposer too, since calling it makes a proposal.
+ */
+export function toolListedFor(access: AccessContext, tool: AgentToolMeta): boolean {
+  // An area tool (fund records) is for anyone who reads some area; filing also needs a role that
+  // changes things, which the read-only demo is not.
+  if (tool.areaInput) return readableAreas(access).length > 0 && (tool.scope === 'read' || access.role !== 'viewer')
+  const need = tool.scope === 'write' && tool.proposable === true ? 'propose' : tool.scope
+  return hasAccess(access, accessDomainFor(tool), need, accessFeatureFor(tool))
+}
+
+/**
  * Tools whose domain depends on their INPUT. Only one so far, and it earns its keep: `allocation`
  * runs the whole period close — fees, expenses, gains — which is ordinary accounting work, but the
  * same tool with `action: 'carry'` computes and returns each partner's carry. Gating the tool at
@@ -664,7 +718,30 @@ const INPUT_ELEVATIONS: Record<string, (input: any) => Domain | null> = {
 
 /** The domain a specific CALL touches, accounting for input-dependent elevation. */
 export function accessDomainForCall(tool: AgentToolMeta, input: unknown): Domain {
+  const area = (input as any)?.area
+  if (tool.areaInput && isRecordArea(area)) return area
   return INPUT_ELEVATIONS[tool.name]?.(input) ?? accessDomainFor(tool)
+}
+
+/**
+ * May this credential make this call? The one rule MCP's tools/call, POST /api/agent and a staged
+ * run's steps all apply, so the doors can't disagree on it (tests/three-door-parity.test.ts): the
+ * credential's scope, then the owner's grant for the CALL's domain (`accessDomainForCall`), with a
+ * proposer let through on a proposable write. An area tool answers to lib/records/areas.ts instead.
+ * `proposals: false` is for a staged run, whose steps an approver runs as themselves.
+ */
+export function authorizeToolCall(
+  tool: AgentToolMeta,
+  auth: ResolvedKey,
+  access: AccessContext,
+  input: unknown,
+  opts: { proposals?: boolean } = {},
+): string | null {
+  if (tool.areaInput) {
+    if (tool.scope === 'write' && !auth.scopes.includes('write')) return 'This credential is read-only.'
+    return recordAccessProblem(access, { area: (input as any)?.area, filing: tool.scope === 'write' })
+  }
+  return authorizeToolUse(tool.scope, auth, access, accessDomainForCall(tool, input), accessFeatureFor(tool), opts.proposals !== false && tool.proposable === true)
 }
 
 /**
@@ -700,8 +777,14 @@ export async function resolveVehicleForTool(
   // `assertVehicleDomain` applies to /api/accounting/*), so it resolves through
   // resolveVehicleWithAccess, which opts in and checks that grant at the tool's own level before
   // returning. The unnamed default still never picks a manco.
-  if (requested?.trim()) return (await resolveVehicleWithAccess(admin, access, requested, tool.scope)).name
-  return resolveVehicle(admin, fundId, requested, { access })
+  //
+  // Either way, a write is held to the member's level in that entity (fund_member_vehicles.level):
+  // a read cap refuses it, and a propose cap allows only a tool that makes proposals (post_entry).
+  const opts = { proposals: tool.proposable === true }
+  if (requested?.trim()) return (await resolveVehicleWithAccess(admin, access, requested, tool.scope, opts)).name
+  const name = await resolveVehicle(admin, fundId, requested, { access })
+  await assertEntityWrite(admin, access, name, tool.scope, opts)
+  return name
 }
 
 /** Journal-import tool input: structured `transactions` from a connector, or a pasted QuickBooks Journal `text`. */

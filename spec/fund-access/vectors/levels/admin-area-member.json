@@ -1,0 +1,25 @@
+{
+  "id": "admin-area-member",
+  "fundAccess": "0.1",
+  "title": "The admin area is closed to members whatever they hold",
+  "tags": [
+    "levels"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "admin": "write"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "read",
+    "area": "admin",
+    "credential": "person"
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "no_access"
+  }
+}

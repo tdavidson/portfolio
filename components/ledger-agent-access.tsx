@@ -315,7 +315,7 @@ function TryAsking() {
   const level = useAccess()
   const canRead = (domain: Parameters<typeof level>[0], feature?: Parameters<typeof level>[1]) => {
     const l = level(domain, feature)
-    return l === 'read' || l === 'write'
+    return l !== 'none'
   }
   const areas = areasFor(canRead)
   const prompts = promptsFor(canRead)

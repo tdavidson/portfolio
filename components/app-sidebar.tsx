@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Building2, ClipboardCheck, Mail, Upload, Send, Settings, LifeBuoy, PanelLeftClose, PanelLeftOpen, Monitor, Sun, Moon, BarChart3, TrendingUp, Lock, Users, Handshake, ArrowDownCircle, FileText, Crown, ShieldCheck, Lightbulb, Microscope, BookOpen, Sparkles, ListChecks, BadgeCheck } from 'lucide-react'
+import { Building2, ClipboardCheck, Mail, Upload, Send, Settings, LifeBuoy, PanelLeftClose, PanelLeftOpen, Monitor, Sun, Moon, BarChart3, TrendingUp, Lock, Users, Handshake, ArrowDownCircle, FileText, Crown, ShieldCheck, Lightbulb, Microscope, BookOpen, Sparkles, ListChecks, BadgeCheck, Archive } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useTheme } from 'next-themes'
@@ -72,7 +72,7 @@ export function canSee(
   if (!domain) return true
 
   const level = access(domain, entry.featureKey)
-  return level === 'read' || level === 'write'
+  return level !== 'none'
 }
 
 const NAV_ITEMS: NavItem[] = [
@@ -81,6 +81,9 @@ const NAV_ITEMS: NavItem[] = [
   // domains, and /api/pending-actions filters each row by the caller's read access. Shown, like
   // Review, only while something is waiting — the layout counts with RLS, so that is per user.
   { href: '/pending-actions', label: 'Approvals', icon: BadgeCheck, badgeKey: 'approvals' },
+  // What people and their assistants filed from a session (lib/records). No domain: records span
+  // areas, and /api/records shows each one only to someone who reads its area and entity.
+  { href: '/records', label: 'Records', icon: Archive },
   // Portfolio, not dealflow — the mailbox is where portfolio updates arrive and where the review
   // queue's emails live, so gating it on the Deals product hid the only page that can reprocess an
   // email from every fund running Portfolio Reporting alone. Deal-specific actions inside it gate

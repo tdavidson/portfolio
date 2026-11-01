@@ -21,6 +21,7 @@ const NOT_IN_DEMO: Record<string, string> = {
   'lps/live': 'redirect to /lps',
   'lps/preview': 'admin only',
   'pending-actions': 'redirect to /dashboard',
+  'records': 'records are filed by signed-in people and their assistants; the demo dataset has none',
   'usage': 'admin only',
   'getting-started': 'the setup checklist for a new fund — the demo fund is already set up',
   'entities/[id]/documents': 'an entity\'s uploaded governing documents — the demo fund has none to show',

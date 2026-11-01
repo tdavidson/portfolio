@@ -1,0 +1,24 @@
+{
+  "id": "record-fund-wide-all",
+  "fundAccess": "0.1",
+  "title": "A member who sees every entity files a fund-wide record",
+  "tags": [
+    "records"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "read"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "file_record",
+    "area": "accounting",
+    "credential": "person"
+  },
+  "expect": {
+    "outcome": "allow"
+  }
+}

@@ -9,6 +9,7 @@ import { AccountPicker, type PickerAccount } from '@/components/accounting/accou
 import { ENTRY_SOURCE_TYPES, ENTRY_SOURCE_TYPE_LABELS, isEntrySourceType } from '@/lib/accounting/source-types'
 import { reversedEntryId } from '@/lib/accounting/reversal'
 import { EntryReceipts } from '@/components/accounting/entry-receipts'
+import { useCanWrite } from '@/components/access-context'
 
 interface Acct { id: string; code: string; name: string; type?: string; lp_entity_id: string | null; is_active?: boolean }
 interface PostingRow { id: string; account_id: string; amount: number; lp_entity_id: string | null }
@@ -84,6 +85,8 @@ export function EntryModal({
   const [reversesOn, setReversesOn] = useState('')
   const [adjusting, setAdjusting] = useState(false)
   const [lines, setLines] = useState<Line[]>([])
+  // Posting, unposting, voiding and reversing need write. A proposer saves drafts only.
+  const canWrite = useCanWrite('accounting')
   const [editable, setEditable] = useState(!readOnly && !taxBook)
   const [meta, setMeta] = useState<Meta | null>(null)
   const [copyOf, setCopyOf] = useState<string | null>(null)
@@ -446,8 +449,15 @@ export function EntryModal({
                     </Button>
                   )}
                   <Button size="sm" variant="outline" onClick={onClose}>Cancel</Button>
-                  <Button size="sm" variant="outline" onClick={() => save(false)} disabled={saving || !balanced}>{saving && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}Save draft</Button>
-                  <Button size="sm" onClick={() => save(true)} disabled={saving || !balanced}>Save &amp; post</Button>
+                  {canWrite ? (
+                    <>
+                      <Button size="sm" variant="outline" onClick={() => save(false)} disabled={saving || !balanced}>{saving && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}Save draft</Button>
+                      <Button size="sm" onClick={() => save(true)} disabled={saving || !balanced}>Save &amp; post</Button>
+                    </>
+                  ) : (
+                    // A proposer's entry stays a draft until someone with write posts or rejects it.
+                    <Button size="sm" onClick={() => save(false)} disabled={saving || !balanced} title="Saved as a draft for someone with write access to post or reject">{saving && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}Save proposal</Button>
+                  )}
                 </div>
               ) : reverseDate !== null ? (
                 <div className="flex flex-wrap items-center justify-end gap-2">
@@ -468,19 +478,23 @@ export function EntryModal({
                       deletes {meta.ownedBy.length === 1 ? 'it' : 'them'}; edit the transaction on its company page to change it instead.
                     </p>
                   )}
-                  <Button
-                    size="sm" variant="ghost" onClick={voidEntry} disabled={saving}
-                    title="Drop the entry from the ledger as if never posted — prefer Reverse for anything already reported"
-                    className="mr-auto text-destructive hover:text-destructive"
-                  >
-                    Void
-                  </Button>
+                  {canWrite && (
+                    <Button
+                      size="sm" variant="ghost" onClick={voidEntry} disabled={saving}
+                      title="Drop the entry from the ledger as if never posted — prefer Reverse for anything already reported"
+                      className="mr-auto text-destructive hover:text-destructive"
+                    >
+                      Void
+                    </Button>
+                  )}
                   <Button size="sm" variant="outline" onClick={onClose}>Close</Button>
                   <Button size="sm" variant="outline" onClick={duplicate} disabled={saving} title="A new entry with the same lines, dated today">Duplicate</Button>
-                  {!meta?.reversedBy && (
+                  {canWrite && !meta?.reversedBy && (
                     <Button size="sm" variant="outline" onClick={() => setReverseDate(date || today())} disabled={saving} title="A dated contra-entry; this one stays posted">Reverse…</Button>
                   )}
-                  <Button size="sm" variant="outline" onClick={unpostAndEdit} disabled={saving} title="Revert to draft so you can edit it">{saving && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}Unpost &amp; edit</Button>
+                  {canWrite && (
+                    <Button size="sm" variant="outline" onClick={unpostAndEdit} disabled={saving} title="Revert to draft so you can edit it">{saving && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}Unpost &amp; edit</Button>
+                  )}
                 </div>
               )}
             </div>

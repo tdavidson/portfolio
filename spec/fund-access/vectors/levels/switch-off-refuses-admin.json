@@ -1,0 +1,26 @@
+{
+  "id": "switch-off-refuses-admin",
+  "fundAccess": "0.1",
+  "title": "An area switched off is closed to admins too",
+  "description": "Off means off: hiding an area is not a suggestion.",
+  "tags": [
+    "levels"
+  ],
+  "fund": {
+    "switches": {
+      "accounting": "off"
+    }
+  },
+  "party": {
+    "role": "admin"
+  },
+  "call": {
+    "action": "read",
+    "area": "accounting",
+    "credential": "person"
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "no_access"
+  }
+}

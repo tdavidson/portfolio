@@ -364,4 +364,38 @@ export const LP_PORTAL_TOOL_MANIFEST: AgentToolMeta[] = [
       additionalProperties: false,
     },
   },
+  // ── LP change requests ───────────────────────────────────────────────────────────────────
+  {
+    name: 'lp_change_requests',
+    description:
+      'Changes LPs have asked for from their portal or investor connector: changes to an entity\'s record or contact details ' +
+      '(payload against current, the record when they asked), and portal access for someone acting for them. Pending by ' +
+      'default; includeClosed for every one. Only the LPs in your scope.',
+    scope: 'read',
+    ...CAPITAL,
+    inputSchema: {
+      type: 'object',
+      properties: { includeClosed: { type: 'boolean' }, limit: { type: 'number' } },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'lp_change_request_decide',
+    description:
+      'Approve or reject an LP change request (id from lp_change_requests). Approving makes the change, through the same ' +
+      'function as lp_update_profile or lp_authorized_user_add; access for an authorized user needs an admin. Show the person ' +
+      'the change and confirm before approving.',
+    scope: 'write',
+    ...CAPITAL,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        id: { type: 'string' },
+        decision: { type: 'string', enum: ['approve', 'reject'] },
+        note: { type: 'string', description: 'Why, for the record (shown to the LP when rejecting).' },
+      },
+      required: ['id', 'decision'],
+      additionalProperties: false,
+    },
+  },
 ]

@@ -1,0 +1,24 @@
+{
+  "id": "assistant-write-stages",
+  "fundAccess": "0.1",
+  "title": "An assistant's write waits for its person to approve it",
+  "tags": [
+    "staging"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "portfolio": "write"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "write",
+    "area": "portfolio",
+    "credential": "assistant"
+  },
+  "expect": {
+    "outcome": "stage"
+  }
+}

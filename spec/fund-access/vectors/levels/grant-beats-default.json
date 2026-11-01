@@ -1,0 +1,30 @@
+{
+  "id": "grant-beats-default",
+  "fundAccess": "0.1",
+  "title": "A member's own grant replaces the fund default",
+  "description": "Default write, own grant read: a write is refused.",
+  "tags": [
+    "levels"
+  ],
+  "fund": {
+    "defaults": {
+      "accounting": "write"
+    }
+  },
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "read"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "write",
+    "area": "accounting",
+    "credential": "person"
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "no_access"
+  }
+}

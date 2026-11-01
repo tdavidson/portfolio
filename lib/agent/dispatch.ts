@@ -21,11 +21,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AccessContext } from '@/lib/access/effective'
 import type { ResolvedKey } from '@/lib/accounting/api-keys'
 import {
-  accessDomainForCall, accessFeatureFor, getTool, isLedgerTool, resolveVehicleForTool, type AgentTool,
+  accessDomainForCall, accessFeatureFor, authorizeToolCall, getTool, isLedgerTool, resolveVehicleForTool, type AgentTool,
 } from '@/lib/accounting/agent-tools'
-import { authorizeToolUse } from '@/lib/accounting/api-keys'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { recordAudit } from '@/lib/audit/events'
+import { isProposer } from '@/lib/accounting/proposals'
 import type { ChangeSource } from '@/lib/audit/source'
 import {
   canonicalJson, claimIdempotentRequest, completeIdempotentRequest, releaseIdempotentRequest, requestFingerprint,
@@ -130,8 +130,11 @@ export function hasDraftMode(name: string): boolean {
  * any credential, an admin's own API key included: it is staged as the ordinary tool call, and an
  * admin approves it (lib/agent/destructive.ts).
  */
-export function shouldStage(tool: AgentTool, input: Record<string, unknown>, auth: Pick<ResolvedKey, 'keyId'>): boolean {
+export function shouldStage(tool: AgentTool, input: Record<string, unknown>, auth: Pick<ResolvedKey, 'keyId'>, access?: AccessContext): boolean {
   if (tool.scope !== 'write') return false
+  // A proposer's call is already a proposal (a draft someone with write posts or rejects), so it
+  // runs at once. Staging it would make the approver run it as THEMSELVES, posting it outright.
+  if (tool.proposable && access && isProposer(access)) return false
   if (tool.stagesAs || tool.destructive) return true
   if (tool.runsDirectly) return false
   return isAssistantCredential(auth) && !isDraftOnlyCall(tool, input)
@@ -198,7 +201,7 @@ const ASSISTANT_DEDUPE_CLIENT = 'assistant:derived'
  */
 export async function assistantDedupeKey(call: AgentCall): Promise<{ key: string; fingerprint: string; scope: IdempotencyScope } | null> {
   const { admin, tool, input, auth, access } = call
-  if (!shouldStage(tool, input, auth)) return null
+  if (!shouldStage(tool, input, auth, access)) return null
   // The entity as it will be staged, so "vehicle omitted" and "vehicle named" are the same request.
   const vehicle = await resolveVehicleForTool(tool, admin, auth.fundId, input.vehicle as string | undefined, access)
   const rest = vehicle ? Object.fromEntries(Object.entries(input).filter(([k]) => k !== 'vehicle')) : input
@@ -287,7 +290,7 @@ export async function runAgentTool(call: AgentCall): Promise<unknown> {
   }
 
   try {
-    const result = shouldStage(tool, input, auth) ? await stage(call) : await apply(call)
+    const result = shouldStage(tool, input, auth, access) ? await stage(call) : await apply(call)
     if (key) await completeIdempotentRequest(admin, scope, { endpoint, key, status: 200, body: { result: result as any } })
     return result
   } catch (e) {
@@ -436,7 +439,7 @@ export async function stageAgentRun(call: RunCall, input: unknown): Promise<Stag
   const { args, vehicleId, preview } = await stageRun(deps, input, (name, stepInput) => {
     const tool = getTool(name)!
     return destructiveRefusal(tool)
-      ?? authorizeToolUse(tool.scope, auth, access, accessDomainForCall(tool, stepInput), accessFeatureFor(tool))
+      ?? authorizeToolCall(tool, auth, access, stepInput, { proposals: false })
       ?? adminOnlyRefusal(tool, stepInput, auth)
   })
   const first = getTool(args.steps[0].tool)!

@@ -1,0 +1,33 @@
+{
+  "id": "record-fund-wide-scoped",
+  "fundAccess": "0.1",
+  "title": "A fund-wide record needs every entity",
+  "description": "A member scoped to two entities must name one. (An implementation may treat a call with no entity from someone who sees exactly one entity as a call on that entity.)",
+  "tags": [
+    "records"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "read"
+    },
+    "entities": [
+      {
+        "id": "fund-i"
+      },
+      {
+        "id": "fund-ii"
+      }
+    ]
+  },
+  "call": {
+    "action": "file_record",
+    "area": "accounting",
+    "credential": "person"
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "fund_wide_record"
+  }
+}

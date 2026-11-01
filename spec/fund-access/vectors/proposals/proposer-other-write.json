@@ -1,0 +1,26 @@
+{
+  "id": "proposer-other-write",
+  "fundAccess": "0.1",
+  "title": "A proposer cannot make a write that has no proposal form",
+  "description": "Closing a period, voiding, posting: refused.",
+  "tags": [
+    "proposals"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "propose"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "write",
+    "area": "accounting",
+    "credential": "person"
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "not_proposable"
+  }
+}

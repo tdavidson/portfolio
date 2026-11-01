@@ -1,0 +1,24 @@
+{
+  "id": "switch-admins-admin",
+  "fundAccess": "0.1",
+  "title": "An admins-only switch leaves the area open to admins",
+  "tags": [
+    "levels"
+  ],
+  "fund": {
+    "switches": {
+      "compliance": "admins"
+    }
+  },
+  "party": {
+    "role": "admin"
+  },
+  "call": {
+    "action": "write",
+    "area": "compliance",
+    "credential": "person"
+  },
+  "expect": {
+    "outcome": "allow"
+  }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "accounting-implies-lp-capital",
+  "fundAccess": "0.1",
+  "title": "Reading the books reads partner capital",
+  "description": "The capital accounts are the ledger, so accounting confers lp_capital.",
+  "tags": [
+    "levels"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "read"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "read",
+    "area": "lp_capital",
+    "credential": "person"
+  },
+  "expect": {
+    "outcome": "allow"
+  }
+}

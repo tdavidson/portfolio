@@ -98,7 +98,9 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/quickbooks/tie-out': { domain: 'accounting' },
   'api/accounting/fund-timeseries': { domain: 'accounting' },
   'api/accounting/investments': { domain: 'accounting' },
-  'api/accounting/journal': { domain: 'accounting' },
+  // Proposers (the `propose` level) create, edit and withdraw their own draft proposals here; the
+  // handler holds them to that (lib/accounting/proposals.ts). Everything else on the route is write.
+  'api/accounting/journal': { domain: 'accounting', level: { POST: 'propose', PUT: 'propose', PATCH: 'propose' } },
   'api/accounting/journal/bulk-post': { domain: 'accounting' },
   'api/accounting/journal/bulk-void': { domain: 'accounting' },
   // The journal as a file (CSV, Excel, or QuickBooks' Journal layout) — a read of the same rows.
@@ -232,6 +234,9 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/positions/import': { domain: 'lp_capital', feature: 'lp_tracking' },
   'api/lps/entities': { domain: 'lp_capital' },
   'api/lps/entities/profile': { domain: 'lp_capital' },
+  // LPs' requests to change their record: read to see, write to decide (re-checked in the handler,
+  // where an authorized-user request is also admin-only).
+  'api/lps/change-requests': { domain: 'lp_capital' },
   'api/lps/export/excel': { domain: 'lp_capital' },
   'api/lps/export/pdf': { domain: 'lp_capital' },
   'api/lps/import': { domain: 'lp_capital' },
@@ -344,6 +349,9 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // Fund-of-funds holdings and their register. Portfolio, not accounting: an underlying fund
   // is a holding, and confirming a register row posts through the same investments path.
   'api/portfolio/sheet': { domain: 'portfolio' },
+  // Fund records: a record's domain is the area the request names, and lib/records/areas.ts checks
+  // read on it in the handler, as the record tools do. Level 'any' only keeps non-members out.
+  'api/records': { domain: 'portfolio', level: 'any' },
   'api/entities': { domain: 'portfolio', level: 'any' },
   // The sections every entity list renders in. Labels, not figures, read by lists in four domains;
   // the handler filters the entity assignments (and a scoped caller's groups) by canSeeVehicle.
@@ -487,6 +495,9 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/settings/senders/[id]': { domain: 'admin' },
   // The control panel for who can see what: reading it maps the fund's data.
   'api/settings/access': { domain: 'admin' },
+  // Outside firms and who works for them; their activity log reads every member's actions.
+  'api/settings/engagements': { domain: 'admin' },
+  'api/settings/engagements/[id]/activity': { domain: 'admin' },
   'api/settings/whitelist': { domain: 'admin' },
   'api/settings/whitelist/[id]': { domain: 'admin' },
   'api/onboarding/inbound-email': { domain: 'admin' },
@@ -520,6 +531,9 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // The member's own OAuth connections (MCP connector, v1 API): listing and revoking their own
   // tokens, scoped to their user and fund in the handler.
   'api/settings/connected-apps': { domain: 'portfolio', level: 'any' },
+  // The caller's own linked sign-ins (lib/account-links.ts): a user's own data, like connected apps.
+  'api/account/links': { domain: 'portfolio', level: 'any' },
+  'api/settings/linked-sign-ins': { domain: 'admin' },
   'api/settings/reminders': { domain: 'admin' },
   'api/settings/dashboard-entities': { domain: 'admin' },
   // Entity groups: managing them is administration (and admins only in the handler).
@@ -638,6 +652,7 @@ export const UNGATED_ROUTES: Record<string, string> = {
   'api/portal/authorized-users': 'LP portal: resolveLpAccess.',
   'api/portal/connections': 'LP portal: resolveLpAccess; only the signed-in person\'s own investor-connector tokens.',
   'api/portal/contact': 'LP portal: resolveLpAccess.',
+  'api/portal/change-requests': 'LP portal: resolveLpAccess; only the investor\'s primary account may ask, and only for its own investors.',
   'api/portal/documents': 'LP portal: resolveLpAccess.',
   'api/portal/documents/[id]': 'LP portal: resolveLpAccess.',
   'api/portal/letters': 'LP portal: resolveLpAccess.',

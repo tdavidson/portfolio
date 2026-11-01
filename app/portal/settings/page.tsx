@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { MfaSettings } from '@/components/account/mfa-settings'
+import { PortalChangeRequests } from '@/components/portal/change-requests'
 import { useTheme } from 'next-themes'
 import { Loader2, Check, UserCheck, Trash2, Monitor, Sun, Moon, Copy, Plug } from 'lucide-react'
 
@@ -98,6 +99,10 @@ export default function PortalSettingsPage() {
         <h1 className="text-xl font-semibold tracking-tight">Settings</h1>
         <p className="text-sm text-muted-foreground mt-0.5">Manage how the portal looks, your sign-in security, and who can access your account.</p>
       </div>
+
+      <SettingsCard title="Your details" description="What the fund has on file for you. Ask for a change, or for access for an advisor; the fund approves each request.">
+        <PortalChangeRequests />
+      </SettingsCard>
 
       <SettingsCard title="Appearance" description="Choose how the portal looks on this device.">
         <div className="inline-flex rounded-md border p-0.5 gap-0.5">

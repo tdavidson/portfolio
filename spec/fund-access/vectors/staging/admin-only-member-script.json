@@ -1,0 +1,26 @@
+{
+  "id": "admin-only-member-script",
+  "fundAccess": "0.1",
+  "title": "An admin-only write from a member's script is refused",
+  "tags": [
+    "staging"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "portfolio": "write"
+    },
+    "entities": "all"
+  },
+  "call": {
+    "action": "write",
+    "area": "portfolio",
+    "credential": "script",
+    "adminOnly": true
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "admin_only"
+  }
+}

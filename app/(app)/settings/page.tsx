@@ -11,6 +11,7 @@ import { ProfileSection } from './_sections/account/profile-section'
 import { MfaSection } from './_sections/account/mfa-section'
 import { NotificationPreferencesSection } from './_sections/account/notification-preferences-section'
 import { ConnectedAppsSection } from './_sections/account/connected-apps-section'
+import { LinkedSignInsSection } from './_sections/account/linked-sign-ins-section'
 import { VersionSection } from './_sections/fund/version-section'
 import { CurrencySection } from './_sections/fund/currency-section'
 import { FundNameSection } from './_sections/fund/fund-name-section'
@@ -141,6 +142,7 @@ export default function SettingsPage() {
         <LedgerAgentAccess isAdmin={settings.isAdmin} section="keys" />
       </Section>
       <ConnectedAppsSection />
+      <LinkedSignInsSection />
 
       {/* Per-USER, not per-fund: the Affinity key is the caller's own personal access
           token and every user needs their own. Admins get the same card inside Investment

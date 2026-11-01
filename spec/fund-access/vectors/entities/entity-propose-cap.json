@@ -1,0 +1,31 @@
+{
+  "id": "entity-propose-cap",
+  "fundAccess": "0.1",
+  "title": "A propose cap turns a write into a proposal in that entity",
+  "tags": [
+    "entities"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "write"
+    },
+    "entities": [
+      {
+        "id": "fund-ii",
+        "cap": "propose"
+      }
+    ]
+  },
+  "call": {
+    "action": "write",
+    "area": "accounting",
+    "credential": "script",
+    "entity": "fund-ii",
+    "proposable": true
+  },
+  "expect": {
+    "outcome": "propose"
+  }
+}

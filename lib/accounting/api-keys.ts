@@ -4,7 +4,7 @@
 
 import crypto from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { hasAccess, loadAccessContext, type AccessContext } from '@/lib/access/effective'
+import { hasAccess, loadAccessContext, proposesOnly, type AccessContext } from '@/lib/access/effective'
 import { DOMAIN_META, type Domain } from '@/lib/access/domains'
 import type { FeatureKey } from '@/lib/types/features'
 
@@ -190,8 +190,13 @@ export function authorizeToolUse(
   access: AccessContext,
   domain: Domain,
   feature?: FeatureKey,
+  /** The tool turns a proposer's call into a proposal (AgentToolMeta.proposable). */
+  proposable?: boolean,
 ): string | null {
   if (scope === 'write' && !auth.scopes.includes('write')) return 'This credential is read-only.'
+
+  // A proposer may call a proposable write; the tool makes it a proposal, never the change.
+  if (scope === 'write' && proposable && proposesOnly(access, domain, feature)) return null
 
   // `feature` matters for domains that span several switches: without it the ceiling reads as
   // wide open, so a fund that HID a feature would still serve it over MCP — even to an admin.

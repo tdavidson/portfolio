@@ -241,10 +241,12 @@ describe('role presets', () => {
     for (const p of ACCESS_PRESETS) expect(Object.keys(p.grants).sort(), p.key).toEqual([...grantable].sort())
   })
 
-  it('give an auditor read on every financial area and write on none', () => {
+  it('give an auditor read on every financial area, propose on the books, and write on none', () => {
     const auditor = getPreset('auditor')!
     expect(Object.values(auditor.grants)).not.toContain('write')
-    for (const d of ['accounting', 'lp_capital', 'gp_economics', 'management_company', 'tax', 'lp_relations', 'compliance'] as const) {
+    // Proposed audit adjustments: drafts someone with write posts or rejects.
+    expect(auditor.grants.accounting).toBe('propose')
+    for (const d of ['lp_capital', 'gp_economics', 'management_company', 'tax', 'lp_relations', 'compliance'] as const) {
       expect(auditor.grants[d], d).toBe('read')
     }
     expect(auditor.grants.dealflow).toBe('none')

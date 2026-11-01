@@ -118,7 +118,7 @@ function useRecords(open: boolean): Records {
 
     const canRead = (d: Parameters<typeof access>[0], f?: Parameters<typeof access>[1]) => {
       const level = access(d, f)
-      return level === 'read' || level === 'write'
+      return level !== 'none'
     }
 
     // Each list is fetched only where the nav would show the section it belongs to — not as a

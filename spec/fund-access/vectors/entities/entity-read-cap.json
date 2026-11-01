@@ -1,0 +1,35 @@
+{
+  "id": "entity-read-cap",
+  "fundAccess": "0.1",
+  "title": "A read cap on an entity lowers write to read there",
+  "description": "Keeps one fund's books, reads another's.",
+  "tags": [
+    "entities"
+  ],
+  "fund": {},
+  "party": {
+    "role": "member",
+    "grants": {
+      "accounting": "write"
+    },
+    "entities": [
+      {
+        "id": "fund-i"
+      },
+      {
+        "id": "fund-ii",
+        "cap": "read"
+      }
+    ]
+  },
+  "call": {
+    "action": "write",
+    "area": "accounting",
+    "credential": "script",
+    "entity": "fund-ii"
+  },
+  "expect": {
+    "outcome": "refuse",
+    "reason": "no_access"
+  }
+}
