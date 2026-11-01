@@ -2,7 +2,10 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 vi.mock('@/lib/oauth/enabled', () => ({ agentApiEnabled: vi.fn(async (_admin: unknown, fundId: string) => fundId !== 'f-off') }))
 
-import { loadPool, masterAdminEmails, masterAdminGroups, matchFund, poolFunds, type MasterAdminPool } from './master-admin'
+import {
+  checkActiveFundArgument, loadPool, masterAdminEmails, masterAdminGroups, matchFund, normalizeSessionId, poolFunds,
+  setActiveFund, withActiveFundArgument, type MasterAdminPool,
+} from './master-admin'
 
 const ROWS = [
   { user_id: 'u-nw', email: 't@northwind.example', fund_id: 'f-nw', fund_name: 'Northwind Holdings' },
@@ -146,7 +149,7 @@ describe('loadPool with several pools', () => {
 })
 
 describe('matchFund', () => {
-  const pool: MasterAdminPool = { homeUserId: 'u-rb', clientId: 'c', activeFundId: 'f-rb', funds: poolFunds(ROWS) }
+  const pool: MasterAdminPool = { homeUserId: 'u-rb', clientId: 'c', sessionId: '', activeFundId: 'f-rb', funds: poolFunds(ROWS) }
 
   it('matches by id, exact name or an unambiguous part', () => {
     expect((matchFund(pool, 'f-nw') as any).fundId).toBe('f-nw')
@@ -180,5 +183,86 @@ describe('loadPool with linked sign-ins', () => {
 
   it('does nothing for a sign-in that is not linked', async () => {
     expect(await loadPool(fakeAdmin(ROWS, null, { emails }), { userId: 'u-nw', fundId: 'f-nw', clientId: 'c1' })).toBeNull()
+  })
+})
+
+/** agent_active_funds as a table keyed on (user, client, session), for the per-conversation tests. */
+function sessionAdmin(rows: unknown[]) {
+  const stored = new Map<string, string>()
+  const key = (f: Record<string, string>) => `${f.user_id}|${f.client_id}|${f.session_id}`
+  const base = fakeAdmin(rows)
+  return {
+    ...base,
+    stored,
+    from: (table: string) => {
+      if (table !== 'agent_active_funds') return base.from(table)
+      const filters: Record<string, string> = {}
+      const chain: any = {
+        select: () => chain,
+        eq: (col: string, val: string) => { filters[col] = val; return chain },
+        maybeSingle: async () => ({ data: stored.has(key(filters)) ? { fund_id: stored.get(key(filters)) } : null, error: null }),
+        upsert: async (row: Record<string, string>) => { stored.set(key(row), row.fund_id); return { error: null } },
+      }
+      return chain
+    },
+  } as any
+}
+
+describe('the active fund belongs to one conversation', () => {
+  const owner = { userId: 'u-rb', fundId: 'f-rb', clientId: 'claude' }
+  const LISTED = 't@riverbend.example,t@northwind.example'
+
+  it('switching in one session leaves another session, and a new one, in the home fund', async () => {
+    process.env.MASTER_ADMIN_EMAILS = LISTED
+    const admin = sessionAdmin(ROWS)
+    const a = (await loadPool(admin, { ...owner, sessionId: 'session-aaaa' }))!
+    await setActiveFund(admin, a, 'f-nw')
+    expect((await loadPool(admin, { ...owner, sessionId: 'session-aaaa' }))?.activeFundId).toBe('f-nw')
+    expect((await loadPool(admin, { ...owner, sessionId: 'session-bbbb' }))?.activeFundId).toBe('f-rb')
+    expect((await loadPool(admin, owner))?.activeFundId).toBe('f-rb')
+  })
+
+  it('keys a client that sends no session id on the shared row', async () => {
+    process.env.MASTER_ADMIN_EMAILS = LISTED
+    const admin = sessionAdmin(ROWS)
+    const shared = (await loadPool(admin, owner))!
+    expect(shared.sessionId).toBe('')
+    await setActiveFund(admin, shared, 'f-nw')
+    expect((await loadPool(admin, { ...owner, sessionId: null }))?.activeFundId).toBe('f-nw')
+  })
+
+  it('accepts only sane session ids', () => {
+    expect(normalizeSessionId('mcps_abcdefgh')).toBe('mcps_abcdefgh')
+    expect(normalizeSessionId('short')).toBe('')
+    expect(normalizeSessionId('has a space in it')).toBe('')
+    expect(normalizeSessionId(42)).toBe('')
+  })
+})
+
+describe('activeFund on pooled writes', () => {
+  const pool: MasterAdminPool = {
+    homeUserId: 'u-rb', clientId: 'claude', sessionId: '', activeFundId: 'f-rb',
+    funds: [
+      { fundId: 'f-nw', fundName: 'Northwind Holdings', userId: 'u-nw', email: 't@northwind.example' },
+      { fundId: 'f-rb', fundName: 'Riverbend Capital', userId: 'u-rb', email: 't@riverbend.example' },
+    ],
+  }
+
+  it('passes a write naming the active fund, without the argument', () => {
+    expect(checkActiveFundArgument(pool, { activeFund: 'Riverbend Capital', memo: 'x' })).toEqual({ args: { memo: 'x' } })
+    expect(checkActiveFundArgument(pool, { activeFund: 'f-rb' })).toEqual({ args: {} })
+  })
+
+  it('refuses a write naming another fund, or none', () => {
+    const other = checkActiveFundArgument(pool, { activeFund: 'Northwind' })
+    expect('refusal' in other && other.refusal).toMatch(/active fund is Riverbend Capital/)
+    const none = checkActiveFundArgument(pool, { memo: 'x' })
+    expect('refusal' in none && none.refusal).toMatch(/pass activeFund/)
+  })
+
+  it('adds the argument to a write tool\'s schema as required', () => {
+    const t = withActiveFundArgument({ name: 'post_entry', inputSchema: { type: 'object', properties: { memo: {} }, required: ['memo'] } })
+    expect((t.inputSchema as any).required).toEqual(['memo', 'activeFund'])
+    expect((t.inputSchema as any).properties.activeFund).toBeDefined()
   })
 })

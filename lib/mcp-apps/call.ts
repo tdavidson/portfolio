@@ -8,7 +8,7 @@ import { getTool, resolveVehicleForTool, type AgentToolContext } from '@/lib/acc
 import { idempotencyKeyOf, runAgentTool } from '@/lib/agent/dispatch'
 import { CALL_TOOL, closeMatches, isGatewayTool, searchTools, SEARCH_TOOLS } from './gateway'
 import { authorizeMcpTool, getMcpTool, isPendingTool, toolResult } from './server'
-import { activeFund, LIST_FUNDS, matchFund, setActiveFund, USE_FUND } from '@/lib/agent/master-admin'
+import { activeFund, checkActiveFundArgument, LIST_FUNDS, matchFund, setActiveFund, USE_FUND } from '@/lib/agent/master-admin'
 
 export type McpCallContext = Omit<AgentToolContext, 'portfolioGroup'>
 
@@ -30,9 +30,18 @@ const refusal = (text: string) => ({ result: { content: [{ type: 'text', text }]
 export async function callMcpTool(call: McpCall): Promise<McpCallOutcome> {
   if (!call.auth.pool) return callOne(call)
   if (call.name === LIST_FUNDS || call.name === USE_FUND) return callMasterAdminTool(call)
-  // Pooled: every result says which fund it came from, so a model working across funds can't lose
+  // Pooled: a write names the fund it is for, and is refused when another fund is active, so a
+  // switch the model missed costs a retry rather than a change in the wrong fund. Checked here, on
+  // the one path direct calls and call_tool share; the tool itself never sees the argument.
+  let checked = call
+  if (call.name !== SEARCH_TOOLS && call.name !== CALL_TOOL && getMcpTool(call.name)?.scope === 'write') {
+    const ok = checkActiveFundArgument(call.auth.pool, call.args ?? {})
+    if ('refusal' in ok) return refusal(`Fund: ${activeFund(call.auth.pool).fundName}\n${ok.refusal}`)
+    checked = { ...call, args: ok.args }
+  }
+  // Every result says which fund it came from, so a model working across funds can't lose
   // track of where it is, and neither can the person reading along.
-  const outcome = await callOne(call)
+  const outcome = await callOne(checked)
   if ('result' in outcome) {
     const r = outcome.result as { content?: unknown[] }
     if (Array.isArray(r?.content)) {
@@ -59,7 +68,7 @@ async function callMasterAdminTool(call: McpCall): Promise<McpCallOutcome> {
   const target = matchFund(pool, call.args.fund)
   if (typeof target === 'string') return refusal(target)
   await setActiveFund(call.ctx.admin, pool, target.fundId)
-  return text(`Now working in ${target.fundName}, acting as ${target.email}. Every tool call from here on reads and writes ${target.fundName}.`)
+  return text(`Now working in ${target.fundName}, acting as ${target.email}. Every tool call from here on in this conversation reads and writes ${target.fundName}; pass activeFund: "${target.fundName}" with each change.`)
 }
 
 async function callOne(call: McpCall): Promise<McpCallOutcome> {

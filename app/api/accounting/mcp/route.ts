@@ -8,7 +8,7 @@ import type { AccessContext } from '@/lib/access/effective'
 import { getMcpTool, listResources, negotiateProtocolVersion, readResource } from '@/lib/mcp-apps/server'
 import { callMcpTool, type McpCallContext } from '@/lib/mcp-apps/call'
 import { gatewayTargetName, listedTools, toolListVersion } from '@/lib/mcp-apps/gateway'
-import { activeFund, MASTER_ADMIN_TOOLS, type MasterAdminPool } from '@/lib/agent/master-admin'
+import { ACTIVE_FUND_ARG, activeFund, MASTER_ADMIN_TOOLS, newSessionId, withActiveFundArgument, type MasterAdminPool } from '@/lib/agent/master-admin'
 import { isAssistantCredential } from '@/lib/agent/dispatch'
 import { rateLimit } from '@/lib/rate-limit'
 import { agentApiEnabled } from '@/lib/oauth/enabled'
@@ -104,7 +104,20 @@ function masterAdminInstructions(pool: MasterAdminPool) {
   return ` This connection can work in ${pool.funds.length} funds (${pool.funds.map(f => f.fundName).join(', ')}), ` +
     `one at a time; the active one is ${activeFund(pool).fundName}. Every tool acts on the active fund only, and every ` +
     'result starts with the fund it came from. Use list_funds to see them and use_fund to switch, and confirm the fund ' +
-    'with the person before any change when more than one could be meant.'
+    'with the person before any change when more than one could be meant. The active fund belongs to this conversation: ' +
+    `switching here never moves another conversation's. Every change takes ${ACTIVE_FUND_ARG}, the fund you believe is ` +
+    'active; a change naming another fund is refused and nothing is written.'
+}
+
+/**
+ * The tool list a pooled connection is served: every write tool takes and requires activeFund
+ * (lib/agent/master-admin.ts checkActiveFundArgument), so the model names the fund on each change.
+ */
+function pooledTools(access: AccessContext): Record<string, unknown>[] {
+  return [
+    ...MASTER_ADMIN_TOOLS,
+    ...listedTools(access).map(t => (getMcpTool(t.name)?.scope === 'write' ? withActiveFundArgument(t) : t)),
+  ]
 }
 
 interface RpcRequest { jsonrpc: string; id?: string | number | null; method: string; params?: any }
@@ -142,7 +155,7 @@ async function handle(rpc: RpcRequest, ctx: BaseCtx, auth: ResolvedKey, access: 
       // conversation, and they are how a cached list reaches a tool added since (gateway.ts).
       // A master admin connection also gets list_funds and use_fund (lib/agent/master-admin.ts).
       return ok(rpc.id, {
-        tools: auth.pool ? [...MASTER_ADMIN_TOOLS, ...listedTools(access)] : listedTools(access),
+        tools: auth.pool ? pooledTools(access) : listedTools(access),
         _meta: { toolListVersion: toolListVersion(access) },
       })
     case 'tools/call': {
@@ -196,7 +209,14 @@ export async function POST(req: NextRequest) {
 
 async function handlePost(req: NextRequest) {
   const admin = createAdminClient()
-  const auth = await resolveAgentAuth(admin, req)
+  const body = await req.json().catch(() => null)
+  // A conversation starts with `initialize`. A pooled connection (one that works in several funds)
+  // gets a session id there, returned as Mcp-Session-Id and sent back by the client on every later
+  // request, so its active fund is this conversation's alone. A new session starts in the fund the
+  // connection was authorized for.
+  const initializing = !!body && !Array.isArray(body) && body.method === 'initialize'
+  const issuedSession = initializing ? newSessionId() : null
+  const auth = await resolveAgentAuth(admin, req, issuedSession ? { sessionId: issuedSession } : {})
   if (!auth) {
     return NextResponse.json(
       err(null, -32001, 'Unauthorized — present a fund API key or an OAuth access token as a Bearer token'),
@@ -218,7 +238,6 @@ async function handlePost(req: NextRequest) {
   // and revoking their grant narrows every key and token they hold on the next call.
   const access = await loadCredentialAccess(admin, auth)
   const ctx: BaseCtx = { admin, fundId: auth.fundId, userId: auth.userId, access, origin: issuerFor(req) }
-  const body = await req.json().catch(() => null)
   if (!body) return NextResponse.json(err(null, -32700, 'Parse error'), { status: 400 })
 
   // Support JSON-RPC batches.
@@ -253,7 +272,8 @@ async function handlePost(req: NextRequest) {
 
   const response = await handle(body, ctx, auth, access)
   if (response === null) return new NextResponse(null, { status: 202 })
-  return NextResponse.json(response)
+  const headers: Record<string, string> = issuedSession && auth.pool ? { 'Mcp-Session-Id': issuedSession } : {}
+  return NextResponse.json(response, { headers })
 }
 
 /**
