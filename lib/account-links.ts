@@ -3,8 +3,10 @@
 // those funds (lib/agent/master-admin.ts). It acts in each fund as that fund's own member, so a
 // link never widens anyone's access in any fund.
 //
-// Proof: a code is shown to one sign-in and entered while signed in as the other, so only someone
-// who controls both can link them. Codes are single-use, last ten minutes, and stored hashed.
+// Proof: a code is shown to one sign-in and entered while signed in as the other, and then the
+// sign-in that showed it confirms, on a screen naming the other address and fund. So reading a code
+// out to someone is not enough to link: whoever showed it still has to say yes to that address.
+// Codes are single-use, last ten minutes, and stored hashed. Both addresses are emailed.
 // Each fund may switch linking off for its members (fund_settings.allow_linked_sign_ins); the
 // connection then never switches into that fund.
 
@@ -17,8 +19,9 @@ export const MAX_LINKED = 12
 // No 0/O, 1/I/L: read off one screen and typed into another.
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789'
 
-export function newLinkCode(bytes: Buffer = crypto.randomBytes(8)): string {
-  const chars = [...bytes].map(b => ALPHABET[b % ALPHABET.length]).join('')
+/** Eight characters, each drawn uniformly (randomInt, not a byte modulo the alphabet's length). */
+export function newLinkCode(pick: (n: number) => number = n => crypto.randomInt(n)): string {
+  const chars = Array.from({ length: 8 }, () => ALPHABET[pick(ALPHABET.length)]).join('')
   return `${chars.slice(0, 4)}-${chars.slice(4, 8)}`
 }
 
@@ -60,22 +63,57 @@ async function members(db: any, groupId: string): Promise<string[]> {
 }
 
 /**
- * Link this sign-in with the one that showed the code. Joins whatever either was already linked
- * to, so linking C to B, where B is linked to A, links all three.
+ * Enter the code shown to another sign-in. Nothing is linked yet: the sign-in that showed the code
+ * must confirm (confirmLinkRequest), seeing this sign-in's address and fund as it does.
  */
-export async function redeemLinkCode(admin: SupabaseClient, userId: string, code: unknown): Promise<Outcome<{ linked: number }>> {
+export async function redeemLinkCode(admin: SupabaseClient, userId: string, code: unknown): Promise<Outcome<{ pending: true; otherUserId: string }>> {
   const db = admin as any
   if (typeof code !== 'string' || code.replace(/[^A-Za-z0-9]/g, '').length !== 8) return fail(400, 'Enter the 8-character code from your other sign-in.')
   const hash = hashLinkCode(code)
-  const { data: row, error } = await db.from('account_link_codes').select('user_id, expires_at').eq('code_hash', hash).maybeSingle()
+  const { data: row, error } = await db.from('account_link_codes').select('user_id, expires_at, redeemed_by').eq('code_hash', hash).maybeSingle()
   if (error) return dbFail(error, 'account-links.redeem')
-  if (!row || new Date(row.expires_at).getTime() < Date.now()) return fail(400, 'That code is wrong or has expired. Get a new one from your other sign-in.')
+  const wrong = fail(400, 'That code is wrong or has expired. Get a new one from your other sign-in.')
+  if (!row || new Date(row.expires_at).getTime() < Date.now()) return wrong
   if (row.user_id === userId) return fail(400, 'That code is for this sign-in. Enter it while signed in as your other one.')
-  await db.from('account_link_codes').delete().eq('code_hash', hash)
+  if (row.redeemed_by) return wrong
+  // Claimed once: a second sign-in entering the same code gets nothing.
+  const { data: claimed, error: claimErr } = await db.from('account_link_codes')
+    .update({ redeemed_by: userId, redeemed_at: new Date().toISOString() })
+    .eq('code_hash', hash).is('redeemed_by', null).select('code_hash')
+  if (claimErr) return dbFail(claimErr, 'account-links.redeem')
+  if (!((claimed as unknown[]) ?? []).length) return wrong
+  return done({ pending: true, otherUserId: row.user_id as string })
+}
 
-  const [theirs, mine] = await Promise.all([groupOf(db, row.user_id), groupOf(db, userId)])
-  const group = theirs ?? mine ?? crypto.randomUUID()
-  const everyone = new Set<string>([row.user_id, userId])
+/** A code this sign-in showed that another sign-in has entered, waiting for this one to confirm. */
+export async function pendingLinkRequest(admin: SupabaseClient, userId: string): Promise<{ userId: string; email: string | null; fundName: string | null } | null> {
+  const db = admin as any
+  const { data: row } = await db.from('account_link_codes').select('redeemed_by, expires_at').eq('user_id', userId).not('redeemed_by', 'is', null).maybeSingle()
+  if (!row?.redeemed_by || new Date(row.expires_at).getTime() < Date.now()) return null
+  const other = row.redeemed_by as string
+  const [{ data: u }, { data: m }] = await Promise.all([
+    admin.auth.admin.getUserById(other),
+    db.from('fund_members').select('fund_id').eq('user_id', other).maybeSingle(),
+  ])
+  const { data: f } = m?.fund_id ? await db.from('funds').select('name').eq('id', m.fund_id).maybeSingle() : { data: null }
+  return { userId: other, email: u?.user?.email?.toLowerCase() ?? null, fundName: f?.name ?? null }
+}
+
+/**
+ * Confirm the request on this sign-in's code: link it with the sign-in that entered the code. Joins
+ * whatever either was already linked to, so linking C to B, where B is linked to A, links all three.
+ */
+export async function confirmLinkRequest(admin: SupabaseClient, userId: string): Promise<Outcome<{ linked: number; otherUserId: string }>> {
+  const db = admin as any
+  const { data: row, error } = await db.from('account_link_codes').select('code_hash, redeemed_by, expires_at').eq('user_id', userId).not('redeemed_by', 'is', null).maybeSingle()
+  if (error) return dbFail(error, 'account-links.confirm')
+  if (!row?.redeemed_by || new Date(row.expires_at).getTime() < Date.now()) return fail(400, 'There is no link waiting for you to confirm. Get a new code and try again.')
+  await db.from('account_link_codes').delete().eq('code_hash', row.code_hash)
+  const other = row.redeemed_by as string
+
+  const [theirs, mine] = await Promise.all([groupOf(db, other), groupOf(db, userId)])
+  const group = mine ?? theirs ?? crypto.randomUUID()
+  const everyone = new Set<string>([other, userId])
   if (theirs) for (const u of await members(db, theirs)) everyone.add(u)
   if (mine) for (const u of await members(db, mine)) everyone.add(u)
   if (everyone.size > MAX_LINKED) return fail(400, `You can link up to ${MAX_LINKED} sign-ins.`)
@@ -85,7 +123,14 @@ export async function redeemLinkCode(admin: SupabaseClient, userId: string, code
     { onConflict: 'user_id' },
   )
   if (upErr) return dbFail(upErr, 'account-links.link')
-  return done({ linked: everyone.size })
+  return done({ linked: everyone.size, otherUserId: other })
+}
+
+/** Say no to the request on this sign-in's code. The code stops working. */
+export async function declineLinkRequest(admin: SupabaseClient, userId: string): Promise<Outcome<{ declined: true }>> {
+  const { error } = await (admin as any).from('account_link_codes').delete().eq('user_id', userId)
+  if (error) return dbFail(error, 'account-links.decline')
+  return done({ declined: true })
 }
 
 /** Take this sign-in out of its links. A lone sign-in left behind is unlinked too. */

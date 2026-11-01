@@ -24,6 +24,13 @@ export function LinkedSignInsPolicy() {
     if (!res.ok) { setAllow(!next); setError('That did not save.') }
   }
 
+  async function unlink(userId: string) {
+    setError(null)
+    const res = await fetch('/api/settings/linked-sign-ins', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ userId }) })
+    if (!res.ok) { setError('Could not unlink.'); return }
+    setLinked(ls => ls.filter(l => l.userId !== userId))
+  }
+
   if (allow === null) return null
   return (
     <div className="mt-6 space-y-2">
@@ -38,9 +45,14 @@ export function LinkedSignInsPolicy() {
         <Switch checked={allow} onCheckedChange={change} aria-label="Allow linked sign-ins" />
       </div>
       {linked.length > 0 && (
-        <p className="text-sm text-muted-foreground">
-          Linked: {linked.map(l => l.email ?? 'unknown').join(', ')}
-        </p>
+        <ul className="text-sm divide-y">
+          {linked.map(l => (
+            <li key={l.userId} className="flex items-center justify-between gap-3 py-1.5">
+              <span className="text-muted-foreground truncate">{l.email ?? 'unknown'} is linked to a sign-in in another fund</span>
+              <button type="button" className="text-xs underline text-muted-foreground hover:text-foreground" onClick={() => unlink(l.userId)}>Unlink</button>
+            </li>
+          ))}
+        </ul>
       )}
       {error && <p className="text-sm text-destructive">{error}</p>}
     </div>

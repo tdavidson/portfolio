@@ -20,6 +20,8 @@ export function LinkedSignInsSection() {
   const [allowed, setAllowed] = useState(true)
   const [code, setCode] = useState<{ code: string; expiresAt: string } | null>(null)
   const [entered, setEntered] = useState('')
+  const [pending, setPending] = useState<{ email: string | null; fundName: string | null } | null>(null)
+  const [waiting, setWaiting] = useState(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -29,6 +31,7 @@ export function LinkedSignInsSection() {
     const d = await res.json().catch(() => ({}))
     setLinks(Array.isArray(d.links) ? d.links : [])
     setAllowed(d.allowed !== false)
+    setPending(d.pending ?? null)
   }, [])
   useEffect(() => { load() }, [load])
 
@@ -48,7 +51,12 @@ export function LinkedSignInsSection() {
 
   async function link() {
     const d = await post({ action: 'link', code: entered })
-    if (d) { setEntered(''); await load() }
+    if (d) { setEntered(''); setWaiting(true); await load() }
+  }
+
+  async function decide(action: 'confirm' | 'decline') {
+    const d = await post({ action })
+    if (d) { setCode(null); await load() }
   }
 
   async function unlink() {
@@ -73,6 +81,23 @@ export function LinkedSignInsSection() {
         between those funds. In each fund it can do only what you can do there.
       </p>
       {!allowed && <p className="text-sm text-warning mb-3">This fund has switched linking off, so linked connections can&apos;t reach it.</p>}
+
+      {pending && (
+        <div className="rounded-card border border-warning bg-warning-subtle p-3 mb-3 text-sm space-y-2">
+          <p>
+            <span className="font-medium">{pending.email ?? 'Another sign-in'}</span>
+            {pending.fundName ? <> in <span className="font-medium">{pending.fundName}</span></> : null} entered your link code.
+            Confirm only if that is you: once linked, a connection made with either sign-in can work in both funds.
+          </p>
+          <div className="flex gap-2">
+            <Button size="sm" onClick={() => decide('confirm')} disabled={busy}>Link these sign-ins</Button>
+            <Button size="sm" variant="outline" onClick={() => decide('decline')} disabled={busy}>That wasn&apos;t me</Button>
+          </div>
+        </div>
+      )}
+      {waiting && !pending && (
+        <p className="text-sm text-muted-foreground mb-3">Code accepted. Now confirm the link from the sign-in that showed it.</p>
+      )}
 
       {links.length > 0 && (
         <ul className="divide-y mb-3">
