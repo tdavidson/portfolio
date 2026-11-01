@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { resolveFundFromApiKey, authorizeToolUse, loadCredentialAccess } from '@/lib/accounting/api-keys'
+import { resolveFundFromApiKey, loadCredentialAccess } from '@/lib/accounting/api-keys'
 import { agentApiEnabled } from '@/lib/oauth/enabled'
 import { issuerFor } from '@/lib/oauth/metadata'
-import { AGENT_TOOLS, getTool, accessDomainFor, accessDomainForCall, accessFeatureFor, toolListedFor } from '@/lib/accounting/agent-tools'
+import { AGENT_TOOLS, getTool, accessDomainFor, accessFeatureFor, authorizeToolCall, toolListedFor } from '@/lib/accounting/agent-tools'
 import { AgentCallError, idempotencyKeyOf, runAgentTool } from '@/lib/agent/dispatch'
 import { withChangeSource } from '@/lib/audit/source'
 import { isGatewayTool } from '@/lib/mcp-apps/gateway-names'
@@ -91,7 +91,7 @@ async function handlePost(req: NextRequest) {
   // `accessDomainForCall` rather than the tool's own domain — an `allocation` call is ordinary
   // accounting until its action is 'carry'.
   const access = await loadCredentialAccess(admin, auth)
-  const denied = authorizeToolUse(tool.scope, auth, access, accessDomainForCall(tool, body?.input ?? {}), accessFeatureFor(tool), tool.proposable === true)
+  const denied = authorizeToolCall(tool, auth, access, body?.input ?? {})
   if (denied) return NextResponse.json({ error: denied }, { status: 403 })
 
   // RATE LIMIT. This endpoint can post directly to the ledger and close periods, with no human

@@ -21,9 +21,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AccessContext } from '@/lib/access/effective'
 import type { ResolvedKey } from '@/lib/accounting/api-keys'
 import {
-  accessDomainForCall, accessFeatureFor, getTool, isLedgerTool, resolveVehicleForTool, type AgentTool,
+  accessDomainForCall, accessFeatureFor, authorizeToolCall, getTool, isLedgerTool, resolveVehicleForTool, type AgentTool,
 } from '@/lib/accounting/agent-tools'
-import { authorizeToolUse } from '@/lib/accounting/api-keys'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { recordAudit } from '@/lib/audit/events'
 import { isProposer } from '@/lib/accounting/proposals'
@@ -440,7 +439,7 @@ export async function stageAgentRun(call: RunCall, input: unknown): Promise<Stag
   const { args, vehicleId, preview } = await stageRun(deps, input, (name, stepInput) => {
     const tool = getTool(name)!
     return destructiveRefusal(tool)
-      ?? authorizeToolUse(tool.scope, auth, access, accessDomainForCall(tool, stepInput), accessFeatureFor(tool))
+      ?? authorizeToolCall(tool, auth, access, stepInput, { proposals: false })
       ?? adminOnlyRefusal(tool, stepInput, auth)
   })
   const first = getTool(args.steps[0].tool)!

@@ -11,9 +11,9 @@
 
 import type { AccessContext } from '@/lib/access/effective'
 import { hasAccess } from '@/lib/access/effective'
-import { authorizeToolUse, type ResolvedKey } from '@/lib/accounting/api-keys'
+import type { ResolvedKey } from '@/lib/accounting/api-keys'
 import {
-  AGENT_TOOLS, accessDomainFor, accessDomainForCall, accessFeatureFor, toolListedFor,
+  AGENT_TOOLS, accessDomainFor, accessDomainForCall, accessFeatureFor, authorizeToolCall, toolListedFor,
   type AgentTool,
 } from '@/lib/accounting/agent-tools'
 import { DASHBOARD_TOOLS, type DashboardTool } from '@/lib/agent/dashboard-tools'
@@ -23,11 +23,6 @@ import { DASHBOARD_HTML, DASHBOARD_HTML_HASH } from './dashboard-html.generated'
 import { isDashboardPayload } from './payload'
 
 export type McpTool = AgentTool | DashboardTool | PendingTool
-
-/** Does calling this tool make a proposal for a proposer (AgentToolMeta.proposable)? */
-function proposableTool(tool: McpTool): boolean {
-  return (tool as AgentTool).proposable === true
-}
 
 /**
  * Everything the MCP endpoint serves: the shared registry, the dashboard tools, and the approval
@@ -217,7 +212,7 @@ export function authorizeMcpTool(tool: McpTool, auth: ResolvedKey, access: Acces
   }
   // The CALL's domain, not just the tool's: `allocation` is ordinary accounting until its action
   // is 'carry'.
-  return authorizeToolUse(tool.scope, auth, access, accessDomainForCall(tool, args), accessFeatureFor(tool), proposableTool(tool))
+  return authorizeToolCall(tool as AgentTool, auth, access, args)
 }
 
 /**

@@ -76,6 +76,14 @@ export interface AgentToolMeta {
    * or rejects it. Without this flag a proposer is refused like any reader.
    */
   proposable?: true
+  /**
+   * The tool's domain is the `area` its input names (lib/records/areas.ts), and every call needs
+   * only read there, writes included: filing a record adds the fund's note about what the caller
+   * can already see and changes nothing else. A call with no area (a list, a read by id) needs
+   * read on some area, and the handler trims to the areas the caller reads. The credential must
+   * still carry write to file, and the read-only demo files nothing. `accessDomain` is unused.
+   */
+  areaInput?: true
   inputSchema: Record<string, any>
 }
 

@@ -349,6 +349,9 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // Fund-of-funds holdings and their register. Portfolio, not accounting: an underlying fund
   // is a holding, and confirming a register row posts through the same investments path.
   'api/portfolio/sheet': { domain: 'portfolio' },
+  // Fund records: a record's domain is the area the request names, and lib/records/areas.ts checks
+  // read on it in the handler, as the record tools do. Level 'any' only keeps non-members out.
+  'api/records': { domain: 'portfolio', level: 'any' },
   'api/entities': { domain: 'portfolio', level: 'any' },
   // The sections every entity list renders in. Labels, not figures, read by lists in four domains;
   // the handler filters the entity assignments (and a scoped caller's groups) by canSeeVehicle.

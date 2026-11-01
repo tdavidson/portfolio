@@ -100,6 +100,10 @@ import { ILPA_TOOL_MANIFEST } from '@/lib/agent/ilpa-tools-manifest'
 import { ILPA_HANDLERS } from '@/lib/agent/ilpa-tools'
 import { CREDIT_FACILITY_TOOL_MANIFEST } from '@/lib/agent/credit-facility-tools-manifest'
 import { CREDIT_FACILITY_HANDLERS } from '@/lib/agent/credit-facility-tools'
+import { RECORD_TOOL_MANIFEST } from '@/lib/agent/record-tools-manifest'
+import { RECORD_HANDLERS } from '@/lib/agent/record-tools'
+import { isRecordArea, readableAreas, recordAccessProblem } from '@/lib/records/areas'
+import { authorizeToolUse, type ResolvedKey } from './api-keys'
 
 export { resolveVehicle } from './vehicle-resolver'
 
@@ -640,6 +644,7 @@ export const AGENT_TOOLS: AgentTool[] = [
   ...bind(QUERY_TOOL_MANIFEST, QUERY_HANDLERS),
   ...bind(OPERATIONS_TOOL_MANIFEST, OPERATIONS_HANDLERS),
   ...bind(LP_PORTAL_TOOL_MANIFEST, LP_PORTAL_HANDLERS),
+  ...bind(RECORD_TOOL_MANIFEST, RECORD_HANDLERS),
 
   // Offered only with AGENT_DESTRUCTIVE_ACTIONS=true, and always staged for an admin (lib/agent/destructive.ts).
   ...bindLedger(DESTRUCTIVE_LEDGER_TOOL_MANIFEST, DESTRUCTIVE_HANDLERS), ...bind(DESTRUCTIVE_TOOL_MANIFEST, DESTRUCTIVE_HANDLERS),
@@ -693,6 +698,9 @@ export function accessFeatureFor(tool: AgentToolMeta): FeatureKey | undefined {
  * level, and a proposable write for a proposer too, since calling it makes a proposal.
  */
 export function toolListedFor(access: AccessContext, tool: AgentToolMeta): boolean {
+  // An area tool (fund records) is for anyone who reads some area; filing also needs a role that
+  // changes things, which the read-only demo is not.
+  if (tool.areaInput) return readableAreas(access).length > 0 && (tool.scope === 'read' || access.role !== 'viewer')
   const need = tool.scope === 'write' && tool.proposable === true ? 'propose' : tool.scope
   return hasAccess(access, accessDomainFor(tool), need, accessFeatureFor(tool))
 }
@@ -710,7 +718,30 @@ const INPUT_ELEVATIONS: Record<string, (input: any) => Domain | null> = {
 
 /** The domain a specific CALL touches, accounting for input-dependent elevation. */
 export function accessDomainForCall(tool: AgentToolMeta, input: unknown): Domain {
+  const area = (input as any)?.area
+  if (tool.areaInput && isRecordArea(area)) return area
   return INPUT_ELEVATIONS[tool.name]?.(input) ?? accessDomainFor(tool)
+}
+
+/**
+ * May this credential make this call? The one rule MCP's tools/call, POST /api/agent and a staged
+ * run's steps all apply, so the doors can't disagree on it (tests/three-door-parity.test.ts): the
+ * credential's scope, then the owner's grant for the CALL's domain (`accessDomainForCall`), with a
+ * proposer let through on a proposable write. An area tool answers to lib/records/areas.ts instead.
+ * `proposals: false` is for a staged run, whose steps an approver runs as themselves.
+ */
+export function authorizeToolCall(
+  tool: AgentToolMeta,
+  auth: ResolvedKey,
+  access: AccessContext,
+  input: unknown,
+  opts: { proposals?: boolean } = {},
+): string | null {
+  if (tool.areaInput) {
+    if (tool.scope === 'write' && !auth.scopes.includes('write')) return 'This credential is read-only.'
+    return recordAccessProblem(access, { area: (input as any)?.area, filing: tool.scope === 'write' })
+  }
+  return authorizeToolUse(tool.scope, auth, access, accessDomainForCall(tool, input), accessFeatureFor(tool), opts.proposals !== false && tool.proposable === true)
 }
 
 /**
