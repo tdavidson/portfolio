@@ -14,7 +14,8 @@ type ValidationResult =
  * Blocks:
  * - Loopback: localhost, *.localhost, 127.0.0.0/8, ::1 (there is no self-hosted provider any more)
  * - Cloud metadata endpoints (169.254.x.x, fe80::/10)
- * - Private network ranges (10.x, 172.16-31.x, 192.168.x, 100.64/10, fc00::/7), 0.0.0.0/8,
+ * - Private network ranges (10.x, 172.16-31.x, 192.168.x, 100.64/10, 198.18/15, 192.0.0/24, fc00::/7,
+ *   and NAT64 64:ff9b::/96 judged by its embedded IPv4), 0.0.0.0/8,
  *   multicast/reserved, and IPv4-mapped IPv6 forms of any of these (`[::ffff:169.254.169.254]`)
  * - Non-HTTP(S) protocols
  * - URLs without a valid hostname
@@ -101,7 +102,7 @@ export function blockedAddressReason(host: string): string | null {
   return null
 }
 
-function blockedV4([a, b]: number[]): string | null {
+function blockedV4([a, b, c]: number[]): string | null {
   if (a === 0) return 'Invalid address'
   if (a === 127) return 'Loopback addresses are not allowed'
   if (a === 169 && b === 254) return 'Link-local addresses are not allowed'
@@ -109,6 +110,8 @@ function blockedV4([a, b]: number[]): string | null {
   if (a === 172 && b >= 16 && b <= 31) return 'Private network addresses are not allowed'
   if (a === 192 && b === 168) return 'Private network addresses are not allowed'
   if (a === 100 && b >= 64 && b <= 127) return 'Private network addresses are not allowed'
+  if (a === 198 && (b === 18 || b === 19)) return 'Private network addresses are not allowed' // 198.18/15, benchmarking
+  if (a === 192 && b === 0 && c === 0) return 'Reserved addresses are not allowed' // 192.0.0/24, IETF protocol assignments
   if (a >= 224) return 'Multicast and reserved addresses are not allowed'
   return null
 }
@@ -149,6 +152,11 @@ function blockedV6(host: string): string | null {
   if (zeroPrefix(7) && g[7] === 1) return 'Loopback addresses are not allowed'
   // IPv4-mapped (::ffff:a.b.c.d) and the deprecated IPv4-compatible (::a.b.c.d): judge the v4.
   if (zeroPrefix(5) && (g[5] === 0xffff || g[5] === 0)) {
+    return blockedV4([g[6] >> 8, g[6] & 0xff, g[7] >> 8, g[7] & 0xff])
+  }
+  // NAT64 (64:ff9b::/96, and the local-use 64:ff9b:1::/48): the last 32 bits are an IPv4 address a
+  // NAT64 gateway reaches on our behalf, so judge that address.
+  if (g[0] === 0x64 && g[1] === 0xff9b && (g.slice(2, 6).every(x => x === 0) || g[2] === 1)) {
     return blockedV4([g[6] >> 8, g[6] & 0xff, g[7] >> 8, g[7] & 0xff])
   }
   if ((g[0] & 0xfe00) === 0xfc00) return 'Private IPv6 addresses are not allowed' // fc00::/7

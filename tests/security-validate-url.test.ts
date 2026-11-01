@@ -76,3 +76,22 @@ describe('validateBaseUrlResolved — DNS', () => {
     expect((await validateBaseUrlResolved('https://8.8.8.8/v1', never)).ok).toBe(true)
   })
 })
+
+describe('the ranges added after the 1 Nov review', () => {
+  it('refuses 198.18/15 and 192.0.0/24', async () => {
+    const { blockedAddressReason } = await import('@/lib/validate-url')
+    expect(blockedAddressReason('198.18.0.1')).toMatch(/not allowed/)
+    expect(blockedAddressReason('198.19.255.1')).toMatch(/not allowed/)
+    expect(blockedAddressReason('192.0.0.8')).toMatch(/not allowed/)
+    expect(blockedAddressReason('198.20.0.1')).toBeNull()
+    expect(blockedAddressReason('192.0.2.1')).toBeNull()
+  })
+
+  it('judges a NAT64 address by the IPv4 address inside it', async () => {
+    const { blockedAddressReason } = await import('@/lib/validate-url')
+    expect(blockedAddressReason('64:ff9b::7f00:1')).toMatch(/Loopback/)
+    expect(blockedAddressReason('64:ff9b::a9fe:a9fe')).toMatch(/Link-local/)
+    expect(blockedAddressReason('64:ff9b:1::a00:1')).toMatch(/Private/)
+    expect(blockedAddressReason('64:ff9b::808:808')).toBeNull()
+  })
+})
