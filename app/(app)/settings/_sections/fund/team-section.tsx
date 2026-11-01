@@ -5,6 +5,7 @@ import { Button } from '@/components/ui/button'
 import { Loader2, Shield } from 'lucide-react'
 import { Section } from '@/components/settings/section'
 import { AccessGrid } from '@/components/settings-access-grid'
+import { EngagementsPanel } from '@/components/settings-engagements'
 import type { FeatureVisibilityMap } from '@/lib/types/features'
 
 interface Member {
@@ -206,6 +207,14 @@ export function TeamSection({ isAdmin, featureVisibility }: { isAdmin: boolean; 
             <div className="pt-2 border-t">
               <p className="text-xs font-medium mb-2 mt-3">Access</p>
               <AccessGrid featureVisibility={featureVisibility as FeatureVisibilityMap} />
+            </div>
+          )}
+
+          {/* Outside firms: who each outside person works for, and one end date for all of them. */}
+          {isAdmin && (
+            <div className="pt-2 border-t">
+              <p className="text-xs font-medium mb-2 mt-3">Engagements</p>
+              <EngagementsPanel />
             </div>
           )}
         </div>

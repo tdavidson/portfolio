@@ -85,7 +85,7 @@ import { SERVER_AI_TOOL_MANIFEST } from '@/lib/agent/server-ai-tools-manifest'
 import { SERVER_AI_HANDLERS } from '@/lib/agent/server-ai-tools'
 import { reopenClosedPeriods } from './reopen'
 import { resolveVehicle } from './vehicle-resolver'
-import { resolveVehicleWithAccess } from './http-vehicle'
+import { assertEntityWrite, resolveVehicleWithAccess } from './http-vehicle'
 import { ACTUAL_BOOK } from './books'
 import { readBulkScope, runBulkDraftAction } from './journal-bulk'
 import { addEntityDocument, entityDocumentUploadUrl, listEntityDocuments } from '@/lib/entity-documents/agent'
@@ -225,11 +225,13 @@ const HANDLERS: Record<string, AgentToolHandler> = {
     })
     const entry: JournalEntry = { fundId, entryDate: input.entryDate, memo: input.memo ?? null, sourceType: input.sourceType ?? 'manual', postings }
     // A proposer's entry is always a draft, marked as theirs, for someone with write to post or reject.
-    const proposing = !!access && !!userId && isProposer(access)
+    // That is the area level, lowered to their level in this entity (fund_member_vehicles.level).
+    const vehicleId = access && userId ? await vehicleIdByName(admin, fundId, portfolioGroup) : null
+    const proposing = !!access && !!userId && isProposer(access, vehicleId)
     const result = await persistEntry(admin, fundId, portfolioGroup, userId, entry, proposing || input.status === 'draft' ? 'draft' : 'posted')
     if ('error' in result) throw new Error(result.error)
     if (proposing) {
-      const marked = await markProposed(admin, { fundId, vehicleId: await vehicleIdByName(admin, fundId, portfolioGroup), entryId: result.entryId, userId: userId! })
+      const marked = await markProposed(admin, { fundId, vehicleId, entryId: result.entryId, userId: userId! })
       if (marked) throw new Error(marked.error)
       return {
         entryId: result.entryId, status: 'draft', proposed: true,
@@ -718,8 +720,14 @@ export async function resolveVehicleForTool(
   // `assertVehicleDomain` applies to /api/accounting/*), so it resolves through
   // resolveVehicleWithAccess, which opts in and checks that grant at the tool's own level before
   // returning. The unnamed default still never picks a manco.
-  if (requested?.trim()) return (await resolveVehicleWithAccess(admin, access, requested, tool.scope)).name
-  return resolveVehicle(admin, fundId, requested, { access })
+  //
+  // Either way, a write is held to the member's level in that entity (fund_member_vehicles.level):
+  // a read cap refuses it, and a propose cap allows only a tool that makes proposals (post_entry).
+  const opts = { proposals: tool.proposable === true }
+  if (requested?.trim()) return (await resolveVehicleWithAccess(admin, access, requested, tool.scope, opts)).name
+  const name = await resolveVehicle(admin, fundId, requested, { access })
+  await assertEntityWrite(admin, access, name, tool.scope, opts)
+  return name
 }
 
 /** Journal-import tool input: structured `transactions` from a connector, or a pasted QuickBooks Journal `text`. */

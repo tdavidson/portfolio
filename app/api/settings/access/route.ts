@@ -18,6 +18,8 @@ import { accessExpiryProblem, normalizeExpiry } from '@/lib/access/expiry'
 //        | { userId, role }           change a member's role
 //        | { userId, preset }         apply a role preset: one grant per area (lib/access/presets.ts)
 //        | { userId, accessExpiresAt } end their access on a date, or null for no end date
+//        | { userId, vehicleId, granted } grant or revoke one entity
+//        | { userId, vehicleId, entityLevel } the most they may do in that entity: write, propose or read
 //
 // Admin-only: this is the control panel for who can see what, so being able to READ it already
 // tells you the shape of the fund's data. See plans/plan-access-control.md.
@@ -25,6 +27,8 @@ import { accessExpiryProblem, normalizeExpiry } from '@/lib/access/expiry'
 export const dynamic = 'force-dynamic'
 
 const LEVELS = ['none', 'read', 'propose', 'write']
+/** A level per entity caps the area grants there; `none` is revoking the entity instead. */
+const ENTITY_LEVELS = ['read', 'propose', 'write']
 
 /** `admin` is role-governed, never granted — offering it as a tickbox would be a lie. */
 const GRANTABLE = DOMAINS.filter(d => !DOMAIN_META[d].adminOnly)
@@ -43,9 +47,10 @@ export async function GET() {
     admin.from('fund_member_access' as any).select('user_id, domain, level').eq('fund_id', gate.fundId),
     admin.from('fund_domain_defaults' as any).select('domain, level').eq('fund_id', gate.fundId),
     admin.from('fund_vehicles' as any).select('id, name, kind, active').eq('fund_id', gate.fundId).order('name'),
-    admin.from('fund_member_vehicles' as any).select('user_id, vehicle_id').eq('fund_id', gate.fundId),
+    // '*': `level` exists once 20261101100000 has run; until then every grant is write.
+    admin.from('fund_member_vehicles' as any).select('*').eq('fund_id', gate.fundId),
   ])
-  const entityRows = ((entityGrants ?? []) as unknown) as { user_id: string; vehicle_id: string }[]
+  const entityRows = ((entityGrants ?? []) as unknown) as { user_id: string; vehicle_id: string; level?: string }[]
   if (error) return dbError(error, 'settings-access')
 
   const grantRows = ((grants ?? []) as unknown) as { user_id: string; domain: string; level: string }[]
@@ -62,6 +67,12 @@ export async function GET() {
         ),
         // The entities this member may see. Admins see every entity, so theirs is not listed.
         entities: entityRows.filter(g => g.user_id === m.user_id).map(g => g.vehicle_id),
+        // Their level in each of those entities, where it is below write (fund_member_vehicles.level).
+        entityLevels: Object.fromEntries(
+          entityRows.filter(g => g.user_id === m.user_id && (g.level === 'read' || g.level === 'propose')).map(g => [g.vehicle_id, g.level]),
+        ),
+        // The outside firm they work for (engagements), if any. Absent until 20261101100000.
+        engagementId: ((m as any).engagement_id as string | null | undefined) ?? null,
         // "All entities": everything, including entities created later and unassigned items.
         allEntities: (m as any).all_entities === true,
         // When their access ends (null: no end date). Absent until 20261012160000 is pushed.
@@ -198,6 +209,27 @@ export async function PATCH(req: NextRequest) {
       .eq('fund_id', gate.fundId).eq('user_id', targetId)
     if (error) return dbError(error, 'settings-access-all-entities')
     logActivity(admin, gate.fundId, user.id, 'access.all_entities', { member: targetId, allEntities: body.allEntities })
+    expireTag('domain-grants')
+    return NextResponse.json({ ok: true })
+  }
+
+  // --- The most a member may do in one entity (fund_member_vehicles.level) ---
+  if (body?.vehicleId !== undefined && body?.entityLevel !== undefined) {
+    const targetId = String(body.userId ?? '')
+    const level = String(body.entityLevel)
+    if (!ENTITY_LEVELS.includes(level)) {
+      return NextResponse.json({ error: 'entityLevel must be write, propose or read.' }, { status: 400 })
+    }
+    const { data: grant } = await admin.from('fund_member_vehicles' as any).select('user_id')
+      .eq('fund_id', gate.fundId).eq('user_id', targetId).eq('vehicle_id', String(body.vehicleId)).maybeSingle()
+    if (!grant) return NextResponse.json({ error: 'Grant the entity first, then set a level for it.' }, { status: 404 })
+    const { error } = await admin.from('fund_member_vehicles' as any).update({ level } as any)
+      .eq('fund_id', gate.fundId).eq('user_id', targetId).eq('vehicle_id', String(body.vehicleId))
+    if (error?.code === '42703') {
+      return NextResponse.json({ error: 'Entity levels need the latest database migration (20261101100000). Apply it, then try again.' }, { status: 409 })
+    }
+    if (error) return dbError(error, 'settings-access-entity-level')
+    logActivity(admin, gate.fundId, user.id, 'access.entity_level', { member: targetId, vehicleId: String(body.vehicleId), level })
     expireTag('domain-grants')
     return NextResponse.json({ ok: true })
   }

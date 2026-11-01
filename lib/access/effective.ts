@@ -6,7 +6,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { DOMAIN_META, DOMAINS, type Domain } from './domains'
-import { vehicleScopeFromRow, type VehicleScope } from './scope'
+import { entityCap, vehicleScopeFromRow, type VehicleScope } from './scope'
 import {
   DEFAULT_FEATURE_VISIBILITY,
   type FeatureKey,
@@ -110,6 +110,20 @@ export function proposesOnly(ctx: AccessContext, domain: Domain, feature?: Featu
   return effectiveAccess(ctx, domain, feature) === 'propose'
 }
 
+/**
+ * What this user may do in this domain IN ONE ENTITY: the area level, lowered to the entity's cap
+ * (fund_member_vehicles.level) when there is one. A cap never raises a level, and a `propose` cap
+ * on a domain with no proposals is read. Visibility is a separate question (canSeeVehicle); this
+ * assumes the caller may see the entity.
+ */
+export function entityAccess(ctx: AccessContext, domain: Domain, vehicleId: string | null, feature?: FeatureKey): AccessLevel {
+  const own = effectiveAccess(ctx, domain, feature)
+  const cap = entityCap(ctx, vehicleId)
+  if (!cap) return own
+  const capped: AccessLevel = RANK[cap] < RANK[own] ? cap : own
+  return capped === 'propose' && !DOMAIN_META[domain].proposable ? 'read' : capped
+}
+
 /** Every domain this user can at least read — for the nav and for filtering the MCP tool list. */
 export function readableDomains(ctx: AccessContext): Domain[] {
   return DOMAINS.filter(d => hasAccess(ctx, d, 'read'))
@@ -171,6 +185,8 @@ interface AccessContextRow {
   vehicles?: unknown
   /** True for an admin or a member holding "All entities" — see vehicleScopeFromRow. */
   vehicles_all?: unknown
+  /** Per-entity caps below write. Absent before 20261101100000 — see entityCapsFromRow. */
+  vehicle_levels?: unknown
 }
 
 /**
@@ -200,7 +216,7 @@ export async function loadAccessContext(
     grants: recordToLevels(row?.grants),
     defaults: recordToLevels(row?.defaults),
     // No row at all (not a member): nothing. A row without the key: the RPC predates entity access.
-    vehicles: row ? vehicleScopeFromRow(normalizeRole(role ?? row.role), row.vehicles, row.vehicles_all) : { all: false, ids: [] },
+    vehicles: row ? vehicleScopeFromRow(normalizeRole(role ?? row.role), row.vehicles, row.vehicles_all, row.vehicle_levels) : { all: false, ids: [] },
   }
 }
 
@@ -226,7 +242,7 @@ export async function resolveAccessContext(
     features: { ...DEFAULT_FEATURE_VISIBILITY, ...(row.features ?? {}) },
     grants: recordToLevels(row.grants),
     defaults: recordToLevels(row.defaults),
-    vehicles: vehicleScopeFromRow(normalizeRole(row.role), row.vehicles, row.vehicles_all),
+    vehicles: vehicleScopeFromRow(normalizeRole(row.role), row.vehicles, row.vehicles_all, row.vehicle_levels),
   }
 }
 

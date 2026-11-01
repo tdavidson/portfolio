@@ -15,13 +15,18 @@
 // Everyone with write keeps doing everything they did before, proposals included.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { proposesOnly, type AccessContext } from '@/lib/access/effective'
+import { entityAccess, type AccessContext } from '@/lib/access/effective'
 import { recordAudit } from '@/lib/audit/events'
 import { ACTUAL_BOOK } from './books'
 
-/** Does a write from this caller become a proposal? True only at exactly the propose level. */
-export function isProposer(access: AccessContext): boolean {
-  return proposesOnly(access, 'accounting')
+/**
+ * Does a write from this caller become a proposal? True only at exactly the propose level: their
+ * accounting grant, lowered to their level in the entity when one is named
+ * (fund_member_vehicles.level). So a fund administrator with write on the books but capped at
+ * propose in Fund II proposes there and posts everywhere else.
+ */
+export function isProposer(access: AccessContext, vehicleId: string | null = null): boolean {
+  return entityAccess(access, 'accounting', vehicleId) === 'propose'
 }
 
 /** Mark a draft as proposed by `userId`, and record it in the books' audit trail. */

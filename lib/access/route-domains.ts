@@ -489,6 +489,9 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/settings/senders/[id]': { domain: 'admin' },
   // The control panel for who can see what: reading it maps the fund's data.
   'api/settings/access': { domain: 'admin' },
+  // Outside firms and who works for them; their activity log reads every member's actions.
+  'api/settings/engagements': { domain: 'admin' },
+  'api/settings/engagements/[id]/activity': { domain: 'admin' },
   'api/settings/whitelist': { domain: 'admin' },
   'api/settings/whitelist/[id]': { domain: 'admin' },
   'api/onboarding/inbound-email': { domain: 'admin' },

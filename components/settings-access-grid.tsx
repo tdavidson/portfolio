@@ -21,7 +21,8 @@ import type { FeatureVisibilityMap } from '@/lib/types/features'
 type Level = 'none' | 'read' | 'propose' | 'write'
 
 interface DomainInfo { key: Domain; label: string; description: string }
-interface MemberAccess { userId: string; email: string; role: string; grants: Record<string, Level>; entities?: string[]; allEntities?: boolean; accessExpiresAt?: string | null }
+type EntityLevel = 'read' | 'propose' | 'write'
+interface MemberAccess { userId: string; email: string; role: string; grants: Record<string, Level>; entities?: string[]; entityLevels?: Record<string, EntityLevel>; allEntities?: boolean; accessExpiresAt?: string | null }
 interface PresetInfo { key: string; label: string; description: string }
 interface EntityInfo { id: string; name: string; kind: string; active: boolean }
 
@@ -137,6 +138,18 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
       ? { ...m, entities: granted ? [...(m.entities ?? []), vehicleId] : (m.entities ?? []).filter(id => id !== vehicleId) }
       : m)))
     save({ userId, vehicleId, granted }, `${userId}:entity:${vehicleId}`)
+  }
+
+  /** The most this member may do in one entity. Write is stored as the default, so it drops out of the map. */
+  function setEntityLevel(userId: string, vehicleId: string, entityLevel: EntityLevel) {
+    setMembers(prev => prev.map(m => {
+      if (m.userId !== userId) return m
+      const next = { ...(m.entityLevels ?? {}) }
+      if (entityLevel === 'write') delete next[vehicleId]
+      else next[vehicleId] = entityLevel
+      return { ...m, entityLevels: next }
+    }))
+    save({ userId, vehicleId, entityLevel }, `${userId}:entity:${vehicleId}`)
   }
 
   function setAllEntities(userId: string, allEntities: boolean) {
@@ -274,6 +287,7 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
                       saving={saving}
                       onAll={all => setAllEntities(m.userId, all)}
                       onToggle={(id, on) => setEntity(m.userId, id, on)}
+                      onLevel={(id, level) => setEntityLevel(m.userId, id, level)}
                     />
                   )}
                 </td>
@@ -327,13 +341,15 @@ export function AccessGrid({ featureVisibility }: { featureVisibility: FeatureVi
  * the tallest thing on the page, repeated for every member.
  */
 function EntityPicker({
-  member, entities, saving, onAll, onToggle,
+  member, entities, saving, onAll, onToggle, onLevel,
 }: {
   member: MemberAccess
   entities: EntityInfo[]
   saving: string | null
   onAll: (all: boolean) => void
   onToggle: (vehicleId: string, granted: boolean) => void
+  /** The most they may do in a granted entity (fund_member_vehicles.level). */
+  onLevel: (vehicleId: string, level: EntityLevel) => void
 }) {
   const [query, setQuery] = useState('')
   const granted = new Set(member.entities ?? [])
@@ -389,14 +405,31 @@ function EntityPicker({
                     <label className={`flex items-center gap-2 px-3 py-1.5 text-xs hover:bg-muted ${e.active ? '' : 'text-muted-foreground'}`}>
                       <input type="checkbox" checked={granted.has(e.id)} onChange={() => onToggle(e.id, !granted.has(e.id))} />
                       <span className="min-w-0 flex-1 truncate" title={e.name}>{e.name}</span>
-                      <span className="shrink-0 text-[10px] text-muted-foreground">{e.active ? kind(e.kind) : 'Inactive'}</span>
+                      {granted.has(e.id) ? (
+                        // A cap on what their area grants allow in this entity. Never raises a grant.
+                        <select
+                          aria-label={`Level in ${e.name}`}
+                          title="The most they can do in this entity. Their area grants still apply."
+                          value={member.entityLevels?.[e.id] ?? 'write'}
+                          onChange={ev => onLevel(e.id, ev.target.value as EntityLevel)}
+                          className="shrink-0 rounded border bg-transparent px-1 py-0.5 text-[10px]"
+                        >
+                          <option value="write">Full</option>
+                          <option value="propose">Propose</option>
+                          <option value="read">Read</option>
+                        </select>
+                      ) : (
+                        <span className="shrink-0 text-[10px] text-muted-foreground">{e.active ? kind(e.kind) : 'Inactive'}</span>
+                      )}
                     </label>
                   </li>
                 ))}
                 {shown.length === 0 && <li className="px-3 py-2 text-xs text-muted-foreground">No entity matches.</li>}
               </ul>
               <p className="border-t px-3 py-2 text-[11px] text-muted-foreground tabular-nums">
-                {granted.size === 0 ? 'Sees no entity data yet' : `${granted.size} of ${entities.length} selected`}
+                {granted.size === 0
+                  ? 'Sees no entity data yet'
+                  : `${granted.size} of ${entities.length} selected. Full follows their area grants; Propose and Read lower them in that entity.`}
               </p>
             </>
           )}

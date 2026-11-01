@@ -154,7 +154,7 @@ export async function PUT(req: NextRequest) {
   if (gate instanceof NextResponse) return gate
 
   const body = await req.json().catch(() => ({}))
-  const group = await resolveGroupOr400(admin, gate, body?.group ?? req.nextUrl.searchParams.get('group'))
+  const group = await resolveGroupOr400(admin, gate, body?.group ?? req.nextUrl.searchParams.get('group'), { proposals: true })
   if (group instanceof NextResponse) return group
   const vehicleId = await vehicleIdByName(admin, gate.fundId, group)
 
@@ -163,7 +163,7 @@ export async function PUT(req: NextRequest) {
     return NextResponse.json({ error: 'id and at least one posting are required' }, { status: 400 })
   }
   // A proposer (the `propose` level, not write) edits only their own proposals, while still drafts.
-  if (isProposer(await loadGateAccess(admin, gate))) {
+  if (isProposer(await loadGateAccess(admin, gate), vehicleId)) {
     const problem = await proposerChangeProblem(admin, { fundId: gate.fundId, entryId: String(id), userId: user.id })
     if (problem) return NextResponse.json({ error: problem }, { status: 403 })
   }
@@ -236,7 +236,7 @@ export async function POST(req: NextRequest) {
   if (gate instanceof NextResponse) return gate
 
   const body = await req.json()
-  const group = await resolveGroupOr400(admin, gate, body?.group ?? req.nextUrl.searchParams.get('group'))
+  const group = await resolveGroupOr400(admin, gate, body?.group ?? req.nextUrl.searchParams.get('group'), { proposals: true })
   if (group instanceof NextResponse) return group
 
   const { entryDate, memo, sourceType, sourceRef, status, postings } = body
@@ -257,14 +257,16 @@ export async function POST(req: NextRequest) {
   const vendorId = await vendorInFund(admin, gate.fundId, body.vendorId)
   const entry: JournalEntry = { fundId: gate.fundId, entryDate, memo: memo ?? null, sourceType: sourceType ?? 'manual', sourceRef: sourceRef ?? null, reference, adjusting: body.adjusting === true, vendorId, postings: normalized }
   // A proposer's entry is always a draft, marked as their proposal, whatever status they asked for.
-  const proposing = isProposer(await loadGateAccess(admin, gate))
+  // Their accounting level, lowered to their level in this entity (fund_member_vehicles.level).
+  const vehicleId = await vehicleIdByName(admin, gate.fundId, group)
+  const proposing = isProposer(await loadGateAccess(admin, gate), vehicleId)
   const finalStatus = !proposing && status === 'posted' ? 'posted' : 'draft'
   // Posting adopts any investment lines as transactions — refused without investments write.
   const adoptOpts = finalStatus === 'posted' ? { investments: await loadMayTouchInvestments(admin, gate, user.id) } : {}
   const result = await persistEntry(admin, gate.fundId, group, user.id, entry, finalStatus, ACTUAL_BOOK, true, adoptOpts)
   if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.error === NEEDS_INVESTMENTS_WRITE ? 403 : 400 })
   if (proposing) {
-    const marked = await markProposed(admin, { fundId: gate.fundId, vehicleId: await vehicleIdByName(admin, gate.fundId, group), entryId: result.entryId, userId: user.id })
+    const marked = await markProposed(admin, { fundId: gate.fundId, vehicleId, entryId: result.entryId, userId: user.id })
     if (marked) return NextResponse.json({ error: marked.error, id: result.entryId }, { status: 500 })
   }
 
@@ -289,13 +291,13 @@ export async function PATCH(req: NextRequest) {
   if (gate instanceof NextResponse) return gate
 
   const body = await req.json().catch(() => ({}))
-  const group = await resolveGroupOr400(admin, gate, body?.group ?? req.nextUrl.searchParams.get('group'))
+  const group = await resolveGroupOr400(admin, gate, body?.group ?? req.nextUrl.searchParams.get('group'), { proposals: true })
   if (group instanceof NextResponse) return group
   const vehicleId = await vehicleIdByName(admin, gate.fundId, group)
 
   // A proposer may only withdraw (void) a draft they proposed. Posting, unposting and reversing
   // stay with write.
-  if (isProposer(await loadGateAccess(admin, gate))) {
+  if (isProposer(await loadGateAccess(admin, gate), vehicleId)) {
     if (body?.action !== 'void') return NextResponse.json({ error: PROPOSER_REFUSAL }, { status: 403 })
     const problem = await proposerChangeProblem(admin, { fundId: gate.fundId, entryId: String(body?.id ?? ''), userId: user.id })
     if (problem) return NextResponse.json({ error: problem }, { status: 403 })

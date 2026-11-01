@@ -21,6 +21,25 @@ export interface VehicleScope {
    * hand-built context (tests, the client) need not say; absent means "not known to be enforced".
    */
   enforced?: boolean
+  /**
+   * Per-entity caps below write (fund_member_vehicles.level, 20261101100000): vehicle id → the most
+   * this member may do there. An entity not listed has no cap. Empty or absent for an unscoped
+   * caller, and before that migration runs. See entityAccess in effective.ts.
+   */
+  caps?: Record<string, EntityCap>
+}
+
+/** The level an entity grant can cap a member at. Write is the default and is never stored here. */
+export type EntityCap = 'read' | 'propose'
+
+/** Read `access_context`'s `vehicle_levels` into caps, keeping only the levels that lower. */
+export function entityCapsFromRow(raw: unknown): Record<string, EntityCap> {
+  const caps: Record<string, EntityCap> = {}
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return caps
+  for (const [id, level] of Object.entries(raw as Record<string, unknown>)) {
+    if (level === 'read' || level === 'propose') caps[id] = level
+  }
+  return caps
 }
 
 /**
@@ -30,13 +49,20 @@ export interface VehicleScope {
  * access existed. That is what lets this code deploy before the migration is pushed. Once it is
  * pushed the key is always present, and an empty list means what it says.
  */
-export function vehicleScopeFromRow(role: FundRole, vehicles: unknown, vehiclesAll?: unknown): VehicleScope {
+export function vehicleScopeFromRow(role: FundRole, vehicles: unknown, vehiclesAll?: unknown, vehicleLevels?: unknown): VehicleScope {
   const ids = Array.isArray(vehicles) ? vehicles.filter((v): v is string => typeof v === 'string') : []
   const enforced = vehicles !== undefined
   // An admin, or a member holding the explicit "All entities" grant (`vehicles_all`): unscoped —
-  // including entities created later. The rollout gives every existing member that grant.
+  // including entities created later. The rollout gives every existing member that grant. No caps.
   if (role === 'admin' || !enforced || vehiclesAll === true) return { all: true, ids, enforced }
-  return { all: false, ids, enforced }
+  const caps = entityCapsFromRow(vehicleLevels)
+  return Object.keys(caps).length > 0 ? { all: false, ids, enforced, caps } : { all: false, ids, enforced }
+}
+
+/** This member's cap in one entity, or null when there is none (write, or unscoped). */
+export function entityCap(access: Pick<AccessContext, 'vehicles'>, vehicleId: string | null): EntityCap | null {
+  if (access.vehicles.all || !vehicleId) return null
+  return access.vehicles.caps?.[vehicleId] ?? null
 }
 
 /**

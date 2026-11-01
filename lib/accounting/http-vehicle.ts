@@ -5,7 +5,9 @@ import { listVehicles as resolveVehicleList } from './load'
 import { assertVehicleDomain, assertMancoVehicle, vehicleKindByName, type VehicleGate } from './vehicle-domain'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
 import { isManagementCompany } from '@/lib/vehicle-kinds'
-import { assertVehicleVisible, visibleVehicleNames } from './vehicle-visibility'
+import { assertEntityLevel, assertVehicleVisible, entityCapRefusal, visibleVehicleNames } from './vehicle-visibility'
+import { vehicleIdByName } from './vehicle-id'
+import { entityCap } from '@/lib/access/scope'
 
 /**
  * Resolve the vehicle (portfolio_group) for a request AND check the caller may have it: the
@@ -26,7 +28,12 @@ import { assertVehicleVisible, visibleVehicleNames } from './vehicle-visibility'
 export async function resolveGroupOr400(
   admin: SupabaseClient,
   gate: VehicleGate,
-  requested?: string | null
+  requested?: string | null,
+  /**
+   * `proposals`: this route turns a proposer's write into a proposal (the journal), so a member
+   * capped at propose in the entity may call it. Everywhere else a propose cap refuses writes.
+   */
+  opts: { proposals?: boolean } = {},
 ): Promise<string | NextResponse> {
   let group: string
   // No entity named: the "sole vehicle" default counts only the entities this caller can see. A
@@ -56,6 +63,9 @@ export async function resolveGroupOr400(
   ])
   if (hidden) return hidden
   if (denied) return denied
+  // The member may see this entity; may they write in it? (fund_member_vehicles.level)
+  const capped = await assertEntityLevel(admin, gate, group, opts)
+  if (capped) return capped
   return group
 }
 
@@ -106,9 +116,12 @@ export async function resolveVehicleWithAccess(
   access: AccessContext,
   requested: string,
   need: 'read' | 'write',
+  /** As on resolveGroupOr400: this caller turns a proposer's write into a proposal. */
+  opts: { proposals?: boolean } = {},
 ): Promise<{ name: string; kind: string | null }> {
   if (!requested?.trim()) throw new VehicleResolutionError('A vehicle is required')
   const name = await resolveVehicle(admin, access.fundId, requested, { includeManagementCompanies: true, access })
+  await assertEntityWrite(admin, access, name, need, opts)
   const kind = await vehicleKindByName(admin, access.fundId, name)
   if (isManagementCompany(kind) && !hasAccess(access, 'management_company', need)) {
     throw new VehicleAccessError(
@@ -117,4 +130,21 @@ export async function resolveVehicleWithAccess(
     )
   }
   return { name, kind }
+}
+
+/**
+ * The service-layer twin of assertEntityLevel: throw when a write goes above this member's cap in
+ * the entity (fund_member_vehicles.level). Reads, unscoped callers and uncapped entities pass.
+ */
+export async function assertEntityWrite(
+  admin: SupabaseClient,
+  access: AccessContext,
+  name: string,
+  need: 'read' | 'write',
+  opts: { proposals?: boolean } = {},
+): Promise<void> {
+  if (need !== 'write' || access.vehicles.all || !access.vehicles.caps || Object.keys(access.vehicles.caps).length === 0) return
+  const cap = entityCap(access, await vehicleIdByName(admin, access.fundId, name))
+  if (!cap || (cap === 'propose' && opts.proposals)) return
+  throw new VehicleAccessError(entityCapRefusal(name, cap))
 }
