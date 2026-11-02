@@ -15,9 +15,9 @@ type Kind = 'none' | 'straight' | 'american' | 'european'
 
 interface Candidate { lpEntityId: string; name: string; partnerClass: string }
 interface Recipient { lpEntityId: string; pct: number }
-interface Step { lpMultiple?: number; lpIrr?: number; carryRate: number; catchUpRate?: number }
+interface Step { lpMultiple?: number; lpIrr?: number; carryRate: number; catchUpRate?: number; catchUpMeasure?: 'profit' | 'split' }
 /** A step as typed: the threshold and rates are strings until saved. */
-interface StepRow { at: 'multiple' | 'irr'; threshold: string; carry: string; catchUp: string }
+interface StepRow { at: 'multiple' | 'irr'; threshold: string; carry: string; catchUp: string; measure: 'profit' | 'split' }
 
 interface Terms {
   kind: Kind
@@ -92,6 +92,7 @@ export function CarryTerms() {
       threshold: st.lpIrr != null ? pct(st.lpIrr) : String(st.lpMultiple ?? ''),
       carry: pct(st.carryRate),
       catchUp: st.catchUpRate ? pct(st.catchUpRate) : '',
+      measure: st.catchUpMeasure === 'split' ? 'split' : 'profit',
     })))
     setInvestedOnly(Array.isArray(t.capitalIncludes) && t.capitalIncludes.length === 1 && t.capitalIncludes[0] === 'investments')
     setGpCommitBearsCarry(t.gpCommitBearsCarry === true)
@@ -135,7 +136,9 @@ export function CarryTerms() {
         carrySteps: steps.map(st => ({
           ...(st.at === 'irr' ? { lpIrr: frac(st.threshold) } : { lpMultiple: st.threshold.trim() === '' ? null : Number(st.threshold) }),
           carryRate: frac(st.carry),
-          ...(st.catchUp.trim() !== '' && frac(st.catchUp) > 0 ? { catchUpRate: frac(st.catchUp) } : {}),
+          ...(st.catchUp.trim() !== '' && frac(st.catchUp) > 0
+            ? { catchUpRate: frac(st.catchUp), ...(st.measure === 'split' ? { catchUpMeasure: 'split' } : {}) }
+            : {}),
         })),
         capitalIncludes: investedOnly ? ['investments'] : ['investments', 'fees', 'expenses', 'other'],
         gpCommitBearsCarry,
@@ -416,11 +419,14 @@ export function CarryTerms() {
                         <Input value={st.catchUp} onChange={e => set({ catchUp: e.target.value })} placeholder="catch-up (opt.)" className="h-8 text-sm" />
                       </Suffix>
                     </div>
+                    {st.catchUp.trim() !== '' && (
+                      <Choice value={st.measure} onChange={measure => set({ measure })} options={[['profit', 'of all profit'], ['split', 'of the split']]} />
+                    )}
                     <Button size="sm" variant="ghost" className="text-muted-foreground" onClick={() => setSteps(prev => prev.filter((_, j) => j !== i))}>Remove</Button>
                   </div>
                 )
               })}
-              <Button size="sm" variant="outline" className="text-muted-foreground" onClick={() => setSteps(prev => [...prev, { at: 'multiple', threshold: '', carry: '', catchUp: '' }])}>
+              <Button size="sm" variant="outline" className="text-muted-foreground" onClick={() => setSteps(prev => [...prev, { at: 'multiple', threshold: '', carry: '', catchUp: '', measure: 'profit' }])}>
                 Add a step
               </Button>
             </div>

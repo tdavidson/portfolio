@@ -52,6 +52,53 @@ describe('carry that steps up', () => {
     expect(target).toBe(775)
   })
 
+  describe('a step catch-up measured on the split', () => {
+    // A half-size first catch-up, 20% until the LPs have 2.5x, then a 100% catch-up to 30% of what
+    // the 20% split paid, then 30%.
+    const terms = {
+      carryRate: 0.2, catchUpRate: 1, catchUpSize: 0.5,
+      steps: [{ lpMultiple: 2.5, carryRate: 0.3, catchUpRate: 1, catchUpMeasure: 'split' as const }],
+    }
+    const clean = { contributedCapital: 1000, returnedCapital: 0, preferredPaid: 0, preferredTarget: 100, gpCarryPaid: 0 }
+
+    it('tops the GP up to 30% of the 20% split, leaving the pref out', () => {
+      // 1,000 back, 100 pref, 12.50 catch-up (half of a full one). The 20% split runs 1,750 to take
+      // the LPs to 2,500 (GP 350). The GP is then owed 30% of 1,750 = 525 less 350 = 175. The last
+      // 1,962.50 splits 30%: 588.75 to the GP.
+      const r = runWaterfall(5000, terms, clean)
+      expect(r.toCatchUp).toBe(12.5)
+      expect(r.bands).toEqual([
+        { carryRate: 0.2, catchUp: 0, catchUpToLP: 0, toLP: 1400, toGP: 350 },
+        { carryRate: 0.3, catchUp: 175, catchUpToLP: 0, toLP: 1373.75, toGP: 588.75 },
+      ])
+      expect(r.toGP).toBe(1126.25)
+      expect(r.toLP + r.toGP).toBe(5000)
+      expect(r.state.splitPaid).toBe(3712.5)
+    })
+
+    it('catches up less than the all-profit measure, which also tops up the pref', () => {
+      const profit = runWaterfall(5000, { ...terms, steps: [{ ...terms.steps[0], catchUpMeasure: 'profit' as const }] }, clean)
+      const split = runWaterfall(5000, terms, clean)
+      expect(profit.bands![1].catchUp).toBeGreaterThan(split.bands![1].catchUp)
+    })
+
+    it('gives the same carry whether the money comes in one distribution or two', () => {
+      const first = runWaterfall(3000, terms, clean)
+      expect(first.bands![1].catchUp).toBe(137.5)
+      const second = runWaterfall(2000, terms, first.state)
+      expect(second.bands![1].catchUp).toBe(37.5)
+      expect(Math.round((first.toGP + second.toGP) * 100) / 100).toBe(1126.25)
+    })
+
+    it('reads the measure from the stored row', () => {
+      const t = carryTermsFromRow({
+        kind: 'european', carry_rate: 0.2,
+        carry_steps: [{ lpMultiple: 2.5, carryRate: 0.3, catchUpRate: 1, catchUpMeasure: 'split' }],
+      })
+      expect(t.carrySteps).toEqual([{ lpMultiple: 2.5, carryRate: 0.3, catchUpRate: 1, catchUpMeasure: 'split' }])
+    })
+  })
+
   it('reads well-formed steps from the stored row and drops the rest', () => {
     const t = carryTermsFromRow({
       kind: 'european', carry_rate: 0.2,

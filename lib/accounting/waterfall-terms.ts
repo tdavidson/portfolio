@@ -118,7 +118,15 @@ export function parseWaterfallTermsInput(body: WaterfallTermsInput): { ok: true;
     if (lpIrr !== null && !(lpIrr > lastIrr && lpIrr < 1)) return { error: 'Carry step IRRs must rise, from above 0 up to 1 (0.15 = 15%).' }
     const catchUpRate = blank(raw?.catchUpRate) ? null : num(raw.catchUpRate, NaN)
     if (catchUpRate !== null && !(catchUpRate > rate && catchUpRate <= 1)) return { error: 'A catch-up at a carry step must give the GP more of each dollar than the new rate, up to 1.' }
-    carrySteps.push({ carryRate: rate, ...(lpMultiple !== null ? { lpMultiple } : { lpIrr: lpIrr! }), ...(catchUpRate !== null ? { catchUpRate } : {}) })
+    const measure = blank(raw?.catchUpMeasure) ? 'profit' : raw.catchUpMeasure
+    if (measure !== 'profit' && measure !== 'split') return { error: 'A carry step\'s catch-up is measured on profit or on the split.' }
+    if (measure === 'split' && catchUpRate === null) return { error: 'A carry step measured on the split needs a catch-up rate.' }
+    carrySteps.push({
+      carryRate: rate,
+      ...(lpMultiple !== null ? { lpMultiple } : { lpIrr: lpIrr! }),
+      ...(catchUpRate !== null ? { catchUpRate } : {}),
+      ...(measure === 'split' ? { catchUpMeasure: 'split' as const } : {}),
+    })
     lastRate = rate
     if (lpMultiple !== null) lastMultiple = lpMultiple
     if (lpIrr !== null) lastIrr = lpIrr

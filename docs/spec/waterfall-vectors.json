@@ -614,6 +614,69 @@
           "gpCatchUpPaid": 10
         }
       }
+    },
+    {
+      "id": "split-step-catch-up-on-split",
+      "description": "A half-size first catch-up (12.50 on the 100 pref), 20% until the LPs have 2.5x, then a 100% catch-up measured on the split: the GP is owed 30% of the 1,750 the 20% split paid less its 350 from it, 175, then 30% on the rest (spec 3.3).",
+      "input": {
+        "distributable": 5000,
+        "terms": {
+          "carryRate": 0.2,
+          "catchUpRate": 1,
+          "catchUpSize": 0.5,
+          "steps": [
+            {
+              "lpMultiple": 2.5,
+              "carryRate": 0.3,
+              "catchUpRate": 1,
+              "catchUpMeasure": "split"
+            }
+          ]
+        },
+        "state": {
+          "contributedCapital": 1000,
+          "returnedCapital": 0,
+          "preferredPaid": 0,
+          "preferredTarget": 100,
+          "gpCarryPaid": 0
+        }
+      },
+      "expected": {
+        "toReturnOfCapital": 1000,
+        "toPreferred": 100,
+        "toCatchUp": 12.5,
+        "toCatchUpLP": 0,
+        "toCarryLP": 2773.75,
+        "toCarryGP": 1113.75,
+        "bands": [
+          {
+            "carryRate": 0.2,
+            "catchUp": 0,
+            "catchUpToLP": 0,
+            "toLP": 1400,
+            "toGP": 350
+          },
+          {
+            "carryRate": 0.3,
+            "catchUp": 175,
+            "catchUpToLP": 0,
+            "toLP": 1373.75,
+            "toGP": 588.75
+          }
+        ],
+        "toLP": 3873.75,
+        "toGP": 1126.25,
+        "state": {
+          "contributedCapital": 1000,
+          "returnedCapital": 1000,
+          "preferredPaid": 100,
+          "preferredTarget": 100,
+          "gpCarryPaid": 1126.25,
+          "gpCatchUpPaid": 12.5,
+          "lpProfitPaid": 2873.75,
+          "splitPaid": 3712.5
+        }
+      }
     }
   ],
   "preferredTarget": [
