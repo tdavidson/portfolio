@@ -26,7 +26,9 @@
 // the GP to its new share of all profit, and the next split runs at the new rate. This is the Walter
 // spec's reading (spec/04-distributions.md): a multiple step ends when the LPs' total received is
 // m × capital, an IRR step when what they've received, compounded at the IRR to the distribution
-// date, covers their contributions compounded the same way.
+// date, covers their contributions compounded the same way. A step's catch-up can instead be
+// measured on the splits alone (`catchUpMeasure: 'split'`): the GP is owed its new rate of what the
+// splits have paid, the way the first catch-up's 'preferred' measure is owed a share of the pref.
 //
 // This is a pure function of a distributable amount and the cumulative state, so
 // it's fully testable and can be replayed. Hurdle ACCRUAL (how preferredTarget
@@ -53,10 +55,20 @@ export interface CarryStep {
   lpIrr?: number
   /** The carry rate after the step. */
   carryRate: number
-  /** A catch-up at the step, measured on all profit: the GP's share of each dollar. Absent: none. */
+  /** A catch-up at the step: the GP's share of each dollar. Absent: none. */
   catchUpRate?: number
-  /** The GP's share of all profit the catch-up runs to. Absent: `carryRate`. */
+  /** The GP's share the catch-up runs to. Absent: `carryRate`. */
   catchUpTarget?: number
+  /**
+   * What the step's catch-up is measured on. 'profit' (the default): the GP catches up until it
+   * holds the target share of ALL profit, the pref and the first catch-up included. 'split': the GP
+   * is owed the target share of what the carry splits have paid (both sides), less the carry it has
+   * had from them and from earlier step catch-ups: an LPA that sizes the step's catch-up by the split
+   * tier before it, the way the first catch-up's 'preferred' measure is sized by the pref tier. The
+   * pref and the first catch-up are left out, and what the LPs get of the catch-up flow doesn't count
+   * toward it.
+   */
+  catchUpMeasure?: 'profit' | 'split'
 }
 
 /** What one split (and the catch-up before it) took. The first band is the split after the first catch-up. */
@@ -99,6 +111,12 @@ export interface WaterfallState {
    * exact for a state that has never reached the catch-up. A 'profit' catch-up measures on it.
    */
   lpProfitPaid?: number
+  /**
+   * Everything the carry splits have paid so far, LPs and GP together, step catch-ups left out.
+   * Kept only when the carry steps up; a 'split' step catch-up measures on it. Absent means 0,
+   * exact for a state that has never reached the split.
+   */
+  splitPaid?: number
   /** The LPs' dated cash, for an IRR step. Without it an IRR step never ends its split. */
   irr?: IrrHistory
 }
@@ -189,6 +207,7 @@ export function runWaterfall(
   let toCarryGP = 0
   let toCarryLP = 0
   let bands: CarryBand[] | undefined
+  let splitAfter: number | undefined
   if (steps.length === 0) {
     toCarryGP = r(remaining * carry)
     toCarryLP = r(remaining - toCarryGP)
@@ -199,6 +218,9 @@ export function runWaterfall(
     let lp = r(lpBefore + toReturnOfCapital + toPreferred + toCatchUpLP)
     let gp = r(state.gpCarryPaid + toCatchUp)
     const returned = r(state.returnedCapital + toReturnOfCapital)
+    // The GP's first catch-up, which a 'split' step catch-up leaves out of the GP's side.
+    const firstCatchUp = r(gpCatchUpBefore + toCatchUp)
+    let split = r(state.splitPaid ?? 0)
     // What the LPs still need to reach `rate`, in today's dollars (spec 04 §3).
     const irrShortfall = (rate: number): number => {
       const h = state.irr
@@ -216,7 +238,18 @@ export function runWaterfall(
       if (at?.catchUpRate != null && at.catchUpRate > 0) {
         const k = at.catchUpRate
         const t = at.catchUpTarget ?? rate
-        if (k > t) {
+        if (at.catchUpMeasure === 'split') {
+          // Owed t of what the splits have paid, less the GP's carry outside the first catch-up.
+          const owed = r(Math.max(0, t * split - (gp - firstCatchUp)))
+          if (owed > 0) {
+            const want = r(owed / k)
+            const gross = take(want)
+            cuGP = gross === want ? owed : r(gross * k)
+            cuLP = r(gross - cuGP)
+            lp = r(lp + cuLP)
+            gp = r(gp + cuGP)
+          }
+        } else if (k > t) {
           const profit = r(lp - returned + gp)
           const want = r(Math.max(0, (t * profit - gp) / (k - t)))
           const gross = take(want)
@@ -235,11 +268,13 @@ export function runWaterfall(
       const toLPHere = r(gross - toGPHere)
       lp = r(lp + toLPHere)
       gp = r(gp + toGPHere)
+      split = r(split + gross)
       bands.push({ carryRate: rate, catchUp: cuGP, catchUpToLP: cuLP, toLP: toLPHere, toGP: toGPHere })
       toCarryGP = r(toCarryGP + cuGP + toGPHere)
       toCarryLP = r(toCarryLP + cuLP + toLPHere)
     }
     remaining = 0
+    splitAfter = split
   }
 
   const toLP = r(toReturnOfCapital + toPreferred + toCatchUpLP + toCarryLP)
@@ -256,6 +291,7 @@ export function runWaterfall(
     ...(terms.catchUpMeasure === 'profit' || steps.length > 0 || state.lpProfitPaid != null
       ? { lpProfitPaid: r((state.lpProfitPaid ?? state.preferredPaid) + toPreferred + toCatchUpLP + toCarryLP) }
       : {}),
+    ...(splitAfter != null ? { splitPaid: splitAfter } : {}),
     ...(state.irr
       ? { irr: { ...state.irr, lpDistributions: toLP > 0 ? [...state.irr.lpDistributions, { date: state.irr.asOf, amount: toLP }] : state.irr.lpDistributions } }
       : {}),

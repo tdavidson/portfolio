@@ -48,7 +48,7 @@ agreed to is worse than accruing none.
 | `catchupMeasure` | `catchup_measure` | `preferred` \| `profit` | `preferred` | What the catch-up is measured on (§3.2). They differ only when the catch-up rate is below 1. |
 | `prefMultiple` | `pref_multiple` | 1 ≤ m ≤ 10, or null | null | A hurdle set as a multiple of the capital owed, instead of `prefRate` (§5). |
 | `prefDayCount` | `pref_day_count` | `act/365` \| `30/360` | `act/365` | How the rate's years are counted (§5). |
-| `carrySteps` | `carry_steps` (jsonb `[{lpMultiple \| lpIrr, carryRate, catchUpRate?}]`) | rates rise; thresholds rise | null | Where the carry steps up (§3.3). Null: one carry rate. |
+| `carrySteps` | `carry_steps` (jsonb `[{lpMultiple \| lpIrr, carryRate, catchUpRate?, catchUpMeasure?}]`) | rates rise; thresholds rise | null | Where the carry steps up (§3.3). Null: one carry rate. |
 | `capitalIncludes` | `capital_includes` (text[]) | any of `investments`, `fees`, `expenses`, `other`; must include `investments` | null (all four) | What the first tier returns as capital and the hurdle accrues on (§5.1). |
 | `gpCommitBearsCarry` | `gp_commit_bears_carry` (boolean) | | false | The recipients' own commitments (the GP commit) bear carry like an LP's (§6, step 3). |
 | `recipients` | `carry_recipients` (jsonb `[{lpEntityId, pct}]`) | pct > 0, total 100 ± 0.01 | `[]` | Who receives the carry, and in what split. |
@@ -65,7 +65,8 @@ Validation (`parseWaterfallTermsInput`, shared by the settings page and `set_wat
   the share of profit the GP catches up to, or the catch-up would never finish.
 - Each carry step starts at an LP multiple or an LP IRR, not both. Each one raises the carry rate,
   and the multiples or IRRs rise from one step to the next. A catch-up at a step gives the GP more
-  of each dollar than the new rate.
+  of each dollar than the new rate. A step's `catchUpMeasure` is `profit` (the default, not stored)
+  or `split`, and `split` needs a catch-up rate.
 - `capitalIncludes` must include `investments`. Omitted, every contribution is capital.
 - When carry is on (`kind ≠ none` and `carryRate > 0`), there must be at least one recipient.
 - Recipient percentages must total 100.
@@ -188,9 +189,19 @@ as in §3.2, the split at rate `g` before a step takes:
   `r` (ACT/365) to today, less what they have received compounded the same way. The state carries
   the LPs' dated cash (`irr`) for it, and the replay fills it in.
 
-An optional catch-up at a step (`catchUpRate` `k`) runs first, measured on all profit:
-`want = (t·Π − G) ÷ (k − t)` with `t` the new rate, so the GP holds the new rate of everything when
-it finishes. The last split runs on whatever is left. `toCarryGP` and `toCarryLP` are the totals of
+An optional catch-up at a step (`catchUpRate` `k`) runs first. It is measured one of two ways
+(`catchUpMeasure` on the step):
+
+- **`profit`** (the default): on all profit, `want = (t·Π − G) ÷ (k − t)` with `t` the new rate, so
+  the GP holds the new rate of everything, the pref and the first catch-up included, when it
+  finishes.
+- **`split`**: on what the carry splits have paid, the way the first catch-up's `preferred` measure
+  is on the pref, for an LPA that sizes the step's catch-up by the split tier before it. With
+  `S` everything the splits have paid so far, LPs and GP together (`splitPaid` on the state, step
+  catch-ups left out), and `Q` the GP's first catch-up, the GP is owed
+  `N = round(max(0, t·S − (G − Q)))`, its gross flow is `N ÷ k`, and the LPs get the rest of the flow.
+  The pref and the first catch-up stay out of it, so an LPA whose first catch-up is partial doesn't
+  have it topped up at the step. Vector `split-step-catch-up-on-split`. The last split runs on whatever is left. `toCarryGP` and `toCarryLP` are the totals of
 every split and step catch-up, and `bands` lists each one.
 
 The close's accrual runs the steps on its hypothetical liquidation. An IRR step there treats every
@@ -370,6 +381,7 @@ one it finds under `unsupported`.
 | Hurdle compounding other than annual (quarterly, daily) | Annual compounding or simple only. |
 | Deal-by-deal on a different capital base (all invested capital, or unrealized write-downs) | Realized deals only, with fees and expenses by cost share (§4.3). |
 | Per-partner carry rates (side letters on carry) | Carry is fund-level. Side-letter *fee* rates are supported (`rate_override`). |
+| A waterfall run per LP (each LP's share of a distribution goes through its own tiers) | One whole-fund waterfall on the LPs' pooled capital and hurdle; the close shares the carry across LPs by profit. Exact while LPs contribute pro rata on the same dates; once carry accrues it drifts for an LP whose contributions were timed differently. |
 | Tax distributions | Not modelled. |
 | Fee step-downs as a waterfall term | Belongs to the forecast plan's fee rule, not these terms. |
 
@@ -449,7 +461,7 @@ Every vector in `waterfall-vectors.json`, by section:
   `catch-up-rate-omitted`, `partial-catch-up-80`, `partial-catch-up-runs-out`, `no-catch-up`,
   `resume-mid-catch-up`, `zero-carry`, `straight-shape`, `rounding-to-cents`,
   `sub-cent-distributable`, `negative-distributable`, `carry-25-large`, `catch-up-after-split`,
-  `catch-up-rate-below-carry`, `catch-up-half-size`.
+  `catch-up-rate-below-carry`, `catch-up-half-size`, `split-step-catch-up-on-split`.
 - **preferredTarget:** `one-year-compound`, `one-year-simple`, `two-years-compound`,
   `two-years-simple`, `leap-year`, `per-contribution-dates`, `no-reduction-for-returns`,
   `zero-rate`, `unreturned-compound-pref-paid`, `unreturned-capital-back`, `unreturned-simple`.

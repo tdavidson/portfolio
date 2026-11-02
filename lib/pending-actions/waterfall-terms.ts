@@ -41,7 +41,7 @@ export function describeTerms(t: Pick<ValidWaterfallTerms, 'kind' | 'carryRate' 
   if (t.kind === 'none' || t.carryRate <= 0) return 'no carry'
   const label = { straight: 'straight', american: 'American (deal-by-deal)', european: 'European (whole-fund)', none: 'no' }[t.kind]
   const steps = (t.carrySteps ?? []).map(s =>
-    `, ${pct(s.carryRate)} once the LPs reach ${s.lpMultiple != null ? `${s.lpMultiple}×` : `a ${pct(s.lpIrr!)} IRR`}${s.catchUpRate ? ` (${pct(s.catchUpRate)} catch-up)` : ''}`).join('')
+    `, ${pct(s.carryRate)} once the LPs reach ${s.lpMultiple != null ? `${s.lpMultiple}×` : `a ${pct(s.lpIrr!)} IRR`}${s.catchUpRate ? ` (${pct(s.catchUpRate)} catch-up${s.catchUpMeasure === 'split' ? ' on the split' : ''})` : ''}`).join('')
   const capital = (t.capitalIncludes && t.capitalIncludes.length < 4 ? `, returning only ${t.capitalIncludes.join(' and ')} as capital` : '')
     + (t.gpCommitBearsCarry ? ', the GP commit bearing carry' : '')
   if (t.kind === 'straight') return `${label} ${pct(t.carryRate)} carry, no hurdle${steps}${capital}`

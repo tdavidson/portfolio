@@ -291,6 +291,13 @@ describe('parseWaterfallTermsInput (the shared write path)', () => {
     expect(step({ carryRate: 0.25 })).toEqual({ error: 'Each carry step starts at an LP multiple or an LP IRR, not both.' })
     expect(step({ lpMultiple: 0.9, carryRate: 0.25 })).toEqual({ error: 'Carry step multiples must rise, from above 1 up to 20.' })
     expect(step({ lpIrr: 0.2, carryRate: 0.25, catchUpRate: 0.2 })).toEqual({ error: 'A catch-up at a carry step must give the GP more of each dollar than the new rate, up to 1.' })
+    expect(step({ lpMultiple: 2.5, carryRate: 0.3, catchUpRate: 1, catchUpMeasure: 'pref' })).toEqual({ error: 'A carry step\'s catch-up is measured on profit or on the split.' })
+    expect(step({ lpMultiple: 2.5, carryRate: 0.3, catchUpMeasure: 'split' })).toEqual({ error: 'A carry step measured on the split needs a catch-up rate.' })
+    const split = parseWaterfallTermsInput({ kind: 'european', carryRate: 0.2, gpEntityId: 'gp', carrySteps: [{ lpMultiple: 2.5, carryRate: 0.3, catchUpRate: 1, catchUpMeasure: 'split' }] })
+    expect('value' in split && split.value.carrySteps).toEqual([{ lpMultiple: 2.5, carryRate: 0.3, catchUpRate: 1, catchUpMeasure: 'split' }])
+    // 'profit' is the default and isn't stored.
+    const profit = parseWaterfallTermsInput({ kind: 'european', carryRate: 0.2, gpEntityId: 'gp', carrySteps: [{ lpMultiple: 2.5, carryRate: 0.3, catchUpRate: 1, catchUpMeasure: 'profit' }] })
+    expect('value' in profit && profit.value.carrySteps).toEqual([{ lpMultiple: 2.5, carryRate: 0.3, catchUpRate: 1 }])
     expect(parseWaterfallTermsInput({ kind: 'european', carryRate: 0.2, gpEntityId: 'gp', capitalIncludes: ['fees'] })).toEqual({ error: 'Capital returned must include invested capital.' })
     expect(describeTerms({ kind: 'european', carryRate: 0.2, prefRate: 0.08, catchupRate: 1, prefCompounds: true, carrySteps: [{ lpMultiple: 2.5, carryRate: 0.25 }], capitalIncludes: ['investments'] }))
       .toBe('European (whole-fund) 20% carry, 8% compounding preferred return, 100% GP catch-up, 25% once the LPs reach 2.5×, returning only investments as capital')

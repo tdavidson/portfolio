@@ -263,6 +263,7 @@ function carryStepsFromRow(v: unknown): { carrySteps?: CarryStep[] } {
       ...(lpMultiple != null ? { lpMultiple } : { lpIrr: lpIrr! }),
       ...(catchUpRate != null && catchUpRate > 0 ? { catchUpRate } : {}),
       ...(catchUpTarget != null ? { catchUpTarget } : {}),
+      ...(o.catchUpMeasure === 'split' ? { catchUpMeasure: 'split' as const } : {}),
     })
   }
   return steps.length > 0 ? { carrySteps: steps } : {}
