@@ -17,6 +17,7 @@ The math lives in the open fund engine, `packages/fund-engine` (`@portfolio/fund
 | Stored terms, close accrual | `carry.ts` (`VehicleCarryTerms`, `carryTarget`, `carryAccrual`) |
 | The close's inputs from the books | `economics.ts` (`carryAccrualInputs`) |
 | Splitting a distribution | `distribution-waterfall.ts` (`splitDistribution`) |
+| LP classes, and a waterfall per LP | `lp-groups.ts` (`groupLpsByTerms`, `splitAcrossGroups`); `carry.ts` (`carryTargetByLp`) |
 | Deal-by-deal capital base and entitlement | `american-carry.ts` (`realizedCapitalFromDeals`, `dealByDealCarry`); rows read by `lib/accounting/realized-capital.ts` |
 | Validating and storing terms | `lib/accounting/waterfall-terms.ts` (`parseWaterfallTermsInput`, `saveWaterfallTerms`) |
 | Allocation basis | `lib/accounting/terms.ts` (`AllocationBasis`, `allocationWeights`) |
@@ -51,6 +52,7 @@ agreed to is worse than accruing none.
 | `carrySteps` | `carry_steps` (jsonb `[{lpMultiple \| lpIrr, carryRate, catchUpRate?, catchUpMeasure?}]`) | rates rise; thresholds rise | null | Where the carry steps up (§3.3). Null: one carry rate. |
 | `capitalIncludes` | `capital_includes` (text[]) | any of `investments`, `fees`, `expenses`, `other`; must include `investments` | null (all four) | What the first tier returns as capital and the hurdle accrues on (§5.1). |
 | `gpCommitBearsCarry` | `gp_commit_bears_carry` (boolean) | | false | The recipients' own commitments (the GP commit) bear carry like an LP's (§6, step 3). |
+| `waterfallScope` | `waterfall_scope` (text) | `fund` \| `per_lp` | `fund` | Whether the waterfall runs once on the LPs' pooled amounts or once per LP, each distribution divided among the LPs by contributions first (§4.4, §6). `european` and `straight` only. |
 | `recipients` | `carry_recipients` (jsonb `[{lpEntityId, pct}]`) | pct > 0, total 100 ± 0.01 | `[]` | Who receives the carry, and in what split. |
 | `gpEntityId` | `gp_entity_id` | partner id or null | null | Legacy single recipient. Used as `[{gpEntityId, 100}]` when `carry_recipients` is empty. |
 
@@ -68,6 +70,8 @@ Validation (`parseWaterfallTermsInput`, shared by the settings page and `set_wat
   of each dollar than the new rate. A step's `catchUpMeasure` is `profit` (the default, not stored)
   or `split`, and `split` needs a catch-up rate.
 - `capitalIncludes` must include `investments`. Omitted, every contribution is capital.
+- `waterfallScope` is `fund` or `per_lp`. Omitted, it is `fund`. `per_lp` is refused with `american`
+  (§7).
 - When carry is on (`kind ≠ none` and `carryRate > 0`), there must be at least one recipient.
 - Recipient percentages must total 100.
 - Every recipient must be a partner (`lp_entities`) of the same fund.
@@ -227,7 +231,8 @@ Carry is a share of profit over contributed capital, with no hurdle and no catch
 - **Accrual target (the close):** the hypothetical-liquidation method. The waterfall runs once
   from a clean state, `{C = contributed, R = 0, P = 0, T = hurdle(asOf), G = 0}`, on
   `D = NAV + distributed`. The target is `toCatchUp + toCarryGP`. On the `unreturned` base the
-  hurdle is the one the actual distributions leave (§5), found by replaying them whole-fund.
+  hurdle is the one the actual distributions leave (§5), found by replaying them whole-fund. With
+  `waterfallScope: per_lp` the same run is made once per LP on its share (§4.4).
 - **`american` accrues exactly the `european` target.** A liquidation realizes every deal, so the
   deal-by-deal capital base is the whole fund, and a clawback makes the GP's ultimate entitlement
   the whole-fund result. The accrual marks that ultimate entitlement.
@@ -248,6 +253,71 @@ Carry is a share of profit over contributed capital, with no hurdle and no catch
     `american-without-deals-is-whole-fund`). With deal data but nothing realized yet, every dollar
     is profit, and the split warns that a return of uninvested capital belongs pro-rata.
 - `dealByDealCarry` (§6) still reports each deal's own carry, for the GP panel.
+
+### 4.4 A waterfall per LP (`waterfallScope: per_lp`)
+
+Some LPAs don't run one waterfall for the whole fund. They divide each distribution among the LPs
+first, by each LP's share of contributed capital at the distribution date (its Capital
+Contribution Percentage), and then run each LP's share through its own tiers: return of that LP's
+capital, the pref on that LP's own dated contributions, the catch-up, the splits and any steps (a
+`3x` step means that LP has received 3x its own contributions). `waterfallScope: per_lp` is that
+reading, on `european` and `straight` terms.
+
+Pooled and per LP agree when every LP contributes pro rata on the same dates and receives pro rata
+(to within a cent per LP per tier, from each LP's tiers being rounded on their own). They part once
+contribution timing differs: an LP that funded early or prepaid a call, a late closer without
+equalisation, or a defaulted or excused LP. The tiers are not linear, so one LP can be past its
+hurdle while another isn't, and the sum of per-LP results is not the pooled result.
+
+- **Accrual target (the close, `carryTargetByLp`).**
+  1. The hypothetical liquidation of the carry-bearing LPs as a whole is the sum of their NAV, gross
+     of carry (§6, close accrual).
+  2. It is divided among them by Capital Contribution Percentage as at `asOf`: each LP's cumulative
+     contributions, every purpose, over all of theirs, to the cent by largest remainder. Not by each
+     LP's own capital balance, which would be circular: the capital accounts are what the
+     allocation is solving for.
+  3. Each LP's waterfall runs as the whole fund's does (§4.3), from a clean state on
+     `D_i = its share + what it has received`, with `C_i` its own capital (§5.1 applies) and
+     `T_i = hurdle(asOf)` on its own dated contributions. Counting what it has received in `D_i` is
+     what makes a step multiple count that LP's prior distributions. On the `unreturned` base the
+     hurdle is that LP's own, found by replaying what it actually received (its booked distribution
+     lines; the first two tiers go wholly to the LP, so its net receipts return capital and pay pref
+     exactly as its gross share did). `prefDayCount` and `prefMultiple` apply per LP. An IRR step
+     measures that LP's own dated contributions.
+  4. `target_i = toCatchUp + toCarryGP` of that run, and the fund's target is `Σ target_i`.
+- **Accrual (`carryAccrual`).** Each LP is charged `target_i − charged_i`, its own target less what
+  it has been charged, instead of a share of the total by profit. The net is credited to the
+  recipients by `pct`, as on the whole fund. The other rules hold: NAV is measured gross of carry, a
+  falling NAV reverses each LP's own charge, carry paid beyond the target shows as a negative carry
+  balance and is not clawed back by the close, and the lines add up to the cent. With
+  `gpCommitBearsCarry`, each recipient's own capital is a bearer with its own `target_i`, netted
+  against what it receives. Without `charged` (the tax book's year-on-year figure), each LP's line is
+  its own target's change.
+- **Distributions (`splitDistribution`, §6).** Each carry-bearing LP is its own group
+  (`groupLpsByTerms` with `perLp`), on the fund's terms, and `splitAcrossGroups` divides the amount
+  by `contributions`: all of it pro rata by cumulative contributions at the date, largest-remainder
+  cents, with no senior-first return of capital (that stays the division for LP classes). The GP
+  commit, unless it bears carry, still takes its carry-free share beside the tiers. Recycling deemed
+  recontributed (`PriorDistribution.byLp`) still goes straight back to the LPs who recontributed it.
+- **The replay per LP.** Each LP's tiers are replayed from what it actually received
+  (`PriorDistribution.paidToLp`, the booked distribution lines), not from a re-division of the
+  fund's totals, because history may not have followed the waterfall and the books are the record.
+  The carry booked on a prior (its amount less the LPs' lines) is placed with the LPs whose tiers
+  can account for it: each LP's net pins its gross share to a point, or to a span where the GP takes
+  every dollar (a full catch-up), and the carry fills those spans in proportion to their slack. A
+  history that followed the per-LP waterfall replays exactly. Carry the spans can't hold is left
+  out, and a prior with no per-LP amounts is divided by contributions; both warn.
+- **Fund end.** `groupedFundEndEntitlement` and `groupedClawback` take the same division: the
+  fund-end view divides each prior as the actual replay did, then owes each LP all its capital
+  from the first distribution.
+- **Forecasts stay whole fund.** A forecast projects the fund's calls and distributions, not each
+  LP's, so it has no per-LP timing; construction and the plan run the waterfall whole fund and say
+  so (`PER_LP_FORECAST_WARNING`).
+- **Short-term income is a separate allocation.** Interest on idle cash shared pro rata outside the
+  waterfall is not folded into the per-LP tiers.
+
+Vectors `fund-different-dates`, `per-lp-different-dates`, `per-lp-unreturned-reads-receipts`,
+`per-lp-split-different-dates`, `per-lp-replay-reads-receipts`.
 
 ## 5. The hurdle (`preferredTarget`)
 
@@ -331,6 +401,11 @@ A forecast can't tag a projected call, so the forecasts count future calls in fu
    rounding cent.
 6. **Warnings.** The split warns when the replay's implied carry paid differs from the books by
    more than 0.01.
+6a. **Per LP.** With `waterfallScope: per_lp` the replay and split run per LP instead (§4.4): the
+   amount is divided by contributions, each LP's tiers are replayed from its own booked receipts,
+   and each LP's share runs from there. `lines` are each LP's own `toLP`; `groups` has each LP's
+   share and tiers, and `tiers` is their sum. Without contributions tagged by LP
+   (`lpContributions`), the split falls back to the whole fund and warns.
 7. **Tax character.** The suggested character is: the return-of-capital tier and the carry-free
    capital = return of capital, and the rest = gain.
 
@@ -351,6 +426,7 @@ GP's carry on that view is its entitlement, and the clawback is `max(0, carry pa
 - It posts `carryTarget − alreadyAccrued`, where `alreadyAccrued` is the carry charged to the LPs
   so far. That is not the recipients' balance: carry PAID is drawn from the recipients, so
   measuring against their balance would accrue every paid dollar again.
+- Per LP (§4.4), each LP is trued up to its own target instead of to a share by profit.
 - It is a **true-up to the capital accounts**. The whole target is shared across LPs in proportion
   to each LP's positive profit (`NAV + distributed − contributed`), with largest-remainder cents,
   and each LP is charged its share less what it has already been charged. Its cumulative charge is
@@ -381,7 +457,8 @@ one it finds under `unsupported`.
 | Hurdle compounding other than annual (quarterly, daily) | Annual compounding or simple only. |
 | Deal-by-deal on a different capital base (all invested capital, or unrealized write-downs) | Realized deals only, with fees and expenses by cost share (§4.3). |
 | Per-partner carry rates (side letters on carry) | Carry is fund-level. Side-letter *fee* rates are supported (`rate_override`). |
-| A waterfall run per LP (each LP's share of a distribution goes through its own tiers) | One whole-fund waterfall on the LPs' pooled capital and hurdle; the close shares the carry across LPs by profit. Exact while LPs contribute pro rata on the same dates; once carry accrues it drifts for an LP whose contributions were timed differently. |
+| A waterfall per LP on `american` (deal-by-deal) terms | `per_lp` is refused with `american`; deal-by-deal runs whole fund (§4.3). Per LP is supported on `european` and `straight` (§4.4). |
+| A forecast per LP | Forecasts run the waterfall whole fund even when the terms run it per LP (§4.4). |
 | Tax distributions | Not modelled. |
 | Fee step-downs as a waterfall term | Belongs to the forecast plan's fee rule, not these terms. |
 
@@ -403,6 +480,9 @@ all of them.
   silently.
 - **Other output.** Recipients are kept from today's terms, or suggested when the fund has exactly
   one GP-class partner. The management fee is reported as information.
+- **The waterfall per LP.** A clause that divides proceeds among the partners (by capital
+  contributions) before applying the tiers to each partner's share is proposed as
+  `waterfallScope: per_lp`. Silence is the whole fund and isn't listed under `notFound`.
 - **Readers.** The fund's model reads it when the fund has a server AI key. Otherwise the pattern
   reader runs, and the person's own assistant reads the passages and hands its reading back as
   `assistantProposal`. That reading goes through the same checks (`lib/accounting/lpa-terms.ts`).
@@ -466,10 +546,11 @@ Every vector in `waterfall-vectors.json`, by section:
   `two-years-simple`, `leap-year`, `per-contribution-dates`, `no-reduction-for-returns`,
   `zero-rate`, `unreturned-compound-pref-paid`, `unreturned-capital-back`, `unreturned-simple`.
 - **carryTarget:** `none`, `straight`, `straight-loss`, `european`, `european-below-hurdle`,
-  `american-equals-european`, `european-unreturned`, `european-contributed-same-books`.
+  `american-equals-european`, `european-unreturned`, `european-contributed-same-books`,
+  `fund-different-dates`, `per-lp-different-dates`, `per-lp-unreturned-reads-receipts`.
 - **splitDistribution:** `replay-then-split`, `american-without-deals-is-whole-fund`,
   `straight-split`, `two-recipients`, `no-terms-pro-rata`, `unreturned-replay-then-split`,
-  `american-realized-deals`.
+  `american-realized-deals`, `per-lp-split-different-dates`, `per-lp-replay-reads-receipts`.
 - **dealByDealCarry:** `two-deals`.
 
 Changing the engine means changing this document and its vectors in the same change.

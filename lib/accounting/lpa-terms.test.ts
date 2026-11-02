@@ -5,7 +5,7 @@ import {
 } from './lpa-terms'
 import { NO_CARRY, type VehicleCarryTerms } from './carry'
 import { parseWaterfallTermsInput } from './waterfall-terms'
-import { describeTerms } from '@/lib/pending-actions/waterfall-terms'
+import { currentAsValid, describeTerms, termChanges } from '@/lib/pending-actions/waterfall-terms'
 
 // A made-up agreement: no real fund, firm or figures.
 const LPA = `[Page 1]
@@ -102,6 +102,19 @@ describe('heuristicLpaTerms', () => {
     expect(s.terms.carryRate?.value).toBe(0.2)
     expect(s.notFound).not.toContain('prefRate')
     expect(s.notFound).not.toContain('catchupRate')
+  })
+
+  it('proposes a waterfall per LP when proceeds are divided among the partners before the tiers', () => {
+    expect(p.terms.waterfallScope).toBeUndefined()
+    const perLp = LPA.replace(
+      'Distributable proceeds shall be distributed as follows:',
+      'Distributable proceeds shall be apportioned among the Partners in proportion to their respective Capital Contributions, and the amount so apportioned to each Limited Partner shall be distributed between such Limited Partner and the General Partner as follows:',
+    )
+    const q = heuristicLpaTerms(perLp)
+    expect(q.terms.waterfallScope?.value).toBe('per_lp')
+    expect(q.notFound).not.toContain('waterfallScope')
+    const { input } = proposalToTermsInput(q, { ...NO_CARRY, recipients: [{ lpEntityId: 'gp-1', pct: 100 }], gpEntityId: 'gp-1' })
+    expect(input.waterfallScope).toBe('per_lp')
   })
 
   it('reads deal-by-deal language as american', () => {
@@ -264,8 +277,20 @@ describe('parseWaterfallTermsInput (the shared write path)', () => {
   it('accepts valid terms and defaults catch-up to full and the hurdle to compounding', () => {
     expect(parseWaterfallTermsInput({ kind: 'european', carryRate: 0.2, prefRate: 0.08, carryRecipients: [{ lpEntityId: 'gp', pct: 100 }] })).toEqual({
       ok: true,
-      value: { kind: 'european', carryRate: 0.2, prefRate: 0.08, catchupRate: 1, catchupSize: 1, prefCompounds: true, prefBase: 'contributed', prefMultiple: null, prefDayCount: 'act/365', catchupMeasure: 'preferred', carrySteps: [], capitalIncludes: ['investments', 'fees', 'expenses', 'other'], gpCommitBearsCarry: false, gpEntityId: null, recipients: [{ lpEntityId: 'gp', pct: 100 }] },
+      value: { kind: 'european', carryRate: 0.2, prefRate: 0.08, catchupRate: 1, catchupSize: 1, prefCompounds: true, prefBase: 'contributed', prefMultiple: null, prefDayCount: 'act/365', catchupMeasure: 'preferred', carrySteps: [], capitalIncludes: ['investments', 'fees', 'expenses', 'other'], gpCommitBearsCarry: false, waterfallScope: 'fund', gpEntityId: null, recipients: [{ lpEntityId: 'gp', pct: 100 }] },
     })
+  })
+
+  it('runs the waterfall for the whole fund by default, per LP on European or straight terms, and refuses per LP with American', () => {
+    const base = { carryRate: 0.2, prefRate: 0.08, gpEntityId: 'gp' }
+    const ok = (r: ReturnType<typeof parseWaterfallTermsInput>) => ('ok' in r ? r.value.waterfallScope : r.error)
+    expect(ok(parseWaterfallTermsInput({ kind: 'european', ...base }))).toBe('fund')
+    expect(ok(parseWaterfallTermsInput({ kind: 'european', ...base, waterfallScope: 'per_lp' }))).toBe('per_lp')
+    expect(ok(parseWaterfallTermsInput({ kind: 'straight', carryRate: 0.2, gpEntityId: 'gp', waterfallScope: 'per_lp' }))).toBe('per_lp')
+    expect(parseWaterfallTermsInput({ kind: 'american', ...base, waterfallScope: 'per_lp' }))
+      .toEqual({ error: 'A waterfall for each LP is not supported with American (deal-by-deal) terms yet.' })
+    expect(parseWaterfallTermsInput({ kind: 'european', ...base, waterfallScope: 'per_partner' }))
+      .toEqual({ error: 'The waterfall runs for the whole fund or for each LP.' })
   })
 
   it('takes a multiple hurdle, a 30/360 day count and a catch-up measured on profit', () => {
@@ -330,6 +355,7 @@ describe('parseWaterfallTermsInput (the shared write path)', () => {
     expect(describeTerms({ kind: 'european', carryRate: 0.2, prefRate: 0.08, catchupRate: 1, prefCompounds: true, prefBase: 'unreturned' })).toMatch(/preferred return on unreturned capital/)
     expect(describeTerms({ kind: 'none', carryRate: 0, prefRate: 0, catchupRate: 1, prefCompounds: true })).toBe('no carry')
     expect(describeTerms({ kind: 'straight', carryRate: 0.2, prefRate: 0, catchupRate: 1, prefCompounds: true, gpCommitBearsCarry: true })).toBe('straight 20% carry, no hurdle, the GP commit bearing carry')
+    expect(describeTerms({ kind: 'straight', carryRate: 0.2, prefRate: 0, catchupRate: 1, prefCompounds: true, waterfallScope: 'per_lp' })).toBe('straight 20% carry, no hurdle, run for each LP')
   })
 
   it('reads whether the GP commit bears carry, false unless it says true', () => {
@@ -337,5 +363,16 @@ describe('parseWaterfallTermsInput (the shared write path)', () => {
     expect(parseWaterfallTermsInput({ ...base, gpCommitBearsCarry: true })).toMatchObject({ ok: true, value: { gpCommitBearsCarry: true } })
     expect(parseWaterfallTermsInput(base)).toMatchObject({ ok: true, value: { gpCommitBearsCarry: false } })
     expect(parseWaterfallTermsInput({ ...base, gpCommitBearsCarry: 'yes' })).toMatchObject({ ok: true, value: { gpCommitBearsCarry: false } })
+  })
+})
+
+describe('the approval preview of the waterfall scope', () => {
+  it('shows the change from the whole fund to each LP', () => {
+    const today = currentAsValid({ ...NO_CARRY, kind: 'european', carryRate: 0.2, prefRate: 0.08, gpEntityId: 'gp', recipients: [{ lpEntityId: 'gp', pct: 100 }] })
+    expect(today.waterfallScope).toBe('fund')
+    const parsed = parseWaterfallTermsInput({ kind: 'european', carryRate: 0.2, prefRate: 0.08, catchupRate: 1, gpEntityId: 'gp', carryRecipients: [{ lpEntityId: 'gp', pct: 100 }], waterfallScope: 'per_lp' })
+    if (!('ok' in parsed)) throw new Error(parsed.error)
+    expect(termChanges(today, parsed.value)).toEqual([{ field: 'waterfallScope', before: 'fund', after: 'per_lp' }])
+    expect(describeTerms(parsed.value)).toMatch(/run for each LP$/)
   })
 })

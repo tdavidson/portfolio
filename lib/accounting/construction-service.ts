@@ -8,7 +8,7 @@ import { loadPostedLedger } from './load'
 import { loadReportingCapital } from './reporting-capital'
 import { accountBalances, normalBalance } from './ledger'
 import { bucketForSourceType } from './capital-account'
-import { carryFreeIds, datedContributions } from '@portfolio/fund-engine'
+import { carryFreeIds, datedContributions, runsPerLp } from '@portfolio/fund-engine'
 import { loadCarryTerms } from './carry'
 import { planCostsByYear } from '@/lib/forecast/plan-costs'
 import { copyConstructionToPlansWithout, loadPlanConstruction, primaryPlanRow, writePlanConstruction, type PlanConstructionRef } from '@/lib/forecast/plan-construction'
@@ -440,6 +440,7 @@ async function loadConstructionActuals(
         ...(carryTerms.catchupMeasure === 'profit' ? { catchupMeasure: 'profit' as const } : {}),
         ...(carryTerms.carrySteps?.length ? { carrySteps: carryTerms.carrySteps } : {}),
         ...(carryTerms.capitalIncludes ? { capitalIncludes: carryTerms.capitalIncludes } : {}),
+        ...(runsPerLp(carryTerms) ? { perLp: true } : {}),
         // The LP side excludes the GP's stake. When the books class the GP entity separately,
         // `economics.lp` already leaves it out; otherwise take its share of commitments off.
         ...(() => {

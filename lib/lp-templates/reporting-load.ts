@@ -12,7 +12,7 @@ import { loadReportingCapital } from '@/lib/accounting/reporting-capital'
 import { loadCommitmentEvents, resolveDatedCommitments } from '@/lib/accounting/terms'
 import { loadPositions } from '@/lib/accounting/lp-positions'
 import { loadCarryTerms } from '@/lib/accounting/carry'
-import { carryAccrualInputs, carryTarget, type VehicleCarryTerms } from '@portfolio/fund-engine'
+import { carryAccrualInputs, carryTarget, runsPerLp, type VehicleCarryTerms } from '@portfolio/fund-engine'
 import { categoryFor } from '@/lib/accounting/continuous-allocation'
 import { dateInAnyClosedPeriod } from '@/lib/accounting/periods'
 import { isMissingSchema } from '@/lib/accounting/close-bundle'
@@ -33,17 +33,17 @@ import {
 export function earnedCarryShare(postings: CapitalPosting[], terms: VehicleCarryTerms, date: string): number {
   if (terms.kind === 'none' || terms.carryRate <= 0) return 0
   const dated = postings.filter(p => !p.entryDate || p.entryDate <= date)
-  const { lps, contributions, alreadyAccrued, distributions, bearing } = carryAccrualInputs(dated, terms.recipients, date, terms.gpCommitBearsCarry)
+  const { lps, contributions, alreadyAccrued, distributions, bearing, lpContributions } = carryAccrualInputs(dated, terms.recipients, date, terms.gpCommitBearsCarry, { perLp: runsPerLp(terms) })
   if (alreadyAccrued <= 0.005 || lps.length === 0) return 0
   const accounts = computeCapitalAccounts(dated)
   const realizedOnly = lps.map(l => {
     const a = accounts.get(l.lpEntityId)
     return { ...l, nav: roundCents(l.nav - (a ? a.unrealizedGains + a.fxTranslation : 0)) }
   })
-  const earned = carryTarget({ lps: realizedOnly, contributions, distributions, asOf: date }, terms)
+  const earned = carryTarget({ lps: realizedOnly, contributions, distributions, asOf: date, lpContributions }, terms)
   // When the GP commit bears carry the target includes the recipients' own share, which the LPs'
   // charge leaves out, so the ratio is taken against the whole target instead.
-  const whole = bearing ? carryTarget({ lps, contributions, distributions, asOf: date }, terms) : alreadyAccrued
+  const whole = bearing ? carryTarget({ lps, contributions, distributions, asOf: date, lpContributions }, terms) : alreadyAccrued
   if (whole <= 0.005) return 0
   return Math.min(1, Math.max(0, earned / whole))
 }

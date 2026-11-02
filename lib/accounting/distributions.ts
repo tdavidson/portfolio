@@ -34,7 +34,7 @@ import { vehicleIdByName } from './vehicle-id'
 import { loadCarryTerms } from './carry'
 import { loadRealizedCapital } from './realized-capital'
 import type { RealizedCapital } from '@portfolio/fund-engine'
-import { carryFreeIds, distributionSplitInputs } from '@portfolio/fund-engine'
+import { carryFreeIds, distributionSplitInputs, runsPerLp } from '@portfolio/fund-engine'
 import { reconcileSettlements, registerStatus, type LineStatus, type RegisterStatus, type Settlement } from './settlement'
 import { loadSettlements } from './capital-calls'
 import {
@@ -134,7 +134,7 @@ export async function previewDistribution(
   // as the close excludes it) and every prior distribution as a fund-wide total per date — from
   // the capital postings, in the fund engine (distributionSplitInputs). A GP commit that bears
   // carry runs through the tiers with the LPs.
-  const { partners, contributions, priors, carryPaidToDate } = distributionSplitInputs(capitalPostings, terms.recipients, asOf, terms.gpCommitBearsCarry)
+  const { partners, contributions, priors, carryPaidToDate, lpContributions } = distributionSplitInputs(capitalPostings, terms.recipients, asOf, terms.gpCommitBearsCarry, { perLp: runsPerLp(terms) })
 
   // American terms split on the deals realized so far, not the whole fund (lib/accounting/realized-capital.ts).
   let realizedCapital: RealizedCapital[] | undefined
@@ -154,6 +154,7 @@ export async function previewDistribution(
     asOf,
     carryPaidToDate: recipientIds.size > 0 ? carryPaidToDate : undefined,
     realizedCapital,
+    ...(lpContributions ? { lpContributions } : {}),
   })
   split.warnings.unshift(...extraWarnings)
 

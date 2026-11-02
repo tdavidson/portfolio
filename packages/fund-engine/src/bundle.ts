@@ -94,6 +94,7 @@ export function termsFileFrom(input: {
       ...(c.carrySteps?.length ? { carrySteps: c.carrySteps } : {}),
       ...(c.capitalIncludes ? { capitalIncludes: c.capitalIncludes } : {}),
       ...(c.gpCommitBearsCarry ? { gpCommitBearsCarry: true } : {}),
+      ...(c.waterfallScope === 'per_lp' ? { waterfallScope: c.waterfallScope } : {}),
       gpEntityId: c.gpEntityId,
       recipients: c.recipients.map(r => ({ partner: r.lpEntityId, pct: r.pct })),
     },

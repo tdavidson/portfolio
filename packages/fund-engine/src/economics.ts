@@ -8,7 +8,7 @@
 
 import { roundCents } from './ledger.ts'
 import { bucketForSourceType, computeCapitalAccounts, type CapitalPosting } from './capital-account.ts'
-import type { BearingRecipients, CarryRecipient, DatedContribution, LpEconomics } from './carry.ts'
+import type { BearingRecipients, CarryRecipient, DatedContribution, LpDatedContribution, LpEconomics } from './carry.ts'
 import type { PartnerEconomics, PriorDistribution } from './distribution-waterfall.ts'
 
 export interface CarryAccrualInputs {
@@ -25,6 +25,16 @@ export interface CarryAccrualInputs {
   distributions: PriorDistribution[]
   /** Only when the GP commit bears carry: the recipients, who are then in `lps` too. Pass to carryAccrual. */
   bearing?: BearingRecipients
+  /**
+   * Only with `perLp`: the same contributions tagged by LP. `distributions` then also carry what
+   * each LP received (`paidToLp`). Pass both to carryAccrual for a waterfall per LP.
+   */
+  lpContributions?: LpDatedContribution[]
+}
+
+/** What a waterfall per LP needs on top: contributions tagged by LP, and each prior's per-LP lines. */
+export interface EconomicsOptions {
+  perLp?: boolean
 }
 
 /**
@@ -37,6 +47,7 @@ export function carryAccrualInputs(
   asOf: string,
   /** The GP commit bears carry (VehicleCarryTerms.gpCommitBearsCarry): the recipients are in the economics too. */
   gpCommitBearsCarry = false,
+  opts?: EconomicsOptions,
 ): CarryAccrualInputs {
   const recipientIds = new Set(recipients.map(r => r.lpEntityId))
   const carryFree = gpCommitBearsCarry ? new Set<string>() : recipientIds
@@ -87,10 +98,11 @@ export function carryAccrualInputs(
   }
 
   // Dated contributions, for the hurdle. The pref accrues from when cash actually arrived.
-  const contributions = datedContributions(capitalPostings, carryFree, asOf)
+  const tagged = datedContributionsByLp(capitalPostings, carryFree, asOf)
+  const contributions = untag(tagged)
 
-  const { priors: distributions } = priorDistributions(capitalPostings, recipientIds, asOf, carryFree)
-  return { lps, contributions, alreadyAccrued, distributions, ...(bearing ? { bearing } : {}) }
+  const { priors: distributions } = priorDistributions(capitalPostings, recipientIds, asOf, carryFree, opts)
+  return { lps, contributions, alreadyAccrued, distributions, ...(bearing ? { bearing } : {}), ...(opts?.perLp ? { lpContributions: tagged } : {}) }
 }
 
 /**
@@ -104,6 +116,13 @@ export function carryAccrualInputs(
  * only invested capital leave the fee and expense slices out (hurdle.ts `capitalContributions`).
  */
 export function datedContributions(capitalPostings: CapitalPosting[], recipientIds: Set<string>, asOf: string): DatedContribution[] {
+  return untag(datedContributionsByLp(capitalPostings, recipientIds, asOf))
+}
+
+const untag = (cs: LpDatedContribution[]): DatedContribution[] => cs.map(({ lpEntityId: _l, ...c }) => c)
+
+/** `datedContributions`, each tagged with the LP who made it, in the same order. */
+export function datedContributionsByLp(capitalPostings: CapitalPosting[], recipientIds: Set<string>, asOf: string): LpDatedContribution[] {
   type Ev = { date: string; order: number; kind: 'in' | 'fees' | 'expenses'; amount: number }
   const byLp = new Map<string, Ev[]>()
   for (const p of capitalPostings) {
@@ -120,13 +139,13 @@ export function datedContributions(capitalPostings: CapitalPosting[], recipientI
     byLp.set(p.lpEntityId, list)
   }
 
-  const out: DatedContribution[] = []
-  for (const events of byLp.values()) {
+  const out: LpDatedContribution[] = []
+  for (const [lpEntityId, events] of byLp) {
     events.sort((a, b) => a.date.localeCompare(b.date) || a.order - b.order)
     const unused: { date: string; amount: number }[] = []
     const owed: { purpose: 'fees' | 'expenses'; amount: number }[] = []
     const tag = (date: string, amount: number, purpose: 'fees' | 'expenses') => {
-      if (amount > 0.000001) out.push({ date, amount: roundCents(amount), purpose })
+      if (amount > 0.000001) out.push({ date, amount: roundCents(amount), purpose, lpEntityId })
     }
     for (const e of events) {
       if (e.kind === 'in') {
@@ -151,7 +170,7 @@ export function datedContributions(capitalPostings: CapitalPosting[], recipientI
         if (need > 0.000001) owed.push({ purpose: e.kind, amount: need })
       }
     }
-    for (const u of unused) if (u.amount > 0.000001) out.push({ date: u.date, amount: roundCents(u.amount), purpose: 'investments' })
+    for (const u of unused) if (u.amount > 0.000001) out.push({ date: u.date, amount: roundCents(u.amount), purpose: 'investments', lpEntityId })
   }
   return out.filter(c => c.amount > 0).sort((a, b) => a.date.localeCompare(b.date))
 }
@@ -167,8 +186,11 @@ export function priorDistributions(
   asOf: string,
   /** The partners whose own capital is outside the tiers. Defaults to the recipients. */
   carryFree: Set<string> = recipientIds,
+  /** `perLp`: each prior also says what each LP received of it (`paidToLp`), carry excluded. */
+  opts?: EconomicsOptions,
 ): { priors: PriorDistribution[]; carryPaidToDate: number } {
   const priorByDate = new Map<string, number>()
+  const paidByDate = new Map<string, Record<string, number>>()
   let carryPaidToDate = 0
   for (const p of capitalPostings) {
     if (!p.lpEntityId || p.amount <= 0) continue
@@ -183,8 +205,15 @@ export function priorDistributions(
     if (date > asOf) continue
     priorByDate.set(date, roundCents((priorByDate.get(date) ?? 0) + p.amount))
     if (isCarry && recipientIds.has(p.lpEntityId)) carryPaidToDate = roundCents(carryPaidToDate + p.amount)
+    if (opts?.perLp) {
+      const paid = paidByDate.get(date) ?? {}
+      if (!isCarry) paid[p.lpEntityId] = roundCents((paid[p.lpEntityId] ?? 0) + p.amount)
+      paidByDate.set(date, paid)
+    }
   }
-  const priors = Array.from(priorByDate.entries()).map(([date, amount]) => ({ date, amount }))
+  const priors = Array.from(priorByDate.entries()).map(([date, amount]) => (
+    opts?.perLp ? { date, amount, paidToLp: paidByDate.get(date) ?? {} } : { date, amount }
+  ))
   return { priors, carryPaidToDate }
 }
 
@@ -197,6 +226,8 @@ export interface DistributionSplitInputs {
   priors: PriorDistribution[]
   /** Carry actually paid to the recipients to date. */
   carryPaidToDate: number
+  /** Only with `perLp`: the contributions tagged by LP, for a waterfall per LP; `priors` carry `paidToLp`. */
+  lpContributions?: LpDatedContribution[]
 }
 
 /**
@@ -209,6 +240,7 @@ export function distributionSplitInputs(
   asOf: string,
   /** The GP commit bears carry (VehicleCarryTerms.gpCommitBearsCarry): the recipients run through the tiers. */
   gpCommitBearsCarry = false,
+  opts?: EconomicsOptions,
 ): DistributionSplitInputs {
   const recipientIds = new Set(recipients.map(r => r.lpEntityId))
   const carryFree = gpCommitBearsCarry ? new Set<string>() : recipientIds
@@ -223,9 +255,10 @@ export function distributionSplitInputs(
   }))
 
   // Dated contributions for the hurdle: carry-free capital excluded, as the close excludes it.
-  const contributions = datedContributions(capitalPostings, carryFree, asOf)
+  const tagged = datedContributionsByLp(capitalPostings, carryFree, asOf)
+  const contributions = untag(tagged)
 
-  const { priors, carryPaidToDate } = priorDistributions(capitalPostings, recipientIds, asOf, carryFree)
+  const { priors, carryPaidToDate } = priorDistributions(capitalPostings, recipientIds, asOf, carryFree, opts)
 
-  return { partners, contributions, priors, carryPaidToDate }
+  return { partners, contributions, priors, carryPaidToDate, ...(opts?.perLp ? { lpContributions: tagged } : {}) }
 }

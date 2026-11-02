@@ -33,6 +33,7 @@ interface Terms {
   carrySteps?: Step[]
   capitalIncludes?: string[]
   gpCommitBearsCarry?: boolean
+  waterfallScope?: 'fund' | 'per_lp'
   recipients: Recipient[]
 }
 
@@ -65,6 +66,7 @@ export function CarryTerms() {
   const [steps, setSteps] = useState<StepRow[]>([])
   const [investedOnly, setInvestedOnly] = useState(false)
   const [gpCommitBearsCarry, setGpCommitBearsCarry] = useState(false)
+  const [waterfallScope, setWaterfallScope] = useState<'fund' | 'per_lp'>('fund')
   const [recipients, setRecipients] = useState<Recipient[]>([])
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [vehicleName, setVehicleName] = useState('')
@@ -96,6 +98,7 @@ export function CarryTerms() {
     })))
     setInvestedOnly(Array.isArray(t.capitalIncludes) && t.capitalIncludes.length === 1 && t.capitalIncludes[0] === 'investments')
     setGpCommitBearsCarry(t.gpCommitBearsCarry === true)
+    setWaterfallScope(t.waterfallScope === 'per_lp' ? 'per_lp' : 'fund')
     setRecipients(t.recipients ?? [])
     setCandidates(d.candidates ?? [])
     setVehicleName(d.group ?? '')
@@ -142,6 +145,8 @@ export function CarryTerms() {
         })),
         capitalIncludes: investedOnly ? ['investments'] : ['investments', 'fees', 'expenses', 'other'],
         gpCommitBearsCarry,
+        // Per LP is European or straight only; American runs whole fund.
+        waterfallScope: kind === 'american' ? 'fund' : waterfallScope,
         carryRecipients: recipients,
       }),
     })
@@ -378,6 +383,27 @@ export function CarryTerms() {
               when a distribution is split, instead of taking its share beside it, and the carry it
               pays goes to the recipients. The close&rsquo;s carry accrual still measures the
               LPs&rsquo; carry only.
+            </p>
+          )}
+
+          <Field label="The waterfall runs" hint="Most LPAs run it for the whole fund">
+            {kind === 'american' ? (
+              <span className="text-sm text-muted-foreground">For the whole fund (each LP isn&rsquo;t supported with deal-by-deal terms)</span>
+            ) : (
+              <Choice
+                value={waterfallScope}
+                onChange={v => setWaterfallScope(v === 'per_lp' ? 'per_lp' : 'fund')}
+                options={[['fund', 'For the whole fund'], ['per_lp', 'For each LP']]}
+              />
+            )}
+          </Field>
+          {waterfallScope === 'per_lp' && kind !== 'american' && (
+            <p className="text-xs text-muted-foreground max-w-3xl">
+              Each distribution is divided among the LPs by their share of contributed capital at the
+              date, and each LP&rsquo;s share runs through its own return of capital, preferred return,
+              catch-up and split, on its own contributions and what it has already received. The
+              close accrues carry the same way, so each LP is charged its own carry. Forecasts still
+              run the waterfall for the whole fund, since a forecast has no per-LP timing.
             </p>
           )}
 

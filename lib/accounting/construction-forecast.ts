@@ -21,7 +21,7 @@
 import type { ConstructionActuals, ConstructionAssumptions, ConstructionResult, ConstructionWaterfallProjection, PacingAssumptions } from './construction'
 import { projectFeesForYear, DEFAULT_PACING } from './construction'
 import { runWaterfall } from './waterfall'
-import { forwardWaterfall, projectedDeals } from './forward-waterfall'
+import { forwardWaterfall, PER_LP_FORECAST_WARNING, projectedDeals } from './forward-waterfall'
 import { allocateRecycling, type RecyclingTreatment } from '@portfolio/fund-engine'
 
 /** One forecast baseline for the page, API, and agent. No invented historical flow dates. */
@@ -529,5 +529,9 @@ export function applyLpWaterfall(schedule: ForecastSchedule, projection?: Constr
       netIrr,
     }
   })
-  return { ...schedule, years }
+  // A waterfall per LP is forecast whole fund: a forecast has no per-LP timing.
+  const warnings = projection.perLp && waterfall && !schedule.warnings.includes(PER_LP_FORECAST_WARNING)
+    ? [...schedule.warnings, PER_LP_FORECAST_WARNING]
+    : schedule.warnings
+  return { ...schedule, years, warnings }
 }

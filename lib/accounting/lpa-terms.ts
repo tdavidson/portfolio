@@ -19,7 +19,7 @@
 // not appear in the document (whitespace, case and typographic quotes aside) caps that field at
 // low confidence and says so.
 
-import type { CarryKind, PrefBase, VehicleCarryTerms } from './carry'
+import type { CarryKind, PrefBase, VehicleCarryTerms, WaterfallScope } from './carry'
 import type { FeeBasis } from './fees'
 
 export type Confidence = 'high' | 'medium' | 'low'
@@ -43,7 +43,7 @@ export interface ProposedField<T> extends TermSource {
 }
 
 /** The fields the engine stores in vehicle_waterfall_terms (recipients are matched separately). */
-export const TERM_FIELDS = ['kind', 'carryRate', 'prefRate', 'prefCompounds', 'prefBase', 'catchupRate', 'catchupSize'] as const
+export const TERM_FIELDS = ['kind', 'carryRate', 'prefRate', 'prefCompounds', 'prefBase', 'catchupRate', 'catchupSize', 'waterfallScope'] as const
 export type TermField = typeof TERM_FIELDS[number]
 
 /** Read for the record only: the management fee is a forecast-plan rule and a per-close input, not a waterfall term. */
@@ -58,6 +58,7 @@ export interface ProposedTerms {
   prefBase?: ProposedField<PrefBase>
   catchupRate?: ProposedField<number>
   catchupSize?: ProposedField<number>
+  waterfallScope?: ProposedField<WaterfallScope>
 }
 
 export interface ProposedInfo {
@@ -362,6 +363,10 @@ export function heuristicLpaTerms(text: string): LpaTermsProposal {
   const unreturnedAt = prefClauses.find(c => UNRETURNED.test(c.text))
   if (unreturnedAt) terms.prefBase = field<PrefBase>('unreturned', unreturnedAt, 'medium')
 
+  // A waterfall per LP: proceeds divided among the LPs first, then each LP's share through the tiers.
+  const perLpAt = passages.find(p => PER_LP.some(re => re.test(p.text)))
+  if (perLpAt) terms.waterfallScope = field<WaterfallScope>('per_lp', perLpAt, 'medium', 'Proceeds are divided among the partners before the tiers, so each LP\'s share runs through its own waterfall.')
+
   // Kind.
   const all = passages.map(p => p.text).join('\n')
   const dealByDeal = passages.find(p => /deal[- ]by[- ]deal|investment[- ]by[- ]investment|with respect to each (?:portfolio )?investment[^.]{0,120}(?:carried interest|general partner)/i.test(p.text))
@@ -402,6 +407,18 @@ export function heuristicLpaTerms(text: string): LpaTermsProposal {
   return finish({ method: 'heuristic', terms, info, unsupported, warnings })
 }
 
+/**
+ * An LPA that divides proceeds among the partners first (by capital contributions) and then runs
+ * each partner's share through the tiers: "apportioned among the Partners in proportion to their
+ * Capital Contributions, and the amount apportioned to each Limited Partner shall be distributed
+ * between such Limited Partner and the General Partner as follows". Kept generic: the division, then
+ * the per-partner application.
+ */
+const PER_LP = [
+  /(?:apportioned|allocated|divided|shared)\s+(?:among|between)\s+the\s+(?:limited\s+)?partners[^.]{0,200}(?:capital contributions?|contribution percentages?|percentage interests?)[^]{0,400}?(?:amount|portion|share)s?\s+(?:so\s+)?(?:apportioned|allocated|attributable)\s+to\s+(?:each|any|such|a)\s+(?:limited\s+)?partner/i,
+  /(?:amount|portion|share)s?\s+(?:so\s+)?(?:apportioned|allocated|attributable)\s+to\s+(?:each|any|such|a)\s+(?:limited\s+)?partner[^.]{0,200}(?:distributed|paid|applied)[^.]{0,120}(?:between|to)\s+(?:such|that|the)\s+(?:limited\s+)?partner\s+and\s+the\s+general\s+partner/i,
+]
+
 /** A hurdle that accrues only on capital not yet returned (prefBase 'unreturned'). */
 const UNRETURNED = /(?:preferred return|hurdle|per annum)[^.]{0,200}(?:unreturned|outstanding|net of (?:prior )?distributions|not (?:yet )?(?:been )?returned)/i
 
@@ -426,7 +443,8 @@ export function detectUnsupported(passages: Passage[]): UnsupportedProvision[] {
 function finish(p: Omit<LpaTermsProposal, 'notFound'>): LpaTermsProposal {
   // A catch-up's size is only stated when it is partial; unstated, it is a full catch-up.
   const notFound = [
-    ...TERM_FIELDS.filter(f => p.terms[f] == null && f !== 'catchupSize'),
+    // Silence on the waterfall's scope is the whole fund, the usual reading.
+    ...TERM_FIELDS.filter(f => p.terms[f] == null && f !== 'catchupSize' && f !== 'waterfallScope'),
     ...INFO_FIELDS.filter(f => p.info[f] == null),
   ]
   // A straight carry needs no hurdle or catch-up: "not found" is the expected answer there.
@@ -448,6 +466,7 @@ export const LPA_TERMS_RESPONSE_SHAPE = `{
   "prefBase":           { "value": "contributed" | "unreturned", ... } | null,
   "catchupRate":        { "value": 1.0, ... } | null,
   "catchupSize":        { "value": 1.0, ... } | null,
+  "waterfallScope":     { "value": "fund" | "per_lp", ... } | null,
   "managementFeeRate":  { "value": 0.02, ... } | null,
   "managementFeeBasis": { "value": "committed" | "invested" | "nav", ... } | null,
   "unsupported": [ { "provision": "GP clawback", "quote": "...", "section": "...", "page": 40 } ],
@@ -460,6 +479,7 @@ export const LPA_TERMS_RULES = `Rules:
 - prefCompounds: true when the preferred return compounds (annually, or an IRR hurdle), false when it is simple.
 - catchupRate is the share of each dollar that goes to the GP WHILE it catches up (1.0 when all of it does; 0.8 for 80/20; 0.1 is possible even on 20% carry). catchupSize is how much of a full catch-up the GP gets, where a full one is the carry it would have earned on the profit that paid the preferred return: 1.0 for a full catch-up, 0.5 when the GP catches up to half of that. null when the text does not limit the catch-up.
 - prefBase: "unreturned" when the preferred return accrues only on capital contributions not yet returned (or "outstanding", "net of distributions"); "contributed" when it plainly accrues on all capital contributions regardless of returns; null when the text does not say.
+- waterfallScope: "per_lp" when the LPA first divides each distribution among the partners (usually in proportion to their capital contributions) and then runs EACH partner's share through the return of capital, preferred return, catch-up and split separately; "fund" when the tiers run on the partners' aggregate amounts; null when the text does not say.
 - kind "american" also covers a waterfall that returns the capital of realized investments (and write-offs) before carry, rather than all contributed capital.
 - managementFeeBasis: "committed" (on capital commitments), "invested" (on invested capital / cost of investments), "nav" (on net asset value).
 - quote: copy the clause VERBATIM from the text (you may shorten with "..." but never reword). section: the section or article it sits under. page: from the nearest [Page N] marker before it, or null.
@@ -576,6 +596,8 @@ export function parseLpaTermsResponse(raw: unknown, documentText: string, method
   if (catchupRate) terms.catchupRate = catchupRate
   const catchupSize = read<number>('catchupSize', v => rateFraction(v, 'catchupSize'))
   if (catchupSize) terms.catchupSize = catchupSize
+  const waterfallScope = read<WaterfallScope>('waterfallScope', v => (v === 'fund' || v === 'per_lp' ? v : null))
+  if (waterfallScope) terms.waterfallScope = waterfallScope
   const fee = read<number>('managementFeeRate', v => rateFraction(v, 'managementFeeRate'))
   if (fee) info.managementFeeRate = fee
   const basis = read<FeeBasis>('managementFeeBasis', v => (typeof v === 'string' && (BASES as string[]).includes(v) ? v as FeeBasis : null))
@@ -610,6 +632,9 @@ export function parseLpaTermsResponse(raw: unknown, documentText: string, method
   if (terms.kind?.value === 'none' && terms.carryRate && terms.carryRate.value > 0) {
     warnings.push('kind is none but a carry rate was read: with kind none no carry accrues and distributions are pro-rata.')
   }
+  if (terms.kind?.value === 'american' && terms.waterfallScope?.value === 'per_lp') {
+    warnings.push('kind is american and the waterfall is read as per LP: a deal-by-deal waterfall per LP is not supported, so it is proposed for the whole fund. Read the clause.')
+  }
 
   return finish({ method, terms, info, unsupported, warnings })
 }
@@ -626,6 +651,8 @@ export interface ProposedTermsInput {
   prefBase: PrefBase
   /** Recipients are not in an LPA by entity id: today's are kept, or a person names them. */
   carryRecipients: { lpEntityId: string; pct: number }[]
+  /** Only when the LPA says, or the vehicle already runs per LP; absent is the whole fund. */
+  waterfallScope?: WaterfallScope
 }
 
 /**
@@ -657,6 +684,13 @@ export function proposalToTermsInput(
     carryRecipients: current.recipients.map(r => ({ lpEntityId: r.lpEntityId, pct: r.pct })),
   }
   if (input.carryRecipients.length > 0) filledFrom.carryRecipients = 'current'
+  // Per LP only on European or straight terms; otherwise keep today's scope, and say so.
+  const scope = proposal.terms.waterfallScope?.value
+  if (scope && (scope === 'fund' || kind === 'european' || kind === 'straight')) input.waterfallScope = scope
+  else if (current.waterfallScope === 'per_lp' && (kind === 'european' || kind === 'straight')) {
+    input.waterfallScope = 'per_lp'
+    filledFrom.waterfallScope = 'current'
+  }
   if (kind === 'straight' || kind === 'none') {
     delete filledFrom.prefRate
     delete filledFrom.prefBase

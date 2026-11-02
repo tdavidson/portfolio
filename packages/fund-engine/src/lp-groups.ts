@@ -19,6 +19,17 @@
 // Recycling deemed recontributed is paid straight back to the LPs who recontributed it
 // (`PriorDistribution.byLp`), as the single-group replay already treats it.
 //
+// A WATERFALL PER LP (`waterfallScope: 'per_lp'`). Some LPAs divide every distribution among the
+// LPs first and then run each LP's share through its own tiers. `groupLpsByTerms` with `perLp`
+// makes each LP its own group, and the division is then `'contributions'`: the whole amount pro
+// rata by each LP's cumulative contributed capital as at the distribution date, with no senior
+// return of capital (that stays the division for LP classes). Each LP's tier state is replayed from
+// what it actually received (`PriorDistribution.paidToLp`, the booked lines), not from a re-division
+// of the fund's totals, because history may not have followed the waterfall and the books are the
+// record. The carry on each prior is attributed to the LPs whose tiers can account for it
+// (`attributePrior`). Without per-LP amounts a prior is divided by contributions, and a warning says
+// so.
+//
 // STATE IS REPLAYED, as in replay.ts: nothing stores a group's tier state, and every prior
 // distribution is divided and run again. The fund-end view (what a clawback measures against)
 // runs the same division with each group owed all its capital from the first distribution, and
@@ -30,6 +41,23 @@ import { capitalContributions, hurdleTarget, type DatedContribution, type Hurdle
 import { roundCents } from './ledger.ts'
 import type { VehicleCarryTerms } from './carry.ts'
 import { netOfTaxCap, waterfallTermsOf, type PriorDistribution, type RealizedCapital } from './replay.ts'
+import { apportionCents } from './allocation.ts'
+
+/**
+ * How a distribution is divided among the groups before their tiers run.
+ *   'seniority'     — return of capital senior first by what each is owed, then pro rata by capital
+ *                     (LP classes, the default).
+ *   'contributions' — all of it pro rata by cumulative contributions as at the date (a waterfall per
+ *                     LP); prior distributions are replayed from what each LP actually received.
+ */
+export type GroupDivision = 'seniority' | 'contributions'
+
+export interface GroupOptions {
+  /** Absent: 'seniority'. */
+  division?: GroupDivision
+  /** Collects what the replay had to assume (a prior with no per-LP amounts, carry it can't place). */
+  warnings?: string[]
+}
 
 /** One LP's own waterfall terms. Anything absent is the fund's. */
 export interface LpWaterfallTerms {
@@ -73,6 +101,8 @@ export function groupLpsByTerms(input: {
   lpTerms?: LpWaterfallTerms[]
   contributions: (DatedContribution & { lpEntityId: string })[]
   realizedCapitalFor?: (lpEntityIds: string[]) => RealizedCapital[] | undefined
+  /** A waterfall per LP: every LP is its own group, whatever its terms. */
+  perLp?: boolean
 }): LpGroup[] {
   const own = new Map((input.lpTerms ?? []).map(t => [t.lpEntityId, t]))
   const groups = new Map<string, LpGroup>()
@@ -89,7 +119,7 @@ export function groupLpsByTerms(input: {
         }
       : input.fundTerms
     const subordinated = t?.subordinated ?? false
-    const key = termsKey(terms, subordinated)
+    const key = input.perLp ? JSON.stringify([id]) : termsKey(terms, subordinated)
     const g = groups.get(key) ?? { id: key, lpEntityIds: [], terms, subordinated, contributions: [] }
     g.lpEntityIds.push(id)
     groups.set(key, g)
@@ -114,6 +144,8 @@ class GroupCursor {
   private readonly capital: DatedContribution[]
   private readonly reductions: HurdleReduction[] = []
   private readonly realized: boolean
+  /** The gross share of each prior this group took, by the prior's place in date order. */
+  readonly taken: number[] = []
 
   constructor(group: LpGroup, fundEndAsOf?: string) {
     this.group = group
@@ -166,6 +198,16 @@ class GroupCursor {
     return total(this.capital.filter(c => c.date <= date))
   }
 
+  /** Every contribution to date, whatever it paid for: its Capital Contribution Percentage's numerator. */
+  contributed(date: string): number {
+    return total(this.group.contributions.filter(c => c.date <= date && c.amount > 0))
+  }
+
+  /** What the LPs would receive of `amount` on `date`, without stepping. */
+  toLp(date: string, amount: number): number {
+    return runWaterfall(amount, waterfallTermsOf(this.group.terms), this.at(date)).toLP
+  }
+
   step(date: string, amount: number): WaterfallResult {
     const result = runWaterfall(amount, waterfallTermsOf(this.group.terms), this.at(date))
     this.reductions.push({ date, capital: result.toReturnOfCapital, preferred: result.toPreferred })
@@ -201,14 +243,91 @@ function divide(amount: number, date: string, cursors: GroupCursor[], byLp?: Rec
   return shares
 }
 
-/** Step every group through the prior distributions, in date order. */
-function replay(priors: PriorDistribution[], groups: LpGroup[], asOf: string, fundEnd: boolean): GroupCursor[] {
-  const cursors = groups.map(g => new GroupCursor(g, fundEnd ? asOf : undefined))
-  const sorted = [...priors].filter(p => p.amount > 0 && p.date <= asOf).sort((a, b) => a.date.localeCompare(b.date))
-  for (const p of sorted) {
-    const shares = divide(p.amount, p.date, cursors, p.byLp)
-    cursors.forEach((c, k) => { if (shares[k] > 0) c.step(p.date, shares[k]) })
+/**
+ * Divide `amount` across the groups by contributions to date (a waterfall per LP): what's paid
+ * straight back to LPs first, then the rest pro rata by each group's cumulative contributions, to
+ * the cent by largest remainder.
+ */
+function divideByContributions(amount: number, date: string, cursors: GroupCursor[], byLp?: Record<string, number>): number[] {
+  const straight = cursors.map(c => c.group.lpEntityIds.reduce((s, id) => s + Math.max(0, byLp?.[id] ?? 0), 0))
+  const restCents = Math.max(0, Math.round(roundCents(amount) * 100) - Math.round(straight.reduce((s, v) => s + v, 0) * 100))
+  const parts = apportionCents(restCents, cursors.map(c => c.contributed(date)))
+  return cursors.map((_, k) => roundCents(straight[k] + parts[k] / 100))
+}
+
+/**
+ * The gross of a prior each group's tiers took, from what its LPs actually received
+ * (`paidToLp`). The tiers give the LPs a non-decreasing part of any amount, so each group's net
+ * pins its gross to a range: one point where the LPs share every dollar, a span where the GP
+ * takes all of it (a full catch-up). The carry paid that day (what left beyond the LPs' lines) is
+ * placed within those spans, in proportion to their slack, so a history that followed the per-LP
+ * waterfall replays exactly. Carry the spans can't hold is left out, with a warning.
+ */
+function attributePrior(p: PriorDistribution, cursors: GroupCursor[], warnings?: string[]): number[] {
+  const paid = p.paidToLp!
+  const net = cursors.map(c => roundCents(c.group.lpEntityIds.reduce((s, id) => s + Math.max(0, paid[id] ?? 0), 0)))
+  const allNet = roundCents(Object.values(paid).reduce((s, v) => s + Math.max(0, v), 0))
+  const carry = roundCents(Math.max(0, p.amount - allNet))
+  // Smallest and largest gross (in cents) whose LP part is the net.
+  const ranges = cursors.map((c, k) => {
+    const target = Math.round(net[k] * 100)
+    if (target <= 0) return { lo: 0, hi: 0 }
+    const lpAt = (cents: number) => Math.round(c.toLp(p.date, cents / 100) * 100)
+    let top = Math.max(1, target)
+    for (let i = 0; i < 60 && lpAt(top) <= target; i++) top *= 2
+    // lo: first gross with lp >= target; hi: last gross with lp <= target.
+    let a = target - 1, b = top
+    while (b - a > 1) { const m = Math.floor((a + b) / 2); if (lpAt(m) >= target) b = m; else a = m }
+    const lo = b
+    a = lo; b = top
+    while (b - a > 1) { const m = Math.floor((a + b) / 2); if (lpAt(m) <= target) a = m; else b = m }
+    return { lo, hi: a }
+  })
+  const carryCents = Math.round(carry * 100)
+  const gpLo = ranges.map((r, k) => r.lo - Math.round(net[k] * 100))
+  const slack = ranges.map(r => r.hi - r.lo)
+  const loSum = gpLo.reduce((s, v) => s + v, 0)
+  const slackSum = slack.reduce((s, v) => s + v, 0)
+  const tag = `the distribution on ${p.date}`
+  let extra: number[]
+  if (carryCents <= loSum) {
+    if (loSum - carryCents > cursors.length) warnings?.push(`The carry booked on ${tag} is less than each LP's waterfall implies from what the LPs received, so the replay assumes the waterfall's figure.`)
+    extra = cursors.map(() => 0)
+  } else if (carryCents <= loSum + slackSum) {
+    extra = apportionCents(carryCents - loSum, slack)
+  } else {
+    warnings?.push(`The carry booked on ${tag} is more than any LP's waterfall can account for from what the LPs received, so the replay leaves the excess out.`)
+    extra = slack
   }
+  return cursors.map((_, k) => roundCents((ranges[k].lo + extra[k]) / 100))
+}
+
+/**
+ * Step every group through the prior distributions, in date order. The fund-end view divides each
+ * prior as the actual replay did (what each LP received doesn't change with the view), then runs
+ * it with all the capital owed from the start.
+ */
+function replay(priors: PriorDistribution[], groups: LpGroup[], asOf: string, fundEnd: boolean, opts?: GroupOptions): GroupCursor[] {
+  const sorted = [...priors].filter(p => p.amount > 0 && p.date <= asOf).sort((a, b) => a.date.localeCompare(b.date))
+  const byContributions = opts?.division === 'contributions'
+  const actual = byContributions && fundEnd ? replay(priors, groups, asOf, false, { ...opts, warnings: undefined }) : undefined
+  const cursors = groups.map(g => new GroupCursor(g, fundEnd ? asOf : undefined))
+  let divided = false
+  sorted.forEach((p, i) => {
+    let shares: number[]
+    if (actual) shares = actual.map(c => c.taken[i] ?? 0)
+    else if (!byContributions) shares = divide(p.amount, p.date, cursors, p.byLp)
+    else if (p.paidToLp) shares = attributePrior(p, cursors, opts?.warnings)
+    else {
+      divided = true
+      shares = divideByContributions(p.amount, p.date, cursors, p.byLp)
+    }
+    cursors.forEach((c, k) => {
+      c.taken[i] = shares[k]
+      if (shares[k] > 0) c.step(p.date, shares[k])
+    })
+  })
+  if (divided) opts?.warnings?.push('The books do not say what each LP received from some earlier distributions, so those are divided by contributions to replay each LP\'s tiers.')
   return cursors
 }
 
@@ -221,9 +340,9 @@ export interface GroupSplit {
 }
 
 /** Run one distribution to the carry-bearing LPs across the groups, from where the priors leave them. */
-export function splitAcrossGroups(pool: number, priors: PriorDistribution[], groups: LpGroup[], asOf: string): GroupSplit[] {
-  const cursors = replay(priors, groups, asOf, false)
-  const shares = divide(pool, asOf, cursors)
+export function splitAcrossGroups(pool: number, priors: PriorDistribution[], groups: LpGroup[], asOf: string, opts?: GroupOptions): GroupSplit[] {
+  const cursors = replay(priors, groups, asOf, false, opts)
+  const shares = opts?.division === 'contributions' ? divideByContributions(pool, asOf, cursors) : divide(pool, asOf, cursors)
   return cursors.map((c, k) => {
     const amount = roundCents(shares[k])
     const stateBefore = c.at(asOf)
@@ -232,8 +351,8 @@ export function splitAcrossGroups(pool: number, priors: PriorDistribution[], gro
 }
 
 /** The GP's carry on the fund-end view, by group and in total. */
-export function groupedFundEndEntitlement(priors: PriorDistribution[], groups: LpGroup[], asOf: string): { total: number; byGroup: number[] } {
-  const byGroup = replay(priors, groups, asOf, true).map(c => c.state.gpCarryPaid)
+export function groupedFundEndEntitlement(priors: PriorDistribution[], groups: LpGroup[], asOf: string, opts?: GroupOptions): { total: number; byGroup: number[] } {
+  const byGroup = replay(priors, groups, asOf, true, opts).map(c => c.state.gpCarryPaid)
   return { total: roundCents(byGroup.reduce((s, v) => s + v, 0)), byGroup }
 }
 
@@ -249,9 +368,10 @@ export function groupedClawback(
   carryPaid: number,
   /** Caps the clawback at the carry paid less tax at this assumed rate (replay.ts netOfTaxCap). */
   netOfTaxRate?: number,
+  opts?: GroupOptions,
 ): { paid: number; entitlement: number; amount: number; back: number[]; cap?: number } {
-  const paidBy = replay(priors, groups, asOf, false).map(c => c.state.gpCarryPaid)
-  const ent = groupedFundEndEntitlement(priors, groups, asOf)
+  const paidBy = replay(priors, groups, asOf, false, opts).map(c => c.state.gpCarryPaid)
+  const ent = groupedFundEndEntitlement(priors, groups, asOf, opts)
   const cap = netOfTaxCap(carryPaid, netOfTaxRate)
   const owed = roundCents(Math.max(0, carryPaid - ent.total))
   const amount = cap === undefined ? owed : Math.min(cap, owed)

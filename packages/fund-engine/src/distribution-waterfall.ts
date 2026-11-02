@@ -19,6 +19,11 @@
 // base as `realizedCapital`; without it an American split falls back to the whole-fund waterfall
 // and says so.
 //
+// PER LP. Terms with `waterfallScope: 'per_lp'` divide the distribution among the carry-bearing LPs
+// by contributions first and run each LP's share through its own tiers, each replayed from what that
+// LP actually received (lp-groups.ts). The caller supplies the contributions tagged by LP
+// (`lpContributions`); without them the split falls back to the whole fund and warns.
+//
 // CONSISTENCY WITH THE CLOSE. The close accrues carry on a hypothetical liquidation using the same
 // `runWaterfall`, with the carry recipients excluded from the LP economics (they receive carry;
 // they do not pay it). This split makes the same exclusion, so a distribution and the next close
@@ -27,8 +32,8 @@
 // edit the lines.
 
 import { runWaterfall, type CarryBand, type WaterfallState } from './waterfall.ts'
-import type { DatedContribution } from './hurdle.ts'
-import type { VehicleCarryTerms } from './carry.ts'
+import type { DatedContribution, LpDatedContribution } from './hurdle.ts'
+import { runsPerLp, type VehicleCarryTerms } from './carry.ts'
 import {
   replayWaterfallState,
   usesRealizedBase,
@@ -37,7 +42,7 @@ import {
   type RealizedCapital,
 } from './replay.ts'
 import { allocateAmount } from './allocation.ts'
-import { splitAcrossGroups, type LpGroup } from './lp-groups.ts'
+import { groupLpsByTerms, splitAcrossGroups, type LpGroup } from './lp-groups.ts'
 import { roundCents } from './ledger.ts'
 
 /** One partner's economics as at the distribution date, from the capital account. */
@@ -140,6 +145,13 @@ export interface SplitInput {
    * groups instead. Omitted, every LP is on `terms`.
    */
   groups?: LpGroup[]
+  /**
+   * The contributions tagged by LP (distributionSplitInputs with `perLp`). With terms that run the
+   * waterfall per LP (`waterfallScope: 'per_lp'`), each carry-bearing LP becomes its own group, the
+   * amount is divided by contributions, and each LP's tiers are replayed from what it received
+   * (`PriorDistribution.paidToLp`).
+   */
+  lpContributions?: LpDatedContribution[]
 }
 
 function tiersOf(result: ReturnType<typeof runWaterfall>): WaterfallTiers {
@@ -156,6 +168,9 @@ function tiersOf(result: ReturnType<typeof runWaterfall>): WaterfallTiers {
   }
 }
 
+// The groups' states summed. The profit and split totals are kept when either side has them, each
+// read with its own default (lpProfitPaid: the pref paid; splitPaid: 0), so a grouped total with a
+// step or a profit-measured catch-up is right.
 const addStates = (a: WaterfallState, b: WaterfallState): WaterfallState => ({
   contributedCapital: roundCents(a.contributedCapital + b.contributedCapital),
   returnedCapital: roundCents(a.returnedCapital + b.returnedCapital),
@@ -163,6 +178,10 @@ const addStates = (a: WaterfallState, b: WaterfallState): WaterfallState => ({
   preferredTarget: roundCents(a.preferredTarget + b.preferredTarget),
   gpCarryPaid: roundCents(a.gpCarryPaid + b.gpCarryPaid),
   gpCatchUpPaid: roundCents((a.gpCatchUpPaid ?? a.gpCarryPaid) + (b.gpCatchUpPaid ?? b.gpCarryPaid)),
+  ...(a.lpProfitPaid != null || b.lpProfitPaid != null
+    ? { lpProfitPaid: roundCents((a.lpProfitPaid ?? a.preferredPaid) + (b.lpProfitPaid ?? b.preferredPaid)) }
+    : {}),
+  ...(a.splitPaid != null || b.splitPaid != null ? { splitPaid: roundCents((a.splitPaid ?? 0) + (b.splitPaid ?? 0)) } : {}),
 })
 
 /**
@@ -239,9 +258,19 @@ export function splitDistribution(input: SplitInput): DistributionSplit {
   let stateAfter: WaterfallState
   let lines: { lpEntityId: string; amount: number }[]
   let groups: DistributionSplit['groups']
-  if (input.groups && input.groups.length > 0) {
+  // A waterfall per LP: each carry-bearing LP is a group on the fund's terms, divided by contributions.
+  const perLp = runsPerLp(terms)
+  let lpGroups = input.groups
+  if (perLp && !(lpGroups && lpGroups.length > 0)) {
+    if (input.lpContributions) {
+      lpGroups = groupLpsByTerms({ fundTerms: terms, lpEntityIds: lps.map(p => p.lpEntityId), contributions: input.lpContributions, perLp: true })
+    } else {
+      warnings.push('The terms run the waterfall per LP, but contributions were not given per LP, so the distribution is split by the whole-fund waterfall.')
+    }
+  }
+  if (lpGroups && lpGroups.length > 0) {
     // Each group runs its own tiers on its share (lp-groups.ts).
-    const splits = splitAcrossGroups(pool, input.priors, input.groups, input.asOf)
+    const splits = splitAcrossGroups(pool, input.priors, lpGroups, input.asOf, perLp ? { division: 'contributions', warnings } : undefined)
     groups = splits.map(s => ({ groupId: s.group.id, lpEntityIds: s.group.lpEntityIds, amount: s.amount, tiers: tiersOf(s.result) }))
     const sumOf = (k: 'returnOfCapital' | 'preferred' | 'catchUp' | 'carry' | 'profitToLP' | 'toLP' | 'toGP') =>
       roundCents(groups!.reduce((s, g) => s + g.tiers[k], 0))

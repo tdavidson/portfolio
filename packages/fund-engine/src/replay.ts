@@ -32,6 +32,13 @@ export interface PriorDistribution {
    * recontributed. Only the grouped waterfall reads it (lp-groups.ts); one group runs it as capital.
    */
   byLp?: Record<string, number>
+  /**
+   * What each carry-bearing LP actually received of it, from the booked distribution lines
+   * (recycling paid back included); `amount` less their sum is the carry paid. A waterfall per LP
+   * (`waterfallScope: 'per_lp'`) replays each LP's tiers from these rather than re-dividing the
+   * total, because the books are the record. Ignored by the whole-fund waterfall.
+   */
+  paidToLp?: Record<string, number>
 }
 
 /**

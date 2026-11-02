@@ -17,6 +17,11 @@
 //
 // A hypothetical liquidation realizes every deal, so the value of what's left (`liquidationStateAt`)
 // is measured whole fund under either kind, as the close accrues it (carry.ts).
+//
+// Per LP. Terms that run the waterfall per LP (waterfallScope 'per_lp') are still forecast whole
+// fund: a forecast projects the fund's calls and distributions, not each LP's, so there is no per-LP
+// timing to run the tiers on. That is exact while the LPs are pro rata, and the forecasts say so
+// (PER_LP_FORECAST_WARNING).
 
 import {
   capitalContributions,
@@ -343,6 +348,14 @@ function irrHistory(p: ConstructionWaterfallProjection, contributions: DatedCont
     ? { irr: { asOf: date, contributions: contributions.filter(c => c.date <= date), lpDistributions: state.irr?.lpDistributions ?? booked } }
     : {}
 }
+
+/**
+ * The warning a forecast shows when the vehicle runs its waterfall per LP. A forecast projects the
+ * fund's calls and distributions, not each LP's, so it has no per-LP timing to run the tiers on; it
+ * runs them whole fund, which is exact while every LP contributes and receives pro rata.
+ */
+export const PER_LP_FORECAST_WARNING =
+  'The waterfall runs for each LP, but a forecast has no per-LP timing, so it runs the waterfall for the whole fund. That is exact while the LPs contribute and receive pro rata; where their timing differs the actual carry per LP, and its total, can differ.'
 
 /** The warning a forecast shows when deal-by-deal terms run whole fund, for want of the deals. */
 export const WHOLE_FUND_FALLBACK_WARNING =

@@ -24,6 +24,9 @@ export interface DatedContribution {
   purpose?: ContributionPurpose
 }
 
+/** A dated contribution tagged with the LP who made it, for a waterfall run per LP. */
+export type LpDatedContribution = DatedContribution & { lpEntityId: string }
+
 /**
  * The contributions that count as capital: to be returned, and to accrue the pref on. An LPA that
  * returns only invested capital before carry leaves fees and expenses out (`capitalIncludes`
