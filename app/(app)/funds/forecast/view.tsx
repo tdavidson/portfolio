@@ -11,7 +11,7 @@ import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover
 import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogDescription, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog'
 import { cn } from '@/lib/utils'
-import { addMonths, presetRange, type Interval, type MonthKey, type RangePreset } from '@/lib/forecast/months'
+import { addMonths, lifetimeRange, presetRange, type Interval, type MonthKey, type RangePreset } from '@/lib/forecast/months'
 import type { PlanDetail, PlanReturnsResponse, SeriesResult, VarianceResponse } from '@/lib/forecast/service'
 import { CashChart, PnlChart, SourceChart } from './charts'
 import { cashFlowForecastState } from './chart-visibility'
@@ -246,7 +246,13 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
   // The range follows the preset; "plan" is the cutoff's year through the plan's last month.
   useEffect(() => {
     if (preset === 'custom') return
-    if (preset === 'plan') {
+    // "Fund lifetime": the first month on the books through the plan's last month.
+    if (preset === 'lifetime' && detail) {
+      const r = lifetimeRange(detail.firstMonth, detail.window)
+      setStart(r.start); setEnd(r.end)
+      return
+    }
+    if (preset === 'plan' || preset === 'lifetime') {
       if (!detail) {
         const r = presetRange('current_year', thisMonth())
         setStart(r.start); setEnd(r.end)
@@ -609,6 +615,7 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
           onStart={m => { setPreset('custom'); setStart(m) }}
           onEnd={m => { setPreset('custom'); setEnd(m) }}
           planLabel={detail ? 'Plan range' : 'Current year'}
+          showLifetime={!!detail}
         />
         {/* Presentation only: storage and every calculation stay monthly; the server re-adds the
             months into quarters or years for the table, every chart, the variance and the CSV alike. */}

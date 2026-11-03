@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  addMonths, aggregateBalance, aggregateFlow, lastDay, monthDiff, monthRange, periods, presetRange,
+  addMonths, aggregateBalance, aggregateFlow, lastDay, monthDiff, monthRange, periods, presetRange, lifetimeRange,
   type BalancePoint,
 } from './months'
 
@@ -66,5 +66,22 @@ describe('presets', () => {
   it('next_12 starts the month after today', () => {
     expect(presetRange('next_12', '2026-10')).toEqual({ start: '2026-11', end: '2027-10' })
     expect(presetRange('ytd', '2026-10')).toEqual({ start: '2026-01', end: '2026-10' })
+  })
+})
+
+describe('fund lifetime', () => {
+  it('runs from the first month on the books through the plan\'s last month', () => {
+    expect(lifetimeRange('2021-03', { first: '2026-01', last: '2035-12' })).toEqual({ start: '2021-03', end: '2035-12' })
+  })
+  it('falls back to the plan window when nothing is on the books', () => {
+    expect(lifetimeRange(null, { first: '2026-01', last: '2030-12' })).toEqual({ start: '2026-01', end: '2030-12' })
+  })
+  it('starts no later than the plan window', () => {
+    expect(lifetimeRange('2027-06', { first: '2026-01', last: '2030-12' })).toEqual({ start: '2026-01', end: '2030-12' })
+  })
+  it('keeps within the longest range the series view reads', () => {
+    const r = lifetimeRange('2000-01', { first: '2026-01', last: '2040-12' })
+    expect(r.end).toBe('2040-12')
+    expect(monthRange(r.start, r.end)).toHaveLength(240)
   })
 })

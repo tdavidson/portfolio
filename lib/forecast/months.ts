@@ -125,6 +125,22 @@ export function aggregateBalance(byMonth: ReadonlyMap<MonthKey, BalancePoint>, p
   })
 }
 
+/** The longest range the series view reads, in months (twenty years). */
+export const MAX_RANGE_MONTHS = 240
+
+/**
+ * "Fund lifetime": the vehicle's first month on the books through the plan's last month. `first`
+ * is null for books with nothing posted or closed, and then the plan's own window opens it. A
+ * lifetime longer than the series view reads keeps its end and starts as early as it may.
+ */
+export function lifetimeRange(first: MonthKey | null, window: { first: MonthKey; last: MonthKey }): { start: MonthKey; end: MonthKey } {
+  const end = window.last
+  let start = first && first < window.first ? first : window.first
+  if (start > end) start = end
+  const earliest = addMonths(end, -(MAX_RANGE_MONTHS - 1))
+  return { start: start < earliest ? earliest : start, end }
+}
+
 export type RangePreset = 'ytd' | 'prior_year' | 'current_year' | 'next_12' | 'next_24'
 
 /** Resolve a preset against "today" (a month) — next_N starts the month after `today`. */

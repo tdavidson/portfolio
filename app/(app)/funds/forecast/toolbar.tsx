@@ -13,7 +13,7 @@ import { parseMonth, type MonthKey } from '@/lib/forecast/months'
  * the same shape as the statements' PeriodPicker, so choosing Custom never grows the toolbar.
  */
 
-export type RangeChoice = 'plan' | 'ytd' | 'current_year' | 'prior_year' | 'next_12' | 'next_24' | 'custom'
+export type RangeChoice = 'plan' | 'lifetime' | 'ytd' | 'current_year' | 'prior_year' | 'next_12' | 'next_24' | 'custom'
 
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 const short = (m: MonthKey) => {
@@ -31,7 +31,7 @@ const itemCls = (active: boolean) =>
     active ? 'font-medium text-foreground' : 'text-muted-foreground',
   )
 
-export function MonthRangePicker({ preset, onPreset, start, end, onStart, onEnd, planLabel }: {
+export function MonthRangePicker({ preset, onPreset, start, end, onStart, onEnd, planLabel, showLifetime }: {
   preset: RangeChoice
   onPreset: (p: RangeChoice) => void
   start: MonthKey
@@ -40,10 +40,13 @@ export function MonthRangePicker({ preset, onPreset, start, end, onStart, onEnd,
   onEnd: (m: MonthKey) => void
   /** Label for the 'plan' preset — "Plan range" with a plan, "Current year" without. */
   planLabel: string
+  /** Offer "Fund lifetime" — the first month on the books through the plan's end. Needs a plan. */
+  showLifetime?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const options: { value: RangeChoice; label: string }[] = [
     { value: 'plan', label: planLabel },
+    ...(showLifetime ? [{ value: 'lifetime' as const, label: 'Fund lifetime' }] : []),
     { value: 'ytd', label: 'Year to date' },
     { value: 'current_year', label: 'Current year' },
     { value: 'prior_year', label: 'Prior year' },
