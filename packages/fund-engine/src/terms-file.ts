@@ -58,6 +58,9 @@ export function parseVehicleTerms(raw: unknown): VehicleTerms {
   if (dayCountRaw !== 'act/365' && dayCountRaw !== '30/360') throw new Error('terms: carry.prefDayCount must be act/365 or 30/360')
   const measureRaw = c.catchupMeasure ?? c.catchup_measure ?? 'preferred'
   if (measureRaw !== 'preferred' && measureRaw !== 'profit') throw new Error('terms: carry.catchupMeasure must be preferred or profit')
+  const scopeRaw = c.waterfallScope ?? c.waterfall_scope ?? 'fund'
+  if (scopeRaw !== 'fund' && scopeRaw !== 'per_lp') throw new Error('terms: carry.waterfallScope must be fund or per_lp')
+  if (scopeRaw === 'per_lp' && kind === 'american') throw new Error('terms: carry.waterfallScope per_lp is not supported with american terms')
   const stepsRaw = c.carrySteps ?? c.carry_steps
   if (stepsRaw != null && !Array.isArray(stepsRaw)) throw new Error('terms: carry.carrySteps must be a list')
   const carrySteps: CarryStep[] = ((stepsRaw ?? []) as any[]).map((st, i) => {
@@ -87,6 +90,7 @@ export function parseVehicleTerms(raw: unknown): VehicleTerms {
     ...(dayCountRaw === '30/360' ? { prefDayCount: '30/360' as const } : {}),
     ...(measureRaw === 'profit' ? { catchupMeasure: 'profit' as const } : {}),
     ...((c.gpCommitBearsCarry ?? c.gp_commit_bears_carry) === true ? { gpCommitBearsCarry: true } : {}),
+    ...(scopeRaw === 'per_lp' ? { waterfallScope: 'per_lp' as const } : {}),
   }
   const gpEntityId = typeof (c.gpEntityId ?? c.gp_entity_id) === 'string' ? (c.gpEntityId ?? c.gp_entity_id) : null
   const recipientsRaw = Array.isArray(c.recipients)

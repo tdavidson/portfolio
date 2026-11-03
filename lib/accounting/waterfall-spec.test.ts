@@ -7,6 +7,7 @@ import { describe, it, expect } from 'vitest'
 import { readFileSync } from 'fs'
 import { runWaterfall, type WaterfallResult } from './waterfall'
 import { carryTarget, preferredTarget } from './carry'
+import { carryTargetByLp } from '@portfolio/fund-engine'
 import { replayWaterfallState, splitDistribution } from './distribution-waterfall'
 import { dealByDealCarry } from './american-carry'
 import { roundCents } from './ledger'
@@ -61,7 +62,15 @@ describe('the published waterfall vectors', () => {
   describe('carryTarget (the close\'s accrual target)', () => {
     for (const v of vectors.carryTarget) {
       it(v.id, () => {
-        expect(carryTarget({ lps: v.input.lps, contributions: v.input.contributions, asOf: v.input.asOf, distributions: v.input.distributions }, v.input.terms)).toBe(v.expected)
+        const input = { lps: v.input.lps, contributions: v.input.contributions, asOf: v.input.asOf, distributions: v.input.distributions, lpContributions: v.input.lpContributions }
+        // A waterfall per LP gives each LP's target as well as the total.
+        if (typeof v.expected === 'object') {
+          const got = carryTargetByLp(input, v.input.terms)!
+          expect({ total: got.total, byLp: Object.fromEntries(got.byLp) }).toEqual(v.expected)
+          expect(carryTarget(input, v.input.terms)).toBe(v.expected.total)
+        } else {
+          expect(carryTarget(input, v.input.terms)).toBe(v.expected)
+        }
       })
     }
   })
@@ -73,12 +82,15 @@ describe('the published waterfall vectors', () => {
         expect({
           method: got.method, tiers: got.tiers, stateBefore: got.stateBefore, stateAfter: got.stateAfter,
           lines: got.lines, carryLines: got.carryLines,
+          // Per LP, each LP's share and the GP's take from it.
+          ...(v.expected.groups ? { groups: got.groups!.map(g => ({ lpEntityIds: g.lpEntityIds, amount: g.amount, toGP: g.tiers.toGP })) } : {}),
         }).toEqual(v.expected)
       })
     }
 
     it('the replay is runWaterfall over each prior in date order, with the hurdle accrued to its date', () => {
-      for (const v of vectors.splitDistribution.filter((x: any) => x.input.terms.kind !== 'none')) {
+      // Whole fund only: per LP replays each LP's own receipts (§4.4), which its own vectors cover.
+      for (const v of vectors.splitDistribution.filter((x: any) => x.input.terms.kind !== 'none' && x.input.terms.waterfallScope !== 'per_lp')) {
         const { priors, contributions, terms, asOf, realizedCapital } = v.input
         const replayed = replayWaterfallState(priors, contributions, terms, asOf, { realizedCapital })
         expect(replayed, v.id).toEqual(v.expected.stateBefore)

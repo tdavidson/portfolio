@@ -16,7 +16,7 @@
 
 import { roundCents } from '@/lib/accounting/ledger'
 import type { WaterfallState, WaterfallTerms } from '@/lib/accounting/waterfall'
-import { forwardWaterfall, WHOLE_FUND_FALLBACK_WARNING, type ProjectedDeals } from '@/lib/accounting/forward-waterfall'
+import { forwardWaterfall, PER_LP_FORECAST_WARNING, WHOLE_FUND_FALLBACK_WARNING, type ProjectedDeals } from '@/lib/accounting/forward-waterfall'
 import type { ConstructionWaterfallProjection } from '@/lib/accounting/construction'
 import { isMonthKey, lastDay, type MonthKey } from './months'
 import { MAX_AMOUNT, MAX_RULE_ITEMS } from './rules'
@@ -233,6 +233,9 @@ export function runMonthlyWaterfall(
     state: last ? forward.liquidationStateAt(lastDay(last)) : forward.liquidationStateAt(wf!.asOf),
     terms: forward.terms,
     lpShare: share,
-    warnings: forward.wholeFundFallback ? [WHOLE_FUND_FALLBACK_WARNING] : [],
+    warnings: [
+      ...(forward.wholeFundFallback ? [WHOLE_FUND_FALLBACK_WARNING] : []),
+      ...(wf?.perLp ? [PER_LP_FORECAST_WARNING] : []),
+    ],
   }
 }

@@ -43,6 +43,11 @@ export const SET_WATERFALL_TERMS_SCHEMA = {
       type: 'boolean',
       description: "Whether the carry recipients' own commitments (the GP commit) bear carry like an LP's. Omit or false for the usual reading, where the GP commit is carry-free and takes its pro-rata share beside the tiers.",
     },
+    waterfallScope: {
+      type: 'string',
+      enum: ['fund', 'per_lp'],
+      description: 'Whether the waterfall runs once for the whole fund (fund, the default) or once per LP (per_lp): each distribution is divided among the LPs by their share of contributed capital at the date, and each LP\'s share runs through its own tiers on its own capital, hurdle and history. The close accrues carry the same way. Use per_lp for an LPA that apportions proceeds among the LPs before applying the tiers to each. Not supported with american.',
+    },
     carryRecipients: {
       type: 'array',
       description: 'Who receives the carry, with percentages that total 100. Required when carry is on, unless gpEntityId is given.',

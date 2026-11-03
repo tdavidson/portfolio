@@ -39,7 +39,7 @@
 import { roundCents } from './ledger'
 import { bucketForSourceType, computeCapitalAccounts, type CapitalPosting } from './capital-account'
 import { carryAccrual, carryTarget, type DatedContribution, type LpEconomics, type VehicleCarryTerms } from './carry'
-import { priorDistributions } from '@portfolio/fund-engine'
+import { carryTargetByLp, inheritTransferredHistory, priorDistributions, runsPerLp } from '@portfolio/fund-engine'
 
 export type TaxDifferenceKind =
   | 'unrealized'
@@ -301,7 +301,9 @@ export function carryOnUnrealizedForYear(
   const carryFree = terms.gpCommitBearsCarry ? new Set<string>() : recipientIds
 
   const economicsAt = (asOf: string, taxBasis: boolean) => {
-    const upTo = capitalPostings.filter(p => (p.entryDate ?? '') <= asOf)
+    // Per LP, a transferee steps into the transferor's history (inheritTransferredHistory).
+    const dated = capitalPostings.filter(p => (p.entryDate ?? '') <= asOf)
+    const upTo = runsPerLp(terms) ? inheritTransferredHistory(dated) : dated
     const accounts = computeCapitalAccounts(upTo)
     const lps: LpEconomics[] = Array.from(accounts.entries())
       .filter(([id]) => !carryFree.has(id))
@@ -315,13 +317,32 @@ export function carryOnUnrealizedForYear(
       .filter(p => !carryFree.has(p.lpEntityId) && bucketForSourceType(p.sourceType, p.amount) === 'contributions')
       .map(p => ({ date: p.entryDate ?? asOf, amount: roundCents(-p.amount) }))
       .filter(c => c.amount > 0)
+    // A waterfall per LP needs the same contributions tagged by LP, and what each LP received.
+    const perLp = runsPerLp(terms)
+    const lpContributions = perLp
+      ? upTo
+          .filter(p => !carryFree.has(p.lpEntityId) && bucketForSourceType(p.sourceType, p.amount) === 'contributions')
+          .map(p => ({ lpEntityId: p.lpEntityId, date: p.entryDate ?? asOf, amount: roundCents(-p.amount) }))
+          .filter(c => c.amount > 0)
+      : undefined
     // An unreturned-capital hurdle needs what came back, and when.
-    const distributions = priorDistributions(upTo, recipientIds, asOf, carryFree).priors
-    return { lps, contributions, asOf, distributions }
+    const distributions = priorDistributions(upTo, recipientIds, asOf, carryFree, { perLp }).priors
+    return { lps, contributions, asOf, distributions, ...(lpContributions ? { lpContributions } : {}) }
   }
   const yearCarry = (taxBasis: boolean) => {
     const prior = economicsAt(priorYearEnd, taxBasis)
     const current = economicsAt(yearEnd, taxBasis)
+    if (runsPerLp(terms)) {
+      // Per LP: each LP's own target at year end less its own at the prior year end.
+      const now = current.lps.length ? carryTargetByLp(current, terms)?.byLp : undefined
+      const then = prior.lps.length ? carryTargetByLp(prior, terms)?.byLp : undefined
+      const out = new Map<string, number>()
+      for (const id of new Set([...(now?.keys() ?? []), ...(then?.keys() ?? [])])) {
+        const amount = roundCents((now?.get(id) ?? 0) - (then?.get(id) ?? 0))
+        if (amount !== 0) out.set(id, amount)
+      }
+      return out
+    }
     const priorTarget = prior.lps.length ? carryTarget(prior, terms) : 0
     return current.lps.length ? carryAccrual(current, terms, priorTarget).perLp : new Map<string, number>()
   }

@@ -16,6 +16,7 @@ export {
   carryTarget,
   carryAccrual,
   carryTermsFromRow,
+  runsPerLp,
 } from '@portfolio/fund-engine'
 export type {
   CarryKind,
@@ -30,6 +31,7 @@ export type {
   DatedContribution,
   CarryTargetInput,
   CarryAccrual,
+  WaterfallScope,
 } from '@portfolio/fund-engine'
 
 /** A vehicle's carry terms. Absent row = no carry, which is the only safe default:

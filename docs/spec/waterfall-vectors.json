@@ -1177,6 +1177,205 @@
         ]
       },
       "expected": 0
+    },
+    {
+      "id": "fund-different-dates",
+      "description": "Whole fund: LP A puts in 1,000 on 2020-01-01 and LP B 1,000 on 2023-01-01; 8% compounding pref, 20% carry, full catch-up, gross NAV 3,000 at 2025-01-01. One waterfall on the pooled capital and hurdle gives the GP 200.",
+      "input": {
+        "terms": {
+          "kind": "european",
+          "carryRate": 0.2,
+          "prefRate": 0.08,
+          "catchupRate": 1,
+          "prefCompounds": true,
+          "gpEntityId": "gp",
+          "recipients": [
+            {
+              "lpEntityId": "gp",
+              "pct": 100
+            }
+          ]
+        },
+        "lps": [
+          {
+            "lpEntityId": "lp-a",
+            "contributed": 1000,
+            "distributed": 0,
+            "nav": 1500
+          },
+          {
+            "lpEntityId": "lp-b",
+            "contributed": 1000,
+            "distributed": 0,
+            "nav": 1500
+          }
+        ],
+        "contributions": [
+          {
+            "date": "2020-01-01",
+            "amount": 1000
+          },
+          {
+            "date": "2023-01-01",
+            "amount": 1000
+          }
+        ],
+        "lpContributions": [
+          {
+            "lpEntityId": "lp-a",
+            "date": "2020-01-01",
+            "amount": 1000
+          },
+          {
+            "lpEntityId": "lp-b",
+            "date": "2023-01-01",
+            "amount": 1000
+          }
+        ],
+        "asOf": "2025-01-01"
+      },
+      "expected": 200
+    },
+    {
+      "id": "per-lp-different-dates",
+      "description": "The same books per LP: the 3,000 is divided 1,500 each by contributions. LP A is 5 years in (pref 469.95), so only 30.05 is left for the catch-up; LP B is 2 years in (pref 166.65), clears its catch-up and pays 58.34 of split. 130.05 in total, charged 30.05 and 100.",
+      "input": {
+        "terms": {
+          "kind": "european",
+          "carryRate": 0.2,
+          "prefRate": 0.08,
+          "catchupRate": 1,
+          "prefCompounds": true,
+          "gpEntityId": "gp",
+          "recipients": [
+            {
+              "lpEntityId": "gp",
+              "pct": 100
+            }
+          ],
+          "waterfallScope": "per_lp"
+        },
+        "lps": [
+          {
+            "lpEntityId": "lp-a",
+            "contributed": 1000,
+            "distributed": 0,
+            "nav": 1500
+          },
+          {
+            "lpEntityId": "lp-b",
+            "contributed": 1000,
+            "distributed": 0,
+            "nav": 1500
+          }
+        ],
+        "contributions": [
+          {
+            "date": "2020-01-01",
+            "amount": 1000
+          },
+          {
+            "date": "2023-01-01",
+            "amount": 1000
+          }
+        ],
+        "lpContributions": [
+          {
+            "lpEntityId": "lp-a",
+            "date": "2020-01-01",
+            "amount": 1000
+          },
+          {
+            "lpEntityId": "lp-b",
+            "date": "2023-01-01",
+            "amount": 1000
+          }
+        ],
+        "asOf": "2025-01-01"
+      },
+      "expected": {
+        "total": 130.05,
+        "byLp": {
+          "lp-a": 30.05,
+          "lp-b": 100
+        }
+      }
+    },
+    {
+      "id": "per-lp-unreturned-reads-receipts",
+      "description": "Per LP, hurdle on unreturned capital, both LPs in 1,000 on 2020-01-01. 1,000 went out on 2022-01-01 but not by the division: LP A took 800 and LP B 200. Each LP's hurdle is replayed from what it actually received, so LP A's stops accruing on the 800 returned. Gross NAV 1,400 is divided 700 each: LP A's 1,500 clears its smaller hurdle and the GP takes 100 (30.05 on a contributed base); LP B's 900 doesn't return its capital.",
+      "input": {
+        "terms": {
+          "kind": "european",
+          "carryRate": 0.2,
+          "prefRate": 0.08,
+          "catchupRate": 1,
+          "prefCompounds": true,
+          "gpEntityId": "gp",
+          "recipients": [
+            {
+              "lpEntityId": "gp",
+              "pct": 100
+            }
+          ],
+          "waterfallScope": "per_lp",
+          "prefBase": "unreturned"
+        },
+        "lps": [
+          {
+            "lpEntityId": "lp-a",
+            "contributed": 1000,
+            "distributed": 800,
+            "nav": 400
+          },
+          {
+            "lpEntityId": "lp-b",
+            "contributed": 1000,
+            "distributed": 200,
+            "nav": 1000
+          }
+        ],
+        "contributions": [
+          {
+            "date": "2020-01-01",
+            "amount": 1000
+          },
+          {
+            "date": "2020-01-01",
+            "amount": 1000
+          }
+        ],
+        "lpContributions": [
+          {
+            "lpEntityId": "lp-a",
+            "date": "2020-01-01",
+            "amount": 1000
+          },
+          {
+            "lpEntityId": "lp-b",
+            "date": "2020-01-01",
+            "amount": 1000
+          }
+        ],
+        "distributions": [
+          {
+            "date": "2022-01-01",
+            "amount": 1000,
+            "paidToLp": {
+              "lp-a": 800,
+              "lp-b": 200
+            }
+          }
+        ],
+        "asOf": "2025-01-01"
+      },
+      "expected": {
+        "total": 100,
+        "byLp": {
+          "lp-a": 100,
+          "lp-b": 0
+        }
+      }
     }
   ],
   "splitDistribution": [
@@ -1890,6 +2089,269 @@
           {
             "lpEntityId": "gp",
             "amount": 80
+          }
+        ]
+      }
+    },
+    {
+      "id": "per-lp-split-different-dates",
+      "description": "The carryTarget books distributed in full per LP: 1,500 to each LP's own tiers. The GP takes 30.05 from LP A and 100 from LP B, 130.05 in all (200 on the whole fund).",
+      "input": {
+        "total": 3000,
+        "terms": {
+          "kind": "european",
+          "carryRate": 0.2,
+          "prefRate": 0.08,
+          "catchupRate": 1,
+          "prefCompounds": true,
+          "gpEntityId": "gp",
+          "recipients": [
+            {
+              "lpEntityId": "gp",
+              "pct": 100
+            }
+          ],
+          "waterfallScope": "per_lp"
+        },
+        "partners": [
+          {
+            "lpEntityId": "lp-a",
+            "contributed": 1000,
+            "distributed": 0,
+            "ending": 1500
+          },
+          {
+            "lpEntityId": "lp-b",
+            "contributed": 1000,
+            "distributed": 0,
+            "ending": 1500
+          },
+          {
+            "lpEntityId": "gp",
+            "contributed": 0,
+            "distributed": 0,
+            "ending": 0
+          }
+        ],
+        "contributions": [
+          {
+            "date": "2020-01-01",
+            "amount": 1000
+          },
+          {
+            "date": "2023-01-01",
+            "amount": 1000
+          }
+        ],
+        "lpContributions": [
+          {
+            "lpEntityId": "lp-a",
+            "date": "2020-01-01",
+            "amount": 1000
+          },
+          {
+            "lpEntityId": "lp-b",
+            "date": "2023-01-01",
+            "amount": 1000
+          }
+        ],
+        "priors": [],
+        "asOf": "2025-01-01"
+      },
+      "expected": {
+        "method": "waterfall",
+        "tiers": {
+          "returnOfCapital": 2000,
+          "preferred": 636.6,
+          "catchUp": 71.71,
+          "catchUpToLP": 0,
+          "carry": 58.34,
+          "profitToLP": 233.35,
+          "toLP": 2869.95,
+          "toGP": 130.05
+        },
+        "stateBefore": {
+          "contributedCapital": 2000,
+          "returnedCapital": 0,
+          "preferredPaid": 0,
+          "preferredTarget": 636.6,
+          "gpCarryPaid": 0,
+          "gpCatchUpPaid": 0
+        },
+        "stateAfter": {
+          "contributedCapital": 2000,
+          "returnedCapital": 2000,
+          "preferredPaid": 636.6,
+          "preferredTarget": 636.6,
+          "gpCarryPaid": 130.05,
+          "gpCatchUpPaid": 71.71
+        },
+        "lines": [
+          {
+            "lpEntityId": "lp-a",
+            "amount": 1469.95
+          },
+          {
+            "lpEntityId": "lp-b",
+            "amount": 1400
+          }
+        ],
+        "carryLines": [
+          {
+            "lpEntityId": "gp",
+            "amount": 130.05
+          }
+        ],
+        "groups": [
+          {
+            "lpEntityIds": [
+              "lp-a"
+            ],
+            "amount": 1500,
+            "toGP": 30.05
+          },
+          {
+            "lpEntityIds": [
+              "lp-b"
+            ],
+            "amount": 1500,
+            "toGP": 100
+          }
+        ]
+      }
+    },
+    {
+      "id": "per-lp-replay-reads-receipts",
+      "description": "Per LP, no pref, both LPs in 1,000 on 2020-01-01. On 2022-01-01 LP A took 900 and LP B 100 of a 1,000 distribution, with no carry. The replay reads those receipts, so of this 2,000 (1,000 each by contributions) LP A has 100 of capital left and pays carry on 900, LP B has 900 left and pays carry on 100. Re-dividing the prior would have returned 500 each.",
+      "input": {
+        "total": 2000,
+        "terms": {
+          "kind": "european",
+          "carryRate": 0.2,
+          "prefRate": 0,
+          "catchupRate": 1,
+          "prefCompounds": true,
+          "gpEntityId": "gp",
+          "recipients": [
+            {
+              "lpEntityId": "gp",
+              "pct": 100
+            }
+          ],
+          "waterfallScope": "per_lp"
+        },
+        "partners": [
+          {
+            "lpEntityId": "lp-a",
+            "contributed": 1000,
+            "distributed": 900,
+            "ending": 600
+          },
+          {
+            "lpEntityId": "lp-b",
+            "contributed": 1000,
+            "distributed": 100,
+            "ending": 1400
+          },
+          {
+            "lpEntityId": "gp",
+            "contributed": 0,
+            "distributed": 0,
+            "ending": 0
+          }
+        ],
+        "contributions": [
+          {
+            "date": "2020-01-01",
+            "amount": 1000
+          },
+          {
+            "date": "2020-01-01",
+            "amount": 1000
+          }
+        ],
+        "lpContributions": [
+          {
+            "lpEntityId": "lp-a",
+            "date": "2020-01-01",
+            "amount": 1000
+          },
+          {
+            "lpEntityId": "lp-b",
+            "date": "2020-01-01",
+            "amount": 1000
+          }
+        ],
+        "priors": [
+          {
+            "date": "2022-01-01",
+            "amount": 1000,
+            "paidToLp": {
+              "lp-a": 900,
+              "lp-b": 100
+            }
+          }
+        ],
+        "asOf": "2025-01-01"
+      },
+      "expected": {
+        "method": "waterfall",
+        "tiers": {
+          "returnOfCapital": 1000,
+          "preferred": 0,
+          "catchUp": 0,
+          "catchUpToLP": 0,
+          "carry": 200,
+          "profitToLP": 800,
+          "toLP": 1800,
+          "toGP": 200
+        },
+        "stateBefore": {
+          "contributedCapital": 2000,
+          "returnedCapital": 1000,
+          "preferredPaid": 0,
+          "preferredTarget": 0,
+          "gpCarryPaid": 0,
+          "gpCatchUpPaid": 0
+        },
+        "stateAfter": {
+          "contributedCapital": 2000,
+          "returnedCapital": 2000,
+          "preferredPaid": 0,
+          "preferredTarget": 0,
+          "gpCarryPaid": 200,
+          "gpCatchUpPaid": 0
+        },
+        "lines": [
+          {
+            "lpEntityId": "lp-a",
+            "amount": 820
+          },
+          {
+            "lpEntityId": "lp-b",
+            "amount": 980
+          }
+        ],
+        "carryLines": [
+          {
+            "lpEntityId": "gp",
+            "amount": 200
+          }
+        ],
+        "groups": [
+          {
+            "lpEntityIds": [
+              "lp-a"
+            ],
+            "amount": 1000,
+            "toGP": 180
+          },
+          {
+            "lpEntityIds": [
+              "lp-b"
+            ],
+            "amount": 1000,
+            "toGP": 20
           }
         ]
       }

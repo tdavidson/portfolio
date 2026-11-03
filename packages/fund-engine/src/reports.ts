@@ -14,7 +14,7 @@ import {
   totalNav,
   type CapitalAccount,
 } from './capital-account.ts'
-import { carryAccrual, carryFreeIds } from './carry.ts'
+import { carryAccrual, carryFreeIds, runsPerLp } from './carry.ts'
 import { carryAccrualInputs, distributionSplitInputs } from './economics.ts'
 import { splitDistribution, suggestedCharacter } from './distribution-waterfall.ts'
 import { runWaterfall, type CarryStep, type WaterfallState } from './waterfall.ts'
@@ -78,6 +78,7 @@ export interface StatementsReport {
     capitalIncludes?: string[]
     /** The GP commit bears carry: the recipients are in `perPartner` too, on both sides. */
     gpCommitBearsCarry?: boolean
+    waterfallScope?: 'per_lp'
     target: number
     alreadyAccrued: number
     delta: number
@@ -158,10 +159,10 @@ export function statementsFromEntries(
     if (t.recipients.length === 0) {
       warnings.push('Carry terms are set but no recipient is named, so no carry accrual is computed (the close refuses the same way).')
     } else {
-      const inputs = carryAccrualInputs(books.capitalPostings, t.recipients, asOf, t.gpCommitBearsCarry)
+      const inputs = carryAccrualInputs(books.capitalPostings, t.recipients, asOf, t.gpCommitBearsCarry, { perLp: runsPerLp(t) })
       const accrual = inputs.lps.length === 0
         ? { target: 0, alreadyAccrued: inputs.alreadyAccrued, delta: 0, perLp: new Map<string, number>() }
-        : carryAccrual({ lps: inputs.lps, contributions: inputs.contributions, distributions: inputs.distributions, asOf }, t, inputs.alreadyAccrued, inputs.bearing)
+        : carryAccrual({ lps: inputs.lps, contributions: inputs.contributions, distributions: inputs.distributions, asOf, ...(inputs.lpContributions ? { lpContributions: inputs.lpContributions } : {}) }, t, inputs.alreadyAccrued, inputs.bearing)
       carry = {
         kind: t.kind,
         carryRate: t.carryRate,
@@ -176,6 +177,7 @@ export function statementsFromEntries(
         ...(t.carrySteps?.length ? { carrySteps: t.carrySteps } : {}),
         ...(t.capitalIncludes ? { capitalIncludes: t.capitalIncludes } : {}),
         ...(t.gpCommitBearsCarry ? { gpCommitBearsCarry: true } : {}),
+        ...(t.waterfallScope === 'per_lp' ? { waterfallScope: t.waterfallScope } : {}),
         target: accrual.target,
         alreadyAccrued: accrual.alreadyAccrued,
         delta: accrual.delta,
@@ -255,7 +257,7 @@ export function waterfallReport(
     const accountNames = new Map(Array.from(books.partnerByAccount.entries()).map(([code, id]) => [id, books.accountNames.get(code) ?? id]))
     const label = (id: string) => terms.partners.find(p => p.id === id)?.name ?? accountNames.get(id) ?? id
 
-    const inputs = distributionSplitInputs(books.capitalPostings, terms.carry.recipients, asOf, terms.carry.gpCommitBearsCarry)
+    const inputs = distributionSplitInputs(books.capitalPostings, terms.carry.recipients, asOf, terms.carry.gpCommitBearsCarry, { perLp: runsPerLp(terms.carry) })
     const split = splitDistribution({
       total,
       terms: terms.carry,
@@ -265,6 +267,7 @@ export function waterfallReport(
       asOf,
       carryPaidToDate: terms.carry.recipients.length > 0 ? inputs.carryPaidToDate : undefined,
       realizedCapital: terms.realizedCapital,
+      ...(inputs.lpContributions ? { lpContributions: inputs.lpContributions } : {}),
     })
     return {
       vehicle: terms.vehicle ?? null,

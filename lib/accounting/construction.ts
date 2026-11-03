@@ -296,6 +296,11 @@ export interface ConstructionWaterfallProjection {
    * accounting splits a distribution on (realized-capital.ts). Absent for other kinds.
    */
   dealByDeal?: { deals: DealHistory[]; lpShare: number; expenses: number }
+  /**
+   * The vehicle runs its waterfall per LP (waterfallScope 'per_lp'). The forecast still runs it
+   * whole fund, since a forecast has no per-LP timing, and says so (PER_LP_FORECAST_WARNING).
+   */
+  perLp?: boolean
 }
 
 /**

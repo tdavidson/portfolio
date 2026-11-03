@@ -47,7 +47,7 @@ import { associateMembers, lookThroughAccount } from './look-through'
 import { loadCapitalPostings } from './capital-source'
 import { gpLinkFor, loadOwnershipBasis } from './gp-economics'
 import { loadCarryTerms, carryAccrual } from './carry'
-import { carryAccrualInputs } from '@portfolio/fund-engine'
+import { carryAccrualInputs, runsPerLp } from '@portfolio/fund-engine'
 import { loadNotes, noteAccruals } from './note-interest'
 import { ensureInvestmentAccounts } from './investments'
 import { accountBalances } from './ledger'
@@ -1593,11 +1593,16 @@ async function accrueCarry(
   // contributions are outside the hurdle (carryAccrualInputs, in the fund engine). Unless the GP
   // commit bears carry: then they are in both, and each recipient's line nets what it bears against
   // what it receives, so the entry's lines already balance.
-  const { lps, contributions, alreadyAccrued, distributions, bearing } = carryAccrualInputs(capitalPostings, terms.recipients, periodEnd, terms.gpCommitBearsCarry)
+  //
+  // A waterfall per LP (waterfallScope 'per_lp') charges each LP the GP's take from its own
+  // waterfall, on its share of the liquidation by contributions, its own capital, hurdle and what it
+  // actually received (carryTargetByLp).
+  const perLp = runsPerLp(terms)
+  const { lps, contributions, alreadyAccrued, distributions, bearing, lpContributions } = carryAccrualInputs(capitalPostings, terms.recipients, periodEnd, terms.gpCommitBearsCarry, { perLp })
 
   if (lps.length === 0) return {}
 
-  const accrual = carryAccrual({ lps, contributions, distributions, asOf: periodEnd }, terms, alreadyAccrued, bearing)
+  const accrual = carryAccrual({ lps, contributions, distributions, asOf: periodEnd, ...(lpContributions ? { lpContributions } : {}) }, terms, alreadyAccrued, bearing)
   if (accrual.perLp.size === 0) return {}
 
   const capMap = await ensureCapitalAccounts(admin, fundId, group, [
@@ -1612,11 +1617,12 @@ async function accrueCarry(
       fundId,
       entryDate: periodEnd,
       memo:
-        accrual.delta > 0
+        (accrual.delta > 0
           ? `Carried interest accrued at ${periodEnd} NAV`
           : accrual.delta < 0
             ? `Carried interest accrual reversed — NAV fell at ${periodEnd}`
-            : `Carried interest trued up across partners at ${periodEnd}`,
+            : `Carried interest trued up across partners at ${periodEnd}`)
+        + (perLp ? ' (waterfall run per LP: each LP charged its own carry)' : ''),
     },
     accrual.perLp,
     capMap,
