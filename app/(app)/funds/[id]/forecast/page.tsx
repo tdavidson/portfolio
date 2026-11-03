@@ -21,9 +21,11 @@ export default async function ForecastPage(props: { params: Promise<{ id: string
   const { vehicle, vehicleId, kind } = await requireVehicleAccess(params.id)
   // Scoped above the view, not just its body: ForecastView loads through useLedgerFetch itself.
   return (
-    <VehicleScope vehicle={vehicle} vehicleId={vehicleId}>
-      <ForecastView vehicle={vehicle} vehicleId={vehicleId} kind={kind} initialTab={tabParam(sp.tab)} />
-    </VehicleScope>
+    <div className="pt-4 md:pt-8 pb-8 w-full">
+      <VehicleScope vehicle={vehicle} vehicleId={vehicleId}>
+        <ForecastView vehicle={vehicle} vehicleId={vehicleId} kind={kind} initialTab={tabParam(sp.tab)} />
+      </VehicleScope>
+    </div>
   )
 }
 
