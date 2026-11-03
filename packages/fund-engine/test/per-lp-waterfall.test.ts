@@ -22,6 +22,7 @@ import {
   distributionSplitInputs,
   groupLpsByTerms,
   groupedFundEndEntitlement,
+  inheritTransferredHistory,
   runsPerLp,
   splitAcrossGroups,
   splitDistribution,
@@ -339,6 +340,68 @@ describe('the close per LP', () => {
 })
 
 // ─── The terms and the grouped totals ───────────────────────────────────────────────────────────
+
+// ─── An LP by transfer ──────────────────────────────────────────────────────────────────────────
+
+describe('an LP who holds its interest by transfer', () => {
+  // LP A puts in 1,000 in 2020 and LP B 1,000 in 2023. In 2024 LP A moves half its interest to LP C,
+  // who never contributed. Per LP, LP C stands in LP A's shoes: its tiers run on LP A's 2020 capital.
+  const transferred = (sourceType: string, share = 0.5) => {
+    const b = new Books(perLp(terms()))
+    b.call('2020-01-01', { 'lp-a': 1_000 })
+    b.call('2023-01-01', { 'lp-b': 1_000 })
+    b.mark('2023-12-31', 600)
+    // LP A's balance is 1,000 + its share of the gain; move `share` of it, one entry, both legs.
+    const balance = -b.postings.filter(p => p.lpEntityId === 'lp-a').reduce((s, p) => s + p.amount, 0)
+    const amount = roundCents(balance * share)
+    b.postings.push({ entryId: 'xfer-1', lpEntityId: 'lp-a', amount, sourceType, entryDate: '2024-06-30' })
+    b.postings.push({ entryId: 'xfer-1', lpEntityId: 'lp-c', amount: -amount, sourceType, entryDate: '2024-06-30' })
+    b.mark('2024-12-31', 1_400)
+    return b
+  }
+  // The same economics with LP C as an original 2020 contributor of half of LP A's capital.
+  const original = () => {
+    const b = new Books(perLp(terms()))
+    b.call('2020-01-01', { 'lp-a': 500, 'lp-c': 500 })
+    b.call('2023-01-01', { 'lp-b': 1_000 })
+    b.mark('2023-12-31', 600)
+    b.mark('2024-12-31', 1_400)
+    return b
+  }
+
+  for (const sourceType of ['transfer', 'secondary_transfer']) {
+    it(`uses the original LP's contributions (${sourceType})`, () => {
+      const got = transferred(sourceType).accrual('2024-12-31')
+      const want = original().accrual('2024-12-31')
+      expect(got.perLp.get('lp-c')).toBeGreaterThan(0)
+      for (const id of ['lp-a', 'lp-b', 'lp-c']) {
+        expect(Math.abs((got.perLp.get(id) ?? 0) - (want.perLp.get(id) ?? 0)), id).toBeLessThanOrEqual(0.01)
+      }
+      const split = transferred(sourceType).split('2025-01-31', 3_000)
+      const direct = original().split('2025-01-31', 3_000)
+      for (const id of ['lp-a', 'lp-b', 'lp-c']) {
+        const at = (x: DistributionSplit) => x.lines.find(l => l.lpEntityId === id)?.amount ?? 0
+        expect(Math.abs(at(split) - at(direct)), id).toBeLessThanOrEqual(0.01)
+      }
+    })
+  }
+
+  it('keeps every balance and carries the history through a second transfer', () => {
+    const b = transferred('transfer', 1)
+    // LP C passes the whole interest on to LP D.
+    const balance = -b.postings.filter(p => p.lpEntityId === 'lp-c' && p.entryDate! <= '2024-12-31').reduce((s, p) => s + p.amount, 0)
+    b.postings.push({ entryId: 'xfer-2', lpEntityId: 'lp-c', amount: balance, sourceType: 'transfer', entryDate: '2025-01-15' })
+    b.postings.push({ entryId: 'xfer-2', lpEntityId: 'lp-d', amount: -balance, sourceType: 'transfer', entryDate: '2025-01-15' })
+    const resolved = inheritTransferredHistory(b.postings)
+    const ending = (ps: CapitalPosting[], id: string) => roundCents(ps.filter(p => p.lpEntityId === id).reduce((s, p) => s + p.amount, 0))
+    for (const id of ['lp-a', 'lp-b', 'lp-c', 'lp-d']) expect(ending(resolved, id), id).toBe(ending(b.postings, id))
+    const calls = resolved.filter(p => p.sourceType === 'capital_call' && p.lpEntityId === 'lp-d')
+    expect(calls.map(p => [p.entryDate, roundCents(-p.amount)])).toEqual([['2020-01-01', 1_000]])
+    // The whole-fund waterfall doesn't resolve transfers, so a vehicle on 'fund' is unchanged.
+    expect(carryAccrualInputs(b.postings, [{ lpEntityId: GP, pct: 100 }], '2025-01-31').contributions)
+      .toEqual(carryAccrualInputs(b.postings, [{ lpEntityId: GP, pct: 100 }], '2025-01-31', false, {}).contributions)
+  })
+})
 
 describe('the term', () => {
   it('reads from a terms file, and refuses per LP with American terms', () => {

@@ -39,7 +39,7 @@
 import { roundCents } from './ledger'
 import { bucketForSourceType, computeCapitalAccounts, type CapitalPosting } from './capital-account'
 import { carryAccrual, carryTarget, type DatedContribution, type LpEconomics, type VehicleCarryTerms } from './carry'
-import { carryTargetByLp, priorDistributions, runsPerLp } from '@portfolio/fund-engine'
+import { carryTargetByLp, inheritTransferredHistory, priorDistributions, runsPerLp } from '@portfolio/fund-engine'
 
 export type TaxDifferenceKind =
   | 'unrealized'
@@ -301,7 +301,9 @@ export function carryOnUnrealizedForYear(
   const carryFree = terms.gpCommitBearsCarry ? new Set<string>() : recipientIds
 
   const economicsAt = (asOf: string, taxBasis: boolean) => {
-    const upTo = capitalPostings.filter(p => (p.entryDate ?? '') <= asOf)
+    // Per LP, a transferee steps into the transferor's history (inheritTransferredHistory).
+    const dated = capitalPostings.filter(p => (p.entryDate ?? '') <= asOf)
+    const upTo = runsPerLp(terms) ? inheritTransferredHistory(dated) : dated
     const accounts = computeCapitalAccounts(upTo)
     const lps: LpEconomics[] = Array.from(accounts.entries())
       .filter(([id]) => !carryFree.has(id))

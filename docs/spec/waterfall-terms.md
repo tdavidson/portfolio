@@ -307,6 +307,14 @@ hurdle while another isn't, and the sum of per-LP results is not the pooled resu
   every dollar (a full catch-up), and the carry fills those spans in proportion to their slack. A
   history that followed the per-LP waterfall replays exactly. Carry the spans can't hold is left
   out, and a prior with no per-LP amounts is divided by contributions; both warn.
+- **An LP by transfer.** A transferee stands in the original LP's shoes. Before any of the above,
+  each LP-to-LP transfer (`transfer` or `secondary_transfer`) is resolved as a succession
+  (`inheritTransferredHistory`): the transferee takes over the transferor's postings up to the
+  transfer (contributions, fees, expenses, P&L, distributions and carry charged), pro rata to the
+  share of capital that moved, and the transfer's legs drop out. Balances don't change; the dated
+  contributions and receipts the transferee's tiers run on are the original LP's. The price in a
+  secondary sale isn't in the books and doesn't change the waterfall. The whole-fund waterfall
+  doesn't need this and doesn't do it.
 - **Fund end.** `groupedFundEndEntitlement` and `groupedClawback` take the same division: the
   fund-end view divides each prior as the actual replay did, then owes each LP all its capital
   from the first distribution.

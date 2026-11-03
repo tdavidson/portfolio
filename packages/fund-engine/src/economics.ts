@@ -32,9 +32,74 @@ export interface CarryAccrualInputs {
   lpContributions?: LpDatedContribution[]
 }
 
-/** What a waterfall per LP needs on top: contributions tagged by LP, and each prior's per-LP lines. */
+/**
+ * What a waterfall per LP needs on top: contributions tagged by LP, and each prior's per-LP lines.
+ * With `perLp`, an LP who holds its interest by transfer also steps into the transferor's history
+ * (`inheritTransferredHistory`), so its tiers run on the original LP's dated contributions.
+ */
 export interface EconomicsOptions {
   perLp?: boolean
+}
+
+const TRANSFER_SOURCES = new Set(['transfer', 'secondary_transfer'])
+
+/**
+ * The postings with each LP-to-LP transfer resolved as a succession: the transferee takes over the
+ * transferor's postings up to the transfer (contributions, fees, expenses, P&L, distributions and
+ * carry charged), pro rata to the share of the transferor's capital that moved, and the transfer's
+ * own legs drop out. Every partner's capital balance is unchanged; what changes is whose dated
+ * contributions and receipts they are.
+ *
+ * A waterfall per LP needs this: a transferee has no contributions of its own, and the LPA puts it in
+ * the original LP's shoes, so its share of a distribution, its capital, its hurdle and its step
+ * multiple are the transferor's. That holds for an assignment and a secondary sale alike, because
+ * the price a buyer paid is not in the fund's books and does not change the waterfall. (Partner IRR
+ * treats the two differently, lib/accounting/irr-flows.ts; this is not IRR.)
+ *
+ * Legs are paired by journal entry, or by date when they carry none, and only legs that net to zero
+ * are resolved; the rest are left as they are. Transfers are taken oldest first, so an interest
+ * transferred twice carries the original history through.
+ */
+export function inheritTransferredHistory(capitalPostings: CapitalPosting[]): CapitalPosting[] {
+  const groups = new Map<string, CapitalPosting[]>()
+  for (const p of capitalPostings) {
+    if (!TRANSFER_SOURCES.has(p.sourceType ?? '') || !p.entryDate || !p.lpEntityId) continue
+    const key = p.entryId ? `entry:${p.entryId}` : `date:${p.entryDate}`
+    groups.set(key, [...(groups.get(key) ?? []), p])
+  }
+  if (groups.size === 0) return capitalPostings
+  const ordered = Array.from(groups.values()).sort((a, b) => a[0].entryDate!.localeCompare(b[0].entryDate!))
+
+  let out = capitalPostings
+  for (const legs of ordered) {
+    const date = legs[0].entryDate!
+    const delta = new Map<string, number>() // capital change per partner: credit positive
+    for (const l of legs) delta.set(l.lpEntityId, (delta.get(l.lpEntityId) ?? 0) - l.amount)
+    const from = Array.from(delta.entries()).filter(([, d]) => d < -0.005)
+    const to = Array.from(delta.entries()).filter(([, d]) => d > 0.005)
+    const given = from.reduce((s, [, d]) => s - d, 0)
+    const received = to.reduce((s, [, d]) => s + d, 0)
+    if (from.length === 0 || to.length === 0 || Math.abs(given - received) >= 0.01) continue
+
+    const legSet = new Set(legs)
+    out = out.filter(p => !legSet.has(p))
+    for (const [lp, d] of from) {
+      // What the transferor held just before: everything dated earlier, and the day's other
+      // movements (a transfer is the day's last).
+      const before = (p: CapitalPosting) => p.lpEntityId === lp && !!p.entryDate && p.entryDate <= date && !TRANSFER_SOURCES.has(p.sourceType ?? '')
+      const balance = -out.filter(p => p.lpEntityId === lp && p.entryDate && (p.entryDate < date || (p.entryDate === date && !TRANSFER_SOURCES.has(p.sourceType ?? ''))))
+        .reduce((s, p) => s + p.amount, 0)
+      if (balance <= 0.005) continue
+      const share = Math.min(1, -d / balance)
+      out = out.flatMap(p => {
+        if (!before(p)) return [p]
+        const moved: CapitalPosting[] = share < 1 ? [{ ...p, amount: p.amount * (1 - share) }] : []
+        for (const [toLp, r] of to) moved.push({ ...p, lpEntityId: toLp, amount: (p.amount * share * r) / received })
+        return moved
+      })
+    }
+  }
+  return out
 }
 
 /**
@@ -49,6 +114,7 @@ export function carryAccrualInputs(
   gpCommitBearsCarry = false,
   opts?: EconomicsOptions,
 ): CarryAccrualInputs {
+  if (opts?.perLp) capitalPostings = inheritTransferredHistory(capitalPostings)
   const recipientIds = new Set(recipients.map(r => r.lpEntityId))
   const carryFree = gpCommitBearsCarry ? new Set<string>() : recipientIds
   const accounts = computeCapitalAccounts(capitalPostings)
@@ -242,6 +308,7 @@ export function distributionSplitInputs(
   gpCommitBearsCarry = false,
   opts?: EconomicsOptions,
 ): DistributionSplitInputs {
+  if (opts?.perLp) capitalPostings = inheritTransferredHistory(capitalPostings)
   const recipientIds = new Set(recipients.map(r => r.lpEntityId))
   const carryFree = gpCommitBearsCarry ? new Set<string>() : recipientIds
 
