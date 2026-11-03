@@ -210,6 +210,39 @@ describe('cash that settles an earlier accrual', () => {
     expect(r.cash[1]!.ending).toBe(50_000)
   })
 
+  it('wires received before the call is booked are capital called once it is', () => {
+    const r = run([
+      lp('2026-01-10', [['op', 30_000], ['due', -30_000]]),
+      lp('2026-01-12', [['op', 70_000], ['due', -70_000]]),
+      lp('2026-02-01', [['due', 100_000], ['cap', -100_000, 'lp-a']]),
+    ])
+    expect(r.cashFlows!.called).toEqual([0, 100_000, 0, 0])
+    expect(r.cashFlows!.operating).toEqual([0, 0, 0, 0])
+    expect(r.cashDetail!.find(l => l.key === 'due')).toBeUndefined()
+  })
+
+  it('a transfer between two LPs on the receivable leaves the call to be collected as it was', () => {
+    const r = run([
+      lp('2026-01-02', [['due', 50_000], ['cap', -50_000, 'lp-a']]),
+      lp('2026-01-03', [['due', -5_000, 'lp-a'], ['due', 5_000, 'lp-b']]),
+      lp('2026-01-20', [['op', 50_000], ['due', -50_000]]),
+    ])
+    expect(r.cashFlows!.called[1]).toBe(50_000)
+    expect(r.cashDetail!.find(l => l.key === 'due')).toBeUndefined()
+  })
+
+  it('a reclass on a payable does not stop later payments matching their accruals', () => {
+    const r = run([
+      lp('2025-12-31', [['mgmt', 20_000], ['accrued', -20_000]]),
+      lp('2026-01-01', [['accrued', 500], ['mgmt', -500]]),
+      lp('2026-01-05', [['accrued', 19_500], ['op', -19_500]]),
+      lp('2026-02-01', [['mgmt', 15_000], ['accrued', -15_000]]),
+      lp('2026-02-02', [['accrued', 15_000], ['op', -15_000]]),
+    ], '2026-01', '2026-02')
+    expect(r.cashDetail!.find(l => l.key === 'mgmt')!.values).toEqual([-19_500, -15_000])
+    expect(r.cashDetail!.find(l => l.key === 'accrued')).toBeUndefined()
+  })
+
   it('a distribution declared to a payable and paid later is split by whose capital it reduced', () => {
     const C: Account[] = [...B, { id: 'dp', fundId: 'f', code: '2200', name: 'Distributions payable', type: 'liability', subtype: 'distributions_payable' }]
     const entries = [

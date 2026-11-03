@@ -184,82 +184,123 @@ function isClearingAccount(a: Account | undefined, cashIds: Set<string>): boolea
 }
 
 /**
- * Cash that settles an earlier accrual, shown as what was accrued. A call booked to an LP receivable
- * and collected later is a capital contribution when the wire lands, not a fall in a receivable; a
- * management fee accrued to a payable and paid later is management fee cash, not "accrued expenses".
+ * Cash that settles an accrual, shown as what was accrued. A call booked to an LP receivable and
+ * collected is a capital contribution, not a fall in a receivable; a management fee accrued to a
+ * payable and paid is management fee cash, not "accrued expenses".
  *
- * Every non-cash entry that moves a clearing account (isClearingAccount) leaves a lot on it holding
- * the entry's other legs — the call's partners' capital, the fee's expense. A cash entry that runs a
- * clearing account the other way takes lots oldest first, and its leg on that account is replaced
- * by the legs those lots hold, scaled to the amount settled. What no lot covers (a balance from
- * before the books, a payable whose bill was never entered) stays on the clearing account. Cash
- * legs are never touched, so every total and every ending balance is unchanged.
+ * Each clearing account (isClearingAccount) keeps two queues, oldest first:
+ *  - accruals: a non-cash entry's leg on it, holding the entry's other legs (the call's partners'
+ *    capital, the fee's expense);
+ *  - cash not yet explained: a cash entry's leg on it that no accrual covered yet.
+ * A cash leg settles accruals running the other way: its share of the cash is shown against the
+ * accrual's legs instead. A non-cash leg first explains cash already received or paid the other way
+ * (the wires a fund administrator records before it books the call they pay), then cancels
+ * accruals running the other way (a reversal, a reclass), and only then opens an accrual of its own.
  *
- * Entries with a forecast kind already say what they are and pass through as they are.
+ * Whatever is never explained (a balance from before the books, a bill never entered) stays on the
+ * clearing account. Cash is only apportioned, never changed, so every total and every ending
+ * balance is the same as without this. Entries with a forecast kind already say what they are.
  */
 export function resolveSettlements(entries: FlowEntry[], byId: Map<string, Account>, cashIds: Set<string>): FlowEntry[] {
-  type Lot = { remaining: number; size: number; legs: Posting[] }
-  const lots = new Map<string, Lot[]>()
-  const touchesCash = (e: FlowEntry) => e.postings.some(p => cashIds.has(p.accountId))
-  // By date; on one date the accruals first, so a call and its wire on the same day still pair up.
+  const EPS = 0.005
+  type Accrual = { remaining: number; size: number; legs: Posting[] }
+  /** A piece of a cash entry still standing against the clearing account: `out[slot][index]`. */
+  type Pending = { slot: number; index: number; remaining: number }
+  const accruals = new Map<string, Accrual[]>()
+  const pending = new Map<string, Pending[]>()
+  const queue = <T,>(m: Map<string, T[]>, k: string) => { let q = m.get(k); if (!q) { q = []; m.set(k, q) } return q }
+  const isCash = (p: Posting) => cashIds.has(p.accountId)
+  const clearing = (p: Posting) => isClearingAccount(byId.get(p.accountId), cashIds)
+  const touchesCash = (e: FlowEntry) => e.postings.some(isCash)
+  const sum = (ps: Posting[]) => ps.reduce((t, p) => t + p.amount, 0)
+  const scaled = (ps: Posting[], k: number, date?: string | null) => ps.map(p => ({ ...p, amount: p.amount * k, ...(date ? { entryDate: date } : {}) }))
+  // By date; on one date the accruals first, so a call and its wire on the same day pair up directly.
   const order = entries.map((e, i) => ({ e, i })).sort((x, y) =>
     x.e.date.localeCompare(y.e.date) || Number(touchesCash(x.e)) - Number(touchesCash(y.e)) || x.i - y.i)
-  const out = new Array<FlowEntry[]>(entries.length)
+  const out: FlowEntry[][] = entries.map(e => [e])
+
   for (const { e, i } of order) {
-    out[i] = [e]
-    if (e.kind) continue
-    const clearing = e.postings.filter(p => isClearingAccount(byId.get(p.accountId), cashIds))
-    if (!clearing.length) continue
+    if (e.kind || !e.postings.some(clearing)) continue
+
     if (!touchesCash(e)) {
-      // An accrual: each clearing leg is a lot holding the entry's other (non-clearing) legs.
-      const origin = e.postings.filter(p => !isClearingAccount(byId.get(p.accountId), cashIds))
-      const originTotal = origin.reduce((s, p) => s + p.amount, 0)
-      if (!origin.length || Math.abs(originTotal) < 0.005) continue
-      for (const p of clearing) {
-        if (Math.abs(p.amount) < 0.005) continue
-        // The origin legs, scaled to offset this leg alone.
-        const scale = -p.amount / originTotal
-        const legs = origin.map(o => ({ ...o, amount: o.amount * scale }))
-        const queue = lots.get(p.accountId) ?? []
-        queue.push({ remaining: p.amount, size: p.amount, legs })
-        lots.set(p.accountId, queue)
+      const origin = e.postings.filter(p => !clearing(p))
+      const originTotal = sum(origin)
+      // Net each clearing account first: a transfer between two LPs' receivables moves nothing.
+      const net = new Map<string, number>()
+      for (const p of e.postings.filter(clearing)) net.set(p.accountId, (net.get(p.accountId) ?? 0) + p.amount)
+      for (const [accountId, amount] of net) {
+        const p = { accountId, amount }
+        let left = p.amount
+        // The entry's other legs, scaled to stand in for `amount` of this leg's offset.
+        const legsFor = (amount: number) => (origin.length && Math.abs(originTotal) >= EPS ? scaled(origin, amount / originTotal) : null)
+        // 1. Cash already moved the other way against this account: it was this.
+        const waiting = pending.get(p.accountId) ?? []
+        while (waiting.length && Math.abs(left) >= EPS && Math.sign(waiting[0].remaining) === -Math.sign(left) && legsFor(1)) {
+          const w = waiting[0]
+          const take = Math.min(Math.abs(left), Math.abs(w.remaining))
+          const piece = out[w.slot][w.index]
+          const cashLegs = piece.postings.filter(isCash)
+          const f = take / Math.abs(w.remaining)
+          const legs = legsFor(-Math.sign(left) * take)!.map(l => ({ ...l, entryDate: piece.date }))
+          out[w.slot].push({ ...piece, postings: [...scaled(cashLegs, f), ...legs] })
+          out[w.slot][w.index] = { ...piece, postings: piece.postings.map(q => (isCash(q) ? { ...q, amount: q.amount * (1 - f) } : q.accountId === p.accountId ? { ...q, amount: q.amount - Math.sign(w.remaining) * take } : q)) }
+          w.remaining -= Math.sign(w.remaining) * take
+          left -= Math.sign(left) * take
+          if (Math.abs(w.remaining) < EPS) waiting.shift()
+        }
+        // 2. An accrual the other way: this reverses or reclasses it.
+        const open = accruals.get(p.accountId) ?? []
+        while (open.length && Math.abs(left) >= EPS && Math.sign(open[0].remaining) === -Math.sign(left)) {
+          const take = Math.min(Math.abs(left), Math.abs(open[0].remaining))
+          open[0].remaining -= Math.sign(open[0].remaining) * take
+          left -= Math.sign(left) * take
+          if (Math.abs(open[0].remaining) < EPS) open.shift()
+        }
+        // 3. What is left is an accrual of its own.
+        const legs = Math.abs(left) >= EPS ? legsFor(-left) : null
+        if (legs) queue(accruals, p.accountId).push({ remaining: left, size: left, legs })
       }
       continue
     }
-    // A cash entry: settle each clearing leg against that account's lots, oldest first. Each lot
-    // settled is a piece of its own, with its share of the cash, so one wire that clears both a call
-    // and an older balance is classified as both, not all as whichever leg was read first.
+
+    // A cash entry: each clearing leg settles accruals the other way, oldest first. Each accrual
+    // settled is a piece of its own with its share of the cash, so one wire that clears a call and
+    // an older balance is shown as both.
     const pieces: Posting[][] = []
     const rest: Posting[] = []
+    const unexplained: { accountId: string; amount: number }[] = []
     for (const p of e.postings) {
-      if (cashIds.has(p.accountId)) continue
-      const queue = isClearingAccount(byId.get(p.accountId), cashIds) ? lots.get(p.accountId) : undefined
+      if (isCash(p)) continue
+      const open = clearing(p) ? accruals.get(p.accountId) : undefined
       let left = p.amount
-      while (queue?.length && Math.abs(left) >= 0.005 && Math.sign(queue[0].remaining) === -Math.sign(left)) {
-        const lot = queue[0]
+      while (open?.length && Math.abs(left) >= EPS && Math.sign(open[0].remaining) === -Math.sign(left)) {
+        const lot = open[0]
         const take = Math.min(Math.abs(left), Math.abs(lot.remaining))
-        const share = take / Math.abs(lot.size)
-        // The lot's legs offset the accrual, so they already carry the settlement's sign: a
-        // receivable credited on collection becomes the call's credit to capital.
-        pieces.push(lot.legs.map(l => ({ ...l, amount: l.amount * share, entryDate: p.entryDate ?? l.entryDate })))
+        pieces.push(scaled(lot.legs, take / Math.abs(lot.size), p.entryDate ?? e.date))
         lot.remaining -= Math.sign(lot.remaining) * take
         left -= Math.sign(left) * take
-        if (Math.abs(lot.remaining) < 0.005) queue.shift()
+        if (Math.abs(lot.remaining) < EPS) open.shift()
       }
-      if (Math.abs(left) >= 0.005) rest.push(left === p.amount ? p : { ...p, amount: left })
+      if (Math.abs(left) < EPS) continue
+      if (clearing(p)) { pieces.push([{ ...p, amount: left }]); unexplained.push({ accountId: p.accountId, amount: left }) }
+      else rest.push(left === p.amount ? p : { ...p, amount: left })
     }
-    if (!pieces.length) continue
-    const cashLegs = e.postings.filter(p => cashIds.has(p.accountId))
-    const cash = cashLegs.reduce((s, p) => s + p.amount, 0)
-    if (Math.abs(cash) < 0.005) {
-      // Cash moved between cash accounts as well: nothing to apportion, keep it one entry.
-      out[i] = [{ ...e, postings: [...cashLegs, ...pieces.flat(), ...rest] }]
+    const cashLegs = e.postings.filter(isCash)
+    const cash = sum(cashLegs)
+    if (Math.abs(cash) < EPS) {
+      // Cash only moved between cash accounts as well: nothing to apportion, keep it one entry.
+      if (pieces.length) out[i] = [{ ...e, postings: [...cashLegs, ...pieces.flat(), ...rest] }]
       continue
     }
     // Each piece's cash is what offsets it, spread over the cash legs as the entry spread its cash.
-    out[i] = [...pieces, ...(rest.length ? [rest] : [])].map(legs => {
-      const offset = -legs.reduce((s, p) => s + p.amount, 0)
-      return { ...e, postings: [...cashLegs.map(c => ({ ...c, amount: c.amount * offset / cash })), ...legs] }
+    const all = [...pieces, ...(rest.length ? [rest] : [])]
+    out[i] = all.map(legs => ({ ...e, postings: [...scaled(cashLegs, -sum(legs) / cash), ...legs] }))
+    // A piece that is only a clearing leg waits for the accrual that explains it.
+    out[i].forEach((piece, index) => {
+      const legs = piece.postings.filter(q => !isCash(q))
+      if (legs.length === 1 && unexplained.some(u => u.accountId === legs[0].accountId && Math.abs(u.amount - legs[0].amount) < EPS)) {
+        queue(pending, legs[0].accountId).push({ slot: i, index, remaining: legs[0].amount })
+      }
     })
   }
   return out.flat()
