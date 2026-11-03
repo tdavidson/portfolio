@@ -20,7 +20,6 @@ import type { ConstructionWaterfallProjection } from '@/lib/accounting/construct
 import type { ForecastSchedule } from '@/lib/accounting/construction-forecast'
 import { ensureVehicleAccounts } from '@/lib/accounting/provision-accounts'
 import { roundCents } from '@/lib/accounting/ledger'
-import { ACTUAL_BOOK } from '@/lib/accounting/books'
 import { CapitalError, computeCapital, splitDistributions, validateCapital, type CapitalSettings, type MonthlyCharges } from './capital'
 import { loadPlanConstruction, pickPrimaryPlan, primaryPlanRow, setPrimaryPlan } from './plan-construction'
 import { getConstructionModel, loadConstructionSeed } from '@/lib/accounting/construction-service'
@@ -31,7 +30,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
 import { resolveVehicleWithAccess, VehicleAccessError } from '@/lib/accounting/http-vehicle'
 import { VehicleResolutionError } from '@/lib/accounting/vehicle-resolver'
-import { fetchAllRows, loadPostedLedger } from '@/lib/accounting/load'
+import { fetchAllRows, firstPostedEntryDate, loadPostedLedger } from '@/lib/accounting/load'
 import { closedPeriodRanges } from '@/lib/accounting/periods'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { fundCurrency } from '@/lib/accounting/currency'
@@ -560,15 +559,13 @@ export interface PlanDetail {
 export async function getPlan(ctx: ForecastServiceContext, input: { vehicle: string; planId: string }): Promise<PlanDetail> {
   const v = await loadVehicle(ctx, input.vehicle, 'read')
   const row = await loadPlanRow(ctx, v, input.planId)
-  const [{ rules, overrides }, versionRows, firstEntry] = await Promise.all([
+  const [{ rules, overrides }, versionRows, firstEntryDate] = await Promise.all([
     loadInputs(ctx, row.id),
     (ctx.admin as any).from('forecast_versions').select('id, version_no, label, notes, status, actuals_cutoff, closed_through, start_month, end_month, published_by, published_at')
       .eq('fund_id', ctx.fundId).eq('plan_id', row.id).order('version_no', { ascending: false }),
-    (ctx.admin as any).from('journal_entries').select('entry_date')
-      .eq('book', ACTUAL_BOOK).eq('fund_id', ctx.fundId).eq('vehicle_id', v.id).eq('status', 'posted')
-      .order('entry_date', { ascending: true }).limit(1),
+    // Read-only: the actual book's first posted date, for the "Fund lifetime" range.
+    firstPostedEntryDate(ctx.admin, ctx.fundId, v.id),
   ])
-  const firstEntryDate: string | null = ((firstEntry.data as any[]) ?? [])[0]?.entry_date ?? null
   const firstMonth = [v.closedFrom, firstEntryDate ? monthOf(firstEntryDate) : null].filter((m): m is MonthKey => !!m).sort()[0] ?? null
   // Re-evaluate for the drill-down (basis, warnings); the stored draft is what the numbers read.
   const [{ built, cutoff, warnings }, stored] = await Promise.all([

@@ -164,6 +164,14 @@ export async function loadLedgerChart(admin: SupabaseClient, fundId: string, gro
   return assembleLoadedLedger(fundId, { acctRows, entryRows: [], postingRows: [] }).accounts
 }
 
+/** The date of a vehicle's earliest posted actual entry (YYYY-MM-DD), or null when it has none. */
+export async function firstPostedEntryDate(admin: SupabaseClient, fundId: string, vehicleId: string): Promise<string | null> {
+  const { data } = await admin.from('journal_entries' as any).select('entry_date')
+    .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('status', 'posted')
+    .order('entry_date', { ascending: true }).limit(1)
+  return ((data as any[]) ?? [])[0]?.entry_date ?? null
+}
+
 export async function loadPostedLedger(
   admin: SupabaseClient,
   fundId: string,
