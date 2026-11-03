@@ -124,8 +124,9 @@ export interface Report {
   cashDetail: CashDetailLine[] | null
   /**
    * The income statement on a CASH basis: each revenue and expense line as the cash it moved, in the
-   * period it moved. Cash that clears an earlier accrual (a payable paid, a prepaid fee) with no P&L
-   * account on the entry is one line of its own, `accruals`.
+   * period it moved. Cash that settles an accrual the books hold (a fee accrued, then paid) counts
+   * against the accrual's own account (resolveSettlements); cash against a balance no accrual
+   * explains (one from before the books, a prepaid fee) is one line of its own, `accruals`.
    */
   cashBasis: { lines: ReportLine[]; accruals: number[]; revenue: number[]; expenses: number[]; netIncome: number[] } | null
   /**
@@ -170,6 +171,100 @@ export function investmentFundingLoans(entries: FlowEntry[], byId: Map<string, A
   return out
 }
 
+/**
+ * A balance an entry parks money in until cash settles it: a receivable, a payable, an accrual, a
+ * distribution declared. Not cash, an investment, a loan or equity — those are what the cash is FOR.
+ */
+function isClearingAccount(a: Account | undefined, cashIds: Set<string>): boolean {
+  if (!a || cashIds.has(a.id)) return false
+  if (a.type !== 'asset' && a.type !== 'liability') return false
+  if (a.type === 'asset' && (a.subtype === 'investment' || a.companyId)) return false
+  if (a.type === 'liability' && BORROWING_SUBTYPES.has(a.subtype ?? '')) return false
+  return true
+}
+
+/**
+ * Cash that settles an earlier accrual, shown as what was accrued. A call booked to an LP receivable
+ * and collected later is a capital contribution when the wire lands, not a fall in a receivable; a
+ * management fee accrued to a payable and paid later is management fee cash, not "accrued expenses".
+ *
+ * Every non-cash entry that moves a clearing account (isClearingAccount) leaves a lot on it holding
+ * the entry's other legs — the call's partners' capital, the fee's expense. A cash entry that runs a
+ * clearing account the other way takes lots oldest first, and its leg on that account is replaced
+ * by the legs those lots hold, scaled to the amount settled. What no lot covers (a balance from
+ * before the books, a payable whose bill was never entered) stays on the clearing account. Cash
+ * legs are never touched, so every total and every ending balance is unchanged.
+ *
+ * Entries with a forecast kind already say what they are and pass through as they are.
+ */
+export function resolveSettlements(entries: FlowEntry[], byId: Map<string, Account>, cashIds: Set<string>): FlowEntry[] {
+  type Lot = { remaining: number; size: number; legs: Posting[] }
+  const lots = new Map<string, Lot[]>()
+  const touchesCash = (e: FlowEntry) => e.postings.some(p => cashIds.has(p.accountId))
+  // By date; on one date the accruals first, so a call and its wire on the same day still pair up.
+  const order = entries.map((e, i) => ({ e, i })).sort((x, y) =>
+    x.e.date.localeCompare(y.e.date) || Number(touchesCash(x.e)) - Number(touchesCash(y.e)) || x.i - y.i)
+  const out = new Array<FlowEntry[]>(entries.length)
+  for (const { e, i } of order) {
+    out[i] = [e]
+    if (e.kind) continue
+    const clearing = e.postings.filter(p => isClearingAccount(byId.get(p.accountId), cashIds))
+    if (!clearing.length) continue
+    if (!touchesCash(e)) {
+      // An accrual: each clearing leg is a lot holding the entry's other (non-clearing) legs.
+      const origin = e.postings.filter(p => !isClearingAccount(byId.get(p.accountId), cashIds))
+      const originTotal = origin.reduce((s, p) => s + p.amount, 0)
+      if (!origin.length || Math.abs(originTotal) < 0.005) continue
+      for (const p of clearing) {
+        if (Math.abs(p.amount) < 0.005) continue
+        // The origin legs, scaled to offset this leg alone.
+        const scale = -p.amount / originTotal
+        const legs = origin.map(o => ({ ...o, amount: o.amount * scale }))
+        const queue = lots.get(p.accountId) ?? []
+        queue.push({ remaining: p.amount, size: p.amount, legs })
+        lots.set(p.accountId, queue)
+      }
+      continue
+    }
+    // A cash entry: settle each clearing leg against that account's lots, oldest first. Each lot
+    // settled is a piece of its own, with its share of the cash, so one wire that clears both a call
+    // and an older balance is classified as both, not all as whichever leg was read first.
+    const pieces: Posting[][] = []
+    const rest: Posting[] = []
+    for (const p of e.postings) {
+      if (cashIds.has(p.accountId)) continue
+      const queue = isClearingAccount(byId.get(p.accountId), cashIds) ? lots.get(p.accountId) : undefined
+      let left = p.amount
+      while (queue?.length && Math.abs(left) >= 0.005 && Math.sign(queue[0].remaining) === -Math.sign(left)) {
+        const lot = queue[0]
+        const take = Math.min(Math.abs(left), Math.abs(lot.remaining))
+        const share = take / Math.abs(lot.size)
+        // The lot's legs offset the accrual, so they already carry the settlement's sign: a
+        // receivable credited on collection becomes the call's credit to capital.
+        pieces.push(lot.legs.map(l => ({ ...l, amount: l.amount * share, entryDate: p.entryDate ?? l.entryDate })))
+        lot.remaining -= Math.sign(lot.remaining) * take
+        left -= Math.sign(left) * take
+        if (Math.abs(lot.remaining) < 0.005) queue.shift()
+      }
+      if (Math.abs(left) >= 0.005) rest.push(left === p.amount ? p : { ...p, amount: left })
+    }
+    if (!pieces.length) continue
+    const cashLegs = e.postings.filter(p => cashIds.has(p.accountId))
+    const cash = cashLegs.reduce((s, p) => s + p.amount, 0)
+    if (Math.abs(cash) < 0.005) {
+      // Cash moved between cash accounts as well: nothing to apportion, keep it one entry.
+      out[i] = [{ ...e, postings: [...cashLegs, ...pieces.flat(), ...rest] }]
+      continue
+    }
+    // Each piece's cash is what offsets it, spread over the cash legs as the entry spread its cash.
+    out[i] = [...pieces, ...(rest.length ? [rest] : [])].map(legs => {
+      const offset = -legs.reduce((s, p) => s + p.amount, 0)
+      return { ...e, postings: [...cashLegs.map(c => ({ ...c, amount: c.amount * offset / cash })), ...legs] }
+    })
+  }
+  return out.flat()
+}
+
 export function classifyEntry(
   e: FlowEntry,
   byId: Map<string, Account>,
@@ -195,9 +290,10 @@ export function classifyEntry(
   return { category: 'operating', cash }
 }
 
-function flowEntriesFor(input: ReportInput): FlowEntry[] | null {
+function flowEntriesFor(input: ReportInput, byId: Map<string, Account>, cashIds: Set<string>): FlowEntry[] | null {
   if (!input.actualEntries && !input.planEntries) return null
-  const actual = input.actualEntries ?? []
+  // Read across ALL the actuals, not just the range: a call is usually booked before it is collected.
+  const actual = resolveSettlements(input.actualEntries ?? [], byId, cashIds)
   const plan = input.planEntries ?? []
   switch (input.view) {
     case 'actual':
@@ -279,7 +375,7 @@ export function buildReport(input: ReportInput): Report {
   let indirect: Report['indirect'] = null
   const byId = new Map(input.accounts.map(a => [a.id, a]))
   const cashIds = new Set(st.cashAccountIds)
-  const flowEntries = flowEntriesFor(input)
+  const flowEntries = flowEntriesFor(input, byId, cashIds)
   if (flowEntries) {
     const inRange = new Set(months)
     const byCat = Object.fromEntries(FLOW_CATEGORIES.map(c => [c, new Map<MonthKey, number>()])) as Record<FlowCategory, Map<MonthKey, number>>
