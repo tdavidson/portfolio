@@ -30,12 +30,12 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
 import { resolveVehicleWithAccess, VehicleAccessError } from '@/lib/accounting/http-vehicle'
 import { VehicleResolutionError } from '@/lib/accounting/vehicle-resolver'
-import { fetchAllRows, loadPostedLedger } from '@/lib/accounting/load'
+import { fetchAllRows, firstPostedEntryDate, loadPostedLedger } from '@/lib/accounting/load'
 import { closedPeriodRanges } from '@/lib/accounting/periods'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { fundCurrency } from '@/lib/accounting/currency'
 import type { Account, Posting } from '@/lib/accounting/types'
-import { addMonths, firstDay, isMonthKey, lastDay, monthDiff, monthOf, monthRange, type Interval, type MonthKey } from './months'
+import { addMonths, firstDay, isMonthKey, lastDay, MAX_RANGE_MONTHS, monthDiff, monthOf, monthRange, type Interval, type MonthKey } from './months'
 import { RuleError, validateRule, type RuleMethod } from './rules'
 import { CashTimingError, validateCashTiming, type CashTiming, type CompiledEntry } from './compile'
 import { actualsByAccount, buildPlan, planWindow, type BuiltPlan, type PlanKind, type PlanOverrideRow, type PlanRuleRow } from './plan'
@@ -530,6 +530,11 @@ export interface PlanDetail {
   vehicleKind: string
   currency: string
   closedThrough: MonthKey | null
+  /**
+   * The vehicle's first month on the books — the earlier of its first closed period and its first
+   * posted entry; null when it has neither. The page's "Fund lifetime" range opens here.
+   */
+  firstMonth: MonthKey | null
   cutoff: MonthKey
   window: { first: MonthKey; last: MonthKey }
   /** True when the stored draft was compiled against a different cutoff or close than today's. */
@@ -554,11 +559,14 @@ export interface PlanDetail {
 export async function getPlan(ctx: ForecastServiceContext, input: { vehicle: string; planId: string }): Promise<PlanDetail> {
   const v = await loadVehicle(ctx, input.vehicle, 'read')
   const row = await loadPlanRow(ctx, v, input.planId)
-  const [{ rules, overrides }, versionRows] = await Promise.all([
+  const [{ rules, overrides }, versionRows, firstEntryDate] = await Promise.all([
     loadInputs(ctx, row.id),
     (ctx.admin as any).from('forecast_versions').select('id, version_no, label, notes, status, actuals_cutoff, closed_through, start_month, end_month, published_by, published_at')
       .eq('fund_id', ctx.fundId).eq('plan_id', row.id).order('version_no', { ascending: false }),
+    // Read-only: the actual book's first posted date, for the "Fund lifetime" range.
+    firstPostedEntryDate(ctx.admin, ctx.fundId, v.id),
   ])
+  const firstMonth = [v.closedFrom, firstEntryDate ? monthOf(firstEntryDate) : null].filter((m): m is MonthKey => !!m).sort()[0] ?? null
   // Re-evaluate for the drill-down (basis, warnings); the stored draft is what the numbers read.
   const [{ built, cutoff, warnings }, stored] = await Promise.all([
     compile(ctx, v, row, rules, overrides),
@@ -580,6 +588,7 @@ export async function getPlan(ctx: ForecastServiceContext, input: { vehicle: str
     vehicleKind: v.kind,
     currency: v.currency,
     closedThrough: v.closedThrough,
+    firstMonth,
     cutoff,
     window: { first: built.first, last: built.last },
     stale,
@@ -1225,7 +1234,7 @@ export interface SeriesResult extends Report {
   warnings: string[]
 }
 
-const MAX_MONTHS = 240
+const MAX_MONTHS = MAX_RANGE_MONTHS
 
 export async function getSeries(ctx: ForecastServiceContext, input: SeriesInput): Promise<SeriesResult> {
   const v = await loadVehicle(ctx, input.vehicle, 'read')
