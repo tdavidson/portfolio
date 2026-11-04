@@ -110,10 +110,10 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
   const [constructionReload, setConstructionReload] = useState(0)
   const refreshFromPortfolioRef = useRef<(() => void) | null>(null)
   const [view, setView] = useState<View>('combined')
-  const [preset, setPreset] = useState<Preset>('plan')
+  const [preset, setPreset] = useState<Preset>('lifetime')
   const [start, setStart] = useState<MonthKey>(`${thisMonth().slice(0, 4)}-01`)
   const [end, setEnd] = useState<MonthKey>(`${thisMonth().slice(0, 4)}-12`)
-  const [interval, setIntervalChoice] = useState<Interval>('month')
+  const [interval, setIntervalChoice] = useState<Interval>('year')
   const [statement, setStatement] = useState<'pnl' | 'cash' | 'balance' | 'entries'>('pnl')
   // Accrual or cash basis, for both statements: the income statement by when income and expenses are
   // earned and incurred, or when their cash moves; the cash-flow statement by the indirect method
@@ -417,14 +417,6 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
     return { periods, years: { first: Number(start.slice(0, 4)), last: Number(end.slice(0, 4)) } }
   }, [series, detail, start, end])
 
-  // Capital planning over the page's date range. Actual is what the books record (partners' capital,
-  // the investments' cost, the expense accounts) and Forecast what the plan expects, split month by
-  // month on the server (lib/forecast/capital-activity.ts), so a year half closed is split where its
-  // months are and the Actual column agrees with the capital accounts and the Investments tab.
-  const rangeFlows = useMemo(() => {
-    if (!series?.capitalActivity || !detail) return null
-    return { ...series.capitalActivity, label: `${start} – ${end}` }
-  }, [series, detail, start, end])
 
   // A management company's Capital planning: its cash over the same range (it has no portfolio).
   const mancoCash = useMemo(() => (!hasPortfolio && series ? mancoCashPlan(series) : null), [hasPortfolio, series])
@@ -448,6 +440,21 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
       .catch(e => { if (!cancelled) setPlanReturnsError((e as Error).message) })
     return () => { cancelled = true }
   }, [vehicle, returnsKey]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  // Capital planning over the page's date range. Actual is what the books record (partners' capital,
+  // the investments' cost, the expense accounts, the recycling register) and Forecast what the plan
+  // expects, split month by month on the server (lib/forecast/capital-activity.ts), so a year half
+  // closed is split where its months are and the Actual column agrees with the capital accounts and
+  // the Investments tab. The plan's recycling comes from its construction, with its returns.
+  const rangeFlows = useMemo(() => {
+    if (!series?.capitalActivity || !detail) return null
+    const forecastMonths = new Set(series.months.filter(m => m.status === 'forecast').map(m => m.month))
+    const recycledForecast = (planReturns?.base.recycled ?? [])
+      .filter(r => forecastMonths.has(r.month))
+      .reduce((s, r) => s + r.amount, 0)
+    const a = series.capitalActivity
+    return { ...a, recycled: { actual: a.recycled.actual, forecast: recycledForecast }, label: `${start} – ${end}` }
+  }, [series, detail, planReturns, start, end])
 
   // Whether there is a cash-flow forecast for the Charts tab's time-series charts to draw.
   const forecastState = cashFlowForecastState(plans, planId, detail)
@@ -601,7 +608,7 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
           onStart={m => { setPreset('custom'); setStart(m) }}
           onEnd={m => { setPreset('custom'); setEnd(m) }}
           planLabel={detail ? 'Plan range' : 'Current year'}
-          showLifetime={!!detail}
+          showLifetime
         />
         {/* Presentation only: storage and every calculation stay monthly; the server re-adds the
             months into quarters or years for the table, every chart, the variance and the CSV alike. */}

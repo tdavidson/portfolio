@@ -58,7 +58,7 @@ function fixture(): SeriesResult {
     plan: { id: 'p', name: 'Budget', kind: 'rolling_forecast', revision: 1 }, version: null,
     actualsThrough: '2026-03', closedThrough: '2026-03', overridden: { tax: ['2026-06'] }, sources: {},
     planWindow: { first: '2026-04', last: '2026-06' }, warnings: [],
-    capitalActivity: { called: z(), distributed: z(), invested: z(), fees: z(), org: z(), partnership: z() },
+    capitalActivity: { called: z(), distributed: z(), recycled: z(), invested: z(), fees: z(), org: z(), partnership: z() },
   }
 }
 
