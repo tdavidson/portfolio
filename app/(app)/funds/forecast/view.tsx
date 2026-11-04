@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AlertTriangle, Loader2, RefreshCw, Plus } from 'lucide-react'
 import { useAnalystContext } from '@/components/analyst-context'
 import { useCurrency, formatCurrency, formatCurrencyFull } from '@/components/currency-context'
@@ -27,6 +27,8 @@ import { mancoCashPlan } from '@/lib/forecast/manco-cash'
 import type { ForecastBalanceSheet } from '@/lib/forecast/balance-sheet'
 import { onApplied } from '@/lib/pending-actions/applied-event'
 import { NO_ADJUSTMENTS } from '@/lib/forecast/adjustments'
+import { AlignedLabel, DetailToggle, DisclosureLabel, FOLD_ROW, FOLDED_CHILD, useDisclosure, type Disclosure } from '@/components/accounting/statement-disclosure'
+import { groupSubAccounts, type CodedLine } from '@/lib/accounting/statement-groups'
 
 type PlanListItem = PlanDetail['plan'] & { versions: { id: string; versionNo: number; label: string | null; status: string; publishedAt: string }[] }
 type View = 'combined' | 'plan' | 'actual' | 'variance'
@@ -117,6 +119,8 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
   // earned and incurred, or when their cash moves; the cash-flow statement by the indirect method
   // (from net income) or the direct one.
   const [basis, setBasis] = useState<'accrual' | 'cash'>('accrual')
+  // Per-company lines fold into one line per parent account, as on the Statements tab.
+  const disclosure = useDisclosure()
   // A period clicked on a statement: the Entries tab opens on its months.
   const [entryMonths, setEntryMonths] = useState<string[] | null>(null)
   const openEntries = (months: string[]) => { if (detail) { setEntryMonths(months); setStatement('entries'); setTabState('financials') } }
@@ -763,6 +767,7 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
                 <option value="cash">Cash basis</option>
               </select>
             )}
+            {statement !== 'entries' && <DetailToggle disclosure={disclosure} />}
             {loading && <Loader2 className="h-4 w-4 animate-spin text-muted-foreground" />}
           </div>
 
@@ -784,7 +789,7 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/40">
-                  <th className="sticky left-0 z-10 min-w-[14rem] bg-muted px-3 py-2 text-left font-medium">Account</th>
+                  <th className="sticky left-0 z-10 min-w-[16rem] bg-muted px-3 py-2 text-left font-medium">Account</th>
                   {series.periods.map(p => (
                     <th key={p.key} onClick={() => openEntries(p.months)} title={detail ? 'See the entries in this period' : undefined}
                       className={cn('min-w-[7rem] px-3 py-2 text-right font-medium', detail && 'cursor-pointer hover:bg-accent/40', series.boundary && p.months.includes(series.boundary) && p.months[p.months.length - 1] === series.boundary && 'border-r-2 border-r-foreground/30')}>
@@ -798,7 +803,7 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
               </thead>
               <tbody>
                 {statement === 'balance' ? (
-                  series.balanceSheet ? <BalanceSheetRows sheet={series.balanceSheet} span={series.periods.length} fmt={full} /> : (
+                  series.balanceSheet ? <BalanceSheetRows sheet={series.balanceSheet} span={series.periods.length} fmt={full} disclosure={disclosure} /> : (
                     <tr><td colSpan={series.periods.length + 1} className="px-3 py-3 text-muted-foreground">No balance sheet for this view.</td></tr>
                   )
                 ) : statement === 'pnl' && basis === 'cash' && series.cashBasis ? (
@@ -806,10 +811,12 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
                   // overrides set the accrual figures, and the cash follows from their timing.
                   <>
                     <SectionRow label="Revenue (cash received)" span={series.periods.length} />
-                    {series.cashBasis.lines.filter(l => l.type === 'income').map(l => <PlainRow key={l.accountId} label={l.name} code={l.code} values={l.values} fmt={full} />)}
+                    <FoldedRows scope="cash-revenue" rows={series.cashBasis.lines.filter(l => l.type === 'income')} disclosure={disclosure} fmt={full}
+                      render={(l, nested) => <PlainRow key={l.accountId} label={l.name} code={l.code} values={l.values} fmt={full} nested={nested} />} />
                     <TotalRow label="Total revenue" values={series.cashBasis.revenue} fmt={full} />
                     <SectionRow label="Expenses (cash paid)" span={series.periods.length} />
-                    {series.cashBasis.lines.filter(l => l.type === 'expense').map(l => <PlainRow key={l.accountId} label={l.name} code={l.code} values={l.values} fmt={full} />)}
+                    <FoldedRows scope="cash-expenses" rows={series.cashBasis.lines.filter(l => l.type === 'expense')} disclosure={disclosure} fmt={full}
+                      render={(l, nested) => <PlainRow key={l.accountId} label={l.name} code={l.code} values={l.values} fmt={full} nested={nested} />} />
                     {series.cashBasis.accruals.some(v => Math.abs(v ?? 0) >= 0.005) && (
                       <PlainRow label="Earlier accruals paid or collected" values={series.cashBasis.accruals.map(v => (v == null ? null : -v))} fmt={full}
                         title="Payables, accrued costs and prepaid fees settled in cash, on entries that name no income or expense account" />
@@ -820,22 +827,24 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
                 ) : statement === 'pnl' ? (
                   <>
                     <SectionRow label="Revenue" span={series.periods.length} />
-                    {series.lines.filter(l => l.type === 'income').map(l => (
-                      <AccountRow key={l.accountId} line={l} series={series} fmt={full} rule={ruleByAccount.get(l.accountId)}
-                        editable={editable} editing={editing} setEditing={setEditing} commit={commitEdit} onRule={() => setRuleFor(l.accountId)} canRule={!!detail && !versionId} />
-                    ))}
+                    <FoldedRows scope="revenue" rows={series.lines.filter(l => l.type === 'income')} disclosure={disclosure} fmt={full}
+                      render={(l, nested) => (
+                        <AccountRow key={l.accountId} line={l} series={series} fmt={full} rule={ruleByAccount.get(l.accountId)} nested={nested}
+                          editable={editable} editing={editing} setEditing={setEditing} commit={commitEdit} onRule={() => setRuleFor(l.accountId)} canRule={!!detail && !versionId} />
+                      )} />
                     <TotalRow label="Total revenue" values={series.revenue} fmt={full} />
                     <SectionRow label="Expenses" span={series.periods.length} />
-                    {series.lines.filter(l => l.type === 'expense').map(l => (
-                      <AccountRow key={l.accountId} line={l} series={series} fmt={full} rule={ruleByAccount.get(l.accountId)}
-                        editable={editable} editing={editing} setEditing={setEditing} commit={commitEdit} onRule={() => setRuleFor(l.accountId)} canRule={!!detail && !versionId} />
-                    ))}
+                    <FoldedRows scope="expenses" rows={series.lines.filter(l => l.type === 'expense')} disclosure={disclosure} fmt={full}
+                      render={(l, nested) => (
+                        <AccountRow key={l.accountId} line={l} series={series} fmt={full} rule={ruleByAccount.get(l.accountId)} nested={nested}
+                          editable={editable} editing={editing} setEditing={setEditing} commit={commitEdit} onRule={() => setRuleFor(l.accountId)} canRule={!!detail && !versionId} />
+                      )} />
                     <TotalRow label="Total expenses" values={series.expenses} fmt={full} />
                     <TotalRow label="Net income" values={series.netIncome} fmt={full} strong />
                   </>
                 ) : (
                   <>
-                    <TotalRow label="Opening cash" values={series.cash.map(c => c?.opening ?? null)} fmt={full} />
+                    <PlainRow label="Opening cash" values={series.cash.map(c => c?.opening ?? null)} fmt={full} />
                     {basis === 'accrual' && series.indirect && (
                       // The indirect method: from net income to operating cash.
                       <>
@@ -865,18 +874,15 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
                           onCell={detail ? i => openEntries(series.periods[i].months) : undefined}
                           canEdit={(key, i) => !!detail && !versionId && interval === 'month' && ['called', 'distributed'].includes(key)
                             && series.periods[i].status === 'forecast'}
-                          cashEdit={cashEdit} setCashEdit={setCashEdit} commitCashEdit={commitCashEdit} />
+                          cashEdit={cashEdit} setCashEdit={setCashEdit} commitCashEdit={commitCashEdit} disclosure={disclosure} />
                       )
                     })}
                     <TotalRow label="Net cash movement" values={series.cash.map(c => c?.movement ?? null)} fmt={full} />
-                    <TotalRow label="Ending cash" values={series.cash.map(c => c?.ending ?? null)} fmt={full} strong />
-                    {series.cashAccounts.length > 1 && series.cashAccounts.map(a => (
-                      <tr key={a.accountId} className="border-b">
-                        <td className="sticky left-0 z-10 bg-card px-3 py-2 pl-6 text-muted-foreground">
-                          <span className="font-mono text-xs">{a.code}</span> {a.name}
-                        </td>
-                        {a.ending.map((v, i) => <td key={i} className="px-3 py-2 text-right tabular-nums text-muted-foreground">{full(v)}</td>)}
-                      </tr>
+                    {/* With more than one bank account, ending cash opens to show each account's balance. */}
+                    <TotalRow label="Ending cash" values={series.cash.map(c => c?.ending ?? null)} fmt={full} strong
+                      fold={series.cashAccounts.length > 1 ? { open: disclosure.isOpen('ending-cash'), onToggle: () => disclosure.toggle('ending-cash'), count: series.cashAccounts.length } : undefined} />
+                    {series.cashAccounts.length > 1 && disclosure.isOpen('ending-cash') && series.cashAccounts.map(a => (
+                      <PlainRow key={a.accountId} label={a.name} code={a.code} values={a.ending} fmt={full} nested />
                     ))}
                   </>
                 )}
@@ -943,13 +949,65 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
 
 // ---- rows ------------------------------------------------------------------------------------------
 
+// The rows below follow the Statements tab: a tinted section heading, detail lines in muted text
+// showing "code · name", totals in semibold, the statement's bottom line tinted. The account column
+// is sticky, so its cells carry an opaque background; the tint is laid over it as an inset shadow.
+const STICKY = 'sticky left-0 z-10 bg-background px-3 py-1.5'
+const STICKY_TINT = 'shadow-[inset_0_0_0_100vmax_hsl(var(--muted)/0.3)]'
+const CELL = 'px-3 py-1.5 text-right tabular-nums'
+
+/** "code · name", capped in width so one long name doesn't widen every row; the full text is on hover. */
+function LineLabel({ code, name, nested }: { code?: string | null; name: string; nested?: boolean }) {
+  const text = code ? `${code} · ${name}` : name
+  // A top-level line leaves the arrow's width so its name lines up with the folded groups' names.
+  if (!nested) return <AlignedLabel className="max-w-[23rem]" title={text}>{text}</AlignedLabel>
+  return <span className="block max-w-[22rem] truncate" title={text}>{text}</span>
+}
+
 /** A read-only statement line: label (and account code), then a figure per period. */
-function PlainRow({ label, code, values, fmt, title }: { label: string; code?: string; values: (number | null)[]; fmt: (v: number | null) => string; title?: string }) {
+function PlainRow({ label, code, values, fmt, title, nested }: { label: string; code?: string | null; values: (number | null)[]; fmt: (v: number | null) => string; title?: string; nested?: boolean }) {
   return (
-    <tr className="border-b" title={title}>
-      <td className="sticky left-0 z-10 bg-card px-3 py-2">{code && <span className="mr-1.5 font-mono text-xs text-muted-foreground">{code}</span>}{label}</td>
-      {values.map((v, i) => <td key={i} className="px-3 py-2 text-right tabular-nums">{fmt(v)}</td>)}
+    <tr className={cn('border-b', nested && FOLDED_CHILD)} title={title}>
+      <td className={cn(STICKY, 'text-muted-foreground', nested && 'pl-10')}><LineLabel code={code} name={label} nested={nested} /></td>
+      {values.map((v, i) => <td key={i} className={CELL}>{fmt(v)}</td>)}
     </tr>
+  )
+}
+
+/**
+ * Lines grouped by parent account: a holding's sub-accounts (`4000-<company>` and so on) fold into
+ * one line carrying their sum, which opens to the per-company lines.
+ */
+function FoldedRows<T extends CodedLine & { values: (number | null)[] }>({ scope, rows, render, disclosure, fmt }: {
+  scope: string
+  rows: T[]
+  render: (row: T, nested: boolean) => React.ReactNode
+  disclosure: Disclosure
+  fmt: (v: number | null) => string
+}) {
+  return (
+    <>
+      {groupSubAccounts(rows, r => r).map(g => {
+        if (g.kind === 'row') return render(g.row, false)
+        const key = `${scope}:${g.key}`
+        const open = disclosure.isOpen(key)
+        const sums = (g.rows[0]?.values ?? []).map((_, i) => {
+          const vs = g.rows.map(r => r.values[i]).filter((v): v is number => v != null)
+          return vs.length ? vs.reduce((a, b) => a + b, 0) : null
+        })
+        return (
+          <Fragment key={key}>
+            <tr className={cn('border-b', FOLD_ROW)} onClick={() => disclosure.toggle(key)} aria-expanded={open}>
+              <td className={cn(STICKY, 'text-muted-foreground')}>
+                <DisclosureLabel open={open} count={g.rows.length}>{g.code} · {g.name}</DisclosureLabel>
+              </td>
+              {sums.map((v, i) => <td key={i} className={CELL}>{fmt(v)}</td>)}
+            </tr>
+            {open && g.rows.map(r => render(r, true))}
+          </Fragment>
+        )
+      })}
+    </>
   )
 }
 
@@ -958,19 +1016,23 @@ function PlainRow({ label, code, values, fmt, title }: { label: string; code?: s
  * entries as the other two statements (lib/forecast/balance-sheet.ts). A period that does not
  * balance says so — it never should, as every forecast entry balances.
  */
-function BalanceSheetRows({ sheet, span, fmt }: { sheet: ForecastBalanceSheet; span: number; fmt: (v: number | null) => string }) {
+function BalanceSheetRows({ sheet, span, fmt, disclosure }: { sheet: ForecastBalanceSheet; span: number; fmt: (v: number | null) => string; disclosure: Disclosure }) {
   const liabilitiesAndEquity = sheet.liabilities.total.map((v, i) => (v == null ? null : v + (sheet.equity.total[i] ?? 0)))
   const off = sheet.check.some(v => v != null && Math.abs(v) >= 0.01)
+  const rows = (scope: string, list: ForecastBalanceSheet['assets']['rows']) => (
+    <FoldedRows scope={scope} rows={list} disclosure={disclosure} fmt={fmt}
+      render={(r, nested) => <PlainRow key={r.key} label={r.name} code={r.code} values={r.values} fmt={fmt} nested={nested} />} />
+  )
   return (
     <>
       <SectionRow label="Assets" span={span} />
-      {sheet.assets.rows.map(r => <PlainRow key={r.key} label={r.name} code={r.code ?? undefined} values={r.values} fmt={fmt} />)}
+      {rows('assets', sheet.assets.rows)}
       <TotalRow label="Total assets" values={sheet.assets.total} fmt={fmt} strong />
       <SectionRow label="Liabilities" span={span} />
-      {sheet.liabilities.rows.map(r => <PlainRow key={r.key} label={r.name} code={r.code ?? undefined} values={r.values} fmt={fmt} />)}
+      {rows('liabilities', sheet.liabilities.rows)}
       <TotalRow label="Total liabilities" values={sheet.liabilities.total} fmt={fmt} />
       <SectionRow label={sheet.equity.label} span={span} />
-      {sheet.equity.rows.map(r => <PlainRow key={r.key} label={r.name} code={r.code ?? undefined} values={r.values} fmt={fmt} />)}
+      {rows('equity', sheet.equity.rows)}
       <TotalRow label={`Total ${sheet.equity.label.toLowerCase()}`} values={sheet.equity.total} fmt={fmt} />
       <TotalRow label={`Total liabilities and ${sheet.equity.label.toLowerCase()}`} values={liabilitiesAndEquity} fmt={fmt} strong />
       {off && <PlainRow label="Out of balance" values={sheet.check} fmt={fmt} title="Assets less liabilities and equity. Every entry balances, so this points at an entry posted to an account outside the chart." />}
@@ -980,8 +1042,8 @@ function BalanceSheetRows({ sheet, span, fmt }: { sheet: ForecastBalanceSheet; s
 
 function SectionRow({ label, span }: { label: string; span: number }) {
   return (
-    <tr className="border-b">
-      <td className="sticky left-0 z-10 bg-card px-3 pt-3 pb-1 text-xs font-medium uppercase tracking-wide text-muted-foreground">{label}</td>
+    <tr className="border-b bg-muted/30">
+      <td className={cn(STICKY, STICKY_TINT, 'font-medium')}>{label}</td>
       <td colSpan={span} />
     </tr>
   )
@@ -992,9 +1054,10 @@ const SECTION_LABEL = { operating: 'Operating activities', investing: 'Investing
 /**
  * One section of the cash-flow statement: money in positive, money out negative. Operating lines
  * are the accounts the cash was for (a bill's payment shows against its expense, not the payable it
- * cleared); investing and financing lines are the capital flows.
+ * cleared); investing and financing lines are the capital flows. A line with a breakdown
+ * (distributions, split into carry, the GP's share and the LPs') opens to show it.
  */
-function CashSectionRows({ section, lines, total, span, fmt, onCell, canEdit, cashEdit, setCashEdit, commitCashEdit }: {
+function CashSectionRows({ section, lines, total, span, fmt, onCell, canEdit, cashEdit, setCashEdit, commitCashEdit, disclosure }: {
   section: keyof typeof SECTION_LABEL
   lines: NonNullable<SeriesResult['cashDetail']>
   total: (number | null)[]
@@ -1007,14 +1070,22 @@ function CashSectionRows({ section, lines, total, span, fmt, onCell, canEdit, ca
   cashEdit?: { key: string; index: number; value: string } | null
   setCashEdit?: (e: { key: string; index: number; value: string } | null) => void
   commitCashEdit?: () => void
+  disclosure: Disclosure
 }) {
-  return (
-    <>
-      <SectionRow label={SECTION_LABEL[section]} span={span} />
-      {lines.map(l => (
-        <tr key={l.key} className="border-b hover:bg-accent/40">
-          <td className={cn('sticky left-0 z-10 bg-card px-3 py-2', l.parent && 'pl-6 text-muted-foreground')}>
-            {l.code && <span className="font-mono text-xs text-muted-foreground">{l.code}</span>} {l.label}
+  type Line = NonNullable<SeriesResult['cashDetail']>[number]
+  const childrenOf = (key: string) => lines.filter(l => l.parent === key)
+  const row = (l: Line, nested: boolean) => {
+    const kids = childrenOf(l.key)
+    const foldKey = `cash:${l.key}`
+    const open = disclosure.isOpen(foldKey)
+    return (
+      <Fragment key={l.key}>
+        <tr className={cn('border-b hover:bg-accent/40', nested && FOLDED_CHILD)}>
+          <td className={cn(STICKY, 'text-muted-foreground', nested && 'pl-10', kids.length && 'cursor-pointer')}
+            onClick={kids.length ? () => disclosure.toggle(foldKey) : undefined} aria-expanded={kids.length ? open : undefined}>
+            {kids.length
+              ? <DisclosureLabel open={open}>{l.code ? `${l.code} · ` : ''}{l.label}</DisclosureLabel>
+              : <LineLabel code={l.code} name={l.label} nested={nested} />}
           </td>
           {l.values.map((v, i) => {
             const editableCell = canEdit?.(l.key, i) ?? false
@@ -1033,26 +1104,43 @@ function CashSectionRows({ section, lines, total, span, fmt, onCell, canEdit, ca
               <td key={i}
                 onClick={editableCell ? () => setCashEdit?.({ key: l.key, index: i, value: v ? String(Math.abs(v)) : '' }) : onCell && v ? () => onCell(i) : undefined}
                 title={editableCell ? 'Type a new amount — the entry behind it is written for you' : undefined}
-                className={cn('px-3 py-2 text-right tabular-nums', editableCell ? 'cursor-text hover:bg-accent/40' : onCell && v && 'cursor-pointer hover:underline')}>{fmt(v)}</td>
+                className={cn(CELL, editableCell ? 'cursor-text hover:bg-accent/40' : onCell && v && 'cursor-pointer hover:underline')}>{fmt(v)}</td>
             )
           })}
         </tr>
-      ))}
+        {open && kids.map(k => row(k, true))}
+      </Fragment>
+    )
+  }
+  return (
+    <>
+      <SectionRow label={SECTION_LABEL[section]} span={span} />
+      <FoldedRows scope={`cash-${section}`} rows={lines.filter(l => !l.parent).map(l => ({ ...l, name: l.label }))} disclosure={disclosure} fmt={fmt}
+        render={(l, nested) => row(l, nested)} />
       <TotalRow label={`Net cash from ${section}`} values={total} fmt={fmt} />
     </>
   )
 }
 
-function TotalRow({ label, values, fmt, strong }: { label: string; values: (number | null)[]; fmt: (v: number | null) => string; strong?: boolean }) {
+function TotalRow({ label, values, fmt, strong, fold }: {
+  label: string
+  values: (number | null)[]
+  fmt: (v: number | null) => string
+  strong?: boolean
+  /** A total that opens to the lines behind it. */
+  fold?: { open: boolean; onToggle: () => void; count: number }
+}) {
   return (
-    <tr className={cn('border-b', strong && 'bg-muted/30')}>
-      <td className={cn('sticky left-0 z-10 bg-card px-3 py-2', strong ? 'font-semibold' : 'font-medium')}>{label}</td>
-      {values.map((v, i) => <td key={i} className={cn('px-3 py-2 text-right tabular-nums', strong && 'font-semibold')}>{fmt(v)}</td>)}
+    <tr className={cn('border-b font-semibold', strong && 'bg-muted/30', fold && FOLD_ROW)} onClick={fold?.onToggle} aria-expanded={fold?.open}>
+      <td className={cn(STICKY, strong && STICKY_TINT)}>
+        {fold ? <DisclosureLabel open={fold.open} count={fold.count}>{label}</DisclosureLabel> : label}
+      </td>
+      {values.map((v, i) => <td key={i} className={CELL}>{fmt(v)}</td>)}
     </tr>
   )
 }
 
-function AccountRow({ line, series, fmt, rule, editable, editing, setEditing, commit, onRule, canRule }: {
+function AccountRow({ line, series, fmt, rule, editable, editing, setEditing, commit, onRule, canRule, nested }: {
   line: SeriesResult['lines'][number]
   series: SeriesResult
   fmt: (v: number | null) => string
@@ -1063,20 +1151,23 @@ function AccountRow({ line, series, fmt, rule, editable, editing, setEditing, co
   commit: () => void
   onRule: () => void
   canRule: boolean
+  nested?: boolean
 }) {
   const overridden = new Set(series.overridden[line.accountId] ?? [])
   const source = series.sources[line.accountId]
   return (
-    <tr className="border-b hover:bg-accent/40">
-      <td className="sticky left-0 z-10 bg-card px-3 py-2">
+    <tr className={cn('border-b hover:bg-accent/40', nested && FOLDED_CHILD)}>
+      {/* The rule behind a line (its basis) is on hover rather than a second line under every name. */}
+      <td className={cn(STICKY, 'text-muted-foreground', nested && 'pl-10')} title={rule?.basis || source?.basis || undefined}>
         {canRule ? (
-          <button type="button" onClick={onRule} className="text-left hover:underline" title={rule?.basis || 'Set a rule'}>
-            <span className="font-mono text-xs text-muted-foreground">{line.code}</span> {line.name}
+          <button type="button" onClick={onRule} className="block max-w-[23rem] text-left hover:text-foreground [&_.truncate]:hover:underline">
+            {nested
+              ? <span className="block truncate">{line.code} · {line.name}</span>
+              : <AlignedLabel>{line.code} · {line.name}</AlignedLabel>}
           </button>
         ) : (
-          <span><span className="font-mono text-xs text-muted-foreground">{line.code}</span> {line.name}</span>
+          <LineLabel code={line.code} name={line.name} nested={nested} />
         )}
-        {source && <div className="text-xs text-muted-foreground">{rule?.basis || source.basis}</div>}
         {rule?.warnings.length ? (
           <Popover>
             <PopoverTrigger asChild>
@@ -1096,7 +1187,7 @@ function AccountRow({ line, series, fmt, rule, editable, editing, setEditing, co
         const canEdit = editable && isForecast && p.months.length === 1
         const isEditing = editing && editing.accountId === line.accountId && editing.month === month
         return (
-          <td key={p.key} className={cn('px-3 py-2 text-right tabular-nums', isForecast && 'bg-muted/30')}>
+          <td key={p.key} className={CELL}>
             {isEditing ? (
               <input
                 autoFocus
