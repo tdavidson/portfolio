@@ -58,3 +58,16 @@ export function DetailToggle({ disclosure, className }: { disclosure: Disclosure
     </button>
   )
 }
+
+/**
+ * A line with no arrow, given the arrow's width on the left so its name lines up with the folded
+ * groups' names — the LP list does the same for an investor with one commitment.
+ */
+export function AlignedLabel({ children, className, title }: { children: React.ReactNode; className?: string; title?: string }) {
+  return (
+    <span className={cn('flex min-w-0 items-center gap-1', className)} title={title}>
+      <span className="w-3.5 shrink-0" aria-hidden />
+      <span className="truncate">{children}</span>
+    </span>
+  )
+}

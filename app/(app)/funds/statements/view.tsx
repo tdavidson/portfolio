@@ -11,7 +11,7 @@ import { type PeriodPreset } from '@/lib/accounting/statement-period'
 import { PeriodPicker } from '@/components/accounting/period-picker'
 import { DownloadMenu, TaxPackageLink } from '@/components/accounting/download-menu'
 import { EmptyState } from '@/components/ui/empty-state'
-import { DetailToggle, DisclosureLabel, FOLD_ROW, FOLDED_CHILD, useDisclosure } from '@/components/accounting/statement-disclosure'
+import { AlignedLabel, DetailToggle, DisclosureLabel, FOLD_ROW, FOLDED_CHILD, useDisclosure } from '@/components/accounting/statement-disclosure'
 import { groupSubAccounts, summarizeLegs } from '@/lib/accounting/statement-groups'
 
 interface Section { label: string; rows: { code: string; name: string; amount: number }[]; total: number }
@@ -209,9 +209,13 @@ export function StatementsView() {
     const accountLine = (k: { key: string; name: string; code: string }, nested = false) => (
       <tr key={k.key} className={`border-t ${nested ? FOLDED_CHILD : ''}`}>
         <td className={`px-3 py-1.5 text-muted-foreground ${nested ? 'pl-10' : ''}`}>
-          {k.code && registerHref(k.code)
-            ? <Link href={registerHref(k.code)!} className="hover:underline hover:text-foreground" title="Open this account's register">{k.code} · {k.name}</Link>
-            : <>{k.code ? `${k.code} · ` : ''}{k.name}</>}
+          {(() => {
+            const label = k.code && registerHref(k.code)
+              ? <Link href={registerHref(k.code)!} className="hover:underline hover:text-foreground" title="Open this account's register">{k.code} · {k.name}</Link>
+              : <>{k.code ? `${k.code} · ` : ''}{k.name}</>
+            // A top-level line leaves the arrow's width so it lines up with the folded groups.
+            return nested ? label : <AlignedLabel>{label}</AlignedLabel>
+          })()}
         </td>
         {cols.map((c, i) => <td key={i} className="px-3 py-1.5 text-right tabular-nums">{fmtCell(m.amountFor(c, k.key))}</td>)}
       </tr>

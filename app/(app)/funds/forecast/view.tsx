@@ -27,7 +27,7 @@ import { mancoCashPlan } from '@/lib/forecast/manco-cash'
 import type { ForecastBalanceSheet } from '@/lib/forecast/balance-sheet'
 import { onApplied } from '@/lib/pending-actions/applied-event'
 import { NO_ADJUSTMENTS } from '@/lib/forecast/adjustments'
-import { DetailToggle, DisclosureLabel, FOLD_ROW, FOLDED_CHILD, useDisclosure, type Disclosure } from '@/components/accounting/statement-disclosure'
+import { AlignedLabel, DetailToggle, DisclosureLabel, FOLD_ROW, FOLDED_CHILD, useDisclosure, type Disclosure } from '@/components/accounting/statement-disclosure'
 import { groupSubAccounts, type CodedLine } from '@/lib/accounting/statement-groups'
 
 type PlanListItem = PlanDetail['plan'] & { versions: { id: string; versionNo: number; label: string | null; status: string; publishedAt: string }[] }
@@ -957,8 +957,10 @@ const STICKY_TINT = 'shadow-[inset_0_0_0_100vmax_hsl(var(--muted)/0.3)]'
 const CELL = 'px-3 py-1.5 text-right tabular-nums'
 
 /** "code · name", capped in width so one long name doesn't widen every row; the full text is on hover. */
-function LineLabel({ code, name }: { code?: string | null; name: string }) {
+function LineLabel({ code, name, nested }: { code?: string | null; name: string; nested?: boolean }) {
   const text = code ? `${code} · ${name}` : name
+  // A top-level line leaves the arrow's width so its name lines up with the folded groups' names.
+  if (!nested) return <AlignedLabel className="max-w-[23rem]" title={text}>{text}</AlignedLabel>
   return <span className="block max-w-[22rem] truncate" title={text}>{text}</span>
 }
 
@@ -966,7 +968,7 @@ function LineLabel({ code, name }: { code?: string | null; name: string }) {
 function PlainRow({ label, code, values, fmt, title, nested }: { label: string; code?: string | null; values: (number | null)[]; fmt: (v: number | null) => string; title?: string; nested?: boolean }) {
   return (
     <tr className={cn('border-b', nested && FOLDED_CHILD)} title={title}>
-      <td className={cn(STICKY, 'text-muted-foreground', nested && 'pl-10')}><LineLabel code={code} name={label} /></td>
+      <td className={cn(STICKY, 'text-muted-foreground', nested && 'pl-10')}><LineLabel code={code} name={label} nested={nested} /></td>
       {values.map((v, i) => <td key={i} className={CELL}>{fmt(v)}</td>)}
     </tr>
   )
@@ -1083,7 +1085,7 @@ function CashSectionRows({ section, lines, total, span, fmt, onCell, canEdit, ca
             onClick={kids.length ? () => disclosure.toggle(foldKey) : undefined} aria-expanded={kids.length ? open : undefined}>
             {kids.length
               ? <DisclosureLabel open={open}>{l.code ? `${l.code} · ` : ''}{l.label}</DisclosureLabel>
-              : <LineLabel code={l.code} name={l.label} />}
+              : <LineLabel code={l.code} name={l.label} nested={nested} />}
           </td>
           {l.values.map((v, i) => {
             const editableCell = canEdit?.(l.key, i) ?? false
@@ -1158,11 +1160,13 @@ function AccountRow({ line, series, fmt, rule, editable, editing, setEditing, co
       {/* The rule behind a line (its basis) is on hover rather than a second line under every name. */}
       <td className={cn(STICKY, 'text-muted-foreground', nested && 'pl-10')} title={rule?.basis || source?.basis || undefined}>
         {canRule ? (
-          <button type="button" onClick={onRule} className="block max-w-[22rem] truncate text-left hover:text-foreground hover:underline">
-            {line.code} · {line.name}
+          <button type="button" onClick={onRule} className="block max-w-[23rem] text-left hover:text-foreground [&_.truncate]:hover:underline">
+            {nested
+              ? <span className="block truncate">{line.code} · {line.name}</span>
+              : <AlignedLabel>{line.code} · {line.name}</AlignedLabel>}
           </button>
         ) : (
-          <LineLabel code={line.code} name={line.name} />
+          <LineLabel code={line.code} name={line.name} nested={nested} />
         )}
         {rule?.warnings.length ? (
           <Popover>
