@@ -212,6 +212,23 @@ export function txnsForVehicle(txns: InvestmentTransaction[], vehicle: string): 
 }
 
 /**
+ * One investment row's cost, as `invested` counts it: investment_cost + fee_amount, plus the
+ * interest converted on a conversion row.
+ */
+export function investmentCost(t: InvestmentTransaction): number {
+  return (t.investment_cost ?? 0)
+    + Number((t as { fee_amount?: number | null }).fee_amount ?? 0)
+    + ((t as { converts_from_txn_id?: string | null }).converts_from_txn_id ? (t.interest_converted ?? 0) : 0)
+}
+
+/** The vehicle's investments, dated, at the cost `invested` sums (the Investments tab's figure). */
+export function investmentCostRows(txns: InvestmentTransaction[], vehicle: string): { date: string | null; cost: number }[] {
+  return txns
+    .filter(t => t.transaction_type === 'investment' && t.portfolio_group === vehicle)
+    .map(t => ({ date: t.transaction_date, cost: investmentCost(t) }))
+}
+
+/**
  * One SOI position per company the vehicle holds.
  *
  * Companies with no remaining basis and no value (fully exited / written off) are DROPPED by
@@ -254,12 +271,7 @@ export function buildSoiPositions(
     // will not tie to `invested` and the stacked bars will not sum to their own total.
     const investRows = relevant
       .filter(t => t.transaction_type === 'investment')
-      .map(t => ({
-        date: t.transaction_date,
-        cost: (t.investment_cost ?? 0)
-          + Number((t as { fee_amount?: number | null }).fee_amount ?? 0)
-          + ((t as { converts_from_txn_id?: string | null }).converts_from_txn_id ? (t.interest_converted ?? 0) : 0),
-      }))
+      .map(t => ({ date: t.transaction_date, cost: investmentCost(t) }))
     const classified = classifyNewFollowOn(investRows)
     const investedNew = r(classified.filter(t => t.isNew).reduce((sum, t) => sum + t.cost, 0))
     const investedFollowOn = r(classified.filter(t => !t.isNew).reduce((sum, t) => sum + t.cost, 0))

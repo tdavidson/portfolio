@@ -40,6 +40,8 @@ import { RuleError, validateRule, type RuleMethod } from './rules'
 import { CashTimingError, validateCashTiming, type CashTiming, type CompiledEntry } from './compile'
 import { actualsByAccount, buildPlan, planWindow, type BuiltPlan, type PlanKind, type PlanOverrideRow, type PlanRuleRow } from './plan'
 import { buildReport, type FlowEntry, type Report, type ReportView } from './report'
+import { capitalActivity, type CapitalActivity } from './capital-activity'
+import { loadInvestmentCosts } from '@/lib/accounting/investment-costs'
 import { computeVariance, largestVariances, type VarianceResult } from './variance'
 import { cycleLabel, loadFeeLinks, loadLinkedDrivers, seesCarry, seesFund, seesManco } from './linked'
 import { historyWindow, MAX_HISTORY_MONTHS, MIN_HISTORY_MONTHS, suggestRule, type RuleSuggestion } from './suggest'
@@ -1231,6 +1233,11 @@ export interface SeriesResult extends Report {
   sources: Record<string, { method: RuleMethod | 'override'; basis: string; warnings: string[] }>
   /** The months the plan's own entries cover. */
   planWindow: { first: MonthKey; last: MonthKey } | null
+  /**
+   * Capital planning over the range: called, distributed, invested, fees and expenses, Actual from
+   * the books' own records and Forecast from the plan, split month by month (./capital-activity.ts).
+   */
+  capitalActivity: CapitalActivity
   warnings: string[]
 }
 
@@ -1336,7 +1343,10 @@ async function seriesDetail(ctx: ForecastServiceContext, v: VehicleCtx, input: S
 
   // Actuals: everything posted through the end of the range (or today's month, whichever is earlier).
   const actualsAvailableThrough = input.end < thisMonth() ? input.end : thisMonth()
-  const ledger = await loadPostedLedger(ctx.admin, ctx.fundId, v.name, lastDay(actualsAvailableThrough))
+  const [ledger, investments] = await Promise.all([
+    loadPostedLedger(ctx.admin, ctx.fundId, v.name, lastDay(actualsAvailableThrough)),
+    loadInvestmentCosts(ctx.admin, ctx.fundId, v.name),
+  ])
   if (view !== 'plan' && v.closedThrough && actualsAvailableThrough > v.closedThrough && input.end > v.closedThrough) {
     warnings.push(`Books are closed through ${v.closedThrough}; later actual months are not final`)
   }
@@ -1362,6 +1372,10 @@ async function seriesDetail(ctx: ForecastServiceContext, v: VehicleCtx, input: S
     overridden,
     sources,
     planWindow: planFirst && planLast ? { first: planFirst, last: planLast } : null,
+    capitalActivity: capitalActivity({
+      months: report.months, accounts: v.accounts, capitalPostings: ledger.capitalPostings, postings: ledger.postings,
+      investments, planEntries,
+    }),
     warnings,
   }
   return { series, rules }

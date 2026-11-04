@@ -413,31 +413,13 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
     return { periods, years: { first: Number(start.slice(0, 4)), last: Number(end.slice(0, 4)) } }
   }, [series, detail, start, end])
 
-  // Capital planning over the page's date range: calls, distributions, investment and each fee and
-  // expense as cash, split actual / forecast by the periods' status — the cash-flow statement's
-  // figures, so the two cannot disagree.
+  // Capital planning over the page's date range. Actual is what the books record (partners' capital,
+  // the investments' cost, the expense accounts) and Forecast what the plan expects, split month by
+  // month on the server (lib/forecast/capital-activity.ts), so a year half closed is split where its
+  // months are and the Actual column agrees with the capital accounts and the Investments tab.
   const rangeFlows = useMemo(() => {
-    if (!series?.cashFlows || !detail) return null
-    const accounts = new Map(detail.allAccounts.map(a => [a.id, a]))
-    const zero = () => ({ actual: 0, forecast: 0 })
-    const out = { called: zero(), distributed: zero(), invested: zero(), fees: zero(), org: zero(), partnership: zero(), label: `${start} – ${end}` }
-    series.periods.forEach((p, i) => {
-      if (p.status === 'none') return
-      const k = p.status === 'actual' || p.status === 'actual_unclosed' ? 'actual' : 'forecast'
-      out.called[k] += Math.max(0, series.cashFlows!.called[i] ?? 0)
-      out.distributed[k] += Math.abs(Math.min(0, series.cashFlows!.distributed[i] ?? 0))
-      out.invested[k] += Math.abs(Math.min(0, series.cashFlows!.invested[i] ?? 0))
-      for (const l of series.cashDetail ?? []) {
-        if (l.section !== 'operating') continue
-        const a = accounts.get(l.key)
-        if (!a || a.type !== 'expense') continue
-        const paid = -(l.values[i] ?? 0)
-        if (a.subtype === 'management_fee') out.fees[k] += paid
-        else if (a.subtype === 'organizational_expense') out.org[k] += paid
-        else out.partnership[k] += paid
-      }
-    })
-    return out
+    if (!series?.capitalActivity || !detail) return null
+    return { ...series.capitalActivity, label: `${start} – ${end}` }
   }, [series, detail, start, end])
 
   // A management company's Capital planning: its cash over the same range (it has no portfolio).
