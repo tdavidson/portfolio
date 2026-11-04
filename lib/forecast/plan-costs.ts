@@ -9,14 +9,16 @@
 // Fees: the plan's management-fee rule (lib/forecast/fee-rule.ts), or whatever rule the plan has on
 // the management-fee account (a prepaid fee expensed monthly). Expenses: every other expense
 // account's rule. Each is evaluated by month, as the forecast evaluates it, and summed into the
-// forward years construction counts in (year 1 = the twelve months after its as-of month).
+// calendar-year rows construction counts in (lib/accounting/construction-calendar.ts: row 1 is the
+// rest of the as-of month's year).
 //
 // Null when the plan has no rule on any expense account: construction then keeps its own inputs,
 // so an entity whose plan has not taken them over yet shows the same numbers it always did.
 
 import type { PlanCosts } from '@/lib/accounting/construction'
 import { SAME_MONTH, type CashTiming } from './compile'
-import { managementFeeByMonth, managementFeeByYear, type FeeInputs } from './fee-rule'
+import { managementFeeByMonth, type FeeInputs } from './fee-rule'
+import { rowOfMonthIndex, scheduleGrid } from '@/lib/accounting/construction-calendar'
 import { addMonths, monthDiff, type MonthKey } from './months'
 import { evaluateRule, LINKED_METHODS, validateRule, type ManagementFeeParams, type RuleMethod } from './rules'
 
@@ -37,13 +39,15 @@ export function planCostsByYear(input: {
   if (expenseRules.length === 0) return null
 
   const years = Math.max(1, Math.ceil(input.horizonYears))
-  const feesByYear = Array.from({ length: years + 1 }, () => 0)
-  const expensesByYear = Array.from({ length: years + 1 }, () => 0)
+  const grid = scheduleGrid(input.fee.asOfMonth, years)
+  const feesByYear = Array.from({ length: grid.rows + 1 }, () => 0)
+  const expensesByYear = Array.from({ length: grid.rows + 1 }, () => 0)
   const months = Array.from({ length: years * 12 }, (_, i) => addMonths(input.fee.asOfMonth, i + 1))
-  const yearOf = (m: MonthKey) => Math.ceil(monthDiff(input.fee.asOfMonth, m) / 12)
   const add = (into: number[], m: MonthKey, v: number) => {
-    const y = yearOf(m)
-    if (y >= 1 && y <= years) into[y] = Math.round((into[y] + v) * 100) / 100
+    const i = monthDiff(input.fee.asOfMonth, m)
+    if (i < 1 || i > grid.horizonMonths) return
+    const y = rowOfMonthIndex(grid, i)
+    into[y] = Math.round((into[y] + v) * 100) / 100
   }
 
   for (const r of expenseRules) {
@@ -54,11 +58,8 @@ export function planCostsByYear(input: {
     const into = isFee ? feesByYear : expensesByYear
     if (r.method === 'management_fee') {
       const p = validateRule('management_fee', r.params).params as ManagementFeeParams
-      if (lag === 0) {
-        managementFeeByYear(p, input.fee).forEach((v, y) => { if (y >= 1 && y <= years) into[y] = Math.round((into[y] + v) * 100) / 100 })
-      } else {
-        for (const [m, v] of managementFeeByMonth(p, input.fee)) add(into, addMonths(m, lag), v)
-      }
+      // By month (each forward year's fee spread over its twelve months), so it lands in calendar rows.
+      for (const [m, v] of managementFeeByMonth(p, input.fee)) add(into, addMonths(m, lag), v)
       continue
     }
     if (LINKED_METHODS.includes(r.method)) continue // supplied from elsewhere; not a cost of this plan's own

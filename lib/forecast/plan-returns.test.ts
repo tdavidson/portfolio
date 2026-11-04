@@ -66,3 +66,14 @@ describe("a plan's returns — one calculation", () => {
     expect(r2.lp.terminal).toBe(495_000)
   })
 })
+
+describe("a plan's recycling, by month", () => {
+  it('reports the proceeds the plan recycles in the month they arrive', () => {
+    const r = planReturns({
+      months, asOfMonth: '2026-12', openingCash: 0, uncalled: 2_000_000, settings: validateCapital({}),
+      otherFlows: m({}), invested: m({ '2027-01': -1_000_000 }), proceeds: m({ '2027-06': 400_000 }),
+      recycled: m({ '2027-06': 100_000 }), terminalNav: 0,
+    })
+    expect(r.recycled).toEqual([{ month: '2027-06', amount: 100_000 }])
+  })
+})

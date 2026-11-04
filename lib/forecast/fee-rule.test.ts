@@ -38,35 +38,43 @@ describe('the management fee as a plan rule', () => {
 
 describe("a plan's costs, for construction's capital planning", () => {
   const accounts = [{ id: 'fee', type: 'expense', subtype: 'management_fee' }, { id: 'exp', type: 'expense', subtype: 'partnership_expense' }]
+  // From December each calendar row is exactly one forward year, so these read as whole years.
+  const december = { ...inputs, asOfMonth: '2026-12' as const }
 
-  it('sums the fee rule and the expense rules into forward years', () => {
+  it('sums the fee rule and the expense rules into calendar years', () => {
     const c = planCostsByYear({
       rules: [
         { accountId: 'fee', method: 'management_fee', params: terms },
         { accountId: 'exp', method: 'fixed', params: { amount: 5_000 } },
       ],
-      accounts, history: new Map(), closedFrom: null, closedThrough: null, horizonYears: 10, fee: inputs,
+      accounts, history: new Map(), closedFrom: null, closedThrough: null, horizonYears: 10, fee: december,
     })!
     expect(c.feesByYear[1]).toBeCloseTo(396_000, 2)
     expect(c.expensesByYear[1]).toBe(60_000)
   })
 
   it('counts any rule on the fee account as fees — a prepaid fee expensed monthly', () => {
-    const c = planCostsByYear({ rules: [{ accountId: 'fee', method: 'fixed', params: { amount: 2_100 } }], accounts, history: new Map(), closedFrom: null, closedThrough: null, horizonYears: 2, fee: inputs })!
+    const c = planCostsByYear({ rules: [{ accountId: 'fee', method: 'fixed', params: { amount: 2_100 } }], accounts, history: new Map(), closedFrom: null, closedThrough: null, horizonYears: 2, fee: december })!
     expect(c.feesByYear[1]).toBe(25_200)
     expect(c.expensesByYear[1]).toBe(0)
   })
 
   it('counts cash, not expense: a prepaid fee needs no cash, a cost paid later lands later', () => {
-    const prepaid = planCostsByYear({ rules: [{ accountId: 'fee', method: 'fixed', params: { amount: 2_100 }, cashTiming: { mode: 'prepaid' } as any }], accounts, history: new Map(), closedFrom: null, closedThrough: null, horizonYears: 2, fee: inputs })!
+    const prepaid = planCostsByYear({ rules: [{ accountId: 'fee', method: 'fixed', params: { amount: 2_100 }, cashTiming: { mode: 'prepaid' } as any }], accounts, history: new Map(), closedFrom: null, closedThrough: null, horizonYears: 2, fee: december })!
     expect(prepaid.feesByYear[1]).toBe(0)
     // Paid 12 months after it is incurred: year 1's expense is year 2's cash.
-    const lagged = planCostsByYear({ rules: [{ accountId: 'exp', method: 'fixed', params: { amount: 5_000 }, cashTiming: { mode: 'offset', months: 12 } }], accounts, history: new Map(), closedFrom: null, closedThrough: null, horizonYears: 3, fee: inputs })!
+    const lagged = planCostsByYear({ rules: [{ accountId: 'exp', method: 'fixed', params: { amount: 5_000 }, cashTiming: { mode: 'offset', months: 12 } }], accounts, history: new Map(), closedFrom: null, closedThrough: null, horizonYears: 3, fee: december })!
     expect(lagged.expensesByYear[1]).toBe(0)
     expect(lagged.expensesByYear[2]).toBe(60_000)
   })
 
   it('is nothing when the plan has no expense rules — construction keeps its own inputs', () => {
-    expect(planCostsByYear({ rules: [], accounts, history: new Map(), closedFrom: null, closedThrough: null, horizonYears: 2, fee: inputs })).toBeNull()
+    expect(planCostsByYear({ rules: [], accounts, history: new Map(), closedFrom: null, closedThrough: null, horizonYears: 2, fee: december })).toBeNull()
+  })
+
+  it('from mid-year, row 1 is the rest of this year and each later row a calendar year', () => {
+    const c = planCostsByYear({ rules: [{ accountId: 'exp', method: 'fixed', params: { amount: 5_000 } }], accounts, history: new Map(), closedFrom: null, closedThrough: null, horizonYears: 2, fee: inputs })!
+    // As of October: November and December 2026, then 2027, then January to October 2028.
+    expect(c.expensesByYear).toEqual([0, 10_000, 60_000, 50_000])
   })
 })

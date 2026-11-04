@@ -42,7 +42,11 @@ const pacing = (over: Partial<PacingAssumptions> = {}): PacingAssumptions => ({
   ...DEFAULT_PACING, deploymentYears: 2, followOnLagYears: 1, holdYears: 5, existingHoldYears: 4, horizonYears: 0, accretion: 'none', ...over,
 })
 
-const baseline: ForecastBaseline = { asOf: '2026-09-18', calledCapital: 3_000_000, distributed: 0, nav: 3_100_000 }
+// Deals are dated from mid-September. The schedule's tests run from December, where each calendar row
+// is exactly one forward year, so their figures read as whole years; the mid-year rows have their
+// own tests below.
+const DEAL_AS_OF = '2026-09-18'
+const baseline: ForecastBaseline = { asOf: '2026-12-18', calledCapital: 3_000_000, distributed: 0, nav: 3_100_000 }
 
 describe('dealTimelines', () => {
   it('uses each planned deal’s own timing and holds it for the stated years', () => {
@@ -69,7 +73,7 @@ describe('dealTimelines', () => {
       firstInvestmentDate: index === 0 ? '2022-09-18' : '2024-09-18',
     }))
     const model = constructionModel(actuals({ positions }), assumptions())
-    const existing = dealTimelines(model, pacing({ holdYears: 6, existingHoldYears: 6 }), baseline.asOf)
+    const existing = dealTimelines(model, pacing({ holdYears: 6, existingHoldYears: 6 }), DEAL_AS_OF)
       .filter(d => d.kind === 'existing')
     expect(existing[0].initialAt).toBeCloseTo(-4, 2)
     expect(existing[0].exitAt).toBeCloseTo(2, 2)
@@ -83,7 +87,7 @@ describe('dealTimelines', () => {
       positionForecasts: assumptions().positionForecasts.map(forecast => forecast.companyId === 'c1' ? { ...forecast, exitInYears: 6 } : forecast),
     })
     const model = constructionModel(actuals({ positions }), configured)
-    const alpha = dealTimelines(model, pacing(), baseline.asOf).find(deal => deal.key === 'c1')!
+    const alpha = dealTimelines(model, pacing(), DEAL_AS_OF).find(deal => deal.key === 'c1')!
     expect(alpha.exitAt).toBeCloseTo(2, 2)
   })
 
@@ -93,7 +97,7 @@ describe('dealTimelines', () => {
       positionForecasts: assumptions().positionForecasts.map(forecast => forecast.companyId === 'c1' ? { ...forecast, exitInYears: 0 } : forecast),
     })
     const model = constructionModel(actuals(), configured)
-    const deals = dealTimelines(model, pacing(), baseline.asOf)
+    const deals = dealTimelines(model, pacing(), DEAL_AS_OF)
 
     expect(deals.find(deal => deal.key === 's1')?.exitAt).toBe(0.5)
     expect(deals.find(deal => deal.key === 'c1')?.exitAt).toBe(0)
@@ -356,5 +360,38 @@ describe('recycling in the forecast', () => {
     const deemed = applyLpWaterfall(run(early(), { recycleCapRate: 0.2, recycleTreatment: 'deemed' }), projection)
     const carry = (s: ReturnType<typeof applyLpWaterfall>) => s.years.reduce((sum, y) => sum + (y.carriedInterest ?? 0), 0)
     expect(carry(deemed)).toBeCloseTo(carry(off), 1)
+  })
+})
+
+describe('calendar-year rows from mid-year', () => {
+  // As of November: row 1 is December alone, then each row is January to December.
+  const november: ForecastBaseline = { ...baseline, asOf: '2026-11-04' }
+
+  it('labels each row with the calendar year it covers', () => {
+    const model = constructionModel(actuals(), assumptions())
+    const s = forecastSchedule(model, assumptions(), pacing(), november)
+    expect(s.years.slice(0, 4).map(y => y.calendarYear)).toEqual([2026, 2026, 2027, 2028])
+    expect(s.years[1].t).toBeCloseTo(1 / 12, 9)
+    expect(s.years[2].t).toBeCloseTo(13 / 12, 9)
+  })
+
+  it('charges December its month of the first year’s fee and each later row its calendar months', () => {
+    const model = constructionModel(actuals(), assumptions())
+    const dec = forecastSchedule(model, assumptions(), pacing(), baseline)
+    const s = forecastSchedule(model, assumptions(), pacing(), november)
+    expect(s.years[1].fees).toBeCloseTo(dec.years[1].fees / 12, 2)
+    // Calendar 2027 is the last eleven months of forward year 1 and the first of year 2.
+    expect(s.years[2].fees).toBeCloseTo((dec.years[1].fees * 11 + dec.years[2].fees) / 12, 2)
+    const total = (x: typeof s) => x.years.reduce((sum, y) => sum + y.fees, 0)
+    expect(total(s)).toBeCloseTo(total(dec), 0)
+  })
+
+  it('places checks and exits in the calendar year they fall in', () => {
+    const model = constructionModel(actuals(), assumptions())
+    const s = forecastSchedule(model, assumptions(), pacing(), november)
+    // Deal A at 0.5 years from November is May 2027; its follow-on at 1.5 is May 2028.
+    const byYear = new Map(s.years.map(y => [y.calendarYear, y.invested]))
+    expect(byYear.get(2027)).toBe(1_000_000 + 500_000) // Deal A, and Alpha's follow-on at one year
+    expect(s.years.reduce((sum, y) => sum + y.invested, 0)).toBe(3_000_000)
   })
 })

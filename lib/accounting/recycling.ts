@@ -145,6 +145,34 @@ export interface RecyclingStatus {
   rows: RecycledRow[]
 }
 
+/** The vehicle's recycling register, oldest first. A deemed row whose entry was voided is not live. */
+export async function loadRecycledRows(admin: SupabaseClient, fundId: string, vehicleId: string): Promise<RecycledRow[]> {
+  const { data, error } = await (admin as any)
+    .from('recycled_proceeds')
+    .select('id, recycled_on, amount, treatment, company_id, description, journal_entry_id')
+    .eq('fund_id', fundId)
+    .eq('vehicle_id', vehicleId)
+    .order('recycled_on', { ascending: true })
+  if (error) throw error
+  const raw = ((data as any[]) ?? [])
+  const entryIds = raw.map(r => r.journal_entry_id).filter(Boolean)
+  const status = new Map<string, string>()
+  if (entryIds.length) {
+    const { data: entries } = await admin.from('journal_entries' as any).select('id, status').eq('book', ACTUAL_BOOK).in('id', entryIds)
+    for (const e of ((entries as any[]) ?? [])) status.set(e.id, e.status)
+  }
+  return raw.map(r => ({
+    id: r.id,
+    recycledOn: String(r.recycled_on).slice(0, 10),
+    amount: roundCents(Number(r.amount)),
+    treatment: r.treatment === 'deemed' ? 'deemed' : 'retained',
+    companyId: r.company_id ?? null,
+    description: r.description ?? null,
+    journalEntryId: r.journal_entry_id ?? null,
+    live: r.treatment !== 'deemed' || (!!r.journal_entry_id && status.get(r.journal_entry_id) === 'posted'),
+  }))
+}
+
 /** The terms, the cap, what has been used and the register. */
 export async function recyclingStatus(admin: SupabaseClient, fundId: string, group: string, asOf?: string): Promise<RecyclingStatus> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
@@ -159,32 +187,7 @@ export async function recyclingStatus(admin: SupabaseClient, fundId: string, gro
   const managementFees = roundCents(-Array.from(accounts.values()).reduce((s, a) => s + a.managementFees, 0))
   const base = { commitments, managementFees: Math.max(0, managementFees) }
 
-  let rows: RecycledRow[] = []
-  if (vehicleId) {
-    const { data } = await (admin as any)
-      .from('recycled_proceeds')
-      .select('id, recycled_on, amount, treatment, company_id, description, journal_entry_id')
-      .eq('fund_id', fundId)
-      .eq('vehicle_id', vehicleId)
-      .order('recycled_on', { ascending: true })
-    const raw = ((data as any[]) ?? [])
-    const entryIds = raw.map(r => r.journal_entry_id).filter(Boolean)
-    const status = new Map<string, string>()
-    if (entryIds.length) {
-      const { data: entries } = await admin.from('journal_entries' as any).select('id, status').eq('book', ACTUAL_BOOK).in('id', entryIds)
-      for (const e of ((entries as any[]) ?? [])) status.set(e.id, e.status)
-    }
-    rows = raw.map(r => ({
-      id: r.id,
-      recycledOn: String(r.recycled_on).slice(0, 10),
-      amount: roundCents(Number(r.amount)),
-      treatment: r.treatment === 'deemed' ? 'deemed' : 'retained',
-      companyId: r.company_id ?? null,
-      description: r.description ?? null,
-      journalEntryId: r.journal_entry_id ?? null,
-      live: r.treatment !== 'deemed' || (!!r.journal_entry_id && status.get(r.journal_entry_id) === 'posted'),
-    }))
-  }
+  const rows = vehicleId ? await loadRecycledRows(admin, fundId, vehicleId) : []
   const cap = recyclingCap(terms, base)
   const used = roundCents(rows.filter(r => r.live).reduce((s, r) => s + r.amount, 0))
   const today = asOf ?? new Date().toISOString().slice(0, 10)

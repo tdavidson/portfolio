@@ -13,6 +13,7 @@
 // calculation — but what comes back for a fund the caller cannot see is the monthly fee amount and
 // nothing else: no fund name, rate, basis or deal. That is the aggregate the brief allows.
 
+import { rowOfMonthIndex } from '@/lib/accounting/construction-calendar'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
 import { canSeeVehicle } from '@/lib/access/scope'
@@ -183,10 +184,12 @@ export async function gpShareOf(
   const mc = monthlyConstruction(gross, model.asOf.slice(0, 10))
   // Carry is stated per construction year (the net timeline's waterfall); place it in the months of
   // that year's distributions, so it arrives with the exits that produce it.
-  // Keyed by construction year (1 = the twelve months after its as-of month), the way it states them.
+  // Keyed by construction row (a calendar year; row 1 is the rest of the as-of year), the way it
+  // states them (lib/accounting/construction-calendar.ts).
   const carryByYear = new Map<number, number>()
   for (const y of (model.timeline?.years ?? [])) carryByYear.set(y.year, y.carriedInterest ?? 0)
-  const yearOf = (m: MonthKey) => Math.max(1, Math.ceil(monthDiff(mc.asOfMonth, m) / 12))
+  const grid = model.timeline?.grid ?? gross.grid
+  const yearOf = (m: MonthKey) => Math.max(1, rowOfMonthIndex(grid, monthDiff(mc.asOfMonth, m)))
   if (carryPct > 0 && !model.timelineNetOfCarry) warnings.push(`${label}'s construction has no carry waterfall, so no carry is forecast`)
 
   const months = new Map<MonthKey, { called: number; distributed: number; carry: number }>()

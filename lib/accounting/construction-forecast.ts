@@ -23,6 +23,7 @@ import { projectFeesForYear, DEFAULT_PACING } from './construction'
 import { runWaterfall } from './waterfall'
 import { forwardWaterfall, PER_LP_FORECAST_WARNING, projectedDeals } from './forward-waterfall'
 import { allocateRecycling, type RecyclingTreatment } from '@portfolio/fund-engine'
+import { forwardYearsToRows, rowCalendarYear, rowEndTime, rowOfTime, scheduleGrid, type ScheduleGrid } from './construction-calendar'
 
 /** One forecast baseline for the page, API, and agent. No invented historical flow dates. */
 export function constructionBaseline(actuals: ConstructionActuals, model: ConstructionResult, asOf: string): ForecastBaseline {
@@ -89,10 +90,12 @@ export interface DealTimeline {
 }
 
 export interface ForecastYear {
-  /** Years from today; 0 is the baseline. */
+  /** The row: 0 is the baseline (today), then one row per calendar year (./construction-calendar.ts). */
   year: number
-  /** Calendar year at the end of this period, e.g. 2029. */
+  /** The calendar year this row covers, e.g. 2029. Row 1 is the rest of the current year. */
   calendarYear: number
+  /** Years from today at the end of this row: when its year-end values are measured. */
+  t: number
   // Flows in the year
   invested: number
   fees: number
@@ -123,7 +126,10 @@ export interface ForecastYear {
 export interface ForecastSchedule {
   years: ForecastYear[]
   deals: DealTimeline[]
+  /** The horizon in years from today. The rows run to it (./construction-calendar.ts). */
   horizonYears: number
+  /** How the rows map onto months: calendar years from the as-of month to the horizon. */
+  grid: ScheduleGrid
   warnings: string[]
   /** True when the pacing assumptions say enough to place a single exit. */
   stated: boolean
@@ -293,18 +299,21 @@ export function forecastSchedule(
   const modeledExitYears = deals.filter(d => d.proceeds != null).map(d => yearOf(d.exitAt))
   const finalExitYear = modeledExitYears.length > 0 ? Math.max(...modeledExitYears) : null
 
-  const baseYear = Number(baseline.asOf.slice(0, 4)) || new Date().getFullYear()
+  // Calendar-year rows (./construction-calendar.ts): row 1 is the rest of this year.
+  const grid = scheduleGrid(baseline.asOf || new Date().toISOString().slice(0, 10), horizonYears)
+  const rows = grid.rows
+  const rowOf = (t: number) => rowOfTime(grid, t)
   const committed = model.capital.committedCapital
   const deployedTotal = model.capital.deployedTotal
   const accretion = pacing.accretion === 'none' ? 'none' : 'linear'
 
   // Per-year flows.
-  const invested = new Array<number>(horizonYears + 1).fill(0)
-  const proceeds = new Array<number>(horizonYears + 1).fill(0)
+  const invested = new Array<number>(rows + 1).fill(0)
+  const proceeds = new Array<number>(rows + 1).fill(0)
   for (const d of deals) {
-    if (d.initialCheck > 0) invested[Math.min(horizonYears, yearOf(d.initialAt))] += d.initialCheck
-    if (d.followOn > 0) invested[Math.min(horizonYears, yearOf(d.followOnAt))] += d.followOn
-    if (d.proceeds != null && d.proceeds > 0 && d.exitAt <= horizonYears + 1e-9) proceeds[yearOf(d.exitAt)] += d.proceeds
+    if (d.initialCheck > 0) invested[rowOf(d.initialAt)] += d.initialCheck
+    if (d.followOn > 0) invested[rowOf(d.followOnAt)] += d.followOn
+    if (d.proceeds != null && d.proceeds > 0 && d.exitAt <= horizonYears + 1e-9) proceeds[rowOf(d.exitAt)] += d.proceeds
   }
 
   const years: ForecastYear[] = []
@@ -327,16 +336,18 @@ export function forecastSchedule(
   // distributed. Deals that set an amount go first, then the earliest exits (fund-engine
   // allocateRecycling). An exit after the plan's last investment has nothing left to fund, so it
   // is not recycled, and neither is one after the recycling period.
-  const recycled = new Array<number>(horizonYears + 1).fill(0)
-  const recycledDeemed = new Array<number>(horizonYears + 1).fill(0)
+  const recycled = new Array<number>(rows + 1).fill(0)
+  const recycledDeemed = new Array<number>(rows + 1).fill(0)
   const capRate = pacing.recycleCapRate ?? 0
   if (capRate > 0) {
     const lastInvestmentYear = invested.reduce((last, v, t) => (v > 0 ? t : last), 0)
-    const exits = deals.filter(d => d.proceeds != null && d.proceeds > 0 && d.exitAt <= horizonYears + 1e-9)
-    const until = Math.min(lastInvestmentYear, pacing.recycleUntilYears ?? Infinity)
+    // Within the recycling period (years from today) and no later than the calendar year of the
+    // plan's last investment.
+    const exits = deals.filter(d => d.proceeds != null && d.proceeds > 0 && d.exitAt <= horizonYears + 1e-9
+      && (pacing.recycleUntilYears == null || d.exitAt <= pacing.recycleUntilYears + 1e-9))
     const allocation = allocateRecycling(
       exits.map(d => ({
-        at: yearOf(d.exitAt),
+        at: rowOf(d.exitAt),
         proceeds: d.proceeds!,
         ...(d.recycleAmount !== undefined ? { amount: d.recycleAmount } : {}),
         ...(d.recycleTreatment ? { treatment: d.recycleTreatment } : {}),
@@ -344,12 +355,12 @@ export function forecastSchedule(
       // Up to the cap, and no more than the plan still has to invest beyond the cash in hand:
       // recycling more than the plan can spend would only park cash.
       Math.min(capRate * committed, Math.max(0, invested.reduce((s, v) => s + v, 0) - cash)),
-      { until, defaultTreatment: pacing.recycleTreatment ?? 'retained' },
+      { until: lastInvestmentYear, defaultTreatment: pacing.recycleTreatment ?? 'retained' },
     )
     const byDeal = new Map(exits.map((d, i) => [d, allocation[i]]))
     exits.forEach((d, i) => {
-      recycled[yearOf(d.exitAt)] += allocation[i].recycled
-      recycledDeemed[yearOf(d.exitAt)] += allocation[i].deemed
+      recycled[rowOf(d.exitAt)] += allocation[i].recycled
+      recycledDeemed[rowOf(d.exitAt)] += allocation[i].deemed
     })
     // On the deals too, so the monthly plan forecast books each exit's recycling in its own month.
     deals = deals.map(d => {
@@ -381,16 +392,24 @@ export function forecastSchedule(
     return v
   }
 
-  for (let t = 0; t <= horizonYears; t++) {
-    const fundIsOperating = t > 0 && (finalExitYear == null || t <= finalExitYear)
-    // Fee-paying commitments only — the GP's own stake pays no fee (CapitalBlock.feePayingShare).
-    // The plan's own fees and expenses when it has them (its rules decide when they stop); else
-    // construction's inputs, fee-paying commitments only — the GP's own stake pays no fee.
-    const planCosts = model.capital.planCosts
-    const fees = planCosts ? (t > 0 ? planCosts.feesByYear[t] ?? 0 : 0)
-      : fundIsOperating ? Math.round(projectFeesForYear(a, committed, deployedTotal, baseline.nav, t) * (model.capital.feePayingShare ?? 1) * 100) / 100 : 0
-    const expenses = planCosts ? (t > 0 ? planCosts.expensesByYear[t] ?? 0 : 0)
-      : fundIsOperating ? (t <= a.feeTermYears ? a.annualPartnershipExpense : 0) + (t === 1 ? a.remainingOrgCosts : 0) : 0
+  // Fees and expenses. The plan's own when it has them (its rules decide when they stop), already
+  // by calendar row (lib/forecast/plan-costs.ts). Else construction's inputs: stated per forward
+  // year (year y = the twelve months ending y years from today), fee-paying commitments only — the
+  // GP's own stake pays no fee — spread over their months and added up by calendar row.
+  const planCosts = model.capital.planCosts
+  const fwdYears = Math.ceil(horizonYears)
+  const operating = (y: number) => y > 0 && (finalExitYear == null || y <= finalExitYear)
+  const fwdFees = Array.from({ length: fwdYears + 1 }, (_, y) => operating(y)
+    ? Math.round(projectFeesForYear(a, committed, deployedTotal, baseline.nav, y) * (model.capital.feePayingShare ?? 1) * 100) / 100 : 0)
+  const fwdExpenses = Array.from({ length: fwdYears + 1 }, (_, y) => operating(y)
+    ? (y <= a.feeTermYears ? a.annualPartnershipExpense : 0) + (y === 1 ? a.remainingOrgCosts : 0) : 0)
+  const feesByRow = planCosts ? planCosts.feesByYear : forwardYearsToRows(grid, fwdFees)
+  const expensesByRow = planCosts ? planCosts.expensesByYear : forwardYearsToRows(grid, fwdExpenses)
+
+  for (let t = 0; t <= rows; t++) {
+    const fees = t > 0 ? feesByRow[t] ?? 0 : 0
+    const expenses = t > 0 ? expensesByRow[t] ?? 0 : 0
+    const at = rowEndTime(grid, t)
     const inv = t === 0 ? 0 : invested[t]
     const grossProceeds = t === 0 ? 0 : proceeds[t]
     const recycledNow = t === 0 ? 0 : recycled[t]
@@ -425,15 +444,16 @@ export function forecastSchedule(
       cumInvested += inv
       cumDistributed += dist
     }
-    const nav = r(navAt(t) + cash)
+    const nav = r(navAt(at) + cash)
 
-    if (t > 0) forward.push({ t, amount: dist - called })
-    const wantIrr = irr === 'all' || (irr === 'final' && t === horizonYears)
-    const netIrr = t === 0 || !wantIrr ? null : irrOf([...history, ...forward, { t, amount: nav }])
+    if (t > 0) forward.push({ t: at, amount: dist - called })
+    const wantIrr = irr === 'all' || (irr === 'final' && t === rows)
+    const netIrr = t === 0 || !wantIrr ? null : irrOf([...history, ...forward, { t: at, amount: nav }])
 
     years.push({
       year: t,
-      calendarYear: baseYear + t,
+      calendarYear: rowCalendarYear(grid, t),
+      t: at,
       invested: r(inv),
       fees: r(fees),
       expenses: r(expenses),
@@ -456,7 +476,7 @@ export function forecastSchedule(
     warnings.push(`${unexited} deal${unexited === 1 ? '' : 's'} exit${unexited === 1 ? 's' : ''} after the ${horizonYears}-year horizon and still sit${unexited === 1 ? 's' : ''} in NAV at the end.`)
   }
 
-  return { years, deals, horizonYears, warnings, stated }
+  return { years, deals, horizonYears, grid, warnings, stated }
 }
 
 /**
@@ -467,8 +487,7 @@ export function applyLpWaterfall(schedule: ForecastSchedule, projection?: Constr
   if (!projection) return schedule
   const share = Math.min(1, Math.max(0, projection.lpCommitmentShare))
   // Each year's flows land on its last day, so the deals' do too (deal by deal, forward-waterfall.ts).
-  const firstYear = schedule.years[0]?.calendarYear ?? Number(projection.asOf.slice(0, 4))
-  const yearEndOf = (t: number) => `${firstYear + yearOf(t)}-12-31`
+  const yearEndOf = (t: number) => `${rowCalendarYear(schedule.grid, rowOfTime(schedule.grid, t))}-12-31`
   const deals = projection.kind === 'american'
     ? projectedDeals(schedule.deals, schedule.horizonYears, yearEndOf, schedule.years
       .filter(y => y.year > 0)
@@ -512,9 +531,9 @@ export function applyLpWaterfall(schedule: ForecastSchedule, projection?: Constr
     distributed += split.toLP
     // Hypothetical liquidation of remaining NAV at this year end, without mutating the state.
     const netNav = waterfall ? runWaterfall(year.nav * share, waterfall.terms, waterfall.liquidationStateAt(yearEnd)).toLP : year.nav * share
-    if (lpCall > 0) forward.push({ t: year.year, amount: -lpCall })
-    if (split.toLP > 0) forward.push({ t: year.year, amount: split.toLP })
-    const netIrr = irrOf([...history, ...forward, { t: year.year, amount: netNav }])
+    if (lpCall > 0) forward.push({ t: year.t, amount: -lpCall })
+    if (split.toLP > 0) forward.push({ t: year.t, amount: split.toLP })
+    const netIrr = irrOf([...history, ...forward, { t: year.t, amount: netNav }])
     return {
       ...year,
       called: lpCall,

@@ -14,6 +14,7 @@
 // deliberate act. Industry-informed engine defaults keep those implementation details out of the
 // form, while fund and per-deal assumptions still determine the forecast.
 
+import { rowCalendarYear, scheduleGrid } from './construction-calendar'
 import type { ConstructionAssumptions, ConstructionResult, ConstructionWaterfallProjection, PacingAssumptions, SimulationAssumptions } from './construction'
 import { DEFAULT_SIMULATION } from './construction'
 import { applyLpWaterfall, forecastSchedule, dealTimelines, type ForecastBaseline } from './construction-forecast'
@@ -154,10 +155,10 @@ export function simulateFund(
   const horizonYears = Math.max(base.horizonYears, Math.ceil(deals.reduce((m, d) => Math.max(m, d.exitAt + Math.max(0, settingsFor(d).holdSpreadYears)), 0)))
   const wide = { ...pacing, horizonYears }
 
-  const tvpiByYear: number[][] = Array.from({ length: horizonYears + 1 }, () => [])
-  const dpiByYear: number[][] = Array.from({ length: horizonYears + 1 }, () => [])
-  const distributedByYear: number[][] = Array.from({ length: horizonYears + 1 }, () => [])
-  const carriedInterestByYear: number[][] = Array.from({ length: horizonYears + 1 }, () => [])
+  const tvpiByYear: number[][] = []
+  const dpiByYear: number[][] = []
+  const distributedByYear: number[][] = []
+  const carriedInterestByYear: number[][] = []
   const finalTvpi: number[] = []
   const finalDpi: number[] = []
   const finalIrr: number[] = []
@@ -183,10 +184,10 @@ export function simulateFund(
     if (returner) fundReturners++
     const s = applyLpWaterfall(forecastSchedule(model, a, wide, baseline, override, 'final'), waterfall)
     for (const y of s.years) {
-      tvpiByYear[y.year].push(y.tvpi ?? 0)
-      dpiByYear[y.year].push(y.dpi ?? 0)
-      distributedByYear[y.year].push(y.distributed)
-      carriedInterestByYear[y.year].push(y.carriedInterest ?? 0)
+      ;(tvpiByYear[y.year] ??= []).push(y.tvpi ?? 0)
+      ;(dpiByYear[y.year] ??= []).push(y.dpi ?? 0)
+      ;(distributedByYear[y.year] ??= []).push(y.distributed)
+      ;(carriedInterestByYear[y.year] ??= []).push(y.carriedInterest ?? 0)
     }
     // Totals over the forecast years (year 0 is today's baseline).
     const forward = s.years.filter(y => y.year >= 1)
@@ -207,20 +208,21 @@ export function simulateFund(
   const years: SimulationYear[] = base.years.map(y => ({
     year: y.year,
     calendarYear: y.calendarYear,
-    tvpi: percentiles(tvpiByYear[y.year]),
-    dpi: percentiles(dpiByYear[y.year]),
-    distributed: percentiles(distributedByYear[y.year]),
-    carriedInterest: percentiles(carriedInterestByYear[y.year]),
+    tvpi: percentiles(tvpiByYear[y.year] ?? []),
+    dpi: percentiles(dpiByYear[y.year] ?? []),
+    distributed: percentiles(distributedByYear[y.year] ?? []),
+    carriedInterest: percentiles(carriedInterestByYear[y.year] ?? []),
   }))
   // The wide grid may extend past the base schedule's years.
-  for (let t = base.years.length; t <= horizonYears; t++) {
+  const wideGrid = scheduleGrid(baseline.asOf || new Date().toISOString().slice(0, 10), horizonYears)
+  for (let t = base.years.length; t <= wideGrid.rows; t++) {
     years.push({
       year: t,
-      calendarYear: base.years[0].calendarYear + t,
-      tvpi: percentiles(tvpiByYear[t]),
-      dpi: percentiles(dpiByYear[t]),
-      distributed: percentiles(distributedByYear[t]),
-      carriedInterest: percentiles(carriedInterestByYear[t]),
+      calendarYear: rowCalendarYear(wideGrid, t),
+      tvpi: percentiles(tvpiByYear[t] ?? []),
+      dpi: percentiles(dpiByYear[t] ?? []),
+      distributed: percentiles(distributedByYear[t] ?? []),
+      carriedInterest: percentiles(carriedInterestByYear[t] ?? []),
     })
   }
 

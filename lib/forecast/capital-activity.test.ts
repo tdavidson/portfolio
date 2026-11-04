@@ -117,4 +117,14 @@ describe('capitalActivity', () => {
     }))
     expect(r.called).toEqual({ actual: 0, forecast: 0 })
   })
+
+  it('counts recycled proceeds in actual months', () => {
+    const r = capitalActivity(base({
+      recycled: [
+        { date: '2025-11-15', amount: 60_000 },
+        { date: '2025-09-01', amount: 10_000 },
+      ],
+    }))
+    expect(r.recycled).toEqual({ actual: 60_000, forecast: 0 })
+  })
 })

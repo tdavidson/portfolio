@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Analyst: Edit and Retry that visibly work
+- **Edit opens the question in place.** The old "Edit and retry" copied the question down into the composer, far below the answer under it, so clicking it looked like nothing happened. The pencil under a question now turns its bubble into an edit box, focused: Enter or **Send** asks the edited question and replaces the answer below it and everything after; Esc or **Cancel** leaves it as it was.
+- **Retry asks again in one click.** A separate retry button under each question asks it again from that point, which is also how to recover a question whose answer failed.
+
 ### Financial statements: fold the detail, and a calmer forecast
 - **Per-company lines fold.** On Statements and on the Forecast's income statement, cash flows and balance sheet, sub-accounts that share a parent code (`1100-<company>` investments, `4000-<company>` realized gains and so on) collapse into one line carrying their sum, with the same arrows as the LP list's consolidated investors: click the line to open it, or **Show details** / **Hide details** to open or close them all. A lone sub-account stays a plain line. `lib/accounting/statement-groups.ts`.
 - **The partner list folds too.** The statement of changes in partners' capital can close to its total line, and a non-cash entry with many legs (a capital call credits every partner) lists "Cr Partners' capital (N)", and its arrow opens every line. Distributions on the forecast cash flow open to their carry, GP and LP split, and ending cash to each bank account.
