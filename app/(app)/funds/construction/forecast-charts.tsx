@@ -86,7 +86,6 @@ export function JCurveChart({ actual, schedule, simulation, netOfCarry, multiple
   multiple: (v: number | null) => string
 }) {
   const data = useMemo(() => {
-    const baseYear = schedule.years[0]?.calendarYear ?? new Date().getFullYear()
     const rows = new Map<number, Record<string, number | [number, number] | null | string>>()
     // The source series is quarterly. Use the latest observation in each calendar year so this
     // chart has the same annual cadence as the cash-flow chart beside it.
@@ -100,7 +99,7 @@ export function JCurveChart({ actual, schedule, simulation, netOfCarry, multiple
     }
     const simByYear = new Map((simulation?.years ?? []).map(y => [y.year, y]))
     for (const y of schedule.years) {
-      const x = baseYear + y.year
+      const x = y.calendarYear
       const sim = simByYear.get(y.year)
       const row = rows.get(x) ?? { x, label: String(x) }
       // Year 0 is today: the forecast starts from the last actual point, so the two lines meet.
