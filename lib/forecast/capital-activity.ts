@@ -26,6 +26,11 @@ export type Split = { actual: number; forecast: number }
 export interface CapitalActivity {
   called: Split
   distributed: Split
+  /**
+   * Exit proceeds put back to work instead of distributed (the recycling register). Actual only
+   * here: the plan's recycling comes from its construction, with the plan's returns.
+   */
+  recycled: Split
   invested: Split
   fees: Split
   org: Split
@@ -44,6 +49,8 @@ export interface CapitalActivityInput {
   investments: { date: string | null; cost: number }[]
   /** The plan's entries; only those in forecast months are counted. */
   planEntries: FlowEntry[]
+  /** Proceeds recycled, dated (live rows of the recycling register). */
+  recycled?: { date: string; amount: number }[]
 }
 
 const PLAN_KIND: Record<string, 'called' | 'distributed' | 'invested'> = {
@@ -70,7 +77,7 @@ export function capitalActivity(input: CapitalActivityInput): CapitalActivity {
     return null
   }
   const zero = (): Split => ({ actual: 0, forecast: 0 })
-  const out: CapitalActivity = { called: zero(), distributed: zero(), invested: zero(), fees: zero(), org: zero(), partnership: zero() }
+  const out: CapitalActivity = { called: zero(), distributed: zero(), recycled: zero(), invested: zero(), fees: zero(), org: zero(), partnership: zero() }
   const byId = new Map(input.accounts.map(a => [a.id, a]))
 
   // Partners' capital. A posting's amount is debit-positive: a contribution credits capital, a
@@ -80,6 +87,10 @@ export function capitalActivity(input: CapitalActivityInput): CapitalActivity {
     const bucket = bucketForSourceType(p.sourceType, p.amount)
     if (bucket === 'contributions') out.called.actual += -p.amount
     else if (bucket === 'distributions' || p.sourceType === 'carry_distribution') out.distributed.actual += p.amount
+  }
+
+  for (const r of input.recycled ?? []) {
+    if (side(r.date) === 'actual') out.recycled.actual += r.amount
   }
 
   for (const t of input.investments) {

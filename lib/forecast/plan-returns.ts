@@ -55,6 +55,8 @@ export interface PlanReturns {
   distributedToDate: number[]
   /** Cash in the bank at each month's end, after calls and distributions. */
   cash: { month: MonthKey; ending: number }[]
+  /** Exit proceeds the plan recycles, by month (only months with any). */
+  recycled: { month: MonthKey; amount: number }[]
   /** The plan's lowest month-end cash. */
   lowestCash: { month: MonthKey; amount: number } | null
   warnings: string[]
@@ -136,6 +138,7 @@ export function planReturns(input: ReturnsInput): PlanReturns {
     },
     halfBackYear: half,
     cash: input.months.map(m => ({ month: m, ending: cap.endingCash.get(m) ?? 0 })),
+    recycled: input.months.filter(m => (input.recycled?.get(m) ?? 0) !== 0).map(m => ({ month: m, amount: roundCents(input.recycled!.get(m)!) })),
     distributedToDate: input.months.reduce<number[]>((acc, m) => [...acc, roundCents((acc[acc.length - 1] ?? 0) + (cap.distributions.get(m) ?? 0))], []),
     lowestCash: input.months.reduce<{ month: MonthKey; amount: number } | null>((low, m) => {
       const v = cap.endingCash.get(m) ?? 0

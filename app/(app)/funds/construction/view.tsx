@@ -513,7 +513,13 @@ function CapitalPlanningTable({ capital: c, range, planYears, fmt, fmtFull }: {
   const pct = (v: number | null) => (v == null || committed <= 0 ? '' : `${((v / committed) * 100).toFixed(1)}%`)
   const callsToCome = planYears ? planYears.reduce((s, y) => s + y.called, 0) : null
   const lastCall = planYears?.filter(y => y.called > 0.5).at(-1)?.calendarYear ?? null
-  const unallocated = c.remaining - c.plannedCost
+  const total = (x: Split) => x.actual + x.forecast
+  // What is left to put to work: every dollar committed (what is not yet called is assumed called)
+  // plus proceeds recycled, less every fee, expense and investment, actual and forecast. Over a
+  // range these are the range's own figures, so on the fund's lifetime it is the whole fund.
+  const unallocated = range
+    ? committed + total(range.recycled) - total(range.fees) - total(range.org) - total(range.partnership) - total(range.invested)
+    : c.remaining - c.plannedCost
   type Line = { label: string; note?: string; actual?: number | null; forecast?: number | null; total?: number | null; strong?: boolean; warn?: boolean }
   const sum = (a?: number | null, b?: number | null) => (a == null && b == null ? null : (a ?? 0) + (b ?? 0))
   const split = (x: Split, strong?: boolean): Pick<Line, 'actual' | 'forecast' | 'total' | 'strong'> => ({ actual: x.actual, forecast: x.forecast, total: x.actual + x.forecast, strong })
@@ -523,6 +529,7 @@ function CapitalPlanningTable({ capital: c, range, planYears, fmt, fmtFull }: {
       { label: 'Capital called', ...split(range.called) },
       { label: 'Uncalled capital', note: 'at the end of the range', actual: c.uncalledCapital, forecast: -range.called.forecast, total: c.uncalledCapital - range.called.forecast },
       { label: 'Distributions', ...split(range.distributed) },
+      { label: 'Recycled capital', note: 'proceeds put back to work', ...split(range.recycled) },
     ] },
     { title: 'Fees and expenses', lines: [
       { label: 'Management fees', ...split(range.fees) },
@@ -532,7 +539,7 @@ function CapitalPlanningTable({ capital: c, range, planYears, fmt, fmtFull }: {
     ] },
     { title: 'Investments', lines: [
       { label: 'Invested capital', ...split(range.invested, true) },
-      { label: unallocated < 0 ? 'Over-committed' : 'Not yet allocated', note: 'over the plan', total: unallocated, strong: true, warn: unallocated < 0 },
+      { label: unallocated < 0 ? 'Over-committed' : 'Not yet allocated', note: 'committed + recycled − fees, expenses and investments', total: unallocated, strong: true, warn: unallocated < 0 },
     ] },
   ] : [
     { title: 'Capital', lines: [

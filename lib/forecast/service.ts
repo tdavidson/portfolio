@@ -43,6 +43,7 @@ import { actualsByAccount, buildPlan, planWindow, type BuiltPlan, type PlanKind,
 import { buildReport, type FlowEntry, type Report, type ReportView } from './report'
 import { capitalActivity, type CapitalActivity } from './capital-activity'
 import { loadInvestmentCosts } from '@/lib/accounting/investment-costs'
+import { loadRecycledRows } from '@/lib/accounting/recycling'
 import { computeVariance, largestVariances, type VarianceResult } from './variance'
 import { cycleLabel, loadFeeLinks, loadLinkedDrivers, seesCarry, seesFund, seesManco } from './linked'
 import { historyWindow, MAX_HISTORY_MONTHS, MIN_HISTORY_MONTHS, suggestRule, type RuleSuggestion } from './suggest'
@@ -1356,9 +1357,10 @@ async function seriesDetail(ctx: ForecastServiceContext, v: VehicleCtx, input: S
 
   // Actuals: everything posted through the end of the range (or today's month, whichever is earlier).
   const actualsAvailableThrough = input.end < thisMonth() ? input.end : thisMonth()
-  const [ledger, investments] = await Promise.all([
+  const [ledger, investments, recycledRows] = await Promise.all([
     loadPostedLedger(ctx.admin, ctx.fundId, v.name, lastDay(actualsAvailableThrough)),
     loadInvestmentCosts(ctx.admin, ctx.fundId, v.name),
+    loadRecycledRows(ctx.admin, ctx.fundId, v.id),
   ])
   // Partners' capital as the capital accounts resolve it: the books where they hold a partner's
   // capital, the partner's statements where they do not (a fund kept outside these books).
@@ -1387,6 +1389,7 @@ async function seriesDetail(ctx: ForecastServiceContext, v: VehicleCtx, input: S
     capitalActivity: capitalActivity({
       months: report.months, accounts: v.accounts, capitalPostings: capital.postings, postings: ledger.postings,
       investments, planEntries,
+      recycled: recycledRows.filter(r => r.live).map(r => ({ date: r.recycledOn, amount: r.amount })),
     }),
     warnings,
   }
