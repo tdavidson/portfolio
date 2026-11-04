@@ -1,7 +1,7 @@
 // Portfolio construction, by month.
 //
-// Construction owns a fund's investment economics and reports them by YEAR (construction-forecast.ts
-// collapses every dated flow with `yearOf`). Underneath, its deals carry fractional-year times —
+// Construction owns a fund's investment economics and reports them by CALENDAR YEAR
+// (construction-forecast.ts, on the rows of lib/accounting/construction-calendar.ts). Underneath, its deals carry fractional-year times —
 // when a check is written, when an exit lands — so those can be placed in real months instead of
 // dividing a year by twelve. This adapter does that and nothing more: it reads the schedule, it
 // never recomputes it, and every year it produces re-adds to construction's own annual figure.
@@ -18,6 +18,7 @@ import { roundCents } from '@/lib/accounting/ledger'
 import type { ForecastSchedule } from '@/lib/accounting/construction-forecast'
 import { projectedDeals, type ProjectedDeals } from '@/lib/accounting/forward-waterfall'
 import { addMonths, lastDay, monthOf, type MonthKey } from './months'
+import { monthIndexOfTime, rowEndMonth, rowOfMonthIndex, rowStartMonth, scheduleGrid } from '@/lib/accounting/construction-calendar'
 
 export type ConstructionFlow = 'invested' | 'proceeds' | 'fees' | 'expenses' | 'called' | 'distributed'
 
@@ -48,9 +49,8 @@ export interface MonthlyConstruction {
 
 const FLOWS: ConstructionFlow[] = ['invested', 'proceeds', 'fees', 'expenses', 'called', 'distributed']
 
-/** Months after the as-of month for a fractional-year time: year y's flows land in months 12y−11 … 12y. */
-const monthIndex = (t: number) => (t <= 0 ? 0 : Math.ceil(12 * t - 1e-9))
-const yearOfIndex = (k: number) => (k <= 0 ? 0 : Math.ceil(k / 12))
+/** Months after the as-of month for a fractional-year time. A row's months are its calendar year's (lib/accounting/construction-calendar.ts). */
+const monthIndex = monthIndexOfTime
 
 /** Spread `total` over weighted slots so the parts re-add to the cent. */
 function apportion(total: number, weights: number[]): number[] {
@@ -83,6 +83,9 @@ export function monthlyProjectedDeals(schedule: ForecastSchedule, asOf: string, 
 export function monthlyConstruction(schedule: ForecastSchedule, asOf: string): MonthlyConstruction {
   const asOfMonth = monthOf(asOf)
   const H = schedule.horizonYears
+  // The schedule's own grid when it was made from the same as-of month; otherwise the same rule.
+  const grid = schedule.grid?.asOfMonth === asOfMonth ? schedule.grid : scheduleGrid(asOf, H)
+  const rowOfIndex = (k: number) => rowOfMonthIndex(grid, k)
   const events: ConstructionEvent[] = []
   const warnings: string[] = []
   const at = (k: number) => addMonths(asOfMonth, k)
@@ -99,7 +102,7 @@ export function monthlyConstruction(schedule: ForecastSchedule, asOf: string): M
       if (t <= 0) { dropped++; return }
       let k = monthIndex(t)
       let note: string | undefined
-      if (yearOfIndex(k) > H) { k = 12 * H; note = 'Beyond the horizon — construction books it in its last year' }
+      if (k > grid.horizonMonths) { k = grid.horizonMonths; note = 'Beyond the horizon — construction books it in its last year' }
       events.push({ month: at(k), flow: 'invested', amount: roundCents(amount), deal: d.name, ...(d.kind === 'existing' ? { companyId: d.key } : {}), timing: 'stated', note })
     }
     place(d.initialAt, d.initialCheck)
@@ -124,7 +127,8 @@ export function monthlyConstruction(schedule: ForecastSchedule, asOf: string): M
   // Annual flows, year by year.
   for (const y of schedule.years) {
     if (y.year < 1) continue
-    const months = Array.from({ length: 12 }, (_, i) => at(12 * y.year - 11 + i))
+    const first = rowStartMonth(grid, y.year), last = rowEndMonth(grid, y.year)
+    const months = Array.from({ length: Math.max(0, last - first + 1) }, (_, i) => at(first + i))
     const inYear = (flow: ConstructionFlow) => months.map(m => events.filter(e => e.month === m && e.flow === flow).reduce((s, e) => s + e.amount, 0))
     const invested = inYear('invested')
     const proceeds = inYear('proceeds')
@@ -152,9 +156,9 @@ export function monthlyConstruction(schedule: ForecastSchedule, asOf: string): M
     if (y.year < 1) continue
     for (const flow of FLOWS) {
       const annual = flow === 'proceeds'
-        ? roundCents(schedule.deals.filter(d => d.proceeds != null && d.proceeds > 0 && d.exitAt > 0 && d.exitAt <= H + 1e-9 && yearOfIndex(monthIndex(d.exitAt)) === y.year).reduce((s, d) => s + d.proceeds!, 0))
+        ? roundCents(schedule.deals.filter(d => d.proceeds != null && d.proceeds > 0 && d.exitAt > 0 && d.exitAt <= H + 1e-9 && rowOfIndex(monthIndex(d.exitAt)) === y.year).reduce((s, d) => s + d.proceeds!, 0))
         : (y as any)[flow] as number
-      const monthly = roundCents(events.filter(e => e.flow === flow && yearOfIndex(monthIndexOf(asOfMonth, e.month)) === y.year).reduce((s, e) => s + e.amount, 0))
+      const monthly = roundCents(events.filter(e => e.flow === flow && rowOfIndex(monthIndexOf(asOfMonth, e.month)) === y.year).reduce((s, e) => s + e.amount, 0))
       reconciliation.push({ year: y.year, calendarYear: y.calendarYear, flow, annual: roundCents(annual), monthly })
     }
   }

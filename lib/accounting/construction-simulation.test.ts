@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest'
+import { scheduleGrid } from './construction-calendar'
 import { constructionModel, DEFAULT_ASSUMPTIONS, type ConstructionActuals, type ConstructionAssumptions } from './construction'
 import { DEFAULT_PACING, forecastSchedule, type PacingAssumptions, type ForecastBaseline } from './construction-forecast'
 import { simulateFund, sampleOutcome, makeRng, percentiles, DEFAULT_SIMULATION, type SimulationAssumptions } from './construction-simulation'
@@ -121,7 +122,9 @@ describe('simulateFund', () => {
     const s = simulateFund(model, a, pacing, sim({ holdSpreadYears: 2 }), baseline)
     const det = forecastSchedule(model, a, pacing, baseline)
     expect(s.horizonYears).toBeGreaterThan(det.horizonYears)
-    expect(s.years).toHaveLength(s.horizonYears + 1)
+    // One row per calendar year to the horizon: from mid-September, the rest of this year first.
+    expect(s.years).toHaveLength(scheduleGrid(baseline.asOf, s.horizonYears).rows + 1)
+    expect(s.years).toHaveLength(s.horizonYears + 2)
   })
 
   it('counts a fund returner when one deal alone returns committed capital', () => {
