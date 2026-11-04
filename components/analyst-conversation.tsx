@@ -3,7 +3,7 @@
 import { useState, useRef, useEffect, type ReactNode } from 'react'
 import { AI_EFFORTS, type AIEffort } from '@/lib/ai/types'
 import { supportsEffort } from '@/lib/ai/model-families'
-import { Sparkles, Send, X, Save, Clock, Plus, Trash2, ArrowLeft, Paperclip, ArrowUp, Copy, Check, ChevronDown, Upload, Pencil, Square, Loader2 } from 'lucide-react'
+import { Sparkles, Send, X, Save, Clock, Plus, Trash2, ArrowLeft, Paperclip, ArrowUp, Copy, Check, ChevronDown, Upload, Pencil, RotateCcw, Square, Loader2 } from 'lucide-react'
 import { Markdown } from '@/components/markdown'
 import { Button } from '@/components/ui/button'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
@@ -126,7 +126,11 @@ export function AnalystConversation({
   const [copiedIdx, setCopiedIdx] = useState<number | null>(null)
   const [attachOpen, setAttachOpen] = useState(false)
   const [showSuggestions, setShowSuggestions] = useState(false)
-  const [editingMessageIndex, setEditingMessageIndex] = useState<number | null>(null)
+  // A question being edited in place: which message, and the text so far. Editing happens in the
+  // question's own bubble, not the composer — copying it down there read as the button doing
+  // nothing, since the question sits far above the composer once an answer is under it.
+  const [editing, setEditing] = useState<{ index: number; text: string } | null>(null)
+  const editRef = useRef<HTMLTextAreaElement>(null)
   // Drafted entries for a given assistant message, by its index in `messages`. Deliberately not
   // persisted with the conversation — a stale draft from a reloaded thread shouldn't be
   // applicable against books that have moved on since.
@@ -265,21 +269,25 @@ export function AnalystConversation({
     if (messages.length === 0) setTurnMeta({})
   }, [messages.length])
 
-  async function handleSend() {
+  function handleSend() {
     // With a document attached, "record this" is implied — no typing required.
     if ((!input.trim() && !doc) || loading || requestControllerRef.current) return
+    const content = input.trim() || `Draft the entry that records ${doc?.name ?? 'the attached document'}.`
+    setInput('')
+    void askQuestion(content, null)
+  }
+
+  /** Ask `content`. With `editIndex`, the thread is cut back to before that question first, so
+   *  everything after it (answers, drafts) is replaced by the new answer. */
+  async function askQuestion(content: string, editIndex: number | null) {
+    if (loading || requestControllerRef.current) return
     const startedAt = Date.now()
-    const editIndex = editingMessageIndex
-    const userMessage = {
-      role: 'user' as const,
-      content: input.trim() || `Draft the entry that records ${doc?.name ?? 'the attached document'}.`,
-    }
+    const userMessage = { role: 'user' as const, content }
     const newMessages = [...(editIndex === null ? messages : messages.slice(0, editIndex)), userMessage]
     const controller = new AbortController()
     requestControllerRef.current = controller
     setMessages(newMessages)
-    setInput('')
-    setEditingMessageIndex(null)
+    setEditing(null)
     setShowSuggestions(false)
     setError(null)
     setSteps([])
@@ -367,21 +375,41 @@ export function AnalystConversation({
     setError(null)
   }
 
-  function handleEditAndRetry(index: number) {
+  /** Ask the same question again from here: the answer after it (and anything later) is replaced. */
+  function handleRetry(index: number) {
     const message = messages[index]
     if (!message || message.role !== 'user' || loading) return
-    setInput(message.content)
-    setEditingMessageIndex(index)
-    setShowSuggestions(false)
-    setError(null)
-    inputRef.current?.focus()
+    void askQuestion(message.content, index)
   }
 
-  function cancelEdit() {
-    setInput('')
-    setEditingMessageIndex(null)
-    inputRef.current?.focus()
+  function handleStartEdit(index: number) {
+    const message = messages[index]
+    if (!message || message.role !== 'user' || loading) return
+    setEditing({ index, text: message.content })
+    setShowSuggestions(false)
+    setError(null)
   }
+
+  function handleSubmitEdit() {
+    if (!editing || !editing.text.trim()) return
+    void askQuestion(editing.text.trim(), editing.index)
+  }
+
+  // Into the edit box with the caret at the end, the way every editor opens an existing text.
+  useEffect(() => {
+    const el = editRef.current
+    if (!editing || !el || document.activeElement === el) return
+    el.focus()
+    el.setSelectionRange(el.value.length, el.value.length)
+  }, [editing])
+
+  // The edit box grows with its text, like the composer.
+  useEffect(() => {
+    const el = editRef.current
+    if (!el) return
+    el.style.height = 'auto'
+    el.style.height = `${Math.min(el.scrollHeight, 320)}px`
+  }, [editing?.text])
 
   async function handleSaveAsSummary(idx: number) {
     const msg = messages[idx]
@@ -407,7 +435,7 @@ export function AnalystConversation({
   function handleShowHistory() {
     handleStop()
     setShowSuggestions(false)
-    setEditingMessageIndex(null)
+    setEditing(null)
     loadConversations()
     setShowHistory(true)
   }
@@ -415,7 +443,7 @@ export function AnalystConversation({
   function handleStartNewConversation() {
     handleStop()
     setShowSuggestions(false)
-    setEditingMessageIndex(null)
+    setEditing(null)
     setInput('')
     setDoc(null)
     startNewConversation()
@@ -623,21 +651,64 @@ export function AnalystConversation({
         {threadMeta}
         {messages.map((msg, i) =>
           msg.role === 'user' ? (
-            <div key={i} className="flex flex-col items-end gap-1">
-              <div className="max-w-[80%] rounded-card bg-muted px-4 py-2.5 text-sm whitespace-pre-wrap">
-                {msg.content}
+            editing?.index === i ? (
+              <div key={i} className="ml-auto w-full max-w-[80%] space-y-2 rounded-card border bg-muted/40 p-2 focus-within:ring-1 focus-within:ring-ring">
+                <textarea
+                  ref={editRef}
+                  value={editing.text}
+                  onChange={e => setEditing({ index: i, text: e.target.value })}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault()
+                      handleSubmitEdit()
+                    } else if (e.key === 'Escape') {
+                      e.preventDefault()
+                      setEditing(null)
+                    }
+                  }}
+                  aria-label="Edit question"
+                  rows={1}
+                  className="block w-full resize-none overflow-y-auto bg-transparent px-2 py-1 text-base placeholder:text-muted-foreground focus-visible:outline-none md:text-sm"
+                />
+                <div className="flex items-center justify-end gap-2">
+                  <Button type="button" variant="ghost" size="sm" onClick={() => setEditing(null)}>
+                    Cancel
+                  </Button>
+                  <Button type="button" size="sm" disabled={loading || !editing.text.trim()} onClick={handleSubmitEdit}>
+                    Send
+                  </Button>
+                </div>
+                <p className="px-2 text-xs text-muted-foreground">Sending replaces the answer below and everything after it.</p>
               </div>
-              <Button
-                type="button"
-                variant="ghost"
-                size="sm"
-                disabled={loading}
-                onClick={() => handleEditAndRetry(i)}
-              >
-                <Pencil data-icon="inline-start" />
-                Edit and retry
-              </Button>
-            </div>
+            ) : (
+              <div key={i} className="flex flex-col items-end gap-1">
+                <div className="max-w-[80%] rounded-card bg-muted px-4 py-2.5 text-sm whitespace-pre-wrap">
+                  {msg.content}
+                </div>
+                <div className="flex items-center gap-0.5">
+                  <button
+                    type="button"
+                    onClick={() => handleStartEdit(i)}
+                    disabled={loading}
+                    title="Edit"
+                    aria-label="Edit question"
+                    className={actionIconClass}
+                  >
+                    <Pencil className="h-3.5 w-3.5" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleRetry(i)}
+                    disabled={loading}
+                    title="Retry"
+                    aria-label="Ask again"
+                    className={actionIconClass}
+                  >
+                    <RotateCcw className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              </div>
+            )
           ) : (
             <div key={i} className={`space-y-2 ${answerColumn}`}>
               {turnMeta[i] && (
@@ -784,7 +855,7 @@ export function AnalystConversation({
             size="icon"
             onClick={loading ? handleStop : handleSend}
             disabled={!loading && !input.trim() && !doc}
-            aria-label={loading ? 'Stop response' : editingMessageIndex !== null ? 'Retry' : 'Send'}
+            aria-label={loading ? 'Stop response' : 'Send'}
             className="h-8 w-8 rounded-full"
           >
             {loading ? <Square /> : <ArrowUp />}
@@ -809,7 +880,7 @@ export function AnalystConversation({
         size="icon"
         onClick={loading ? handleStop : handleSend}
         disabled={!loading && !input.trim() && !doc}
-        aria-label={loading ? 'Stop response' : editingMessageIndex !== null ? 'Retry' : 'Send'}
+        aria-label={loading ? 'Stop response' : 'Send'}
         className="h-auto self-end px-2 py-2"
       >
         {loading ? <Square /> : <Send />}
@@ -873,19 +944,6 @@ export function AnalystConversation({
 
   const composerBlock = (
     <div className={isPage ? threadColumn : 'px-4 py-3'}>
-      {editingMessageIndex !== null && (
-        <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
-          <Pencil className="size-3.5" />
-          <span>Editing message — send to retry from here.</span>
-          <button
-            type="button"
-            onClick={cancelEdit}
-            className="underline-offset-4 hover:text-foreground hover:underline"
-          >
-            Cancel
-          </button>
-        </div>
-      )}
       {attachment}
       {isPage ? (
         <>
