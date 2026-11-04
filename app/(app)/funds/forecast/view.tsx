@@ -111,8 +111,9 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
   const refreshFromPortfolioRef = useRef<(() => void) | null>(null)
   const [view, setView] = useState<View>('combined')
   const [preset, setPreset] = useState<Preset>('lifetime')
-  const [start, setStart] = useState<MonthKey>(`${thisMonth().slice(0, 4)}-01`)
-  const [end, setEnd] = useState<MonthKey>(`${thisMonth().slice(0, 4)}-12`)
+  // A range typed by hand; every other preset's range is worked out from the plan as it renders (not
+  // set by an effect after it), so the first figures are fetched for the right range, once.
+  const [customRange, setCustomRange] = useState<{ start: MonthKey; end: MonthKey } | null>(null)
   const [interval, setIntervalChoice] = useState<Interval>('year')
   const [statement, setStatement] = useState<'pnl' | 'cash' | 'balance' | 'entries'>('pnl')
   // Accrual or cash basis, for both statements: the income statement by when income and expenses are
@@ -183,14 +184,22 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
   // ---- loading ---------------------------------------------------------------------------------
 
   const [plansReady, setPlansReady] = useState(false)
-  const initialPlan = useRef<{ fetcher: typeof lf; detail: PlanDetail } | null>(null)
+  // Out-of-date drafts already recompiled on open (plan:revision), once each, and whether one is
+  // being recompiled now; until it is, the figures wait for it.
+  const [refreshTried, setRefreshTried] = useState<ReadonlySet<string>>(() => new Set())
+  const [autoRefreshing, setAutoRefreshing] = useState(false)
+  const refreshDue = !!detail?.stale && !versionId && !refreshTried.has(`${detail.plan.id}:${detail.plan.revision}`)
+  const awaitingRefresh = refreshDue || autoRefreshing
+  // Bumped by every change to the plan's inputs, so its returns are worked out again.
+  const [returnsNonce, setReturnsNonce] = useState(0)
   const planListSeq = useRef(0)
-  const loadPlans = useCallback(async (includeInitial = false) => {
+  // The list alone, without compiling a plan: it answers quickly, and the plan's detail, its returns
+  // and its construction then load side by side rather than one after another.
+  const loadPlans = useCallback(async () => {
     const seq = ++planListSeq.current
     try {
-      const res = await json<{ plans: PlanListItem[]; initialPlan?: PlanDetail | null }>(await lf(`/api/accounting/forecast${includeInitial ? '?initial=1' : ''}`))
+      const res = await json<{ plans: PlanListItem[] }>(await lf('/api/accounting/forecast'))
       if (seq !== planListSeq.current) return []
-      if (includeInitial) initialPlan.current = res.initialPlan ? { fetcher: lf, detail: res.initialPlan } : null
       setPlans(res.plans)
       setListError(null)
       return res.plans
@@ -204,19 +213,18 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
   useEffect(() => {
     let cancelled = false
     setPlansReady(false)
-    loadPlans(true).then(ps => { if (!cancelled) { setPlanId(ps[0]?.id ?? ''); setPlansReady(true) } })
+    loadPlans().then(ps => { if (!cancelled) { setPlanId(ps[0]?.id ?? ''); setPlansReady(true) } })
     return () => { cancelled = true; planListSeq.current++ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [loadPlans])
 
+  // Only the latest request's plan is shown: switching plans fast must not land the older one last.
+  const detailSeq = useRef(0)
   const loadDetail = useCallback(async (id: string) => {
+    const seq = ++detailSeq.current
     if (!id) { setDetail(null); return null }
-    const cached = initialPlan.current
-    initialPlan.current = null
-    const d = cached?.fetcher === lf && cached.detail.plan.id === id
-      ? cached.detail
-      : await json<PlanDetail>(await lf(`/api/accounting/forecast/${id}`))
-    setDetail(d)
+    const d = await json<PlanDetail>(await lf(`/api/accounting/forecast/${id}`))
+    if (seq === detailSeq.current) setDetail(d)
     return d
   }, [lf])
 
@@ -236,7 +244,7 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
     const id = (result as { planId?: string } | null)?.planId ?? planId
     loadPlans().then(() => {
       if (id && id !== planId) setPlanId(id)
-      else if (id) loadDetail(id).catch(e => setActionError((e as Error).message))
+      else if (id) { setReturnsNonce(n => n + 1); loadDetail(id).catch(e => setActionError((e as Error).message)) }
     })
   }), [loadPlans, loadDetail, planId])
 
@@ -248,28 +256,8 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
   }, [planId, loadDetail])
 
   // The range follows the preset; "plan" is the cutoff's year through the plan's last month.
-  useEffect(() => {
-    if (preset === 'custom') return
-    // "Fund lifetime": the first month on the books through the plan's last month.
-    if (preset === 'lifetime' && detail) {
-      const r = lifetimeRange(detail.firstMonth, detail.window)
-      setStart(r.start); setEnd(r.end)
-      return
-    }
-    if (preset === 'plan' || preset === 'lifetime') {
-      if (!detail) {
-        const r = presetRange('current_year', thisMonth())
-        setStart(r.start); setEnd(r.end)
-        return
-      }
-      const first = detail.plan.kind === 'budget' ? detail.window.first : `${detail.cutoff.slice(0, 4)}-01`
-      setStart(first)
-      setEnd(detail.window.last)
-      return
-    }
-    const r = presetRange(preset, thisMonth())
-    setStart(r.start); setEnd(r.end)
-  }, [preset, detail])
+  const presetWindow = useMemo(() => rangeForPreset(preset, detail), [preset, detail])
+  const { start, end } = preset === 'custom' && customRange ? customRange : presetWindow
 
   useEffect(() => {
     if (detail) setView('combined')
@@ -303,7 +291,9 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
     }
   }, [lf, seriesQuery, start, end, plansReady, planId, detail?.plan.id])
 
-  useEffect(() => { if (plans !== null && view !== 'variance') loadSeries() }, [loadSeries, plans, view])
+  // A draft that opens out of date is recompiled first (below): its stored figures are about to be
+  // replaced, so they are not fetched in the meantime.
+  useEffect(() => { if (plans !== null && view !== 'variance' && !awaitingRefresh) loadSeries() }, [loadSeries, plans, view, awaitingRefresh])
 
   const varianceQuery = useMemo(() => {
     const q = new URLSearchParams({ base: planId, baseVersion, compare, start, end, interval })
@@ -335,7 +325,10 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
 
   // ---- writes ----------------------------------------------------------------------------------
 
-  const save = useCallback(async (body: Record<string, unknown>) => {
+  // `recompileOnly`: a save with no change, made when a draft opens out of date. Its returns are
+  // already being worked out from the same sources, so they are not fetched again, and the figures
+  // reload from the effect that waited for it.
+  const save = useCallback(async (body: Record<string, unknown>, opts?: { recompileOnly?: boolean }) => {
     if (!detail) return false
     setBusy(true)
     setActionError(null)
@@ -346,7 +339,10 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
         body: JSON.stringify({ expectedRevision: detail.plan.revision, ...body }),
       }))
       setDetail(next)
-      await loadSeries()
+      if (!opts?.recompileOnly) {
+        setReturnsNonce(n => n + 1)
+        await loadSeries()
+      }
       return true
     } catch (e) {
       setActionError((e as Error).message)
@@ -384,14 +380,12 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
   // A draft out of date with its sources (the investments, a linked fund, the books) is recompiled as
   // soon as it opens, once per revision — the figures should never wait on a Refresh click. If the
   // recompile fails, the error shows and Refresh stays.
-  const autoRefreshed = useRef(new Set<string>())
   useEffect(() => {
-    if (!detail?.stale || versionId || busy) return
-    const key = `${detail.plan.id}:${detail.plan.revision}`
-    if (autoRefreshed.current.has(key)) return
-    autoRefreshed.current.add(key)
-    save({})
-  }, [detail, versionId, busy, save])
+    if (!refreshDue || !detail || busy) return
+    setRefreshTried(prev => new Set(prev).add(`${detail.plan.id}:${detail.plan.revision}`))
+    setAutoRefreshing(true)
+    save({}, { recompileOnly: true }).finally(() => setAutoRefreshing(false))
+  }, [refreshDue, detail, busy, save])
 
   // The headline charts follow the page's timescale: the same periods the statements show, with the
   // carry split out of each period's distributions (the plan's carry entries, by month).
@@ -423,10 +417,15 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
 
   // The plan's returns, once per change, with the simulation: the key figures above the tabs and the
   // cash-flow chart's range both read this one response (lib/forecast/plan-returns.ts).
-  const returnsPlanId = hasPortfolio ? (detail?.plan.id ?? (planId || null)) : null
+  // Keyed on the plan and its input changes, not on the detail's revision: the returns are worked out
+  // from the plan's sources, so they start as soon as the plan is known (beside its detail), and a
+  // recompile on open, which changes the revision but no input, does not fetch them twice.
+  const returnsPlanId = hasPortfolio ? (planId || null) : null
   const [planReturns, setPlanReturns] = useState<PlanReturnsResponse | null>(null)
   const [planReturnsError, setPlanReturnsError] = useState<string | null>(null)
-  const returnsKey = `${returnsPlanId}:${detail?.plan.revision ?? 0}:${portfolioSaves}`
+  const returnsKey = `${returnsPlanId}:${returnsNonce}:${portfolioSaves}`
+  // The page's one loading state: the plan list, then the plan's returns (the figures above the tabs).
+  const pageLoading = !plansReady || (!!returnsPlanId && !planReturns && !planReturnsError)
   useEffect(() => {
     if (!returnsPlanId) { setPlanReturns(null); return }
     let cancelled = false
@@ -603,10 +602,10 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
         )}
         {(<>
         <MonthRangePicker
-          preset={preset} onPreset={setPreset}
+          preset={preset} onPreset={p => { if (p === 'custom') setCustomRange({ start, end }); setPreset(p) }}
           start={start} end={end}
-          onStart={m => { setPreset('custom'); setStart(m) }}
-          onEnd={m => { setPreset('custom'); setEnd(m) }}
+          onStart={m => { setCustomRange({ start: m, end }); setPreset('custom') }}
+          onEnd={m => { setCustomRange({ start, end: m }); setPreset('custom') }}
           planLabel={detail ? 'Plan range' : 'Current year'}
           showLifetime
         />
@@ -659,7 +658,11 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
       {actionError && <p className="mb-3 text-sm text-destructive">{actionError}</p>}
       {seriesError && <p className="mb-3 text-sm text-destructive">{seriesError}</p>}
 
-      {hasPortfolio && (
+      {/* One loading state for the page: until the plan list and the plan's returns are in, a single
+          spinner here, and the tab below keeps its own quiet (./overview.tsx shows the figures). */}
+      {pageLoading ? (
+        <div className="mb-6 flex h-24 items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-5 w-5 animate-spin" />Loading forecast…</div>
+      ) : hasPortfolio && (
         <PlanOverview planId={returnsPlanId} data={planReturns} error={planReturnsError} fmt={short} />
       )}
 
@@ -707,7 +710,9 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
         )}
       </div>
 
-      {hasPortfolio && (
+      {/* Mounted once the plan is known (its key names it), so it loads once — not for the entity's
+          primary plan first and then again for the plan that opens. */}
+      {hasPortfolio && plansReady && (
         // One construction view for the three tabs that show part of it, so an edit in progress
         // survives a tab switch; hidden (not unmounted) on Financials.
         <div className={cn('mb-6', (tab === 'financials' || tab === 'charts') && 'hidden')}>
@@ -727,6 +732,7 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
             vehicle={vehicle}
             planId={planId || null}
             onSaved={onPortfolioSaved}
+            quietLoading={pageLoading}
           />
         </div>
       )}
@@ -747,7 +753,7 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
       )}
 
 
-      {loading && !series && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
+      {loading && !series && !pageLoading && <Loader2 className="h-5 w-5 animate-spin text-muted-foreground" />}
 
       {series && view !== 'variance' && tab === 'financials' && (
         <>
@@ -1488,4 +1494,21 @@ function CapitalPolicyDialog({ capital, saving, onClose, onSave, onClearEdits }:
       </DialogContent>
     </Dialog>
   )
+}
+
+/**
+ * The months a range preset covers. "Fund lifetime" runs from the first month on the books through
+ * the plan's last month; "plan" from the cutoff's year (a budget's first month) through its last;
+ * either is the current year until a plan is open. ("custom" falls back to the current year too —
+ * the page keeps a typed range itself.)
+ */
+function rangeForPreset(preset: Preset, detail: PlanDetail | null): { start: MonthKey; end: MonthKey } {
+  if (preset === 'lifetime' && detail) return lifetimeRange(detail.firstMonth, detail.window)
+  if (preset === 'plan' || preset === 'lifetime') {
+    if (!detail) return presetRange('current_year', thisMonth())
+    const first = detail.plan.kind === 'budget' ? detail.window.first : `${detail.cutoff.slice(0, 4)}-01` as MonthKey
+    return { start: first, end: detail.window.last }
+  }
+  if (preset === 'custom') return presetRange('current_year', thisMonth())
+  return presetRange(preset, thisMonth())
 }
