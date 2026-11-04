@@ -1,7 +1,7 @@
 // Unified capital reads. Source labels describe evidence; they never enable accounting.
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { CapitalPosting } from './capital-account'
-import { loadPostedLedger, type LedgerRows } from './load'
+import { loadPostedLedger, type LedgerRows, type LoadedLedger } from './load'
 import { vehicleIdByName, type VehicleIdMap } from './vehicle-id'
 import { RECEIVABLE_CODE } from './chart'
 import { roundCents } from './ledger'
@@ -57,6 +57,8 @@ export function receivablesFromLedger(
 export interface VehicleCapitalPreload {
   source?: CapitalSource
   ledgerRows?: LedgerRows
+  /** The vehicle's ledger, already loaded through `asOf`: used as is instead of reading it again. */
+  ledger?: LoadedLedger
   positions?: LpPosition[]
   closedThrough?: string | null
   reviewedPeriods?: ReviewedPeriod[]
@@ -132,7 +134,7 @@ export async function loadCapitalPostings(
     ? { ...pre.ledgerRows, entryRows: pre.ledgerRows.entryRows.filter(e => e.entry_date <= asOf) }
     : pre?.ledgerRows
   const [ledger, positions, reviewedPeriods, openingLinks] = await Promise.all([
-    loadPostedLedger(admin, fundId, group, asOf, idMap, rows),
+    pre?.ledger ? Promise.resolve(pre.ledger) : loadPostedLedger(admin, fundId, group, asOf, idMap, rows),
     pre?.positions ? Promise.resolve(pre.positions) : loadPositions(admin, fundId, group, asOf, idMap),
     pre?.reviewedPeriods !== undefined ? Promise.resolve(pre.reviewedPeriods) : pre?.closedThrough !== undefined ? Promise.resolve(undefined) : admin.from('fiscal_periods' as any)
       .select('period_start, period_end').eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('status', 'closed')

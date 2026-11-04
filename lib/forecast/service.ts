@@ -30,7 +30,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
 import { resolveVehicleWithAccess, VehicleAccessError } from '@/lib/accounting/http-vehicle'
 import { VehicleResolutionError } from '@/lib/accounting/vehicle-resolver'
-import { fetchAllRows, firstPostedEntryDate, loadPostedLedger } from '@/lib/accounting/load'
+import { fetchAllRows, firstPostedEntryDate, lastPostedEntryDate, loadPostedLedger } from '@/lib/accounting/load'
+import { loadCapitalPostings } from '@/lib/accounting/capital-source'
 import { closedPeriodRanges } from '@/lib/accounting/periods'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { fundCurrency } from '@/lib/accounting/currency'
@@ -116,6 +117,8 @@ interface VehicleCtx {
   currency: string
   closedFrom: MonthKey | null
   closedThrough: MonthKey | null
+  /** The month of the latest posted entry through last month, closed or not. */
+  lastPostedMonth: MonthKey | null
 }
 
 async function loadVehicle(ctx: ForecastServiceContext, vehicle: string, need: 'read' | 'write'): Promise<VehicleCtx> {
@@ -130,13 +133,14 @@ async function loadVehicle(ctx: ForecastServiceContext, vehicle: string, need: '
   }
   const id = await vehicleIdByName(ctx.admin, ctx.fundId, resolved.name)
   if (!id) throw new ForecastError(`"${resolved.name}" has no registry row, so it cannot hold a plan.`)
-  const [accountRows, closed, currency] = await Promise.all([
+  const [accountRows, closed, currency, lastPosted] = await Promise.all([
     fetchAllRows((f, t) =>
       (ctx.admin as any).from('chart_of_accounts').select('id, code, name, type, subtype, lp_entity_id, company_id, is_active')
         .eq('fund_id', ctx.fundId).eq('vehicle_id', id).range(f, t),
     ),
     closedPeriodRanges(ctx.admin, ctx.fundId, resolved.name),
     fundCurrency(ctx.admin, ctx.fundId),
+    lastPostedEntryDate(ctx.admin, ctx.fundId, id, lastDay(addMonths(thisMonth(), -1))),
   ])
   const accounts: Account[] = (accountRows as any[]).map(a => ({
     id: a.id, fundId: ctx.fundId, code: a.code, name: a.name, type: a.type, subtype: a.subtype ?? null,
@@ -154,6 +158,7 @@ async function loadVehicle(ctx: ForecastServiceContext, vehicle: string, need: '
     currency,
     closedFrom: starts.length ? monthOf(starts[0]) : null,
     closedThrough: ends.length ? monthOf(ends[ends.length - 1]) : null,
+    lastPostedMonth: lastPosted ? monthOf(lastPosted) : null,
   }
 }
 
@@ -163,15 +168,23 @@ const thisMonth = () => new Date().toISOString().slice(0, 7)
  * The cutoff a plan compiles against and why. Default: the last closed month. With nothing closed,
  * the month before this one — labelled unclosed everywhere it shows, never passed off as final.
  */
+/**
+ * Where actuals end and the plan begins. A plan's own cutoff wins. Otherwise it is the latest month
+ * the books hold, closed or not: a posted month is what happened, and forecasting it instead would
+ * throw that away. A month not yet closed is marked as such (status 'actual_unclosed'), which is
+ * the whole of what "not closed" means here; it is not a reason to replace it with a forecast.
+ * Months after the last posting are the plan's, so books that lag a month or two are forecast
+ * rather than read as zero. With no postings at all, last month.
+ */
 function resolveCutoff(planCutoff: string | null, v: VehicleCtx): { cutoff: MonthKey; warnings: string[] } {
-  if (planCutoff) {
-    const m = monthOf(planCutoff)
-    const warnings = v.closedThrough && m <= v.closedThrough ? [] : [`Actuals through ${m} include months that are not closed`]
-    return { cutoff: m, warnings }
-  }
-  if (v.closedThrough) return { cutoff: v.closedThrough, warnings: [] }
-  const m = addMonths(thisMonth(), -1)
-  return { cutoff: m, warnings: [`No closed periods — actuals through ${m} are unclosed and may change`] }
+  if (planCutoff) return { cutoff: monthOf(planCutoff), warnings: [] }
+  return { cutoff: defaultCutoff(v.closedThrough, v.lastPostedMonth, thisMonth()), warnings: [] }
+}
+
+/** The default cutoff (resolveCutoff): the later of the last closed and last posted month. */
+export function defaultCutoff(closedThrough: MonthKey | null, lastPostedMonth: MonthKey | null, today: MonthKey): MonthKey {
+  const latest = [closedThrough, lastPostedMonth].filter((m): m is MonthKey => !!m).sort().at(-1)
+  return latest ?? addMonths(today, -1)
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -1347,10 +1360,9 @@ async function seriesDetail(ctx: ForecastServiceContext, v: VehicleCtx, input: S
     loadPostedLedger(ctx.admin, ctx.fundId, v.name, lastDay(actualsAvailableThrough)),
     loadInvestmentCosts(ctx.admin, ctx.fundId, v.name),
   ])
-  if (view !== 'plan' && v.closedThrough && actualsAvailableThrough > v.closedThrough && input.end > v.closedThrough) {
-    warnings.push(`Books are closed through ${v.closedThrough}; later actual months are not final`)
-  }
-  if (view !== 'plan' && !v.closedThrough) warnings.push('No closed periods — every actual month is unclosed')
+  // Partners' capital as the capital accounts resolve it: the books where they hold a partner's
+  // capital, the partner's statements where they do not (a fund kept outside these books).
+  const capital = await loadCapitalPostings(ctx.admin, ctx.fundId, v.name, lastDay(actualsAvailableThrough), undefined, { ledger })
 
   const report = buildReport({
     view, accounts: v.accounts, actuals: ledger.postings, plan: planEntries.flatMap(e => e.postings), planFirst, planLast, cutoff,
@@ -1373,7 +1385,7 @@ async function seriesDetail(ctx: ForecastServiceContext, v: VehicleCtx, input: S
     sources,
     planWindow: planFirst && planLast ? { first: planFirst, last: planLast } : null,
     capitalActivity: capitalActivity({
-      months: report.months, accounts: v.accounts, capitalPostings: ledger.capitalPostings, postings: ledger.postings,
+      months: report.months, accounts: v.accounts, capitalPostings: capital.postings, postings: ledger.postings,
       investments, planEntries,
     }),
     warnings,

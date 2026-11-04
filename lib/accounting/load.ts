@@ -172,6 +172,14 @@ export async function firstPostedEntryDate(admin: SupabaseClient, fundId: string
   return ((data as any[]) ?? [])[0]?.entry_date ?? null
 }
 
+/** The date of a vehicle's latest posted actual entry on or before a date (YYYY-MM-DD), or null. */
+export async function lastPostedEntryDate(admin: SupabaseClient, fundId: string, vehicleId: string, onOrBefore: string): Promise<string | null> {
+  const { data } = await admin.from('journal_entries' as any).select('entry_date')
+    .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('status', 'posted')
+    .lte('entry_date', onOrBefore).order('entry_date', { ascending: false }).limit(1)
+  return ((data as any[]) ?? [])[0]?.entry_date ?? null
+}
+
 export async function loadPostedLedger(
   admin: SupabaseClient,
   fundId: string,
