@@ -27,7 +27,7 @@ import { mancoCashPlan } from '@/lib/forecast/manco-cash'
 import type { ForecastBalanceSheet } from '@/lib/forecast/balance-sheet'
 import { onApplied } from '@/lib/pending-actions/applied-event'
 import { NO_ADJUSTMENTS } from '@/lib/forecast/adjustments'
-import { DetailToggle, DisclosureLabel, useDisclosure, type Disclosure } from '@/components/accounting/statement-disclosure'
+import { DetailToggle, DisclosureLabel, FOLD_ROW, FOLDED_CHILD, useDisclosure, type Disclosure } from '@/components/accounting/statement-disclosure'
 import { groupSubAccounts, type CodedLine } from '@/lib/accounting/statement-groups'
 
 type PlanListItem = PlanDetail['plan'] & { versions: { id: string; versionNo: number; label: string | null; status: string; publishedAt: string }[] }
@@ -965,8 +965,8 @@ function LineLabel({ code, name }: { code?: string | null; name: string }) {
 /** A read-only statement line: label (and account code), then a figure per period. */
 function PlainRow({ label, code, values, fmt, title, nested }: { label: string; code?: string | null; values: (number | null)[]; fmt: (v: number | null) => string; title?: string; nested?: boolean }) {
   return (
-    <tr className="border-b" title={title}>
-      <td className={cn(STICKY, 'text-muted-foreground', nested && 'pl-8')}><LineLabel code={code} name={label} /></td>
+    <tr className={cn('border-b', nested && FOLDED_CHILD)} title={title}>
+      <td className={cn(STICKY, 'text-muted-foreground', nested && 'pl-10')}><LineLabel code={code} name={label} /></td>
       {values.map((v, i) => <td key={i} className={CELL}>{fmt(v)}</td>)}
     </tr>
   )
@@ -995,11 +995,11 @@ function FoldedRows<T extends CodedLine & { values: (number | null)[] }>({ scope
         })
         return (
           <Fragment key={key}>
-            <tr className="border-b">
+            <tr className={cn('border-b', FOLD_ROW)} onClick={() => disclosure.toggle(key)} aria-expanded={open}>
               <td className={cn(STICKY, 'text-muted-foreground')}>
-                <DisclosureLabel open={open} onToggle={() => disclosure.toggle(key)} count={g.rows.length}>{g.code} · {g.name}</DisclosureLabel>
+                <DisclosureLabel open={open} count={g.rows.length}>{g.code} · {g.name}</DisclosureLabel>
               </td>
-              {sums.map((v, i) => <td key={i} className={CELL}>{open ? '' : fmt(v)}</td>)}
+              {sums.map((v, i) => <td key={i} className={CELL}>{fmt(v)}</td>)}
             </tr>
             {open && g.rows.map(r => render(r, true))}
           </Fragment>
@@ -1078,10 +1078,11 @@ function CashSectionRows({ section, lines, total, span, fmt, onCell, canEdit, ca
     const open = disclosure.isOpen(foldKey)
     return (
       <Fragment key={l.key}>
-        <tr className="border-b hover:bg-accent/40">
-          <td className={cn(STICKY, 'text-muted-foreground', nested && 'pl-8')}>
+        <tr className={cn('border-b hover:bg-accent/40', nested && FOLDED_CHILD)}>
+          <td className={cn(STICKY, 'text-muted-foreground', nested && 'pl-10', kids.length && 'cursor-pointer')}
+            onClick={kids.length ? () => disclosure.toggle(foldKey) : undefined} aria-expanded={kids.length ? open : undefined}>
             {kids.length
-              ? <DisclosureLabel open={open} onToggle={() => disclosure.toggle(foldKey)}>{l.code ? `${l.code} · ` : ''}{l.label}</DisclosureLabel>
+              ? <DisclosureLabel open={open}>{l.code ? `${l.code} · ` : ''}{l.label}</DisclosureLabel>
               : <LineLabel code={l.code} name={l.label} />}
           </td>
           {l.values.map((v, i) => {
@@ -1128,9 +1129,9 @@ function TotalRow({ label, values, fmt, strong, fold }: {
   fold?: { open: boolean; onToggle: () => void; count: number }
 }) {
   return (
-    <tr className={cn('border-b font-semibold', strong && 'bg-muted/30')}>
+    <tr className={cn('border-b font-semibold', strong && 'bg-muted/30', fold && FOLD_ROW)} onClick={fold?.onToggle} aria-expanded={fold?.open}>
       <td className={cn(STICKY, strong && STICKY_TINT)}>
-        {fold ? <DisclosureLabel open={fold.open} onToggle={fold.onToggle} count={fold.count}>{label}</DisclosureLabel> : label}
+        {fold ? <DisclosureLabel open={fold.open} count={fold.count}>{label}</DisclosureLabel> : label}
       </td>
       {values.map((v, i) => <td key={i} className={CELL}>{fmt(v)}</td>)}
     </tr>
@@ -1153,9 +1154,9 @@ function AccountRow({ line, series, fmt, rule, editable, editing, setEditing, co
   const overridden = new Set(series.overridden[line.accountId] ?? [])
   const source = series.sources[line.accountId]
   return (
-    <tr className="border-b hover:bg-accent/40">
+    <tr className={cn('border-b hover:bg-accent/40', nested && FOLDED_CHILD)}>
       {/* The rule behind a line (its basis) is on hover rather than a second line under every name. */}
-      <td className={cn(STICKY, 'text-muted-foreground', nested && 'pl-8')} title={rule?.basis || source?.basis || undefined}>
+      <td className={cn(STICKY, 'text-muted-foreground', nested && 'pl-10')} title={rule?.basis || source?.basis || undefined}>
         {canRule ? (
           <button type="button" onClick={onRule} className="block max-w-[22rem] truncate text-left hover:text-foreground hover:underline">
             {line.code} · {line.name}

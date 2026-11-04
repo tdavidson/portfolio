@@ -1,12 +1,12 @@
 'use client'
 
 import { useCallback, useState } from 'react'
-import { ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
+import { ChevronDown, ChevronRight, ChevronsDownUp, ChevronsUpDown } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 /**
- * Which of a statement's folded groups are open. Each group opens on its own; "Show details" and
- * "Hide details" set them all at once and forget the one-off choices.
+ * Which of a statement's folded groups are open. Each opens on its own from its arrow; "Show
+ * details" and "Hide details" set them all at once and forget the one-off choices.
  */
 export function useDisclosure() {
   const [all, setAllState] = useState<boolean | null>(null)
@@ -20,21 +20,29 @@ export function useDisclosure() {
 
 export type Disclosure = ReturnType<typeof useDisclosure>
 
-/** The chevron and label at the head of a folded group. */
-export function DisclosureLabel({ open, onToggle, children, count, className }: {
+/** Classes for a row that opens and closes its group when clicked, as on the LP list. */
+export const FOLD_ROW = 'cursor-pointer hover:bg-muted/20'
+/** Classes for the rows a group opens to: indented and quieter, as on the LP list. */
+export const FOLDED_CHILD = 'bg-muted/10 text-muted-foreground'
+
+/**
+ * The arrow and label at the head of a folded group, the same as the LP list's consolidated
+ * investors: right when closed, down when open, the count after the name. The row it sits in
+ * carries the click.
+ */
+export function DisclosureLabel({ open, children, count, className }: {
   open: boolean
-  onToggle: () => void
   children: React.ReactNode
   count?: number
   className?: string
 }) {
+  const Icon = open ? ChevronDown : ChevronRight
   return (
-    <button type="button" onClick={onToggle} aria-expanded={open}
-      className={cn('inline-flex max-w-full items-center gap-1 text-left hover:text-foreground', className)}>
-      <ChevronRight className={cn('h-3.5 w-3.5 shrink-0 transition-transform', open && 'rotate-90')} />
+    <span className={cn('flex min-w-0 items-center gap-1', className)}>
+      <Icon className="h-3.5 w-3.5 shrink-0" />
       <span className="truncate">{children}</span>
-      {count != null && <span className="shrink-0 text-xs text-muted-foreground">({count})</span>}
-    </button>
+      {count != null && <span className="ml-1 shrink-0 text-xs font-normal text-muted-foreground">({count})</span>}
+    </span>
   )
 }
 

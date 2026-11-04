@@ -11,7 +11,7 @@ import { type PeriodPreset } from '@/lib/accounting/statement-period'
 import { PeriodPicker } from '@/components/accounting/period-picker'
 import { DownloadMenu, TaxPackageLink } from '@/components/accounting/download-menu'
 import { EmptyState } from '@/components/ui/empty-state'
-import { DetailToggle, DisclosureLabel, useDisclosure } from '@/components/accounting/statement-disclosure'
+import { DetailToggle, DisclosureLabel, FOLD_ROW, FOLDED_CHILD, useDisclosure } from '@/components/accounting/statement-disclosure'
 import { groupSubAccounts, summarizeLegs } from '@/lib/accounting/statement-groups'
 
 interface Section { label: string; rows: { code: string; name: string; amount: number }[]; total: number }
@@ -99,7 +99,8 @@ export function StatementsView() {
   // Book: the ledger as kept. Tax: the ledger plus the book-to-tax adjusting entries, read
   // together — what Schedule L and M-1 reconcile to. Every fetch and every download carries it.
   const [basis, setBasis] = useState<'book' | 'tax'>('book')
-  // Per-company and per-partner lines fold into one line each; the reader opens what they need.
+  // Per-company and per-partner lines fold into one line each, opened from their arrows or all at
+  // once from Show details.
   const disclosure = useDisclosure()
 
   // Every coded line links to its account's register over the same window, so a figure on a
@@ -206,8 +207,8 @@ export function StatementsView() {
     const m = sectionMatrix(pick)
     if (m.keys.length === 0 && cols.every(c => pick(c).total === 0)) return null
     const accountLine = (k: { key: string; name: string; code: string }, nested = false) => (
-      <tr key={k.key} className="border-t">
-        <td className={`px-3 py-1.5 text-muted-foreground ${nested ? 'pl-8' : ''}`}>
+      <tr key={k.key} className={`border-t ${nested ? FOLDED_CHILD : ''}`}>
+        <td className={`px-3 py-1.5 text-muted-foreground ${nested ? 'pl-10' : ''}`}>
           {k.code && registerHref(k.code)
             ? <Link href={registerHref(k.code)!} className="hover:underline hover:text-foreground" title="Open this account's register">{k.code} · {k.name}</Link>
             : <>{k.code ? `${k.code} · ` : ''}{k.name}</>}
@@ -224,18 +225,19 @@ export function StatementsView() {
           if (g.kind === 'row') return accountLine(g.row)
           const gk = `${m.label}:${g.key}`
           const open = disclosure.isOpen(gk)
-          // A column where no sub-account has a figure stays blank, as a single line would.
+          // A column where no sub-account has a figure stays blank, as a single line would. The total
+          // stays on the group's line when it is open, as the LP list keeps an investor's.
           const sum = (c: Omit<Data, 'comparisons'>) => {
             const vs = g.rows.map(k => m.amountFor(c, k.key)).filter((v): v is number => v !== undefined)
             return vs.length ? vs.reduce((a, b) => a + b, 0) : undefined
           }
           return (
             <Fragment key={gk}>
-              <tr className="border-t">
+              <tr className={`border-t ${FOLD_ROW}`} onClick={() => disclosure.toggle(gk)} aria-expanded={open}>
                 <td className="px-3 py-1.5 text-muted-foreground">
-                  <DisclosureLabel open={open} onToggle={() => disclosure.toggle(gk)} count={g.rows.length}>{g.code} · {g.name}</DisclosureLabel>
+                  <DisclosureLabel open={open} count={g.rows.length}>{g.code} · {g.name}</DisclosureLabel>
                 </td>
-                {cols.map((c, i) => <td key={i} className="px-3 py-1.5 text-right tabular-nums">{open ? '' : fmtCell(sum(c))}</td>)}
+                {cols.map((c, i) => <td key={i} className="px-3 py-1.5 text-right tabular-nums">{fmtCell(sum(c))}</td>)}
               </tr>
               {open && g.rows.map(k => accountLine(k, true))}
             </Fragment>
@@ -262,7 +264,7 @@ export function StatementsView() {
   // The partner list is the point of the statement, so it starts open; it folds to its total line.
   const partnersOpen = disclosure.isOpen('partners', true)
   const partnersToggle = (count: number) => (
-    <DisclosureLabel open={partnersOpen} onToggle={() => disclosure.toggle('partners', true)} count={count} className="font-medium">
+    <DisclosureLabel open={partnersOpen} count={count} className="font-medium">
       {holderWord}
     </DisclosureLabel>
   )
@@ -524,25 +526,31 @@ export function StatementsView() {
               <div className="border rounded-lg overflow-x-auto">
                 <table className="w-full text-sm">
                   <tbody>
-                    {data.cashFlows.nonCash.map(n => (
-                      <tr key={n.entryId} className="border-t first:border-t-0">
-                        <td className="px-3 py-1.5">
-                          <span className="tabular-nums text-xs text-muted-foreground mr-2">{n.date}</span>
-                          {n.description}
-                          <div className="text-[11px] text-muted-foreground mt-0.5">
-                            {disclosure.isOpen(`noncash:${n.entryId}`)
-                              ? n.legs.map(l => `${l.amount > 0 ? 'Dr' : 'Cr'} ${l.name}`).join(' · ')
-                              : summarizeLegs(n.legs).map(l => `${l.side} ${l.name}${l.count > 1 ? ` (${l.count})` : ''}`).join(' · ')}
-                            {summarizeLegs(n.legs).some(l => l.count > 1) && (
-                              <button type="button" onClick={() => disclosure.toggle(`noncash:${n.entryId}`)} className="ml-2 underline-offset-2 hover:underline hover:text-foreground">
-                                {disclosure.isOpen(`noncash:${n.entryId}`) ? 'Fewer' : 'Every line'}
-                              </button>
-                            )}
-                          </div>
-                        </td>
-                        <td className="px-3 py-1.5 text-right tabular-nums align-top whitespace-nowrap">{fmt(n.amount)}</td>
-                      </tr>
-                    ))}
+                    {data.cashFlows.nonCash.map(n => {
+                      // An entry with many legs of one kind (a call credits every partner) folds them to a
+                      // count; its arrow opens the full list.
+                      const foldable = summarizeLegs(n.legs).some(l => l.count > 1)
+                      const open = disclosure.isOpen(`noncash:${n.entryId}`)
+                      return (
+                        <tr key={n.entryId} className={`border-t first:border-t-0 ${foldable ? FOLD_ROW : ''}`}
+                          onClick={foldable ? () => disclosure.toggle(`noncash:${n.entryId}`) : undefined} aria-expanded={foldable ? open : undefined}>
+                          <td className="px-3 py-1.5">
+                            <span className="tabular-nums text-xs text-muted-foreground mr-2">{n.date}</span>
+                            {n.description}
+                            <div className="text-[11px] text-muted-foreground mt-0.5">
+                              {foldable ? (
+                                <DisclosureLabel open={open} className="items-start [&>span]:whitespace-normal">
+                                  {open
+                                    ? n.legs.map(l => `${l.amount > 0 ? 'Dr' : 'Cr'} ${l.name}`).join(' · ')
+                                    : summarizeLegs(n.legs).map(l => `${l.side} ${l.name}${l.count > 1 ? ` (${l.count})` : ''}`).join(' · ')}
+                                </DisclosureLabel>
+                              ) : n.legs.map(l => `${l.amount > 0 ? 'Dr' : 'Cr'} ${l.name}`).join(' · ')}
+                            </div>
+                          </td>
+                          <td className="px-3 py-1.5 text-right tabular-nums align-top whitespace-nowrap">{fmt(n.amount)}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
@@ -574,7 +582,7 @@ export function StatementsView() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b bg-muted/50">
-                    <th className="text-left px-3 py-2 font-medium">{partnersToggle(rows.length)}</th>
+                    <th className={`text-left px-3 py-2 font-medium ${FOLD_ROW}`} onClick={() => disclosure.toggle('partners', true)} aria-expanded={partnersOpen}>{partnersToggle(rows.length)}</th>
                     {cols.map((c, i) => <th key={i} className="text-right px-3 py-2 font-medium whitespace-nowrap">{c.period.label}<div className="text-[10px] font-normal text-muted-foreground">ending capital{c.period.end ? ` · ${c.period.end}` : ''}</div></th>)}
                   </tr>
                 </thead>
@@ -598,7 +606,7 @@ export function StatementsView() {
             <table className="w-full text-sm whitespace-nowrap">
               <thead>
                 <tr className="border-b bg-muted/50">
-                  <th className="text-left px-3 py-2 font-medium">{partnersToggle(data.changesInPartnersCapital.partners.length)}</th>
+                  <th className={`text-left px-3 py-2 font-medium ${FOLD_ROW}`} onClick={() => disclosure.toggle('partners', true)} aria-expanded={partnersOpen}>{partnersToggle(data.changesInPartnersCapital.partners.length)}</th>
                   {CAP_COLS.map(c => <th key={c.key} className="text-right px-3 py-2 font-medium">{c.label}</th>)}
                 </tr>
               </thead>
