@@ -575,6 +575,18 @@ export interface PlanDetail {
 export async function getPlan(ctx: ForecastServiceContext, input: { vehicle: string; planId: string }): Promise<PlanDetail> {
   const v = await loadVehicle(ctx, input.vehicle, 'read')
   const row = await loadPlanRow(ctx, v, input.planId)
+  return planDetail(ctx, v, row, null)
+}
+
+/**
+ * A plan's detail. `justSaved` is the compile a save has just stored (savePlan): the draft is then
+ * that compile, so it is neither compiled again nor compared with what was stored — a save answers
+ * in one compile rather than two.
+ */
+async function planDetail(
+  ctx: ForecastServiceContext, v: VehicleCtx, row: any,
+  justSaved: Awaited<ReturnType<typeof compile>> | null,
+): Promise<PlanDetail> {
   const [{ rules, overrides }, versionRows, firstEntryDate] = await Promise.all([
     loadInputs(ctx, row.id),
     (ctx.admin as any).from('forecast_versions').select('id, version_no, label, notes, status, actuals_cutoff, closed_through, start_month, end_month, published_by, published_at')
@@ -585,18 +597,18 @@ export async function getPlan(ctx: ForecastServiceContext, input: { vehicle: str
   const firstMonth = [v.closedFrom, firstEntryDate ? monthOf(firstEntryDate) : null].filter((m): m is MonthKey => !!m).sort()[0] ?? null
   // Re-evaluate for the drill-down (basis, warnings); the stored draft is what the numbers read.
   const [{ built, cutoff, warnings }, stored] = await Promise.all([
-    compile(ctx, v, row, rules, overrides),
-    loadEntries(ctx, row.id, null),
+    justSaved ?? compile(ctx, v, row, rules, overrides),
+    justSaved ? null : loadEntries(ctx, row.id, null),
   ])
   const outcome = new Map(built.rules.map(r => [r.ruleId, r]))
-  const actualsMoved =
+  const actualsMoved = !justSaved && (
     row.compiled_cutoff == null ||
     monthOf(row.compiled_cutoff) !== cutoff ||
-    (row.compiled_closed_through ? monthOf(row.compiled_closed_through) : null) !== v.closedThrough
+    (row.compiled_closed_through ? monthOf(row.compiled_closed_through) : null) !== v.closedThrough)
   // Anything else the draft was built from — portfolio construction (this entity's, a linked
   // fund's for a manco's fees, the fund's for a GP entity), fee links — has no date to compare, so
   // compare the answer: what compiling now gives against what was saved.
-  const sourcesMoved = !actualsMoved && entriesFingerprint(built.entries.map(e => ({ date: e.entryDate, postings: e.postings })))
+  const sourcesMoved = !actualsMoved && !!stored && entriesFingerprint(built.entries.map(e => ({ date: e.entryDate, postings: e.postings })))
     !== entriesFingerprint(stored.map(e => ({ date: e.date, postings: e.postings })))
   const stale = actualsMoved || sourcesMoved
   return {
@@ -1158,7 +1170,8 @@ export async function savePlan(ctx: ForecastServiceContext, input: SavePlanInput
     if (p.endMonth != null && win.last < win.first) throw new ForecastError('endMonth is before the first forecast month')
     assertPlanWindow(win.first, win.last)
   }
-  const { built, cutoff } = await compile(ctx, v, working, [...byAccount.values()], [...ovs.values()])
+  const compiled = await compile(ctx, v, working, [...byAccount.values()], [...ovs.values()])
+  const { built, cutoff } = compiled
   if (row.kind === 'rolling_forecast') {
     // Persist where the rolling window now sits so lists and exports show it.
     patch.start_month = firstDay(built.first)
@@ -1177,7 +1190,8 @@ export async function savePlan(ctx: ForecastServiceContext, input: SavePlanInput
   // Primary: set only once the save has gone through (it touches the entity's other plans too, so
   // it sits outside the save's transaction) — a refused or conflicting save changes nothing.
   if (p.isPrimary === true && !row.is_primary) await setPrimaryPlan(ctx.admin, ctx.fundId, v.id, row.id)
-  return getPlan(ctx, { vehicle: v.name, planId: row.id })
+  // The detail from the compile just stored: the saved row (its new revision), the same entries.
+  return planDetail(ctx, v, await loadPlanRow(ctx, v, row.id), compiled)
 }
 
 export interface PublishInput {

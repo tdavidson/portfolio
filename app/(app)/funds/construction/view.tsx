@@ -93,7 +93,9 @@ function returnForecastYears(actuals: ConstructionActuals, assumptions: Construc
  */
 export type ConstructionSection = 'investments' | 'capital'
 
-export function ConstructionView({ vehicle, planId: planParam, readOnly, onSaved, section, addInvestment, planReturns, rangeFlows, chartsSlot, usageSlot, outcomesSlot, headline, assumptionsOpen, onAssumptionsClose }: {
+export function ConstructionView({ vehicle, planId: planParam, readOnly, onSaved, section, addInvestment, planReturns, rangeFlows, chartsSlot, usageSlot, outcomesSlot, headline, assumptionsOpen, onAssumptionsClose, quietLoading }: {
+  /** The page shows one loading state of its own: while it does, this shows none. */
+  quietLoading?: boolean
   assumptionsOpen?: boolean
   onAssumptionsClose?: () => void
   /** The Forecast page's periods and date range, for the headline charts. */
@@ -231,7 +233,7 @@ export function ConstructionView({ vehicle, planId: planParam, readOnly, onSaved
   const shareOf = (v: number | null) => (v == null || forecastTotal <= 0 ? '—' : `${Math.round((v / forecastTotal) * 1000) / 10}%`)
   const hasMoicOverride = (f: { forecastMoicOverride?: boolean; forecastMoic?: number }) => f.forecastMoicOverride === true || (f.forecastMoic ?? 0) > 0
 
-  const body = loading ? (
+  const body = loading ? (quietLoading ? null :
     <div className="rounded-card border bg-card p-6 flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading construction model…</div>
   ) : loadError ? <EmptyState>{loadError}</EmptyState>
     : !model || !actuals || actuals.committedCapital <= 0 ? <EmptyState>No construction model for {vehicle}. It needs recorded commitments to plan against.</EmptyState>
