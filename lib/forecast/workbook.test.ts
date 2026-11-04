@@ -8,6 +8,7 @@ import type { RuleView, SeriesResult, VarianceResponse } from './service'
 // the Assumptions sheet appears once, plus an override the rule doesn't explain.
 const months = ['2026-01', '2026-02', '2026-03', '2026-04', '2026-05', '2026-06']
 const status = ['actual', 'actual', 'actual', 'forecast', 'forecast', 'forecast'] as const
+const z = () => ({ actual: 0, forecast: 0 })
 
 const lines = [
   { accountId: 'fees', code: '4000', name: 'Fee income', type: 'income' as const, values: [900, 950, 1000, 1000, 1000, 1200] },
@@ -57,6 +58,7 @@ function fixture(): SeriesResult {
     plan: { id: 'p', name: 'Budget', kind: 'rolling_forecast', revision: 1 }, version: null,
     actualsThrough: '2026-03', closedThrough: '2026-03', overridden: { tax: ['2026-06'] }, sources: {},
     planWindow: { first: '2026-04', last: '2026-06' }, warnings: [],
+    capitalActivity: { called: z(), distributed: z(), invested: z(), fees: z(), org: z(), partnership: z() },
   }
 }
 

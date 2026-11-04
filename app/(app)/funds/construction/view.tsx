@@ -17,6 +17,7 @@ import { SortTh, compareVals, nextSort, type SortState } from '@/components/sort
 import { CapitalUsageChart } from './charts'
 import { ForecastSection, InlineNumber, TreatmentField, TREATMENT_HINT } from './forecast-section'
 import { cn } from '@/lib/utils'
+import type { CapitalActivity, Split } from '@/lib/forecast/capital-activity'
 import {
   constructionModel, parseAssumptions, DEFAULT_ASSUMPTIONS, blankStage,
   type ConstructionActuals, type ConstructionAssumptions, type ConstructionPositionForecast,
@@ -491,12 +492,13 @@ function SaveIndicator({ state, error }: { state: SaveState; error?: string | nu
 }
 
 /**
- * Capital planning on one row per line: what has happened (Actual — cash paid, called, invested),
- * what the plan still has to come (Forecast), and the two together, against the commitment. Cash
- * basis throughout: a fee paid up front counts as paid.
+ * Capital planning on one row per line: what has happened (Actual — called, invested, paid), what
+ * the plan still has to come (Forecast), and the two together, against the commitment. Over the life
+ * of the plan the Actual column is cash: a fee paid up front counts as paid. Over a date range it is
+ * what the books record in those months (lib/forecast/capital-activity.ts).
  */
-export type Split = { actual: number; forecast: number }
-export type RangeFlows = { called: Split; distributed: Split; invested: Split; fees: Split; org: Split; partnership: Split; label: string }
+export type { Split }
+export type RangeFlows = CapitalActivity & { label: string }
 
 function CapitalPlanningTable({ capital: c, range, planYears, fmt, fmtFull }: {
   capital: ConstructionResult['capital']
