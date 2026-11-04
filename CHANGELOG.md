@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Financial statements: fold the detail, and a calmer forecast
+- **Per-company lines fold.** On Statements and on the Forecast's income statement, cash flows and balance sheet, sub-accounts that share a parent code (`1100-<company>` investments, `4000-<company>` realized gains and so on) collapse into one line carrying their sum. Click the chevron to open one, or **Show details** / **Hide details** to open or close them all. A lone sub-account stays a plain line. `lib/accounting/statement-groups.ts`.
+- **The partner list folds too.** The statement of changes in partners' capital can close to its total line, and a non-cash entry with many legs (a capital call credits every partner) lists "Cr Partners' capital (N)" with **Every line** to see each one. Distributions on the forecast cash flow open to their carry, GP and LP split, and ending cash to each bank account.
+- **A long partner name no longer widens the table.** Names are capped and cut off with an ellipsis; the full name is on hover.
+- **The Forecast statements match Statements.** Section headings are tinted rows, not small grey capitals; lines read "code · name" in muted text without a monospace code; totals are semibold, with the bottom line tinted; forecast columns lose their grey fill, and a rule's basis moves from a second line under each account to its hover text.
+
 ### Linked sign-ins: one connection across the funds you work for
 - **For people who work for several funds here,** usually an outside fund administrator, tax preparer or auditor. In Settings, under **Linked sign-ins**, get a code while signed in to one fund and enter it while signed in to another. Their sign-ins are then linked, and one Claude or ChatGPT connection made with any of them lists those funds (`list_funds`) and switches between them (`use_fund`). In each fund it acts as that fund's own member, with that member's role, grants, entity caps and audit trail, so a link never widens anyone's access. Codes are single-use, last ten minutes and are stored hashed. Up to 12 sign-ins can be linked. `lib/account-links.ts`.
 - **Each fund decides.** Admins see who in their fund has linked, under Settings → Team, and can switch linking off. A fund that does that drops out of every linked connection at once, and its own members' connections get no linked funds. It's on by default, since a link lets a person do only what they could already do with one connection per fund.
