@@ -75,12 +75,12 @@ describe('capitalActivity', () => {
   it('takes invested capital from the investments’ cost', () => {
     const r = capitalActivity(base({
       investments: [
-        { date: '2025-11-03', cost: 500_000 },
-        { date: '2025-12-09', cost: 250_000 },
-        { date: '2024-06-01', cost: 900_000 },
+        { date: '2025-11-03', cost: 300_000 },
+        { date: '2025-12-09', cost: 150_000 },
+        { date: '2024-06-01', cost: 400_000 },
       ],
     }))
-    expect(r.invested.actual).toBe(750_000)
+    expect(r.invested.actual).toBe(450_000)
   })
 
   it('splits by month: books in actual months, the plan in forecast months', () => {
