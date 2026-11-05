@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Reprocess a saved company update from chat
+- **`reprocess_company_update`** runs the update pipeline again on an update that's already saved, as the Emails page's **Reprocess** button does. An assistant that added a file to an update with `add_email_attachment`, or found one that failed, had no way to have it read again and had to send you to the Emails page. Pass the update's `source_email_id` from `get_updates`, its update id, or a `submit_company_update` job id. The last run's KPIs and review items are replaced and the company it's filed under is kept. From a chat it's staged for approval like other writes.
+- The button and the tool share one implementation (`lib/pipeline/reprocess.ts`), so they clear and re-run the same way. The tool is limited to updates about companies the caller can see, and shares the button's limit of 10 runs per 5 minutes.
+
 ### Analyst: Edit and Retry that visibly work
 - **Edit opens the question in place.** The old "Edit and retry" copied the question down into the composer, far below the answer under it, so clicking it looked like nothing happened. The pencil under a question now turns its bubble into an edit box, focused: Enter or **Send** asks the edited question and replaces the answer below it and everything after; Esc or **Cancel** leaves it as it was.
 - **Retry asks again in one click.** A separate retry button under each question asks it again from that point, which is also how to recover a question whose answer failed.

@@ -9,9 +9,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 const runPipeline = vi.fn(async (..._a: unknown[]) => {})
 const scanFileAsync = vi.fn(async (_b: Buffer, name: string) => (name.startsWith('bad') ? { safe: false, reason: 'executable content' } : { safe: true }))
 vi.mock('@/lib/pipeline/processEmail', () => ({ runPipeline: (...a: unknown[]) => runPipeline(...a) }))
+vi.mock('@/lib/parsing/extractAttachmentText', () => ({ hydrateAttachments: async (p: unknown) => p }))
 vi.mock('@/lib/security/scan-file', () => ({ scanFileAsync: (b: Buffer, n: string) => scanFileAsync(b, n) }))
 
-import { companyUpdateStatus, parseUpdateFiles, submitCompanyUpdate } from '@/lib/company-updates/submit'
+import { companyUpdateStatus, parseUpdateFiles, reprocessCompanyUpdate, submitCompanyUpdate } from '@/lib/company-updates/submit'
 
 const inserts: any[] = []
 const updates: any[] = []
@@ -123,6 +124,72 @@ describe('companyUpdateStatus', () => {
     await expect(companyUpdateStatus(emailDb({ id: 'email-1', company_id: null, routed_to: 'reporting' }), 'fund-1', 'email-1', ['co-1'])).rejects.toThrow(/No company update/)
     await expect(companyUpdateStatus(emailDb({ id: 'email-1', company_id: 'co-1', routed_to: 'deals' }), 'fund-1', 'email-1', null)).rejects.toThrow(/No company update/)
     await expect(companyUpdateStatus(emailDb(null), 'fund-1', 'email-1', null)).rejects.toThrow(/No company update/)
+  })
+})
+
+describe('reprocessCompanyUpdate', () => {
+  const deletes: string[] = []
+  const saved = { id: 'email-1', fund_id: 'fund-1', company_id: 'co-1', routed_to: 'reporting', processing_status: 'success', subject: 'Acme Q3', raw_payload: { From: 'gp@fund.example', Subject: 'Acme Q3', TextBody: 'MRR $120k', Attachments: [] } }
+  const db = (email: any, update: any = null) => {
+    const base = admin()
+    const from = base.from.bind(base)
+    base.rpc = async () => ({ data: [{ user_id: 'u1' }] })
+    base.from = (table: string) => {
+      const q = from(table)
+      let cols = ''
+      q.delete = () => { deletes.push(table); return q }
+      q.select = (c: string) => { cols = c; return q }
+      if (table === 'company_updates') q.maybeSingle = async () => ({ data: update })
+      if (table === 'inbound_emails') {
+        q.maybeSingle = async () => ({ data: cols.includes('routed_to') ? email : { processing_status: 'success', companies: { id: 'co-1', name: 'Acme' }, processing_error: null } })
+      }
+      return q
+    }
+    return base
+  }
+  const rdeps = (admin: any, over: Record<string, unknown> = {}) => ({ admin, fundId: 'fund-1', visibleCompanyIds: ['co-1'], origin: 'https://fund.example', ...over })
+  beforeEach(() => { deletes.length = 0 })
+
+  it('clears the last run and runs the pipeline on the stored update, keeping its company', async () => {
+    const r = await reprocessCompanyUpdate(rdeps(db(saved)), { update: 'company_update:email-1' })
+    expect(deletes).toEqual(['parsing_reviews', 'metric_values'])
+    const reset = updates.find(u => u.row.processing_status === 'processing').row
+    expect(reset).not.toHaveProperty('company_id')
+    const [, emailId, fundId, payload, member] = runPipeline.mock.calls[0] as any[]
+    expect([emailId, fundId, member]).toEqual(['email-1', 'fund-1', { userId: 'u1' }])
+    expect(payload.TextBody).toBe('MRR $120k')
+    expect(r.metricsRecorded).toEqual([{ metric: 'MRR', period: 'Q3 2026', value: 120000 }])
+    expect(r.job).toMatchObject({ id: 'company_update:email-1', status: 'done' })
+  })
+
+  it("finds the update by its get_updates id", async () => {
+    let calls = 0
+    const base = db(saved, { source_email_id: 'email-1' })
+    const from = base.from
+    base.from = (table: string) => {
+      const q = from(table)
+      if (table === 'inbound_emails') {
+        const ms = q.maybeSingle
+        q.maybeSingle = async () => (calls++ === 0 ? { data: null } : ms())
+      }
+      return q
+    }
+    const r = await reprocessCompanyUpdate(rdeps(base), { update: 'update-9' })
+    expect(r.emailId).toBe('email-1')
+  })
+
+  it("refuses an update outside the caller's companies, one that isn't an update, and one still processing", async () => {
+    await expect(reprocessCompanyUpdate(rdeps(db({ ...saved, company_id: 'co-2' })), { update: 'email-1' })).rejects.toThrow(/No saved company update/)
+    await expect(reprocessCompanyUpdate(rdeps(db({ ...saved, routed_to: 'deals' }), { visibleCompanyIds: null }), { update: 'email-1' })).rejects.toThrow(/No saved company update/)
+    await expect(reprocessCompanyUpdate(rdeps(db({ ...saved, processing_status: 'processing' })), { update: 'email-1' })).rejects.toThrow(/still processing/)
+    expect(runPipeline).not.toHaveBeenCalled()
+    expect(deletes).toEqual([])
+  })
+
+  it('records a pipeline failure on the update instead of throwing', async () => {
+    runPipeline.mockRejectedValueOnce(new Error('OpenAI API key not configured'))
+    await reprocessCompanyUpdate(rdeps(db(saved)), { update: 'email-1' })
+    expect(updates.map(u => u.row)).toContainEqual({ processing_status: 'failed', processing_error: 'OpenAI API key not configured. Add it in Settings to process emails.' })
   })
 })
 

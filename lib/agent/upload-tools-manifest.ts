@@ -128,7 +128,7 @@ export const UPLOAD_TOOL_MANIFEST: AgentToolMeta[] = [
     description:
       'Start uploading a file (up to 25 MB) to attach to an inbound email, or to an inbound deal\'s source email: ' +
       'returns a signed upload URL in that email\'s folder.' + HOW +
-      'add_email_attachment. Reprocess the email in the app if the pipeline should read it.',
+      'add_email_attachment. If it is a company update, call reprocess_company_update so the pipeline reads the new file.',
     scope: 'write',
     domain: 'portfolio',
     runsDirectly: true,

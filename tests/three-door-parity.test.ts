@@ -98,6 +98,7 @@ const PAIRS: Pair[] = [
   { what: 'announce to LPs', route: 'api/lps/announce', method: 'POST', tool: 'lp_announce' },
   { what: 'remove a team member', route: 'api/settings/members/[id]', method: 'DELETE', tool: 'remove_member' },
   { what: 'see LP change requests', route: 'api/lps/change-requests', method: 'GET', tool: 'lp_change_requests' },
+  { what: 'reprocess a saved company update', route: 'api/emails/[id]/reprocess', method: 'POST', tool: 'reprocess_company_update' },
   { what: 'decide an LP change request', route: 'api/lps/change-requests', method: 'POST', body: { decision: 'reject' }, tool: 'lp_change_request_decide' },
 ]
 
