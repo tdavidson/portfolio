@@ -15,7 +15,9 @@ import { fromLetter } from '@/lib/lp-letters/content'
 import { reviewLetter, reviewOptions } from '@/lib/lp-letters/review'
 import { rateLimit } from '@/lib/rate-limit'
 import { loadProfile, saveProfile } from '@/lib/lp-letters/profile-store'
-import { exportLetter, LETTER_EXPORT_FORMATS, type LetterExportFormat } from '@/lib/lp-letters/export-letter'
+// The pure document only: the PDF renderer (export-letter.ts) stays out of the MCP routes' bundle.
+import { documentJson, documentMarkdown, hasStructuredContent, letterDocument } from '@/lib/lp-letters/document'
+import { investorText } from '@/lib/lp-letters/internal'
 import { requireUser } from './deals-tools'
 import { resolveInvestor } from './lp-record-tools'
 
@@ -154,14 +156,15 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
     const userId = requireUser(ctx.userId)
     const l = await letterOf(ctx, input?.letter_id)
     if (l.status === 'generating') throw new Error('This letter is being generated. Ask again when it finishes.')
-    const format = String(input?.format ?? 'docx') as LetterExportFormat
-    if (!LETTER_EXPORT_FORMATS.includes(format)) throw new Error('format must be docx, pdf, markdown or json')
+    const format = String(input?.format ?? 'docx')
+    if (!['docx', 'pdf', 'markdown', 'json'].includes(format)) throw new Error('format must be docx, pdf, markdown or json')
     const { token, expiresAt } = signReportLink({ fundId: ctx.fundId, userId, kind: 'lp_letter', args: { letter: l.id, format } })
     const link = { document: `${l.period_label} letter (${format === 'docx' ? 'Word' : format === 'pdf' ? 'PDF' : format === 'json' ? 'JSON' : 'Markdown'})`, url: reportLinkUrl(ctx.origin ?? siteOrigin(), token), expires_at: expiresAt }
     if (format === 'markdown' || format === 'json') {
-      const out = await exportLetter(ctx.admin, ctx.fundId, l, format)
-      const text = out ? out.body.toString('utf8') : ''
-      return { ...link, ...(format === 'json' ? { letter: JSON.parse(text || 'null') } : { text }) }
+      // The same text the link gives (export-letter.ts).
+      const doc = letterDocument(l)
+      if (format === 'json') return { ...link, letter: { letter_id: l.id, ...(documentJson(doc) as object) } }
+      return { ...link, text: hasStructuredContent(l) ? documentMarkdown(doc) : investorText(l.full_draft) }
     }
     return link
   },

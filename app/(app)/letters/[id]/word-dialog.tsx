@@ -96,7 +96,7 @@ export function WordDialog({ letterId, open, onOpenChange, onReplaced }: Props) 
                   <ul className="text-sm space-y-0.5">
                     {cmp.sections.map(s => (
                       <li key={`${s.change}-${s.section_id}`} className="flex gap-2">
-                        <span className={`w-16 shrink-0 text-xs ${s.change === 'removed' ? 'text-destructive' : s.change === 'added' ? 'text-success' : 'text-warning'}`}>
+                        <span className={`w-16 shrink-0 text-sm ${s.change === 'removed' ? 'text-destructive' : s.change === 'added' ? 'text-success' : 'text-warning'}`}>
                           {CHANGE_LABEL[s.change]}
                         </span>
                         <span className="truncate">{s.heading ?? 'Opening'}</span>
