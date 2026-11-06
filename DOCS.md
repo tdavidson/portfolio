@@ -604,6 +604,7 @@ Some outside services publish a hosted MCP server that people sign in to, rather
 - **Each member connects their own account** under **Settings → Specter**. The app registers itself with the service's sign-in server (OAuth dynamic client registration), so an install needs no client id. Tokens are stored encrypted with the fund's key and refreshed as they expire.
 - **The diligence assistant uses it** when the asking member has connected and the fund's AI provider is Claude. Claude calls the server through Anthropic's MCP connector.
 - **Read-only tools only.** Calls through the connector don't pass through staged approval, so at connect time the app reads the server's tool list and turns on only the tools marked read-only (or, when a server doesn't mark them, ones named `get_…`, `find_…`, `search_…` and so on). The list is re-read daily.
+- **Save a Specter profile into a deal's data room.** On a deal's documents, **Save Specter profile** asks Claude to look the company up in Specter (a website domain matches best) and write a profile: overview, funding and investors, team, traction signals, competitors and news, using only what Specter returned. It lands in the data room as a Markdown document and is queued for ingest like any upload, so the memo agent reads it as evidence.
 - **Adding a server** is one entry in `lib/mcp-client/servers.ts`. URLs are fixed in code, never typed in Settings, so a member can't point the deployment at an address of their choosing.
 
 ### Investors connecting their own assistant

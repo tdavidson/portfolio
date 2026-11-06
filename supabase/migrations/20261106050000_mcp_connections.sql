@@ -38,3 +38,11 @@ revoke all on public.mcp_connections from anon, authenticated;
 grant select, insert, update, delete on public.mcp_connections to service_role;
 
 alter table public.mcp_connections enable row level security;
+
+-- Documents a member saves from Specter into a deal's data room are badged by source.
+alter table diligence_documents
+  drop constraint if exists diligence_documents_source_kind_check;
+
+alter table diligence_documents
+  add constraint diligence_documents_source_kind_check
+  check (source_kind is null or source_kind in ('upload', 'google_drive', 'affinity', 'email', 'specter'));

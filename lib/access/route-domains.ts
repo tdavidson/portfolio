@@ -450,6 +450,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/diligence/[id]/documents/[docId]': { domain: 'diligence' },
   'api/diligence/[id]/documents/drive-files': { domain: 'diligence' },
   'api/diligence/[id]/documents/from-affinity': { domain: 'diligence' },
+  'api/diligence/[id]/documents/from-specter': { domain: 'diligence' },
   'api/diligence/[id]/documents/from-drive': { domain: 'diligence' },
   'api/diligence/[id]/documents/upload-url': { domain: 'diligence' },
   'api/diligence/[id]/drafts': { domain: 'diligence' },

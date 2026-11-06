@@ -15,6 +15,7 @@ import { DataRoomBar } from '@/components/diligence/progress-bars'
 import { countDocuments } from '@/lib/diligence/progress'
 import { SchemaViewer } from '@/components/diligence/schema-viewer'
 import { AffinityPanel } from '@/components/diligence/affinity-panel'
+import { SpecterPanel } from '@/components/diligence/specter-panel'
 import { EmailIntakeTray } from '@/components/diligence/email-intake-tray'
 import type { IngestionOutput } from '@/lib/memo-agent/stages/ingest'
 import type { ResearchOutput } from '@/lib/memo-agent/stages/research'
@@ -1465,6 +1466,7 @@ function DealRoomTab({ dealId, dealName, documents, setDocuments, initialDriveFo
       <div className="mb-3">
         <AffinityPanel dealId={dealId} dealName={dealName} onImported={refreshDocuments} />
       </div>
+      <SpecterPanel dealId={dealId} dealName={dealName} onSaved={refreshDocuments} />
 
       <div className="flex items-center justify-between gap-2 mb-3">
         <span className="text-sm font-medium text-muted-foreground">Documents</span>
