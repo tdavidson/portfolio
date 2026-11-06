@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
 import { buildDocxBuffer, exportToGoogleDocs } from '@/lib/lp-letters/export'
+import { investorText } from '@/lib/lp-letters/internal'
 import type { CompanyNarrative } from '@/lib/types/database'
 
 interface StoredPortfolioCompany {
@@ -73,7 +74,8 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
 
   const exportData = {
     period_label: letter.period_label,
-    full_draft: letter.full_draft,
+    // Exports are what the partners send: the "Missing information" section stays out of them.
+    full_draft: investorText(letter.full_draft),
     company_narratives: narratives,
     portfolio_companies: portfolioCompanies,
     fund_currency: currency,
@@ -81,7 +83,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
 
   // Markdown export
   if (format === 'markdown') {
-    const content = letter.full_draft ?? ''
+    const content = exportData.full_draft
     const filename = `${fundName} - ${letter.period_label}.md`
     return new NextResponse(content, {
       headers: {

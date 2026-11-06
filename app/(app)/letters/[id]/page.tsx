@@ -60,6 +60,8 @@ interface Letter {
   portfolio_table_html: string | null
   company_narratives: CompanyNarrative[]
   full_draft: string | null
+  /** The partners' "Missing information" notes: kept with the letter, never shown to investors. */
+  internal_notes?: string | null
   generation_prompt: string | null
   generation_error: string | null
   company_prompts: Record<string, CompanyPrompt> | null
@@ -776,6 +778,12 @@ export default function LetterEditorPage() {
       {/* Full draft view */}
       {viewMode === 'full' && hasContent && !regeneratingAll && (
         <div className="space-y-4">
+          {letter.internal_notes && (
+            <div className="rounded-card border bg-muted/30 p-4 space-y-1.5">
+              <p className="text-xs font-medium">Internal notes · never shown to investors</p>
+              <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">{letter.internal_notes}</p>
+            </div>
+          )}
           <Textarea
             value={fullDraft}
             onChange={e => setFullDraft(e.target.value)}

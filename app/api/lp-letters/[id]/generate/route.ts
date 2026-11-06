@@ -7,7 +7,7 @@ import { logAIUsage } from '@/lib/ai/usage'
 import { aggregatePortfolioData } from '@/lib/lp-letters/aggregate'
 import { buildPortfolioTableHtml, generateAllNarratives, assembleFullDraft } from '@/lib/lp-letters/generate'
 import { sanitizeLetterHtml } from '@/lib/sanitize'
-import { DEFAULT_STYLE_GUIDE } from '@/lib/lp-letters/default-template'
+import { letterVoice } from '@/lib/lp-letters/skill'
 import { logActivity } from '@/lib/activity'
 import { rateLimit } from '@/lib/rate-limit'
 
@@ -36,15 +36,17 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
   if (!letter) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   // Get the template style guide
-  let styleGuide = DEFAULT_STYLE_GUIDE
+  // The letter's voice: its template's style guide, else the lp-quarterly-letter skill's general voice.
+  let savedGuide: string | null = null
   if (letter.template_id) {
     const { data: template } = await admin
       .from('lp_letter_templates')
       .select('style_guide')
       .eq('id', letter.template_id)
       .maybeSingle()
-    if (template?.style_guide) styleGuide = template.style_guide
+    savedGuide = template?.style_guide ?? null
   }
+  const styleGuide = letterVoice(savedGuide ? { name: 'template', styleGuide: savedGuide } : null).voice
 
   // Set status to generating, clear any previous error
   await admin
@@ -99,6 +101,8 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
         company_narratives: narratives as any,
         full_draft: fullDraft,
         portfolio_summary: portfolioSummary as any,
+        source: 'generated',
+        generated_by: 'fund_ai',
         status: 'draft',
         updated_at: new Date().toISOString(),
       })

@@ -2712,6 +2712,11 @@ export type Database = {
           created_at: string | null
           created_by: string | null
           full_draft: string | null
+          generated_by: string | null
+          internal_notes: string | null
+          skill_version: string | null
+          source: string | null
+          vehicle_id: string | null
           fund_id: string
           generation_error: string | null
           generation_prompt: string | null
@@ -2733,6 +2738,11 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           full_draft?: string | null
+          generated_by?: string | null
+          internal_notes?: string | null
+          skill_version?: string | null
+          source?: string | null
+          vehicle_id?: string | null
           fund_id: string
           generation_error?: string | null
           generation_prompt?: string | null
@@ -2754,6 +2764,11 @@ export type Database = {
           created_at?: string | null
           created_by?: string | null
           full_draft?: string | null
+          generated_by?: string | null
+          internal_notes?: string | null
+          skill_version?: string | null
+          source?: string | null
+          vehicle_id?: string | null
           fund_id?: string
           generation_error?: string | null
           generation_prompt?: string | null

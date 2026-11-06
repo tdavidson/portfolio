@@ -153,14 +153,56 @@ describe('LP letter tools', () => {
     expect(store.tables.lp_letters.find((l: any) => l.id === 'l1')!.full_draft).toBe('old')
   })
 
-  it("lets the fund's own AI write it from the brief", async () => {
-    const out = await H.lp_draft_letter(ctx(), { vehicle: 'Fund I', year: 2026, quarter: 3 }) as any
+  it("lets the fund's own AI write it from the brief, in layers: rules, profile, skill, voice", async () => {
+    const out = await H.lp_draft_letter(ctx(), { vehicle: 'Fund I', year: 2026, quarter: 3, guidance: 'Lead with Acme.' }) as any
     expect(out.written_by).toBe('fund AI')
     expect(out.review_flags).toEqual([])
     const sent = (createMessage.mock.calls[0] as any[])[0].content as string
     expect(sent).toContain('<data label="letter-brief" type="reference-only">')
     expect(sent).toContain('Acme closed two enterprise pilots.')
     expect(sent).not.toContain('Last quarter.')
+    const at = (t: string) => { const i = sent.indexOf(t); expect(i, t).toBeGreaterThan(-1); return i }
+    const order = [at('1. RULES'), at('2. LETTER PROFILE'), at('3. STRUCTURE (the lp-quarterly-letter skill'), at("4. VOICE (the fund's own"), at('5. GUIDANCE FOR THIS LETTER'), at('<data label="letter-brief"')]
+    expect([...order].sort((a, b) => a - b)).toEqual(order)
+    expect(sent).toContain('Open with three themes.')
+    expect(sent).toContain('general outline')
+    // The fund's own voice replaces the general examples.
+    expect(sent).not.toContain('EXAMPLES (invented')
+  })
+
+  it("keeps the draft's Missing information apart from the letter, and records how it was written", async () => {
+    const out = await H.lp_draft_letter(ctx(), { vehicle: 'Fund I', year: 2026, quarter: 3 }) as any
+    const row = store.tables.lp_letters.find((l: any) => l.id === out.letter.id)!
+    expect(row.full_draft).toBe('Fund AI letter.')
+    expect(row.internal_notes).toBe('Missing information\n- Birch update.')
+    expect(row).toMatchObject({ source: 'generated', generated_by: 'fund_ai', vehicle_id: 'v1' })
+    expect(row.skill_version).toMatch(/^\d+\.\d+\.\d+$/)
+    expect(out.letter).toMatchObject({ source: 'generated', generated_by: 'fund_ai' })
+    expect(((await H.lp_letter(ctx(), { letter_id: out.letter.id })) as any).internal_notes).toBe('Missing information\n- Birch update.')
+
+    const mine = await H.lp_draft_letter(ctx(), { vehicle: 'Fund I', year: 2026, quarter: 3, text: 'By hand.\n\nMissing information\n- x' }) as any
+    expect(store.tables.lp_letters.find((l: any) => l.id === mine.letter.id)).toMatchObject({ generated_by: 'assistant', full_draft: 'By hand.' })
+
+    await H.lp_write_letter(ctx(), { letter_id: 'l1', full_draft: 'Edited.\n\nMissing information\n- y' })
+    expect(store.tables.lp_letters.find((l: any) => l.id === 'l1')).toMatchObject({ full_draft: 'Edited.', internal_notes: 'Missing information\n- y' })
+  })
+
+  it("serves the skill with the fund's own voice, or the general one", async () => {
+    const tool = getTool('lp_letter_skill')!
+    expect(tool).toMatchObject({ scope: 'read', accessDomain: 'lp_relations', accessFeature: 'lp_letters' })
+    const own = await H.lp_letter_skill(ctx(), {}) as any
+    expect(own.files['SKILL.md']).toMatch(/^---\nname: lp-quarterly-letter/)
+    expect(own.files['references/voice.md']).toBe('Open with three themes.')
+    expect(own.files['references/examples.md']).toBeUndefined()
+    expect(own.voice).toMatchObject({ source: 'fund', template: 'House style' })
+    store.tables.lp_letter_templates = []
+    const general = await H.lp_letter_skill(ctx(), {}) as any
+    expect(general.voice.source).toBe('default')
+    expect(general.files['references/voice.md']).toMatch(/^# Voice/)
+    expect(general.files['references/examples.md']).toMatch(/^# Examples/)
+    const brief = await H.lp_letter_brief(ctx(), { vehicle: 'Fund I', year: 2026, quarter: 3 }) as any
+    expect(brief.instructions).toContain('Read it with lp_letter_skill')
+    expect(brief.skill).toMatchObject({ name: 'lp-quarterly-letter', voice: 'default' })
   })
 
   it('uses the template and guidance asked for, and refuses a template that does not exist', async () => {

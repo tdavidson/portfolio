@@ -3,6 +3,7 @@ import JSZip from 'jszip'
 import { connectorUrl, isPluginTarget, pluginFilename, pluginFiles, pluginName, pluginZip } from './build'
 import { PLUGIN_FILES } from './plugin-files.generated'
 import { MCP_TOOLS } from '@/lib/mcp-apps/server'
+import { LIST_FUNDS, USE_FUND } from '@/lib/agent/master-admin'
 
 const ctx = { origin: 'https://portfolio.fernhill.example', fundName: 'Fernhill Ventures', version: '1.2.3' }
 
@@ -72,7 +73,7 @@ describe('both packages', () => {
   it.each(['claude', 'chatgpt'] as const)('%s: carries every skill, each with a name matching its folder', target => {
     const files = pluginFiles(target, ctx)
     const skills = Object.keys(files).filter(p => /^skills\/[^/]+\/SKILL\.md$/.test(p))
-    expect(skills.sort()).toEqual(['skills/fund-analysis/SKILL.md', 'skills/fund-dashboards/SKILL.md'])
+    expect(skills.sort()).toEqual(['skills/fund-analysis/SKILL.md', 'skills/fund-dashboards/SKILL.md', 'skills/lp-quarterly-letter/SKILL.md'])
     for (const path of skills) {
       const folder = path.split('/')[1]
       const front = /^---\n([\s\S]*?)\n---\n/.exec(files[path])
@@ -119,8 +120,13 @@ describe('both packages', () => {
 describe('the skills name only tools that exist', () => {
   // A skill that tells the assistant to call a tool the server does not have fails in front of
   // the user. Every `backticked_name` in a skill that looks like a tool must be one.
-  const known = new Set(MCP_TOOLS.map(t => t.name))
-  const NOT_TOOLS = new Set(['this_quarter', 'last_quarter', 'prior_year', 'as_of'])
+  // list_funds and use_fund are the pooled connection's own tools (lib/agent/master-admin.ts).
+  const known = new Set([...MCP_TOOLS.map(t => t.name), LIST_FUNDS, USE_FUND])
+  // Arguments and fields the skills name, not tools.
+  const NOT_TOOLS = new Set([
+    'this_quarter', 'last_quarter', 'prior_year', 'as_of',
+    'year_end', 'full_draft', 'mark_final', 'stored_business_update',
+  ])
 
   it.each(Object.keys(PLUGIN_FILES).filter(p => p.endsWith('SKILL.md')))('%s', path => {
     const mentioned = Array.from(PLUGIN_FILES[path].matchAll(/`([a-z]+(?:_[a-z]+)+)`/g)).map(m => m[1])

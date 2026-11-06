@@ -6,6 +6,7 @@ import { resolveAgentAuth, loadCredentialAccess, type ResolvedKey } from '@/lib/
 import { withChangeSource } from '@/lib/audit/source'
 import type { AccessContext } from '@/lib/access/effective'
 import { getMcpTool, listResources, negotiateProtocolVersion, readResource } from '@/lib/mcp-apps/server'
+import { listSkillResources, readSkillResource } from '@/lib/lp-letters/skill-resources'
 import { callMcpTool, type McpCallContext } from '@/lib/mcp-apps/call'
 import { gatewayTargetName, listedTools, toolListVersion } from '@/lib/mcp-apps/gateway'
 import { ACTIVE_FUND_ARG, activeFund, MASTER_ADMIN_TOOLS, newSessionId, withActiveFundArgument, type MasterAdminPool } from '@/lib/agent/master-admin'
@@ -184,11 +185,11 @@ async function handle(rpc: RpcRequest, ctx: BaseCtx, auth: ResolvedKey, access: 
       }
     }
     case 'resources/list':
-      return ok(rpc.id, listResources())
+      return ok(rpc.id, { resources: [...listResources().resources, ...listSkillResources()] })
     case 'resources/templates/list':
       return ok(rpc.id, { resourceTemplates: [] })
     case 'resources/read': {
-      const resource = readResource(rpc.params?.uri)
+      const resource = readResource(rpc.params?.uri) ?? readSkillResource(rpc.params?.uri)
       return resource ? ok(rpc.id, resource) : err(rpc.id, -32002, `Resource not found: ${rpc.params?.uri}`)
     }
     default:

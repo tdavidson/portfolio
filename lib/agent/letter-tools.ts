@@ -9,7 +9,8 @@ import { unwrap } from '@/lib/service-outcome'
 import { reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
 import { siteOrigin } from '@/lib/site-links'
 import { createLetter, getLetter, letterData, listLetters, shareLetter, updateLetter, writeLetterSections } from '@/lib/lp-letters/service'
-import { loadLetterBrief, saveDraftLetter, writeWithFundAI, type LetterPeriod } from '@/lib/lp-letters/draft-from-brief'
+import { loadLetterBrief, resolveTemplate, saveDraftLetter, writeWithFundAI, type LetterPeriod } from '@/lib/lp-letters/draft-from-brief'
+import { LETTER_SKILL_MD, LETTER_SKILL_VERSION, letterVoice } from '@/lib/lp-letters/skill'
 import { checkLetterDraft } from '@/lib/lp-letters/brief'
 import { rateLimit } from '@/lib/rate-limit'
 import { requireUser } from './deals-tools'
@@ -44,6 +45,9 @@ const briefOpts = (input: any) => ({
 
 const summary = (l: any) => ({
   id: l.id, period: l.period_label, vehicle: l.portfolio_group, status: l.status, year_end: !!l.is_year_end, updated_at: l.updated_at,
+  // How it was written: generated (by the fund's AI or an assistant), imported (a letter as sent), or
+  // null for a letter from before this was recorded.
+  source: l.source ?? null, generated_by: l.generated_by ?? null, skill_version: l.skill_version ?? null,
 })
 
 export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
@@ -59,6 +63,7 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
       ...summary(l),
       prompt: l.generation_prompt ?? null,
       full_draft: l.full_draft ?? null,
+      internal_notes: l.internal_notes ?? null,
       sections: ((l.company_narratives ?? []) as any[]).map(n => ({ company_id: n.company_id, company: n.company_name, narrative: n.narrative })),
       generation_error: l.generation_error ?? null,
     }
@@ -67,6 +72,24 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
   lp_letter_data: async (ctx: AgentToolContext, input: any) => {
     const l = await letterOf(ctx, input?.letter_id)
     return { letter: summary(l), ...(await letterData(ctx.admin, ctx.fundId, l)) }
+  },
+
+  lp_letter_skill: async (ctx: AgentToolContext, input: any) => {
+    const template = await resolveTemplate(ctx.admin, ctx.fundId, typeof input?.template === 'string' ? input.template : null)
+    const voice = letterVoice(template)
+    return {
+      skill: 'lp-quarterly-letter',
+      version: LETTER_SKILL_VERSION,
+      files: {
+        'SKILL.md': LETTER_SKILL_MD,
+        'references/voice.md': voice.voice,
+        ...(voice.examples ? { 'references/examples.md': voice.examples } : {}),
+      },
+      voice: voice.source === 'fund'
+        ? { source: 'fund', template: voice.template, note: "The fund's own voice, from its letter template. It replaces the general voice and examples." }
+        : { source: 'default', template: null, note: "The skill's general voice: this fund has not saved its own." },
+      next: 'Follow SKILL.md with these references. Get the facts from lp_letter_brief, and save with lp_draft_letter.',
+    }
   },
 
   lp_letter_brief: async (ctx: AgentToolContext, input: any) => {
@@ -84,9 +107,11 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
     const opts = briefOpts(input)
     const loaded = await loadLetterBrief(ctx.admin, ctx.fundId, p, opts)
     const { brief, investorNames } = loaded
-    const text = given ?? await writeWithFundAI(ctx.admin, ctx.fundId, userId, brief)
+    const text = given ?? await writeWithFundAI(ctx.admin, ctx.fundId, userId, brief, loaded.voice, opts.guidance)
     if (!text) throw new Error('The draft came back empty. Try again, or write it from lp_letter_brief and pass text.')
-    const row = unwrap(await saveDraftLetter(ctx.admin, { fundId: ctx.fundId, userId, visible: await visible(ctx) }, p, text, loaded, opts.guidance))
+    const row = unwrap(await saveDraftLetter(
+      ctx.admin, { fundId: ctx.fundId, userId, visible: await visible(ctx) }, p, text, loaded, opts.guidance, given ? 'assistant' : 'fund_ai',
+    ))
     return {
       letter: summary(row),
       template: loaded.template.name,
@@ -95,7 +120,8 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
       review_flags: checkLetterDraft(text, brief, investorNames),
       missing_information: brief.missing_information,
       next:
-        'This is a new, unshared draft. Show the user the draft and every review flag. Edits go through lp_write_letter ' +
+        'This is a new, unshared draft. Show the user the draft and every review flag. Its "Missing information" section is ' +
+        'kept with the letter as internal notes (lp_letter internal_notes) and is never shown to investors. Edits go through lp_write_letter ' +
         '(full_draft). Once a person has reviewed it, it is marked final (lp_write_letter mark_final) and only then can an ' +
         'admin share it (lp_share_letter).',
     }

@@ -20,6 +20,7 @@ import { listCapitalCalls } from '@/lib/accounting/capital-calls'
 import { listDistributions } from '@/lib/accounting/distributions'
 import { getSelfReadState, logLpAccessEvent } from '@/lib/lp-access-log'
 import { sanitizeLetterHtml } from '@/lib/sanitize'
+import { investorText } from '@/lib/lp-letters/internal'
 import { getOutboundConfig, sendOutboundEmail } from '@/lib/email'
 import { loadItemDocuments } from '@/lib/lp-onboarding-audit'
 import { DEFAULT_CONSENT_DISCLOSURE } from '@/lib/tax/delivery'
@@ -223,6 +224,9 @@ export async function portalLetter(admin: SupabaseClient, p: LpPrincipal, letter
   if (!letter || letter.status === 'generating') throw notFound()
   // Defense in depth: scrub the GP-authored HTML before it reaches the LP.
   letter.portfolio_table_html = sanitizeLetterHtml(letter.portfolio_table_html)
+  // The partners' "Missing information" section never reaches an investor, even on a letter saved
+  // before it was kept apart from the text (lib/lp-letters/internal.ts).
+  if (letter.full_draft) letter.full_draft = investorText(letter.full_draft)
 
   await logLpAccessEvent(admin, {
     fundId, lpAccountId: p.lpAccountId, authUserId: p.userId, lpInvestorId: sharedInvestorIds[0] ?? null,

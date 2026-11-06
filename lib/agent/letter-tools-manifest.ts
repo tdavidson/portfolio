@@ -52,13 +52,24 @@ export const LETTER_TOOL_MANIFEST: AgentToolMeta[] = [
     inputSchema: { type: 'object', properties: { letter_id: LETTER }, required: ['letter_id'] },
   },
   {
+    name: 'lp_letter_skill',
+    description:
+      'The lp-quarterly-letter skill, as this app holds it: SKILL.md (the structure, sizing, voice rules and review checklist ' +
+      'every LP letter follows) and its references, voice.md and examples.md. Where the fund has saved its own voice (its ' +
+      'letter template), that replaces the general voice and examples. Read it before writing a letter from lp_letter_brief; ' +
+      'it is always the current version, so prefer it to a copy you hold.',
+    scope: 'read',
+    ...base,
+    inputSchema: { type: 'object', properties: { template: PERIOD.properties.template } },
+  },
+  {
     name: 'lp_letter_brief',
     description:
       'Everything a quarterly LP letter may be written from, for an entity and quarter, as of the quarter end: each company\'s ' +
       'stored updates, KPI values and team notes for the quarter, its figures from the books labeled gross, net, cost or cash, ' +
       'the write-offs, down rounds and markdowns the books show, and what is missing. Its instructions are the fund\'s letter ' +
-      'template plus the rules every letter keeps. No LP or investor-level data is included. Follow the instructions exactly ' +
-      'when writing; then save with lp_draft_letter (text).',
+      'voice plus the rules every letter keeps. No LP or investor-level data is included. Follow the instructions exactly ' +
+      'when writing, and the lp-quarterly-letter skill (read it with lp_letter_skill); then save with lp_draft_letter (text).',
     scope: 'read',
     ...base,
     inputSchema: PERIOD,

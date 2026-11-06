@@ -9,6 +9,7 @@ import { done, dbFail, fail, type Outcome } from '@/lib/service-outcome'
 import { groupWriteDenial } from '@/lib/access/scope'
 import { aggregatePortfolioData } from './aggregate'
 import { assembleFullDraft, buildPortfolioTableHtml } from './generate'
+import { splitInternal } from './internal'
 import { sanitizeLetterHtml } from '@/lib/sanitize'
 import type { CompanyNarrative } from '@/lib/types/database'
 
@@ -54,6 +55,10 @@ export async function createLetter(admin: Admin, ctx: { fundId: string; userId: 
   const denied = groupWriteDenial(ctx.visible, String(portfolio_group))
   if (denied) return fail(403, denied)
 
+  // The entity by id as well as by name, so a renamed or merged vehicle keeps its letters.
+  const { data: vehicle } = await (admin as any)
+    .from('fund_vehicles').select('id').eq('fund_id', ctx.fundId).eq('name', String(portfolio_group)).maybeSingle()
+
   const periodLabel = is_year_end
     ? `Q${period_quarter} ${period_year} / Year End ${period_year}`
     : `Q${period_quarter} ${period_year}`
@@ -68,6 +73,7 @@ export async function createLetter(admin: Admin, ctx: { fundId: string; userId: 
       is_year_end: is_year_end ?? false,
       period_label: periodLabel,
       portfolio_group,
+      vehicle_id: vehicle?.id ?? null,
       generation_prompt: generation_prompt ?? null,
       status: 'draft',
       created_by: ctx.userId,
@@ -81,6 +87,8 @@ export async function createLetter(admin: Admin, ctx: { fundId: string; userId: 
 export interface LetterChanges {
   company_narratives?: unknown
   full_draft?: unknown
+  /** The partners' notes kept with the letter and never shown to investors (internal.ts). */
+  internal_notes?: unknown
   status?: unknown
   generation_prompt?: unknown
   company_prompts?: unknown
@@ -91,10 +99,17 @@ export async function updateLetter(admin: Admin, ctx: { fundId: string; visible:
   if (!found.ok) return found
   if (!found.value) return fail(404, 'Not found')
 
-  const { company_narratives, full_draft, status, generation_prompt, company_prompts } = input
+  const { company_narratives, full_draft, internal_notes, status, generation_prompt, company_prompts } = input
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
   if (company_narratives !== undefined) updates.company_narratives = company_narratives
-  if (full_draft !== undefined) updates.full_draft = full_draft
+  if (internal_notes !== undefined) updates.internal_notes = internal_notes == null ? null : String(internal_notes)
+  // A "Missing information" section written into the text moves to the internal notes, so it can
+  // never be shared with the letter.
+  if (full_draft !== undefined) {
+    const { body, internal } = splitInternal(full_draft == null ? null : String(full_draft))
+    updates.full_draft = full_draft == null ? null : body
+    if (internal) updates.internal_notes = internal
+  }
   // 'final' is a reviewed letter, the only kind that can be shared (shareLetter). 'complete' was a
   // name the code used and the table's check never allowed; it means final.
   if (status !== undefined) {

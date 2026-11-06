@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildLetterBrief, checkLetterDraft, redactor, MISSING_HEADING, type StoredUpdate } from './brief'
 import type { CompanyLetterData, PortfolioPreview } from './aggregate'
+import { letterVoice } from './skill'
 
 const company = (over: Partial<CompanyLetterData['investment']> & { companyId: string; companyName: string }, extra: Partial<CompanyLetterData> = {}): CompanyLetterData => ({
   investment: {
@@ -16,6 +17,7 @@ const company = (over: Partial<CompanyLetterData['investment']> & { companyId: s
 })
 
 const STYLE = 'Open with the three most important themes. Close with next quarter\'s priorities.'
+const VOICE = letterVoice({ name: 'House style', styleGuide: STYLE })
 
 const preview = (companies: CompanyLetterData[], fundMetrics: PortfolioPreview['fundMetrics'] = null): PortfolioPreview => ({
   asOf: '2026-09-30', fundName: 'Hemlock Ventures', fundCurrency: 'USD', periodLabel: 'Q3 2026', portfolioGroup: 'Hemlock Fund I',
@@ -46,7 +48,7 @@ const updates = new Map<string, StoredUpdate[]>([
 const fundMetrics = { committedCapital: 10_000_000, paidInCapital: 6_000_000, distributions: 1_000_000, fmv: 7_000_000, dpi: 0.17, rvpi: 1.17, tvpi: 1.33, irr: 0.124 }
 
 describe('the letter brief', () => {
-  const brief = buildLetterBrief({ preview: preview([acme, birch, cedar], fundMetrics), year: 2026, quarter: 3, updates, investorNames: ['Pat Investor LP', 'Acme'], styleGuide: STYLE })
+  const brief = buildLetterBrief({ preview: preview([acme, birch, cedar], fundMetrics), year: 2026, quarter: 3, updates, investorNames: ['Pat Investor LP', 'Acme'], voice: VOICE })
 
   it("takes structure from the fund's template and keeps the rules every letter follows", () => {
     expect(brief.fund).toBe('Hemlock Fund I')
@@ -55,7 +57,7 @@ describe('the letter brief', () => {
     expect(brief.instructions).toContain('gross or net')
     expect(brief.instructions).toContain(`"${MISSING_HEADING}"`)
     expect(brief.instructions).not.toContain('GUIDANCE FOR THIS LETTER')
-    const guided = buildLetterBrief({ preview: preview([acme]), year: 2026, quarter: 3, updates, styleGuide: STYLE, guidance: 'Lead with the Birch news.' })
+    const guided = buildLetterBrief({ preview: preview([acme]), year: 2026, quarter: 3, updates, voice: VOICE, guidance: 'Lead with the Birch news.' })
     expect(guided.instructions).toContain('GUIDANCE FOR THIS LETTER:\nLead with the Birch news.')
   })
 
@@ -98,13 +100,13 @@ describe('the letter brief', () => {
     expect(brief.missing_information).toContain('Birch: no company update or KPI values are stored for Q3 2026.')
     // A write-off needs no update.
     expect(brief.missing_information.join(' ')).not.toContain('Cedar')
-    const noFlows = buildLetterBrief({ preview: preview([acme]), year: 2026, quarter: 3, updates, styleGuide: STYLE })
+    const noFlows = buildLetterBrief({ preview: preview([acme]), year: 2026, quarter: 3, updates, voice: VOICE })
     expect(noFlows.missing_information.join(' ')).toContain('no fund cash flows are recorded')
   })
 })
 
 describe('reviewing a draft', () => {
-  const brief = buildLetterBrief({ preview: preview([acme, birch, cedar], fundMetrics), year: 2026, quarter: 3, updates, styleGuide: STYLE })
+  const brief = buildLetterBrief({ preview: preview([acme, birch, cedar], fundMetrics), year: 2026, quarter: 3, updates, voice: VOICE })
   const good = [
     'Three themes shaped Q3 2026.',
     'Acme grew ARR to $1.2M, up from $900,000, and holds at a gross MOIC of 2.00x.',

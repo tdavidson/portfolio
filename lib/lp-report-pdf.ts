@@ -2,6 +2,7 @@ import puppeteer from 'puppeteer-core'
 import { pdfFontCss, PDF_SANS, PDF_DISPLAY } from '@/lib/pdf-fonts'
 import { displayFontOf } from '@/lib/theme'
 import { sanitizeLetterHtml } from '@/lib/sanitize'
+import { investorText } from '@/lib/lp-letters/internal'
 import { lpRatios } from '@/lib/lp-metrics'
 import { generateLiveReport } from '@/lib/accounting/live-report'
 import { lastDataDates } from '@/lib/accounting/lp-positions'
@@ -666,7 +667,8 @@ export async function generateLetterPdf(
 
   const html = buildLetterHtml({
     periodLabel: letter.period_label || 'Letter',
-    fullDraft: letter.full_draft,
+    // Investors read this PDF too: the partners' "Missing information" section stays out.
+    fullDraft: investorText(letter.full_draft),
     portfolioTableHtml: letter.portfolio_table_html,
     fundName: letterhead.name,
     fundLogo: letterhead.logo,

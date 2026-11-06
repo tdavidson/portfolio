@@ -13,13 +13,14 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { aggregatePortfolioData, type PortfolioPreview } from './aggregate'
 import { buildPortfolioTableHtml } from './generate'
 import { createLetter } from './service'
-import { DEFAULT_STYLE_GUIDE } from './default-template'
+import { letterVoice, LETTER_SKILL_VERSION, type LetterVoice } from './skill'
+import { splitInternal } from './internal'
 import { sanitizeLetterHtml } from '@/lib/sanitize'
 import { done, dbFail, type Outcome } from '@/lib/service-outcome'
 import { createFundAIProvider } from '@/lib/ai'
 import { logAIUsage } from '@/lib/ai/usage'
 import {
-  briefAsPrompt, buildLetterBrief, quarterBounds,
+  buildLetterBrief, quarterBounds, writerPrompt,
   type LetterBrief, type StoredUpdate,
 } from './brief'
 
@@ -76,12 +77,13 @@ async function investorNames(admin: Admin, fundId: string): Promise<string[]> {
   return ((data ?? []) as any[]).map(r => String(r.name ?? '')).filter(Boolean)
 }
 
-export interface LetterTemplate { id: string | null; name: string; styleGuide: string }
+/** A fund's saved letter template, or the built-in one (id null, no style guide of its own). */
+export interface LetterTemplate { id: string | null; name: string; styleGuide: string | null }
 
 /**
- * The letter template whose style guide sets a letter's structure: the one asked for (by id or
- * name), else the fund's default, else the built-in default. A name that matches nothing is an
- * error, so a typo doesn't quietly fall back.
+ * The letter template whose style guide is the letter's voice: the one asked for (by id or name),
+ * else the fund's default, else none, and the skill's general voice applies (skill.ts). A name that
+ * matches nothing is an error, so a typo doesn't quietly fall back.
  */
 export async function resolveTemplate(admin: Admin, fundId: string, ref?: string | null): Promise<LetterTemplate> {
   const { data } = await (admin as any).from('lp_letter_templates').select('id, name, style_guide, is_default').eq('fund_id', fundId)
@@ -93,7 +95,7 @@ export async function resolveTemplate(admin: Admin, fundId: string, ref?: string
     return { id: hit.id, name: hit.name, styleGuide: hit.style_guide }
   }
   const def = rows.find(t => t.is_default)
-  return def ? { id: def.id, name: def.name, styleGuide: def.style_guide } : { id: null, name: 'Default', styleGuide: DEFAULT_STYLE_GUIDE }
+  return def ? { id: def.id, name: def.name, styleGuide: def.style_guide } : { id: null, name: 'Default', styleGuide: null }
 }
 
 export interface LoadedBrief {
@@ -101,12 +103,14 @@ export interface LoadedBrief {
   preview: PortfolioPreview
   investorNames: string[]
   template: LetterTemplate
+  voice: LetterVoice
 }
 
 export async function loadLetterBrief(
   admin: Admin, fundId: string, p: LetterPeriod, opts: { template?: string | null; guidance?: string | null } = {},
 ): Promise<LoadedBrief> {
   const template = await resolveTemplate(admin, fundId, opts.template)
+  const voice = letterVoice(template)
   const preview = await aggregatePortfolioData(admin as any, fundId, p.year, p.quarter, p.vehicle, !!p.yearEnd)
   const ids = preview.companies.map(c => c.investment.companyId)
   const [updates, names] = await Promise.all([
@@ -114,21 +118,23 @@ export async function loadLetterBrief(
     investorNames(admin, fundId),
   ])
   const brief = buildLetterBrief({
-    preview, year: p.year, quarter: p.quarter, updates, investorNames: names, styleGuide: template.styleGuide, guidance: opts.guidance,
+    preview, year: p.year, quarter: p.quarter, updates, investorNames: names, voice, guidance: opts.guidance,
   })
-  return { brief, preview, investorNames: names, template }
+  return { brief, preview, investorNames: names, template, voice }
 }
 
-/** The fund's own AI provider writes the letter from the brief, in one call. */
-export async function writeWithFundAI(admin: Admin, fundId: string, userId: string | null, brief: LetterBrief): Promise<string> {
+/** The fund's own AI provider writes the letter from the brief, in one call, in the layers of writerPrompt. */
+export async function writeWithFundAI(
+  admin: Admin, fundId: string, userId: string | null, brief: LetterBrief, voice: LetterVoice, guidance?: string | null,
+): Promise<string> {
   const { provider, model, providerType } = await createFundAIProvider(admin as any, fundId)
   const result = await provider.createMessage({
     model,
-    maxTokens: 4000,
+    maxTokens: 8000,
     system:
       "You write a venture fund's quarterly letter to its limited partners. You write plainly and precisely, state bad news " +
       'directly, and never add a number or claim your sources do not contain. Plain text, no markdown.',
-    content: briefAsPrompt(brief),
+    content: writerPrompt(brief, voice, guidance),
   })
   await logAIUsage(admin as any, {
     fundId, userId: userId ?? undefined, provider: providerType, model, feature: 'lp-letter-draft', usage: result.usage,
@@ -144,8 +150,10 @@ export async function writeWithFundAI(admin: Admin, fundId: string, userId: stri
 export async function saveDraftLetter(
   admin: Admin, ctx: { fundId: string; userId: string; visible: string[] | null },
   p: LetterPeriod, text: string, loaded: Pick<LoadedBrief, 'preview' | 'template'>, guidance?: string | null,
+  generatedBy: 'fund_ai' | 'assistant' = 'fund_ai',
 ): Promise<Outcome<any>> {
   const { preview } = loaded
+  const { body, internal } = splitInternal(text)
   const created = await createLetter(admin, ctx, {
     period_year: p.year, period_quarter: p.quarter, portfolio_group: p.vehicle, is_year_end: !!p.yearEnd,
     template_id: loaded.template.id, generation_prompt: guidance?.trim() || null,
@@ -154,7 +162,12 @@ export async function saveDraftLetter(
   const { data, error } = await (admin as any)
     .from('lp_letters')
     .update({
-      full_draft: text,
+      // The "Missing information" section is kept with the letter, apart from what investors see.
+      full_draft: body,
+      internal_notes: internal,
+      source: 'generated',
+      generated_by: generatedBy,
+      skill_version: LETTER_SKILL_VERSION,
       portfolio_table_html: sanitizeLetterHtml(buildPortfolioTableHtml(preview)) ?? '',
       portfolio_summary: preview.companies.map(c => ({
         company_id: c.investment.companyId, company_name: c.investment.companyName, status: c.investment.status,
