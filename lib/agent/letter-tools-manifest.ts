@@ -110,6 +110,24 @@ export const LETTER_TOOL_MANIFEST: AgentToolMeta[] = [
     inputSchema: { type: 'object', properties: { letter_id: LETTER }, required: ['letter_id'] },
   },
   {
+    name: 'lp_letter_export',
+    description:
+      'An LP letter as investors would receive it, without the partners\' "Missing information" notes: format "docx" (Word, ' +
+      'with real heading, list, table and caption styles, the logo, the charts and page numbers), "pdf" (the letter layout), ' +
+      '"markdown" ("## " headings and tables) or "json" (the sections as blocks). Word and PDF come back as a download link ' +
+      'that works for an hour; Markdown and JSON come back as text too.',
+    scope: 'read',
+    ...base,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        letter_id: LETTER,
+        format: { type: 'string', enum: ['docx', 'pdf', 'markdown', 'json'], description: 'Default docx.' },
+      },
+      required: ['letter_id'],
+    },
+  },
+  {
     name: 'lp_create_letter',
     description: 'Start a draft LP letter for an entity and quarter. Then write it with lp_write_letter, or generate it on the LP Letters page.',
     scope: 'write',

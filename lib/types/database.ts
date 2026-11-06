@@ -2732,6 +2732,7 @@ export type Database = {
           internal_notes: string | null
           partner_notes: string | null
           source_documents: Json
+          charts: Json
           skill_version: string | null
           source: string | null
           vehicle_id: string | null
@@ -2761,6 +2762,7 @@ export type Database = {
           internal_notes?: string | null
           partner_notes?: string | null
           source_documents?: Json
+          charts?: Json
           skill_version?: string | null
           source?: string | null
           vehicle_id?: string | null
@@ -2790,6 +2792,7 @@ export type Database = {
           internal_notes?: string | null
           partner_notes?: string | null
           source_documents?: Json
+          charts?: Json
           skill_version?: string | null
           source?: string | null
           vehicle_id?: string | null

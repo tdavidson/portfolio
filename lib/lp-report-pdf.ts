@@ -9,6 +9,8 @@ import { lastDataDates } from '@/lib/accounting/lp-positions'
 import { linkedLiveRows } from '@/lib/fund-connections'
 import { documentLetterhead, contactBlock } from '@/lib/vehicle-letterhead'
 import { letterPdfFileName, snapshotPdfFileName } from '@/lib/lps/attachment-names'
+import { chartsOf, hasStructuredContent, letterDocument, type LetterDocument } from '@/lib/lp-letters/document'
+import { chartBytes, chartDataUris } from '@/lib/lp-letters/charts'
 
 // Shared LP investor-report rendering: HTML template + PDF rendering, used by the
 // GP batch export (zip of PDFs), the LP portal (single download), and the admin
@@ -642,6 +644,73 @@ export function buildLetterHtml(opts: {
 }
 
 /**
+ * The built-in letter layout, for a letter with structured content: the letterhead, the title, each
+ * section under its heading with its paragraphs, bullet lists and tables, the charts with their
+ * captions, and page numbers. Everything it shows is inline (the logo and charts as data), so it
+ * renders offline: the server's browser fetches nothing.
+ */
+export function buildDocumentLetterHtml(opts: {
+  doc: LetterDocument
+  fundName: string
+  fundLogo: string | null
+  fundAddress: string | null
+  /** Each chart's image as a data URI, by chart id. A chart without one is left out. */
+  charts: Map<string, string>
+  displayFont?: string | null
+}): string {
+  const { doc, fundName, fundLogo, fundAddress, charts, displayFont } = opts
+  const NUM = /^[-–(]?[$€£¥]?\s?[\d.,]+\s?(%|x|[KMB])?\)?$|^[-–—]$/
+  const para = (t: string) => `<p>${esc(t).replace(/\n/g, '<br/>')}</p>`
+  const body = doc.sections.map(s => {
+    const parts: string[] = []
+    if (s.heading) parts.push(s.kind === 'company' ? `<h3>${esc(s.heading)}</h3>` : `<h2>${esc(s.heading)}</h2>`)
+    for (const b of s.blocks) {
+      if (b.type === 'paragraph') parts.push(para(b.text))
+      else if (b.type === 'bullets') parts.push(`<ul>${b.items.map(i => `<li>${esc(i)}</li>`).join('')}</ul>`)
+      else if (b.type === 'table') {
+        const td = (c: string) => `<td${NUM.test(c.trim()) ? ' class="num"' : ''}>${esc(c)}</td>`
+        parts.push(`<table><thead><tr>${b.header.map(h => `<th>${esc(h)}</th>`).join('')}</tr></thead><tbody>${b.rows.map(r => `<tr>${r.map(td).join('')}</tr>`).join('')}</tbody></table>`)
+      } else {
+        const src = charts.get(b.chart.id)
+        // Only an image data URI reaches the src attribute.
+        if (!src || !/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/]+=*$/.test(src)) continue
+        parts.push(`<figure><img src="${src}" alt="${esc(b.chart.caption ?? 'Chart')}"/>${b.chart.caption ? `<figcaption>${esc(b.chart.caption)}</figcaption>` : ''}</figure>`)
+      }
+    }
+    return `<section>${parts.join('')}</section>`
+  }).join('')
+
+  return `<!DOCTYPE html>
+<html><head><meta charset="utf-8"><style>${pdfFontCss(displayFont)}
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: ${PDF_SANS}; font-size:11px; color:#111; line-height:1.55; }
+  h1 { font-family:${PDF_DISPLAY}; font-size:22px; font-weight:400; letter-spacing:-0.01em; margin-bottom:20px; }
+  h2 { font-family:${PDF_DISPLAY}; font-size:15px; font-weight:400; margin:22px 0 8px; break-after:avoid; }
+  h3 { font-size:12px; font-weight:600; margin:16px 0 6px; break-after:avoid; }
+  p { margin-bottom:10px; }
+  ul { margin:0 0 10px 18px; }
+  li { margin-bottom:4px; }
+  table { width:100%; border-collapse:collapse; font-size:10px; margin:6px 0 14px; break-inside:avoid; }
+  th { font-weight:600; text-align:left; padding:4px 6px; border-bottom:1.5px solid #bbb; }
+  td { padding:4px 6px; border-top:1px solid #e5e5e5; font-variant-numeric: tabular-nums; }
+  td.num { text-align:right; }
+  figure { margin:10px 0 16px; text-align:center; break-inside:avoid; }
+  figure img { max-width:100%; max-height:7in; }
+  figcaption { font-size:9.5px; color:#555; font-style:italic; margin-top:4px; }
+</style></head><body>
+  <div style="display:flex;align-items:flex-start;justify-content:space-between;margin-bottom:28px;">
+    <div style="flex-shrink:0;">${fundLogo ? `<img src="${fundLogo}" style="height:40px;width:auto;object-fit:contain;" />` : ''}</div>
+    <div style="text-align:right;margin-left:40%;">
+      <div style="font-family:${PDF_DISPLAY};font-size:17px;font-weight:400;letter-spacing:-0.01em;">${esc(fundName)}</div>
+      ${fundAddress ? `<p style="font-size:10px;color:#888;white-space:pre-line;line-height:1.3;margin-top:2px;">${esc(fundAddress)}</p>` : ''}
+    </div>
+  </div>
+  ${doc.title ? `<h1>${esc(doc.title)}</h1>` : ''}
+  ${body || '<p style="color:#888;">This letter has no content.</p>'}
+</body></html>`
+}
+
+/**
  * Fetch one shared LP letter and render it to a single PDF, using the same fund
  * chrome as the investor report. The CALLER is responsible for authorization
  * (LP via resolveLpAccess, or admin via fund membership).
@@ -653,7 +722,7 @@ export async function generateLetterPdf(
   const { fundId, letterId } = opts
 
   const [letterRes, fundRes, settingsRes] = await Promise.all([
-    admin.from('lp_letters').select('id, period_label, status, full_draft, portfolio_table_html, portfolio_group').eq('id', letterId).eq('fund_id', fundId).maybeSingle(),
+    admin.from('lp_letters').select('*').eq('id', letterId).eq('fund_id', fundId).maybeSingle(),
     admin.from('funds').select('name, logo_url, address').eq('id', fundId).maybeSingle(),
     admin.from('fund_settings').select('theme').eq('fund_id', fundId).maybeSingle(),
   ])
@@ -664,6 +733,20 @@ export async function generateLetterPdf(
   const fund = fundRes.data
   // A letter written for one vehicle carries that vehicle's letterhead where it has one.
   const letterhead = await documentLetterhead(admin, fundId, fund, letter.portfolio_group ? [letter.portfolio_group] : [])
+
+  // A letter with sections prints on the built-in letter layout; an older one as it always has.
+  if (hasStructuredContent(letter)) {
+    const charts = chartsOf(letter)
+    const bytes = await chartBytes(admin, fundId, letter.id, charts)
+    const html = buildDocumentLetterHtml({
+      doc: letterDocument(letter),
+      fundName: letterhead.name, fundLogo: letterhead.logo, fundAddress: contactBlock(letterhead),
+      charts: chartDataUris(charts, bytes),
+      displayFont: displayFontOf(settingsRes.data?.theme),
+    })
+    const pdf = await renderHtmlToPdf(html, { offline: true, pageNumbers: true })
+    return { pdf, fileName: letterPdfFileName(fund?.name, letter.period_label) }
+  }
 
   const html = buildLetterHtml({
     periodLabel: letter.period_label || 'Letter',

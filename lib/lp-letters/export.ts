@@ -250,32 +250,24 @@ export async function buildDocxBuffer(
 }
 
 /**
- * Export letter as a Google Doc by uploading DOCX with conversion.
+ * A letter's Word file uploaded to the fund's Drive as a Google Doc (Drive converts it), in an
+ * "LP Letters" folder. The Word file is the one the export gives (export-letter.ts).
  */
-export async function exportToGoogleDocs(
-  letter: ExportLetterData,
-  fundName: string,
+export async function uploadLetterToGoogleDocs(
+  buffer: Buffer,
+  title: string,
   accessToken: string,
   driveFolderId: string
 ): Promise<string> {
   const { findOrCreateFolder, uploadFile } = await import('@/lib/google/drive')
-
-  // Create or find "LP Letters" subfolder
   const lpFolderId = await findOrCreateFolder(accessToken, driveFolderId, 'LP Letters')
-
-  // Build DOCX buffer
-  const buffer = await buildDocxBuffer(letter, fundName)
-
-  // Upload with conversion to Google Docs format
-  const filename = `${fundName} — ${letter.period_label}.docx`
   const fileId = await uploadFile(
     accessToken,
     lpFolderId,
-    filename,
+    `${title}.docx`,
     buffer,
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     { convert: true }
   )
-
   return `https://docs.google.com/document/d/${fileId}/edit`
 }

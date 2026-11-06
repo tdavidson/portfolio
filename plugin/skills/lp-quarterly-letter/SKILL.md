@@ -2,7 +2,7 @@
 name: lp-quarterly-letter
 description: Draft a fund's quarterly or year-end investor letter in the fund's own structure and voice, using Hemrock Portfolio data over MCP, and save it as an unshared draft for review.
 metadata:
-  version: "2.3.0"
+  version: "2.4.0"
 ---
 
 # Quarterly investor letter
@@ -42,7 +42,7 @@ The fixed facts of a fund, which change rarely and are copied, not written: its 
 
 Every run ends with a document the partners can edit and send.
 
-- **Format**: the one the person wants. Without a preference, make a Claude doc when the session has them, or else a Word file. Make a Google Doc only on request, with Google Drive connected, and a PDF only on request, always alongside an editable copy.
+- **Format**: the one the person wants. Without a preference, make a Claude doc when the session has them, or else the Word file from `lp_letter_export` (format `docx`): Hemrock lays it out with the letterhead, real heading, list, table and caption styles, the charts the partners added on the letter page, and page numbers. `lp_letter_export` also gives the PDF (the letter as investors receive it), Markdown and JSON. Make a Google Doc only on request, with Google Drive connected, and a PDF only on request, always alongside an editable copy.
 - **Layout**: the text saved in Hemrock, laid out as the fund's structure describes, with real headings, tables and lists. Highlight placeholders so they are easy to find.
 - **Missing information** stays out of the document. Give it in the report back, or as comments in a Claude doc.
 - **Keep them in step.** Once the partners have finished editing, offer to save their version in Hemrock (`lp_write_letter` with `full_draft`). Next quarter's letter then begins from the text investors received.

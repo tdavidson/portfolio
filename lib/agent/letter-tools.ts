@@ -15,6 +15,7 @@ import { fromLetter } from '@/lib/lp-letters/content'
 import { reviewLetter, reviewOptions } from '@/lib/lp-letters/review'
 import { rateLimit } from '@/lib/rate-limit'
 import { loadProfile, saveProfile } from '@/lib/lp-letters/profile-store'
+import { exportLetter, LETTER_EXPORT_FORMATS, type LetterExportFormat } from '@/lib/lp-letters/export-letter'
 import { requireUser } from './deals-tools'
 import { resolveInvestor } from './lp-record-tools'
 
@@ -147,6 +148,22 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
     if (l.status === 'generating') throw new Error('This letter is being generated. Ask again when it finishes.')
     const { token, expiresAt } = signReportLink({ fundId: ctx.fundId, userId, kind: 'lp_letter', args: { letter: l.id } })
     return { document: `${l.period_label} letter (PDF)`, url: reportLinkUrl(ctx.origin ?? siteOrigin(), token), expires_at: expiresAt }
+  },
+
+  lp_letter_export: async (ctx: AgentToolContext, input: any) => {
+    const userId = requireUser(ctx.userId)
+    const l = await letterOf(ctx, input?.letter_id)
+    if (l.status === 'generating') throw new Error('This letter is being generated. Ask again when it finishes.')
+    const format = String(input?.format ?? 'docx') as LetterExportFormat
+    if (!LETTER_EXPORT_FORMATS.includes(format)) throw new Error('format must be docx, pdf, markdown or json')
+    const { token, expiresAt } = signReportLink({ fundId: ctx.fundId, userId, kind: 'lp_letter', args: { letter: l.id, format } })
+    const link = { document: `${l.period_label} letter (${format === 'docx' ? 'Word' : format === 'pdf' ? 'PDF' : format === 'json' ? 'JSON' : 'Markdown'})`, url: reportLinkUrl(ctx.origin ?? siteOrigin(), token), expires_at: expiresAt }
+    if (format === 'markdown' || format === 'json') {
+      const out = await exportLetter(ctx.admin, ctx.fundId, l, format)
+      const text = out ? out.body.toString('utf8') : ''
+      return { ...link, ...(format === 'json' ? { letter: JSON.parse(text || 'null') } : { text }) }
+    }
+    return link
   },
 
   lp_create_letter: async (ctx: AgentToolContext, input: any) => {

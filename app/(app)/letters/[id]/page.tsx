@@ -9,7 +9,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   AlertTriangle, Check, ChevronDown, ChevronRight, Copy, Download, ExternalLink, FileText, Loader2, Lock,
-  Paperclip, Pencil, RefreshCw, Save, Sparkles, Trash2, X,
+  ImageIcon, Paperclip, Pencil, RefreshCw, Save, Sparkles, Trash2, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -19,6 +19,7 @@ import { LpShareControl } from '@/components/lp-share-control'
 import { sanitizeLetterHtml } from '@/lib/sanitize'
 import { fromLetter, type LetterContent, type LetterSection } from '@/lib/lp-letters/content'
 import type { LetterFlag } from '@/lib/lp-letters/review'
+import type { LetterChart } from '@/lib/lp-letters/document'
 import { PullDialog } from './pull-dialog'
 
 interface Letter {
@@ -40,6 +41,8 @@ interface Letter {
   /** The partners' notes and added documents: sources for writing, never shown to investors. */
   partner_notes?: string | null
   source_documents?: { id: string; name: string; text: string; added_at: string }[] | null
+  /** Images the partners placed after a section, with captions. */
+  charts?: LetterChart[] | null
   generation_prompt: string | null
   generation_error: string | null
   company_prompts: Record<string, { prompt: string; mode: 'add' | 'replace' }> | null
@@ -84,6 +87,10 @@ export default function LetterEditorPage() {
   const [notesOpen, setNotesOpen] = useState(false)
   const [partnerNotes, setPartnerNotes] = useState('')
   const [uploading, setUploading] = useState(false)
+  const [chartsOpen, setChartsOpen] = useState(false)
+  const [chartCaption, setChartCaption] = useState('')
+  const [chartSection, setChartSection] = useState('')
+  const [chartUploading, setChartUploading] = useState(false)
 
   const accept = useCallback((data: Letter) => {
     setLetter(data)
@@ -203,6 +210,31 @@ export default function LetterEditorPage() {
     if (res.ok) accept(await res.json()); else await fail(res, 'Removing the document failed.')
   }
 
+  const charts = (letter?.charts ?? []) as LetterChart[]
+  const withCharts = (next: LetterChart[]) => setLetter(l => (l ? { ...l, charts: next } : l))
+
+  const addChart = async (file: File | undefined) => {
+    if (!file) return
+    setChartUploading(true); setError(null)
+    const form = new FormData()
+    form.append('file', file)
+    if (chartCaption.trim()) form.append('caption', chartCaption.trim())
+    if (chartSection) form.append('section_id', chartSection)
+    const res = await fetch(`/api/lp-letters/${letterId}/charts`, { method: 'POST', body: form })
+    if (res.ok) { withCharts((await res.json()).charts); setChartCaption('') } else await fail(res, 'Adding the chart failed.')
+    setChartUploading(false)
+  }
+
+  const changeChart = async (id: string, change: { caption?: string; section_id?: string | null }) => {
+    const res = await fetch(`/api/lp-letters/${letterId}/charts`, patch({ chart_id: id, ...change }))
+    if (res.ok) withCharts((await res.json()).charts); else await fail(res, 'Changing the chart failed.')
+  }
+
+  const removeChart = async (id: string) => {
+    const res = await fetch(`/api/lp-letters/${letterId}/charts?chart=${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (res.ok) withCharts((await res.json()).charts); else await fail(res, 'Removing the chart failed.')
+  }
+
   const saveWhole = async () => {
     setSaving(true)
     const res = await fetch(`/api/lp-letters/${letterId}`, patch({ full_draft: wholeText }))
@@ -237,7 +269,7 @@ export default function LetterEditorPage() {
     setTimeout(() => setCopied(false), 2000)
   }
 
-  const exportLetter = async (format: 'markdown' | 'docx' | 'google-docs') => {
+  const exportLetter = async (format: 'markdown' | 'docx' | 'pdf' | 'json' | 'google-docs') => {
     setExporting(format)
     // Open the tab synchronously within the click so the browser doesn't block it as a popup.
     const docWin = format === 'google-docs' ? window.open('about:blank', '_blank') : null
@@ -255,7 +287,7 @@ export default function LetterEditorPage() {
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        a.download = `${letter?.period_label ?? 'letter'}.${format === 'docx' ? 'docx' : 'md'}`
+        a.download = `${letter?.period_label ?? 'letter'}.${format === 'markdown' ? 'md' : format}`
         a.click()
         URL.revokeObjectURL(url)
       }
@@ -325,7 +357,9 @@ export default function LetterEditorPage() {
               </PopoverTrigger>
               <PopoverContent align="end" className="w-56 p-1">
                 <MenuItem onClick={() => exportLetter('docx')} icon={<Download className="h-3.5 w-3.5" />}>Word (.docx)</MenuItem>
+                <MenuItem onClick={() => exportLetter('pdf')} icon={<FileText className="h-3.5 w-3.5" />}>PDF</MenuItem>
                 <MenuItem onClick={() => exportLetter('markdown')} icon={<FileText className="h-3.5 w-3.5" />}>Markdown (.md)</MenuItem>
+                <MenuItem onClick={() => exportLetter('json')} icon={<FileText className="h-3.5 w-3.5" />}>JSON</MenuItem>
                 {googleDriveConnected && (
                   <MenuItem onClick={() => exportLetter('google-docs')} icon={<ExternalLink className="h-3.5 w-3.5" />}>Google Docs</MenuItem>
                 )}
@@ -446,6 +480,70 @@ export default function LetterEditorPage() {
         )}
       </div>
 
+      {/* Charts: images placed after a section, with captions, in every export */}
+      {hasContent && (
+        <div className="rounded-card border mb-4">
+          <button onClick={() => setChartsOpen(!chartsOpen)} className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-muted/50">
+            {chartsOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+            <span className="font-medium">Charts</span>
+            {charts.length > 0 && <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded tabular-nums">{charts.length}</span>}
+          </button>
+          {chartsOpen && (
+            <div className="px-4 pb-3 space-y-3">
+              <p className="text-[11px] text-muted-foreground">
+                A PNG or JPEG image, placed after the section you choose, with its caption. It appears in the Word file and the
+                PDF. An image is never changed once added: to replace one, remove it and add the new one.
+              </p>
+              {isDraft ? (
+                <div className="flex flex-wrap items-center gap-2">
+                  <input value={chartCaption} onChange={e => setChartCaption(e.target.value)} placeholder="Caption"
+                    className="h-8 rounded-lg border bg-background px-2.5 text-sm flex-1 min-w-[12rem]" />
+                  <select value={chartSection} onChange={e => setChartSection(e.target.value)}
+                    className="h-8 rounded-lg border bg-background px-2 text-sm max-w-[16rem]" aria-label="Place after">
+                    <option value="">At the end</option>
+                    {sections.map(s => <option key={s.id} value={s.id}>After {s.heading ?? 'the opening'}</option>)}
+                  </select>
+                  <label className={`inline-flex items-center rounded-lg border px-3 h-8 text-sm cursor-pointer hover:bg-muted ${chartUploading ? 'opacity-60 pointer-events-none' : ''}`}>
+                    {chartUploading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <ImageIcon className="h-3.5 w-3.5 mr-1.5" />}
+                    Add chart
+                    <input type="file" className="hidden" accept="image/png,image/jpeg"
+                      onChange={e => { addChart(e.target.files?.[0]); e.target.value = '' }} />
+                  </label>
+                </div>
+              ) : (
+                <p className="text-[11px] text-muted-foreground">This letter is final. Put it back to draft to change its charts.</p>
+              )}
+              {charts.length > 0 && (
+                <ul className="space-y-2">
+                  {charts.map(c => (
+                    <li key={c.id} className="flex items-center gap-3 text-xs">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={`/api/lp-letters/${letterId}/charts/${encodeURIComponent(c.id)}`} alt={c.caption ?? 'Chart'}
+                        className="h-12 w-20 object-contain rounded-sm border bg-background shrink-0" />
+                      <div className="flex-1 min-w-0 space-y-1">
+                        {isDraft ? (
+                          <input defaultValue={c.caption ?? ''} placeholder="Caption"
+                            onBlur={e => { if (e.target.value !== (c.caption ?? '')) changeChart(c.id, { caption: e.target.value }) }}
+                            className="h-7 w-full rounded-md border bg-background px-2 text-xs" />
+                        ) : <p className="truncate">{c.caption ?? 'No caption'}</p>}
+                        <p className="text-muted-foreground truncate">
+                          {c.section_id ? `After ${sections.find(s => s.id === c.section_id)?.heading ?? 'a section no longer in the letter (printed at the end)'}` : 'At the end'}
+                        </p>
+                      </div>
+                      {isDraft && (
+                        <button onClick={() => removeChart(c.id)} className="text-muted-foreground hover:text-destructive" aria-label="Remove chart">
+                          <Trash2 className="h-3.5 w-3.5" />
+                        </button>
+                      )}
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
       {busy && (
         <div className="rounded-card border bg-muted/30 p-8 text-center space-y-3 mb-4">
           <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
@@ -545,6 +643,14 @@ export default function LetterEditorPage() {
                   ) : (
                     <div className="text-sm whitespace-pre-wrap leading-relaxed">{s.body || <span className="text-muted-foreground">Empty</span>}</div>
                   )}
+                  {charts.filter(c => c.section_id === s.id).map(c => (
+                    <figure key={c.id} className="mt-3 text-center">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={`/api/lp-letters/${letterId}/charts/${encodeURIComponent(c.id)}`} alt={c.caption ?? 'Chart'}
+                        className="mx-auto max-h-72 object-contain" />
+                      {c.caption && <figcaption className="text-xs text-muted-foreground italic mt-1">{c.caption}</figcaption>}
+                    </figure>
+                  ))}
                 </div>
               )
             })}
