@@ -12,7 +12,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { aggregatePortfolioData, type PortfolioPreview } from './aggregate'
 import { buildPortfolioTableHtml } from './generate'
-import { createLetter } from './service'
+import { contentColumns, createLetter, portfolioSummaryOf } from './service'
+import { attachSources, parseLetterText, type LetterContent } from './content'
 import { letterVoice, LETTER_SKILL_VERSION, type LetterVoice } from './skill'
 import { splitInternal } from './internal'
 import { sanitizeLetterHtml } from '@/lib/sanitize'
@@ -20,7 +21,7 @@ import { done, dbFail, type Outcome } from '@/lib/service-outcome'
 import { createFundAIProvider } from '@/lib/ai'
 import { logAIUsage } from '@/lib/ai/usage'
 import {
-  buildLetterBrief, quarterBounds, writerPrompt,
+  buildLetterBrief, quarterBounds, writerPrompt, sectionPrompt,
   type LetterBrief, type StoredUpdate,
 } from './brief'
 
@@ -156,7 +157,7 @@ export async function writeWithFundAI(
     maxTokens: 8000,
     system:
       "You write a venture fund's quarterly letter to its limited partners. You write plainly and precisely, state bad news " +
-      'directly, and never add a number or claim your sources do not contain. Plain text, no markdown.',
+      'directly, and never add a number or claim your sources do not contain. Plain text, with a "## " line opening each section.',
     content: writerPrompt(brief, voice, guidance),
   })
   await logAIUsage(admin as any, {
@@ -165,41 +166,77 @@ export async function writeWithFundAI(
   return result.text.trim()
 }
 
+/** The letter's sections from written text, each with the sources it was written from. */
+export function contentFromText(text: string, brief: LetterBrief): LetterContent {
+  return attachSources(parseLetterText(text, { companies: brief.companies.map(c => ({ id: c.company_id, name: c.company })) }), brief)
+}
+
 /**
- * Save a drafted letter as a new letter: status draft, shared with no one. The portfolio table and
- * summary come from the books, as for a generated letter, so the PDF and export carry the same
- * figures the draft was written from.
+ * Write a drafted letter's text into a letter: its sections with their sources, the copies older
+ * readers use, the internal notes, and the portfolio table and summary from the books, so the PDF
+ * and exports carry the same figures the draft was written from.
  */
+export async function writeDraftInto(
+  admin: Admin, ctx: { fundId: string; userId: string }, letterId: string, text: string,
+  loaded: Pick<LoadedBrief, 'preview' | 'brief'>, generatedBy: 'fund_ai' | 'assistant',
+): Promise<Outcome<any>> {
+  const { body, internal } = splitInternal(text)
+  const content = contentFromText(body ?? '', loaded.brief)
+  const { data, error } = await (admin as any)
+    .from('lp_letters')
+    .update({
+      ...contentColumns(content, ctx.userId),
+      // The "Missing information" section is kept with the letter, apart from what investors see.
+      internal_notes: internal,
+      source: 'generated',
+      generated_by: generatedBy,
+      skill_version: LETTER_SKILL_VERSION,
+      portfolio_table_html: sanitizeLetterHtml(buildPortfolioTableHtml(loaded.preview)) ?? '',
+      portfolio_summary: portfolioSummaryOf(loaded.preview),
+      status: 'draft',
+      generation_error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', letterId).eq('fund_id', ctx.fundId).select().single()
+  if (error) return dbFail(error, 'lp-letters-draft')
+  return done(data)
+}
+
+/** Save a drafted letter as a new letter: status draft, shared with no one. */
 export async function saveDraftLetter(
   admin: Admin, ctx: { fundId: string; userId: string; visible: string[] | null },
-  p: LetterPeriod, text: string, loaded: Pick<LoadedBrief, 'preview' | 'template'>, guidance?: string | null,
+  p: LetterPeriod, text: string, loaded: Pick<LoadedBrief, 'preview' | 'template' | 'brief'>, guidance?: string | null,
   generatedBy: 'fund_ai' | 'assistant' = 'fund_ai',
 ): Promise<Outcome<any>> {
-  const { preview } = loaded
-  const { body, internal } = splitInternal(text)
   const created = await createLetter(admin, ctx, {
     period_year: p.year, period_quarter: p.quarter, portfolio_group: p.vehicle, is_year_end: !!p.yearEnd,
     template_id: loaded.template.id, generation_prompt: guidance?.trim() || null,
   })
   if (!created.ok) return created
-  const { data, error } = await (admin as any)
-    .from('lp_letters')
-    .update({
-      // The "Missing information" section is kept with the letter, apart from what investors see.
-      full_draft: body,
-      internal_notes: internal,
-      source: 'generated',
-      generated_by: generatedBy,
-      skill_version: LETTER_SKILL_VERSION,
-      portfolio_table_html: sanitizeLetterHtml(buildPortfolioTableHtml(preview)) ?? '',
-      portfolio_summary: preview.companies.map(c => ({
-        company_id: c.investment.companyId, company_name: c.investment.companyName, status: c.investment.status,
-        stage: c.investment.stage, total_invested: c.investment.totalInvested, fmv: c.investment.fmv, moic: c.investment.moic,
-      })),
-      status: 'draft',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', created.value.id).eq('fund_id', ctx.fundId).select().single()
-  if (error) return dbFail(error, 'lp-letters-draft')
-  return done(data)
+  return writeDraftInto(admin, ctx, created.value.id, text, loaded, generatedBy)
+}
+
+/**
+ * Rewrite one section with the fund's AI: the same layers and brief as the whole letter, the rest of
+ * the letter as it stands for context, and this section's own guidance. Returns the new text only.
+ */
+export async function rewriteSection(
+  admin: Admin, fundId: string, userId: string | null, loaded: Pick<LoadedBrief, 'brief' | 'voice'>,
+  content: LetterContent, sectionId: string, guidance?: string | null, sectionGuidance?: string | null,
+): Promise<string> {
+  const section = content.sections.find(s => s.id === sectionId)
+  if (!section) throw new Error(`No section "${sectionId}" in this letter.`)
+  const { provider, model, providerType } = await createFundAIProvider(admin as any, fundId)
+  const result = await provider.createMessage({
+    model,
+    maxTokens: 3000,
+    system:
+      "You rewrite one section of a venture fund's quarterly letter to its limited partners. You write plainly and precisely, " +
+      'state bad news directly, and never add a number or claim your sources do not contain. Plain text, no markdown.',
+    content: sectionPrompt(loaded.brief, loaded.voice, content, section, guidance, sectionGuidance),
+  })
+  await logAIUsage(admin as any, {
+    fundId, userId: userId ?? undefined, provider: providerType, model, feature: 'lp-letter-section', usage: result.usage,
+  })
+  return splitInternal(result.text.replace(/^##\s+.*\n+/, '')).body?.trim() ?? ''
 }

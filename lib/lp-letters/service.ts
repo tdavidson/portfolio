@@ -8,10 +8,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { done, dbFail, fail, type Outcome } from '@/lib/service-outcome'
 import { groupWriteDenial } from '@/lib/access/scope'
 import { aggregatePortfolioData } from './aggregate'
-import { assembleFullDraft, buildPortfolioTableHtml } from './generate'
+import { buildPortfolioTableHtml } from './generate'
+import type { PortfolioPreview } from './aggregate'
 import { splitInternal } from './internal'
+import { isContent, narrativesOf, renderLetterText, reparse, replaceSection, fromLetter, orderCompanies, type LetterContent, type LetterSection } from './content'
 import { sanitizeLetterHtml } from '@/lib/sanitize'
-import type { CompanyNarrative } from '@/lib/types/database'
 
 type Admin = SupabaseClient
 /** The caller's visible entity names; null = every entity. */
@@ -84,7 +85,49 @@ export async function createLetter(admin: Admin, ctx: { fundId: string; userId: 
   return done(data)
 }
 
+/**
+ * The columns a letter's content is stored in: the content itself, and the copies older readers use
+ * (full_draft for the portal, PDF and exports; company_narratives for older tools).
+ */
+export function contentColumns(content: LetterContent, userId: string | null, at = new Date().toISOString()) {
+  return { content, full_draft: renderLetterText(content), company_narratives: narrativesOf(content, userId, at) }
+}
+
+/** Company sections written into a letter: each replaces its company's, and a new one goes after the last company. */
+export function withCompanySections(content: LetterContent, given: { id: string; name: string; body: string }[]): LetterContent {
+  let out = content
+  for (const g of given) {
+    const id = `company:${g.id}`
+    if (out.sections.some(s => s.id === id)) { out = replaceSection(out, id, { body: g.body.trim() }); continue }
+    const section: LetterSection = { id, kind: 'company', heading: g.name, body: g.body.trim(), company_id: g.id }
+    const last = out.sections.map(s => s.kind).lastIndexOf('company')
+    const at = last === -1 ? out.sections.length : last + 1
+    out = { ...out, sections: [...out.sections.slice(0, at), section, ...out.sections.slice(at)] }
+  }
+  return out
+}
+
+/** A letter's content from a request: only the known fields of each section, as text. */
+export function cleanContent(x: unknown): LetterContent | null {
+  if (!isContent(x)) return null
+  const sections: LetterSection[] = []
+  for (const s of x.sections as any[]) {
+    if (!s || typeof s.id !== 'string' || !s.id || typeof s.body !== 'string') return null
+    const kind = s.kind === 'company' || s.kind === 'fund' ? s.kind : 'text'
+    sections.push({
+      id: s.id.slice(0, 200), kind,
+      heading: typeof s.heading === 'string' ? s.heading.slice(0, 300) : null,
+      body: s.body.slice(0, 50_000),
+      ...(kind === 'company' && typeof s.company_id === 'string' ? { company_id: s.company_id } : {}),
+      ...(s.sources && typeof s.sources === 'object' ? { sources: s.sources } : {}),
+    })
+  }
+  return { version: 1, sections }
+}
+
 export interface LetterChanges {
+  /** The structured letter; full_draft and company_narratives are made from it. */
+  content?: unknown
   company_narratives?: unknown
   full_draft?: unknown
   /** The partners' notes kept with the letter and never shown to investors (internal.ts). */
@@ -94,20 +137,36 @@ export interface LetterChanges {
   company_prompts?: unknown
 }
 
-export async function updateLetter(admin: Admin, ctx: { fundId: string; visible: Visible }, letterId: string, input: LetterChanges): Promise<Outcome<any>> {
+export async function updateLetter(admin: Admin, ctx: { fundId: string; visible: Visible; userId?: string | null }, letterId: string, input: LetterChanges): Promise<Outcome<any>> {
   const found = await getLetter(admin, ctx.fundId, ctx.visible, letterId)
   if (!found.ok) return found
   if (!found.value) return fail(404, 'Not found')
 
   const { company_narratives, full_draft, internal_notes, status, generation_prompt, company_prompts } = input
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
-  if (company_narratives !== undefined) updates.company_narratives = company_narratives
   if (internal_notes !== undefined) updates.internal_notes = internal_notes == null ? null : String(internal_notes)
   // A "Missing information" section written into the text moves to the internal notes, so it can
   // never be shared with the letter.
-  if (full_draft !== undefined) {
+  if (company_narratives !== undefined && input.content === undefined && full_draft === undefined) {
+    // Company sections by the old shape: each replaces its company's section in the letter.
+    if (!Array.isArray(company_narratives)) return fail(400, 'company_narratives must be a list')
+    const given = (company_narratives as any[])
+      .filter(n => n && typeof n.company_id === 'string' && typeof n.narrative === 'string')
+      .map(n => ({ id: n.company_id as string, name: String(n.company_name ?? ''), body: n.narrative as string }))
+    Object.assign(updates, contentColumns(withCompanySections(fromLetter(found.value), given), ctx.userId ?? null))
+  }
+  if (input.content !== undefined) {
+    const content = cleanContent(input.content)
+    if (!content) return fail(400, 'content must be a letter: { version: 1, sections: [{ id, heading, body }] }')
+    // Sources are the letter's own record of what it was written from; a caller can't replace them.
+    const prior = new Map(fromLetter(found.value).sections.map(s => [s.id, s.sources]))
+    const kept = { ...content, sections: content.sections.map(s => ({ ...s, sources: prior.get(s.id) })) }
+    Object.assign(updates, contentColumns(kept, ctx.userId ?? null))
+  } else if (full_draft !== undefined) {
+    // The whole letter as text: split into the letter's sections again, keeping their sources.
     const { body, internal } = splitInternal(full_draft == null ? null : String(full_draft))
-    updates.full_draft = full_draft == null ? null : body
+    if (full_draft == null) updates.full_draft = null
+    else Object.assign(updates, contentColumns(reparse(found.value, body ?? ''), ctx.userId ?? null))
     if (internal) updates.internal_notes = internal
   }
   // 'final' is a reviewed letter, the only kind that can be shared (shareLetter). 'complete' was a
@@ -125,6 +184,42 @@ export async function updateLetter(admin: Admin, ctx: { fundId: string; visible:
   const { data, error } = await (admin as any)
     .from('lp_letters').update(updates).eq('id', letterId).eq('fund_id', ctx.fundId).select().single()
   if (error) return dbFail(error, 'lp-letters-id')
+  return done(data)
+}
+
+/** The portfolio as a letter stores it for its table and exports. */
+export function portfolioSummaryOf(preview: PortfolioPreview) {
+  return preview.companies.map(c => ({
+    company_id: c.investment.companyId, company_name: c.investment.companyName, status: c.investment.status,
+    stage: c.investment.stage, total_invested: c.investment.totalInvested, fmv: c.investment.fmv, moic: c.investment.moic,
+  }))
+}
+
+/** One section of a letter edited: its text, or its heading. */
+export async function updateSection(
+  admin: Admin, ctx: { fundId: string; userId: string; visible: Visible }, letterId: string, sectionId: string,
+  change: { body?: unknown; heading?: unknown },
+): Promise<Outcome<any>> {
+  const found = await getLetter(admin, ctx.fundId, ctx.visible, letterId)
+  if (!found.ok) return found
+  const letter = found.value
+  if (!letter) return fail(404, 'Not found')
+  if (letter.status === 'generating') return fail(409, 'This letter is being generated. Try again when it finishes.')
+  if (change.body !== undefined && typeof change.body !== 'string') return fail(400, 'body must be text')
+  if (change.heading !== undefined && change.heading !== null && typeof change.heading !== 'string') return fail(400, 'heading must be text')
+  let content: LetterContent
+  try {
+    content = replaceSection(fromLetter(letter), sectionId, {
+      ...(typeof change.body === 'string' ? { body: change.body.slice(0, 50_000) } : {}),
+      ...(change.heading !== undefined ? { heading: (change.heading as string | null)?.slice(0, 300) ?? null } : {}),
+    })
+  } catch (e) {
+    return fail(404, (e as Error).message)
+  }
+  const { data, error } = await (admin as any)
+    .from('lp_letters').update({ ...contentColumns(content, ctx.userId), updated_at: new Date().toISOString() })
+    .eq('id', letterId).eq('fund_id', ctx.fundId).select().single()
+  if (error) return dbFail(error, 'lp-letters-section')
   return done(data)
 }
 
@@ -154,26 +249,18 @@ export async function writeLetterSections(
   const unknown = sections.filter(s => !byId.has(s.company_id))
   if (unknown.length) return fail(400, `Not in this letter's portfolio: ${unknown.map(s => s.company_id).join(', ')}`)
 
-  // Sections given replace those companies'; the rest keep what they had.
+  // Sections given replace those companies'; the rest of the letter keeps what it had.
   const now = new Date().toISOString()
-  const existing = new Map(((letter.company_narratives ?? []) as CompanyNarrative[]).map(n => [n.company_id, n]))
-  for (const s of sections) {
-    existing.set(s.company_id, { company_id: s.company_id, company_name: byId.get(s.company_id)!, narrative: s.narrative.trim(), updated_by: ctx.userId, updated_at: now })
-  }
-  // In the portfolio's order, as generation writes them.
-  const narratives = preview.companies.map(c => existing.get(c.investment.companyId)).filter((n): n is CompanyNarrative => !!n)
-
-  const portfolioTableHtml = sanitizeLetterHtml(buildPortfolioTableHtml(preview)) ?? ''
+  const content = orderCompanies(withCompanySections(
+    fromLetter(letter),
+    sections.map(sec => ({ id: sec.company_id, name: byId.get(sec.company_id)!, body: sec.narrative })),
+  ), preview.companies.map(c => c.investment.companyId))
   const { data, error } = await (admin as any)
     .from('lp_letters')
     .update({
-      portfolio_table_html: portfolioTableHtml,
-      company_narratives: narratives,
-      full_draft: assembleFullDraft(preview, portfolioTableHtml, narratives, preview.fundCurrency),
-      portfolio_summary: preview.companies.map(c => ({
-        company_id: c.investment.companyId, company_name: c.investment.companyName, status: c.investment.status,
-        stage: c.investment.stage, total_invested: c.investment.totalInvested, fmv: c.investment.fmv, moic: c.investment.moic,
-      })),
+      ...contentColumns(content, ctx.userId, now),
+      portfolio_table_html: sanitizeLetterHtml(buildPortfolioTableHtml(preview)) ?? '',
+      portfolio_summary: portfolioSummaryOf(preview),
       updated_at: now,
     })
     .eq('id', letterId).eq('fund_id', ctx.fundId).select().single()

@@ -27,7 +27,8 @@ export function splitInternal(text: string | null | undefined): SplitLetter {
   const t = text ?? ''
   const m = HEADING.exec(t)
   if (!m) return { body: t, internal: null }
-  return { body: t.slice(0, m.index).replace(/[\s─-]+$/, '').trimEnd(), internal: t.slice(m.index).trim() }
+  // The notes keep their heading, without a markdown mark in front of it.
+  return { body: t.slice(0, m.index).replace(/[\s─-]+$/, '').trimEnd(), internal: t.slice(m.index).trim().replace(/^#{1,6}[ \t]*/, '') }
 }
 
 /** A letter's text as an investor may see it. */

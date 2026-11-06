@@ -2,7 +2,7 @@
 name: lp-quarterly-letter
 description: Draft a fund's quarterly or year-end investor letter in the fund's own structure and voice, using Hemrock Portfolio data over MCP, and save it as an unshared draft for review.
 metadata:
-  version: "2.0.0"
+  version: "2.1.0"
 ---
 
 # Quarterly investor letter
@@ -70,7 +70,7 @@ Use the fund's structure (`references/structure.md` from `lp_letter_skill`) when
 - **Closing**: a short close and the signatories.
 - **Missing information** (Hemrock's copy only, never shown to investors): the brief's missing items first, then any other gaps and every open placeholder. Hemrock keeps it apart from the letter.
 
-Hemrock's copy is plain text: headings on their own lines, "- " bullets and tables as "Column | Column" rows, with no markdown symbols.
+Hemrock's copy is plain text with one mark: each section opens with a "## " line holding its heading, and a company's heading is its name exactly as the brief gives it, so Hemrock keeps each section with its sources. Otherwise use "- " bullets and tables as "Column | Column" rows, with no other markdown symbols.
 
 ## Sizing each company section
 

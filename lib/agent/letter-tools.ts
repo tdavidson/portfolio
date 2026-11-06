@@ -8,10 +8,11 @@ import { resolveVehicle } from '@/lib/accounting/vehicle-resolver'
 import { unwrap } from '@/lib/service-outcome'
 import { reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
 import { siteOrigin } from '@/lib/site-links'
-import { createLetter, getLetter, letterData, listLetters, shareLetter, updateLetter, writeLetterSections } from '@/lib/lp-letters/service'
+import { createLetter, getLetter, letterData, listLetters, shareLetter, updateLetter, updateSection, writeLetterSections } from '@/lib/lp-letters/service'
 import { loadLetterBrief, resolveTemplate, saveDraftLetter, writeWithFundAI, type LetterPeriod } from '@/lib/lp-letters/draft-from-brief'
 import { LETTER_SKILL_MD, LETTER_SKILL_VERSION, letterVoice } from '@/lib/lp-letters/skill'
-import { checkLetterDraft } from '@/lib/lp-letters/brief'
+import { fromLetter } from '@/lib/lp-letters/content'
+import { reviewLetter } from '@/lib/lp-letters/review'
 import { rateLimit } from '@/lib/rate-limit'
 import { requireUser } from './deals-tools'
 import { resolveInvestor } from './lp-record-tools'
@@ -64,7 +65,9 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
       prompt: l.generation_prompt ?? null,
       full_draft: l.full_draft ?? null,
       internal_notes: l.internal_notes ?? null,
-      sections: ((l.company_narratives ?? []) as any[]).map(n => ({ company_id: n.company_id, company: n.company_name, narrative: n.narrative })),
+      sections: fromLetter(l).sections.map(s => ({
+        section_id: s.id, kind: s.kind, heading: s.heading, ...(s.company_id ? { company_id: s.company_id } : {}), text: s.body,
+      })),
       generation_error: l.generation_error ?? null,
     }
   },
@@ -120,12 +123,13 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
       template: loaded.template.name,
       written_by: given ? 'assistant' : 'fund AI',
       draft: text,
-      review_flags: checkLetterDraft(text, brief, investorNames),
+      sections: fromLetter(row).sections.map(s => ({ section_id: s.id, heading: s.heading })),
+      review_flags: reviewLetter(fromLetter(row), brief, investorNames, row.internal_notes),
       missing_information: brief.missing_information,
       next:
         'This is a new, unshared draft. Show the user the draft and every review flag. Its "Missing information" section is ' +
         'kept with the letter as internal notes (lp_letter internal_notes) and is never shown to investors. Edits go through lp_write_letter ' +
-        '(full_draft). Once a person has reviewed it, it is marked final (lp_write_letter mark_final) and only then can an ' +
+        '(one section by section_id, or full_draft). Once a person has reviewed it, it is marked final (lp_write_letter mark_final) and only then can an ' +
         'admin share it (lp_share_letter).',
     }
   },
@@ -156,31 +160,49 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
     const userId = requireUser(ctx.userId)
     const id = String(input?.letter_id ?? '')
     const v = await visible(ctx)
+    const wctx = { fundId: ctx.fundId, userId, visible: v }
     const sections = Array.isArray(input?.sections) ? input.sections : null
     const fullDraft = typeof input?.full_draft === 'string' ? input.full_draft : undefined
     const markFinal = !!(input?.mark_final ?? input?.mark_complete)
     if (!sections && fullDraft === undefined && !markFinal) throw new Error('Pass sections, full_draft or mark_final.')
     if (sections) {
-      const clean = sections.map((s: any) => ({ company_id: String(s?.company_id ?? ''), narrative: String(s?.narrative ?? '') }))
-      if (clean.some((s: any) => !s.company_id || !s.narrative.trim())) throw new Error('Each section needs a company_id and its text.')
-      unwrap(await writeLetterSections(ctx.admin, { fundId: ctx.fundId, userId, visible: v }, id, clean))
+      const clean = sections.map((s: any) => ({
+        section_id: s?.section_id ? String(s.section_id) : null,
+        company_id: s?.company_id ? String(s.company_id) : null,
+        heading: typeof s?.heading === 'string' ? s.heading : undefined,
+        text: String(s?.text ?? s?.narrative ?? ''),
+      }))
+      if (clean.some((s: any) => (!s.section_id && !s.company_id) || !s.text.trim())) {
+        throw new Error('Each section needs a section_id (or company_id) and its text.')
+      }
+      // Sections named by id are edited in place; companies named by id go through the company writer,
+      // which also adds a section for a company the letter has none for.
+      for (const s of clean.filter((s: any) => s.section_id)) {
+        unwrap(await updateSection(ctx.admin, wctx, id, s.section_id, { body: s.text, ...(s.heading !== undefined ? { heading: s.heading } : {}) }))
+      }
+      const byCompany = clean.filter((s: any) => !s.section_id).map((s: any) => ({ company_id: s.company_id, narrative: s.text }))
+      if (byCompany.length) unwrap(await writeLetterSections(ctx.admin, wctx, id, byCompany))
     }
     let row: any = null
     if (fullDraft !== undefined || markFinal) {
-      row = unwrap(await updateLetter(ctx.admin, { fundId: ctx.fundId, visible: v }, id, {
+      row = unwrap(await updateLetter(ctx.admin, wctx, id, {
         ...(fullDraft !== undefined ? { full_draft: fullDraft } : {}),
         ...(markFinal ? { status: 'final' } : {}),
       }))
     } else {
       row = await letterOf(ctx, id)
     }
-    // A full draft written from chat is reviewed against the letter's sources, as a drafted one is.
-    let review_flags: string[] | undefined
-    if (fullDraft !== undefined) {
+    // Text written from chat is reviewed against the letter's sources, as a drafted letter is.
+    let review_flags: unknown[] | undefined
+    if (fullDraft !== undefined || sections) {
       const { brief, investorNames } = await loadLetterBrief(ctx.admin, ctx.fundId, {
         vehicle: row.portfolio_group, year: row.period_year, quarter: row.period_quarter, yearEnd: !!row.is_year_end,
       }, { template: row.template_id ?? null })
-      review_flags = checkLetterDraft(fullDraft, brief, investorNames)
+      const touched = new Set(fromLetter(row).sections
+        .filter(s => fullDraft !== undefined || sections!.some((x: any) => x?.section_id === s.id || (x?.company_id && x.company_id === s.company_id)))
+        .map(s => s.id))
+      review_flags = reviewLetter(fromLetter(row), brief, investorNames, row.internal_notes)
+        .filter(f => fullDraft !== undefined || (f.section_id !== null && touched.has(f.section_id)))
     }
     return { letter: summary(row), sections_written: sections?.length ?? 0, ...(review_flags ? { review_flags } : {}) }
   },

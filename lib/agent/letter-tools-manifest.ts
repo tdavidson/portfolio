@@ -36,7 +36,9 @@ export const LETTER_TOOL_MANIFEST: AgentToolMeta[] = [
   },
   {
     name: 'lp_letter',
-    description: 'One LP letter: its full draft, its company sections (with company ids), and its prompt.',
+    description:
+      'One LP letter: its sections in order (each with its id, heading and text, and a company_id for a company\'s), its full ' +
+      'text, its internal notes and its prompt. Edit a section with lp_write_letter by its section_id.',
     scope: 'read',
     ...base,
     inputSchema: { type: 'object', properties: { letter_id: LETTER }, required: ['letter_id'] },
@@ -121,10 +123,11 @@ export const LETTER_TOOL_MANIFEST: AgentToolMeta[] = [
   {
     name: 'lp_write_letter',
     description:
-      'Write an LP letter. sections replaces those companies\' updates (plain text, ids from lp_letter_data) and rebuilds the ' +
-      'portfolio table and the full draft around them, as generating does. full_draft replaces the whole text instead, for ' +
-      'edits such as the market commentary; pass it after sections, since sections rebuild the draft. A full_draft comes back ' +
-      'with review flags against the letter\'s sources; show them to the user. Show the user the text before calling.',
+      'Write an LP letter. sections replaces those sections\' text: name each by section_id (from lp_letter), or a company\'s by ' +
+      'company_id (ids from lp_letter_data), which adds its section if the letter has none. full_draft replaces the whole text ' +
+      'instead, with a "## " line opening each section; each section keeps the sources it was written from. Writes come back ' +
+      'with review flags against the letter\'s sources, each naming its section; show them to the user. Show the user the text ' +
+      'before calling.',
     scope: 'write',
     ...base,
     inputSchema: {
@@ -133,7 +136,16 @@ export const LETTER_TOOL_MANIFEST: AgentToolMeta[] = [
         letter_id: LETTER,
         sections: {
           type: 'array',
-          items: { type: 'object', properties: { company_id: { type: 'string' }, narrative: { type: 'string' } }, required: ['company_id', 'narrative'] },
+          items: {
+            type: 'object',
+            properties: {
+              section_id: { type: 'string', description: 'The section, from lp_letter.' },
+              company_id: { type: 'string', description: 'Or a company, for its section.' },
+              heading: { type: 'string', description: 'A new heading for the section (section_id only).' },
+              text: { type: 'string', description: 'The section\'s text, without its heading.' },
+              narrative: { type: 'string', description: 'The same as text (older name).' },
+            },
+          },
         },
         full_draft: { type: 'string' },
         mark_final: { type: 'boolean', description: 'Mark the letter final: a person has reviewed it. Only a final letter can be shared.' },

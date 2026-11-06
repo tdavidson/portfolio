@@ -141,9 +141,10 @@ describe('LP letter tools', () => {
     const out = await H.lp_draft_letter(ctx(), { vehicle: 'Fund I', year: 2026, quarter: 3, text: 'Acme returned a TVPI of 9.9x.' }) as any
     expect(out.written_by).toBe('assistant')
     expect(out.letter).toMatchObject({ period: 'Q3 2026', vehicle: 'Fund I', status: 'draft' })
+    // Each flag names the section it is about; the missing-information one is about the whole letter.
     expect(out.review_flags).toEqual(expect.arrayContaining([
-      'No "Missing information" section at the end.',
-      '"9.9x" does not appear in the sources.',
+      expect.objectContaining({ section_id: null, kind: 'missing_information' }),
+      expect.objectContaining({ section_id: 'opening', message: '"9.9x" does not appear in the sources.' }),
     ]))
     const row = store.tables.lp_letters.find((l: any) => l.id === out.letter.id)!
     expect(row.full_draft).toBe('Acme returned a TVPI of 9.9x.')
@@ -233,7 +234,7 @@ describe('LP letter tools', () => {
 
   it('reviews any full draft written from chat against the letter\'s sources', async () => {
     const out = await H.lp_write_letter(ctx(), { letter_id: 'l1', full_draft: 'Our IRR is 40%.\nMissing information' }) as any
-    expect(out.review_flags).toEqual(expect.arrayContaining(['"40%" does not appear in the sources.']))
+    expect(out.review_flags).toEqual(expect.arrayContaining([expect.objectContaining({ message: '"40%" does not appear in the sources.' })]))
     expect(((await H.lp_write_letter(ctx(), { letter_id: 'l1', mark_final: true })) as any).review_flags).toBeUndefined()
   })
 

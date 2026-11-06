@@ -1,53 +1,25 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
-import { useRouter, useParams } from 'next/navigation'
+// One view of the letter: its sections in order, each edited in place or rewritten with a prompt,
+// and beside the chosen section what it was written from (the company's figures, events, KPIs and
+// updates, or the fund's figures) and what the review found in it. Replaces the three tabs.
+
+import { useEffect, useState, useCallback, useMemo } from 'react'
+import { useParams } from 'next/navigation'
 import Link from 'next/link'
-import { Loader2, Lock, Sparkles, Copy, Check, Save, FileText, Download, ExternalLink, ChevronDown, ChevronRight, MessageSquare, Pencil, X } from 'lucide-react'
+import {
+  AlertTriangle, Check, ChevronDown, ChevronRight, Copy, Download, ExternalLink, FileText, Loader2, Lock,
+  Pencil, RefreshCw, Save, Sparkles, X,
+} from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
-import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import { useFeatureVisibility, useIsAdmin } from '@/components/feature-visibility-context'
 import { LpShareControl } from '@/components/lp-share-control'
 import { sanitizeLetterHtml } from '@/lib/sanitize'
+import { fromLetter, type LetterContent, type LetterSection } from '@/lib/lp-letters/content'
+import type { LetterFlag } from '@/lib/lp-letters/review'
 import { PullDialog } from './pull-dialog'
-
-const DEFAULT_PROMPT_PLACEHOLDER = `## LP Letter Style Guide (Default)
-
-### Structure
-1. Header: Fund name, period, date
-2. Opening: "Dear Limited Partners" + brief intro paragraph
-3. Portfolio Company Updates: one section per active company
-4. Exited/Written-off: brief notes
-5. Closing: placeholder for GP outlook
-
-### Company Update Format
-- Length: 2-4 paragraphs per company
-- Leads with key metrics and trends
-- References specific numbers from the data
-- Notes significant developments or milestones
-- Flags challenges honestly
-- Does NOT include forward-looking predictions unless data-supported
-
-### Tone
-- Professional but not overly formal
-- First person plural ("We", "Our portfolio")
-- Data-forward, numbers first, narrative supports
-- Balanced, acknowledges both positives and challenges
-- Concise, no filler language`
-
-interface CompanyNarrative {
-  company_id: string
-  company_name: string
-  narrative: string
-  updated_by: string | null
-  updated_at: string
-}
-
-interface CompanyPrompt {
-  prompt: string
-  mode: 'add' | 'replace'
-}
 
 interface Letter {
   id: string
@@ -59,131 +31,84 @@ interface Letter {
   period_label: string
   portfolio_group: string
   portfolio_table_html: string | null
-  company_narratives: CompanyNarrative[]
+  portfolio_summary?: unknown
+  company_narratives?: unknown
+  content?: unknown
   full_draft: string | null
   /** The partners' "Missing information" notes: kept with the letter, never shown to investors. */
   internal_notes?: string | null
   generation_prompt: string | null
   generation_error: string | null
-  company_prompts: Record<string, CompanyPrompt> | null
+  company_prompts: Record<string, { prompt: string; mode: 'add' | 'replace' }> | null
   status: string
   created_at: string
   updated_at: string
 }
 
-interface PortfolioPreviewData {
-  fundName: string
-  fundCurrency: string
-  periodLabel: string
-  portfolioGroup: string
-  companies: {
-    investment: {
-      companyName: string
-      status: string
-      stage: string | null
-      totalInvested: number
-      totalRealized: number
-      unrealizedValue: number
-      fmv: number
-      moic: number | null
-    }
-  }[]
-  fundMetrics: {
-    committedCapital: number
-    paidInCapital: number
-    distributions: number
-    fmv: number
-    dpi: number | null
-    rvpi: number | null
-    tvpi: number | null
-    irr: number | null
-  } | null
-  totals: {
-    totalInvested: number
-    totalFmv: number
-    totalRealized: number
-    portfolioMoic: number | null
-    activeCount: number
-    exitedCount: number
-    writtenOffCount: number
-  }
-}
+interface Review { flags: LetterFlag[]; missing_information: string[]; as_of: string }
+
+const patch = (body: unknown) => ({ method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
 
 export default function LetterEditorPage() {
   const fv = useFeatureVisibility()
   const isAdmin = useIsAdmin()
-  const router = useRouter()
   const params = useParams()
   const letterId = params.id as string
 
   const [letter, setLetter] = useState<Letter | null>(null)
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
-  const [regenerating, setRegenerating] = useState<string | null>(null)
-  const [regeneratingAll, setRegeneratingAll] = useState(false)
-  const [copied, setCopied] = useState(false)
-  const [editingNarrative, setEditingNarrative] = useState<string | null>(null)
+  const [generating, setGenerating] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [selected, setSelected] = useState<string | null>(null)
+  const [editing, setEditing] = useState<string | null>(null)
   const [editText, setEditText] = useState('')
-  const [fullDraft, setFullDraft] = useState('')
-  const [viewMode, setViewMode] = useState<'sections' | 'portfolio' | 'full'>('sections')
+  const [rewriteOpen, setRewriteOpen] = useState<string | null>(null)
+  const [rewritePrompt, setRewritePrompt] = useState('')
+  const [rewriting, setRewriting] = useState<string | null>(null)
+  const [guidanceOpen, setGuidanceOpen] = useState(false)
+  const [guidance, setGuidance] = useState('')
+  const [wholeOpen, setWholeOpen] = useState(false)
+  const [wholeText, setWholeText] = useState('')
+  const [tableOpen, setTableOpen] = useState(false)
+  const [tableHtml, setTableHtml] = useState<string | null>(null)
+  const [review, setReview] = useState<Review | null>(null)
+  const [reviewing, setReviewing] = useState(false)
   const [exporting, setExporting] = useState<string | null>(null)
+  const [copied, setCopied] = useState(false)
   const [googleDriveConnected, setGoogleDriveConnected] = useState(false)
   const [pullOpen, setPullOpen] = useState(false)
-  const [globalPromptOpen, setGlobalPromptOpen] = useState(false)
-  const [globalPromptText, setGlobalPromptText] = useState('')
-  const [savingGlobalPrompt, setSavingGlobalPrompt] = useState(false)
-  const [promptPanelCompany, setPromptPanelCompany] = useState<string | null>(null)
-  const [companyPromptText, setCompanyPromptText] = useState('')
-  const [savingCompanyPrompt, setSavingCompanyPrompt] = useState(false)
-  const [liveTableHtml, setLiveTableHtml] = useState<string | null>(null)
-  const [loadingTable, setLoadingTable] = useState(false)
-  const [previewData, setPreviewData] = useState<PortfolioPreviewData | null>(null)
+
+  const accept = useCallback((data: Letter) => {
+    setLetter(data)
+    setWholeText(data.full_draft ?? '')
+    setGuidance(data.generation_prompt ?? '')
+  }, [])
 
   const loadLetter = useCallback(async () => {
     const res = await fetch(`/api/lp-letters/${letterId}`)
-    if (res.ok) {
-      const data = await res.json()
-      setLetter(data)
-      setFullDraft(data.full_draft ?? '')
-      setGlobalPromptText(data.generation_prompt ?? DEFAULT_PROMPT_PLACEHOLDER)
-    }
+    if (res.ok) accept(await res.json())
     setLoading(false)
+  }, [letterId, accept])
+
+  const loadReview = useCallback(async () => {
+    setReviewing(true)
+    try {
+      const res = await fetch(`/api/lp-letters/${letterId}/review`)
+      if (res.ok) setReview(await res.json())
+    } finally {
+      setReviewing(false)
+    }
   }, [letterId])
 
-  // Load live portfolio table from preview endpoint
-  const loadPortfolioTable = useCallback(async (l: Letter) => {
-    setLoadingTable(true)
-    try {
-      const params = new URLSearchParams({
-        year: String(l.period_year),
-        quarter: String(l.period_quarter),
-        group: l.portfolio_group,
-        yearEnd: String(l.is_year_end),
-      })
-      const res = await fetch(`/api/lp-letters/preview?${params}`)
-      if (res.ok) {
-        const preview = await res.json()
-        setPreviewData(preview)
-        const html = buildTableHtml(preview)
-        setLiveTableHtml(html)
-      }
-    } catch {
-      // Fall back to stored table
-    } finally {
-      setLoadingTable(false)
-    }
-  }, [])
+  useEffect(() => { loadLetter() }, [loadLetter])
 
+  // The review runs once the letter is in, and again after each change to its text.
   useEffect(() => {
-    loadLetter()
-  }, [loadLetter])
+    if (letter && letter.status !== 'generating') loadReview()
+  }, [letter?.updated_at, letter?.status]) // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Load live portfolio table when letter is available
-  useEffect(() => {
-    if (letter) loadPortfolioTable(letter)
-  }, [letter?.id]) // eslint-disable-line react-hooks/exhaustive-deps
-
-  // Poll for updates when letter is generating server-side
+  // A letter being generated elsewhere (the MCP tools, another tab): follow it until it is done.
   useEffect(() => {
     if (!letter || letter.status !== 'generating') return
     const interval = setInterval(() => { loadLetter() }, 5000)
@@ -193,104 +118,101 @@ export default function LetterEditorPage() {
   useEffect(() => {
     fetch('/api/settings')
       .then(res => res.ok ? res.json() : null)
-      .then(data => {
-        if (data?.googleDriveConnected) setGoogleDriveConnected(true)
-      })
+      .then(data => { if (data?.googleDriveConnected) setGoogleDriveConnected(true) })
       .catch(() => {})
   }, [])
 
-  const saveNarrative = async (companyId: string, text: string) => {
-    if (!letter) return
-    const narratives = [...(letter.company_narratives ?? [])]
-    const idx = narratives.findIndex(n => n.company_id === companyId)
-    if (idx >= 0) {
-      narratives[idx] = { ...narratives[idx], narrative: text, updated_at: new Date().toISOString() }
-    }
+  const content: LetterContent = useMemo(() => (letter ? fromLetter(letter) : { version: 1, sections: [] }), [letter])
+  const sections = content.sections
+  const current = sections.find(s => s.id === selected) ?? sections[0] ?? null
 
-    setSaving(true)
-    const res = await fetch(`/api/lp-letters/${letterId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ company_narratives: narratives }),
-    })
-    if (res.ok) {
-      const updated = await res.json()
-      setLetter(updated)
-    }
+  const flagsBySection = useMemo(() => {
+    const m = new Map<string | null, LetterFlag[]>()
+    for (const f of review?.flags ?? []) m.set(f.section_id, [...(m.get(f.section_id) ?? []), f])
+    return m
+  }, [review])
+  const letterFlags = flagsBySection.get(null) ?? []
+
+  const fail = async (res: Response, fallback: string) => {
+    const err = await res.json().catch(() => ({}))
+    setError(err?.error ?? fallback)
+  }
+
+  const saveSection = async (id: string) => {
+    setSaving(true); setError(null)
+    const res = await fetch(`/api/lp-letters/${letterId}/sections/${encodeURIComponent(id)}`, patch({ body: editText }))
+    if (res.ok) { accept(await res.json()); setEditing(null) } else await fail(res, 'Saving the section failed.')
     setSaving(false)
-    setEditingNarrative(null)
+  }
+
+  const rewrite = async (id: string) => {
+    setRewriting(id); setError(null)
+    const res = await fetch(`/api/lp-letters/${letterId}/sections/${encodeURIComponent(id)}`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ prompt: rewritePrompt }),
+    })
+    if (res.ok) { accept(await res.json()); setRewriteOpen(null) } else await fail(res, 'Rewriting the section failed.')
+    setRewriting(null)
+  }
+
+  const generate = async () => {
+    if (sections.length && !confirm('Write the whole letter again from the current figures? Your edits to its text will be replaced.')) return
+    setGenerating(true); setError(null)
+    const res = await fetch(`/api/lp-letters/${letterId}/generate`, { method: 'POST' })
+    if (!res.ok) await fail(res, 'Generating the letter failed.')
+    await loadLetter()
+    setGenerating(false)
+  }
+
+  const saveGuidance = async () => {
+    setSaving(true)
+    const res = await fetch(`/api/lp-letters/${letterId}`, patch({ generation_prompt: guidance.trim() || null }))
+    if (res.ok) accept(await res.json()); else await fail(res, 'Saving the guidance failed.')
+    setSaving(false)
+  }
+
+  const saveWhole = async () => {
+    setSaving(true)
+    const res = await fetch(`/api/lp-letters/${letterId}`, patch({ full_draft: wholeText }))
+    if (res.ok) { accept(await res.json()); setWholeOpen(false) } else await fail(res, 'Saving the letter failed.')
+    setSaving(false)
   }
 
   // Final = a person has reviewed it; only a final letter can be shared. Regenerating puts it back to draft.
   const setStatus = async (status: 'draft' | 'final') => {
     setSaving(true)
-    const res = await fetch(`/api/lp-letters/${letterId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ status }),
-    })
-    if (res.ok) setLetter(await res.json())
+    const res = await fetch(`/api/lp-letters/${letterId}`, patch({ status }))
+    if (res.ok) accept(await res.json()); else await fail(res, 'Changing the status failed.')
     setSaving(false)
   }
 
-  const saveFullDraft = async () => {
-    setSaving(true)
-    const res = await fetch(`/api/lp-letters/${letterId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ full_draft: fullDraft }),
+  const loadTable = async () => {
+    if (!letter || tableHtml !== null) return
+    const q = new URLSearchParams({
+      year: String(letter.period_year), quarter: String(letter.period_quarter), group: letter.portfolio_group, yearEnd: String(letter.is_year_end),
     })
-    if (res.ok) {
-      const updated = await res.json()
-      setLetter(updated)
+    try {
+      const res = await fetch(`/api/lp-letters/preview?${q}`)
+      setTableHtml(res.ok ? buildTableHtml(await res.json()) : '')
+    } catch {
+      setTableHtml('')
     }
-    setSaving(false)
-  }
-
-  const regenerateCompany = async (companyId: string) => {
-    setRegenerating(companyId)
-    const res = await fetch(`/api/lp-letters/${letterId}/generate/${companyId}`, { method: 'POST' })
-    if (res.ok) {
-      await loadLetter()
-    }
-    setRegenerating(null)
-  }
-
-  const regenerateAll = async () => {
-    setRegeneratingAll(true)
-    const res = await fetch(`/api/lp-letters/${letterId}/generate`, { method: 'POST' })
-    if (res.ok) {
-      await loadLetter()
-    }
-    setRegeneratingAll(false)
   }
 
   const copyToClipboard = () => {
-    const text = letter?.full_draft ?? fullDraft
-    navigator.clipboard.writeText(text)
+    navigator.clipboard.writeText(letter?.full_draft ?? '')
     setCopied(true)
     setTimeout(() => setCopied(false), 2000)
   }
 
   const exportLetter = async (format: 'markdown' | 'docx' | 'google-docs') => {
     setExporting(format)
-    // Open the tab synchronously within the click so the browser doesn't block it
-    // as a popup (window.open after an await is commonly blocked).
+    // Open the tab synchronously within the click so the browser doesn't block it as a popup.
     const docWin = format === 'google-docs' ? window.open('about:blank', '_blank') : null
     try {
       const res = await fetch(`/api/lp-letters/${letterId}/export`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ format }),
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ format }),
       })
-
-      if (!res.ok) {
-        docWin?.close()
-        const err = await res.json().catch(() => ({ error: 'Export failed' }))
-        alert(err.error ?? 'Export failed')
-        return
-      }
-
+      if (!res.ok) { docWin?.close(); await fail(res, 'Export failed.'); return }
       if (format === 'google-docs') {
         const { url } = await res.json()
         if (docWin) docWin.location.href = url
@@ -300,65 +222,16 @@ export default function LetterEditorPage() {
         const url = URL.createObjectURL(blob)
         const a = document.createElement('a')
         a.href = url
-        const ext = format === 'docx' ? 'docx' : 'md'
-        a.download = `${letter?.period_label ?? 'letter'}.${ext}`
+        a.download = `${letter?.period_label ?? 'letter'}.${format === 'docx' ? 'docx' : 'md'}`
         a.click()
         URL.revokeObjectURL(url)
       }
     } catch {
       docWin?.close()
-      alert('Export failed')
+      setError('Export failed.')
     } finally {
       setExporting(null)
     }
-  }
-
-  const saveGlobalPrompt = async () => {
-    setSavingGlobalPrompt(true)
-    const res = await fetch(`/api/lp-letters/${letterId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ generation_prompt: globalPromptText || null }),
-    })
-    if (res.ok) {
-      const updated = await res.json()
-      setLetter(updated)
-    }
-    setSavingGlobalPrompt(false)
-  }
-
-  const saveCompanyPromptAndRegenerate = async (companyId: string) => {
-    if (!letter) return
-    setSavingCompanyPrompt(true)
-    const existing = letter.company_prompts ?? {}
-    const updated = { ...existing }
-    if (companyPromptText.trim()) {
-      updated[companyId] = { prompt: companyPromptText.trim(), mode: 'add' }
-    } else {
-      delete updated[companyId]
-    }
-    const res = await fetch(`/api/lp-letters/${letterId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ company_prompts: updated }),
-    })
-    if (res.ok) {
-      const data = await res.json()
-      setLetter(data)
-    }
-    setSavingCompanyPrompt(false)
-    setPromptPanelCompany(null)
-    await regenerateCompany(companyId)
-  }
-
-  const openPromptPanel = (companyId: string) => {
-    if (promptPanelCompany === companyId) {
-      setPromptPanelCompany(null)
-      return
-    }
-    const cp = letter?.company_prompts?.[companyId]
-    setCompanyPromptText(cp?.prompt ?? '')
-    setPromptPanelCompany(companyId)
   }
 
   if (loading) {
@@ -378,83 +251,68 @@ export default function LetterEditorPage() {
     )
   }
 
-  const narratives: CompanyNarrative[] = Array.isArray(letter.company_narratives) ? letter.company_narratives : []
-  const hasContent = narratives.length > 0 || letter.full_draft
-  const tableHtml = sanitizeLetterHtml(liveTableHtml ?? letter.portfolio_table_html)
+  const busy = generating || letter.status === 'generating'
+  const hasContent = sections.length > 0
+  const isDraft = letter.status === 'draft'
+  const flagCount = review?.flags.length ?? 0
+  const table = sanitizeLetterHtml(tableHtml || letter.portfolio_table_html)
 
   return (
     <div className="p-4 md:py-8 md:pl-8 md:pr-4 w-full">
       {/* Header */}
-      <div className="mb-6 space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
-          {fv.lp_letters === 'admin' && <Lock className="h-4 w-4 text-warning" />}{letter.period_label}
-        </h1>
-        <p className="text-sm text-muted-foreground">{letter.portfolio_group}</p>
-      </div>
-
-      {/* Tabs row with action buttons */}
-      <div className="flex items-center gap-3 mb-4 flex-wrap">
-        <Tabs value={viewMode} onValueChange={v => setViewMode(v as 'sections' | 'portfolio' | 'full')}>
-          <TabsList>
-            <TabsTrigger value="sections">Edit Company Summaries</TabsTrigger>
-            <TabsTrigger value="portfolio">Review Portfolio Data</TabsTrigger>
-            <TabsTrigger value="full">Review All</TabsTrigger>
-          </TabsList>
-        </Tabs>
-        <div className="flex items-center gap-2 ml-auto">
-          <Button size="sm" variant="outline" className="text-muted-foreground" onClick={copyToClipboard} title="Copy the full letter draft to your clipboard">
-            {copied ? <Check className="h-3.5 w-3.5 mr-1.5" /> : <Copy className="h-3.5 w-3.5 mr-1.5" />}
-            {copied ? 'Copied' : 'Copy'}
+      <div className="mb-6 flex flex-wrap items-start gap-3">
+        <div className="space-y-1 min-w-0">
+          <h1 className="text-2xl font-semibold tracking-tight flex items-center gap-2">
+            {fv.lp_letters === 'admin' && <Lock className="h-4 w-4 text-warning" />}{letter.period_label}
+          </h1>
+          <p className="text-sm text-muted-foreground flex items-center gap-2 flex-wrap">
+            <span>{letter.portfolio_group}</span>
+            <StatusBadge status={letter.status} />
+            {review && hasContent && (
+              <span className={flagCount ? 'text-warning' : 'text-success'}>
+                {flagCount ? `${flagCount} review ${flagCount === 1 ? 'flag' : 'flags'}` : 'No review flags'}
+              </span>
+            )}
+          </p>
+        </div>
+        <div className="flex items-center gap-2 ml-auto flex-wrap">
+          <Button size="sm" variant="outline" onClick={generate} disabled={busy}
+            title="Write the whole letter from the current figures, in the fund's voice">
+            {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Sparkles className="h-3.5 w-3.5 mr-1.5" />}
+            {hasContent ? 'Write again' : 'Generate letter'}
           </Button>
           {hasContent && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-muted-foreground"
-              onClick={() => exportLetter('docx')}
-              disabled={!!exporting}
-              title="Download the letter as a Word document (.docx)"
-            >
-              {exporting === 'docx' ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Download className="h-3.5 w-3.5 mr-1.5" />}
-              Download .docx
-            </Button>
+            <Popover>
+              <PopoverTrigger asChild>
+                <Button size="sm" variant="outline" className="text-muted-foreground" disabled={!!exporting}>
+                  {exporting ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Download className="h-3.5 w-3.5 mr-1.5" />}
+                  Export
+                  <ChevronDown className="h-3.5 w-3.5 ml-1" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-56 p-1">
+                <MenuItem onClick={() => exportLetter('docx')} icon={<Download className="h-3.5 w-3.5" />}>Word (.docx)</MenuItem>
+                <MenuItem onClick={() => exportLetter('markdown')} icon={<FileText className="h-3.5 w-3.5" />}>Markdown (.md)</MenuItem>
+                {googleDriveConnected && (
+                  <MenuItem onClick={() => exportLetter('google-docs')} icon={<ExternalLink className="h-3.5 w-3.5" />}>Google Docs</MenuItem>
+                )}
+                <MenuItem onClick={copyToClipboard} icon={copied ? <Check className="h-3.5 w-3.5" /> : <Copy className="h-3.5 w-3.5" />}>
+                  {copied ? 'Copied' : 'Copy text'}
+                </MenuItem>
+              </PopoverContent>
+            </Popover>
           )}
-          {hasContent && googleDriveConnected && (
-            <Button
-              size="sm"
-              variant="outline"
-              className="text-muted-foreground"
-              onClick={() => exportLetter('google-docs')}
-              disabled={!!exporting}
-              title="Export the letter to Google Docs in your connected Drive"
-            >
-              {exporting === 'google-docs' ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <ExternalLink className="h-3.5 w-3.5 mr-1.5" />}
-              Google Docs
-            </Button>
-          )}
-          {googleDriveConnected && letter.status === 'draft' && (
+          {googleDriveConnected && isDraft && (
             <>
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-muted-foreground"
-                onClick={() => setPullOpen(true)}
-                title="Replace this draft with the Google Doc the partners edited"
-              >
+              <Button size="sm" variant="outline" className="text-muted-foreground" onClick={() => setPullOpen(true)}
+                title="Replace this draft with the Google Doc the partners edited">
                 <Download className="h-3.5 w-3.5 mr-1.5" />
                 Pull from Google Doc
               </Button>
-              <PullDialog
-                letterId={letterId}
-                open={pullOpen}
-                onOpenChange={setPullOpen}
-                onReplaced={updated => { setLetter(updated); setFullDraft(updated.full_draft ?? '') }}
-              />
+              <PullDialog letterId={letterId} open={pullOpen} onOpenChange={setPullOpen} onReplaced={updated => accept(updated as Letter)} />
             </>
           )}
-          {/* Sharing into the portal is the portal's own switch — `lp_portal_access` was a second
-              key for the same idea and has been folded into `lp_portal`. */}
-          {hasContent && letter.status !== 'generating' && (
+          {hasContent && !busy && (
             letter.status === 'final' ? (
               <Button size="sm" variant="outline" className="text-muted-foreground" onClick={() => setStatus('draft')} disabled={saving}
                 title="Final: reviewed and ready to share. Click to put it back to draft.">
@@ -475,67 +333,46 @@ export default function LetterEditorPage() {
         </div>
       </div>
 
-      {/* Analyst prompt editor, only on Edit Company Summaries tab */}
-      {viewMode === 'sections' && <div className="rounded-lg border mb-4">
-        <button
-          onClick={() => setGlobalPromptOpen(!globalPromptOpen)}
-          className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-muted/50"
-        >
-          {globalPromptOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-          <span className="font-medium">Analyst prompt</span>
-          {letter.generation_prompt && (
-            <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">customized</span>
-          )}
-        </button>
-        {globalPromptOpen && (
-          <div className="px-4 pb-3 space-y-2">
-            <p className="text-[11px] text-muted-foreground">
-              Custom instructions applied to all company narratives during generation.
-            </p>
-            <Textarea
-              value={globalPromptText}
-              onChange={e => setGlobalPromptText(e.target.value)}
-              rows={6}
-              className="text-sm"
-            />
-            <div className="flex items-center gap-2">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={saveGlobalPrompt}
-                disabled={savingGlobalPrompt || globalPromptText === (letter.generation_prompt ?? DEFAULT_PROMPT_PLACEHOLDER)}
-              >
-                {savingGlobalPrompt ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
-                Save prompt
-              </Button>
-              <span className="flex-1" />
-              <Button
-                size="sm"
-                variant="outline"
-                className="text-muted-foreground"
-                onClick={regenerateAll}
-                disabled={regeneratingAll}
-                title="Generate AI narratives for all portfolio companies"
-              >
-                {regeneratingAll ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Sparkles className="h-3.5 w-3.5 mr-1.5" />}
-                Analyze All Companies
-              </Button>
-            </div>
-          </div>
-        )}
-      </div>}
-
-      {!hasContent && !regeneratingAll && letter.status === 'generating' && (
-        <div className="rounded-card border bg-muted/30 p-8 text-center space-y-3">
-          <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
-            Generation is in progress. This may take a few minutes...
-          </p>
-          <p className="text-xs text-muted-foreground/60">This page will update automatically when ready.</p>
+      {error && (
+        <div className="mb-4 rounded-card border border-destructive/40 bg-destructive/5 px-4 py-2.5 text-sm text-destructive flex items-center gap-2">
+          <AlertTriangle className="h-4 w-4 shrink-0" />
+          <span className="flex-1">{error}</span>
+          <button onClick={() => setError(null)} className="hover:text-foreground" aria-label="Dismiss"><X className="h-3.5 w-3.5" /></button>
         </div>
       )}
 
-      {!hasContent && !regeneratingAll && letter.status !== 'generating' && (
+      {/* Guidance for this letter */}
+      <div className="rounded-card border mb-4">
+        <button onClick={() => setGuidanceOpen(!guidanceOpen)} className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-muted/50">
+          {guidanceOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          <span className="font-medium">Guidance for this letter</span>
+          {letter.generation_prompt && <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded">set</span>}
+        </button>
+        {guidanceOpen && (
+          <div className="px-4 pb-3 space-y-2">
+            <p className="text-[11px] text-muted-foreground">
+              What to stress this quarter. The fund&apos;s structure, voice and house rules come from its{' '}
+              <Link href="/letters" className="underline">Voice</Link>; this adds to them for this letter only.
+            </p>
+            <Textarea value={guidance} onChange={e => setGuidance(e.target.value)} rows={4} className="text-sm"
+              placeholder="e.g. Lead with the two follow-on rounds; keep the exits section short." />
+            <Button size="sm" variant="outline" onClick={saveGuidance} disabled={saving || guidance === (letter.generation_prompt ?? '')}>
+              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+              Save guidance
+            </Button>
+          </div>
+        )}
+      </div>
+
+      {busy && (
+        <div className="rounded-card border bg-muted/30 p-8 text-center space-y-3 mb-4">
+          <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
+          <p className="text-sm text-muted-foreground">Writing the letter from the brief. This can take a minute or two.</p>
+          <p className="text-xs text-muted-foreground/60">This page updates when it is ready.</p>
+        </div>
+      )}
+
+      {!hasContent && !busy && (
         <div className="rounded-card border border-dashed p-12 text-center space-y-3">
           <FileText className="h-8 w-8 mx-auto text-muted-foreground" />
           {letter.generation_error ? (
@@ -544,301 +381,286 @@ export default function LetterEditorPage() {
               <p className="text-xs text-muted-foreground">{letter.generation_error}</p>
             </>
           ) : (
-            <>
-              <p className="text-sm text-muted-foreground">No content has been generated for this letter yet.</p>
-              <p className="text-xs text-muted-foreground/60">Open the Analyst Prompt above to generate AI-written narratives for each portfolio company.</p>
-            </>
+            <p className="text-sm text-muted-foreground">Nothing written yet. Generate the letter, or draft it with an assistant connected to the app.</p>
           )}
-          {letter.generation_error && (
-            <Button size="sm" variant="outline" onClick={regenerateAll}>
-              <Sparkles className="h-4 w-4 mr-1.5" />
-              Retry generation
-            </Button>
-          )}
+          <Button size="sm" variant="outline" onClick={generate}>
+            <Sparkles className="h-4 w-4 mr-1.5" />
+            {letter.generation_error ? 'Try again' : 'Generate letter'}
+          </Button>
         </div>
       )}
 
-      {regeneratingAll && (
-        <div className="rounded-card border bg-muted/30 p-8 text-center space-y-3">
-          <Loader2 className="h-6 w-6 animate-spin mx-auto text-muted-foreground" />
-          <p className="text-sm text-muted-foreground">
-            Analyzing all companies. This may take a few minutes...
-          </p>
-        </div>
-      )}
-
-      {/* Section view */}
-      {viewMode === 'sections' && !regeneratingAll && (
-        <div className="space-y-6">
-          {/* Company narratives */}
-          {hasContent && narratives.map(n => (
-            <div key={n.company_id} className="rounded-card border p-4">
-              <div className="flex items-center justify-between mb-3">
-                <h3 className="font-medium text-base">{n.company_name}</h3>
-                <div className="flex items-center gap-1.5">
-                  {editingNarrative !== n.company_id && (
-                    <Button
-                      size="sm"
-                      variant="outline"
-                      className="h-7 text-xs px-2.5"
-                      onClick={() => { setEditingNarrative(n.company_id); setEditText(n.narrative); setPromptPanelCompany(null) }}
-                    >
-                      <Pencil className="h-3 w-3 mr-1.5" />
-                      Edit
-                    </Button>
-                  )}
-                  <Button
-                    size="sm"
-                    variant={promptPanelCompany === n.company_id ? 'default' : 'outline'}
-                    className="h-7 text-xs px-2.5"
-                    onClick={() => { openPromptPanel(n.company_id); setEditingNarrative(null) }}
-                  >
-                    <MessageSquare className="h-3 w-3 mr-1.5" />
-                    Prompt
-                    {letter.company_prompts?.[n.company_id] && promptPanelCompany !== n.company_id && (
-                      <span className="ml-1 h-1.5 w-1.5 rounded-full bg-primary inline-block" />
+      {hasContent && !busy && (
+        <div className="grid gap-6 lg:grid-cols-[minmax(0,1fr)_340px]">
+          {/* The letter */}
+          <div className="space-y-4 min-w-0">
+            {sections.map(s => {
+              const flags = flagsBySection.get(s.id) ?? []
+              const isCurrent = current?.id === s.id
+              return (
+                <div key={s.id} onClick={() => setSelected(s.id)}
+                  className={`rounded-card border p-4 cursor-pointer transition-colors ${isCurrent ? 'border-primary/60 bg-muted/20' : 'hover:bg-muted/10'}`}>
+                  <div className="flex items-center gap-2 mb-2">
+                    <h3 className="text-heading font-normal flex-1 min-w-0 truncate">{s.heading ?? 'Opening'}</h3>
+                    {flags.length > 0 && (
+                      <span className="text-[11px] text-warning flex items-center gap-1 tabular-nums" title="Review flags in this section">
+                        <AlertTriangle className="h-3 w-3" />{flags.length}
+                      </span>
                     )}
-                  </Button>
-                </div>
-              </div>
+                    {isDraft && editing !== s.id && (
+                      <>
+                        <Button size="sm" variant="outline" className="h-7 text-xs px-2.5"
+                          onClick={e => { e.stopPropagation(); setEditing(s.id); setEditText(s.body); setRewriteOpen(null); setSelected(s.id) }}>
+                          <Pencil className="h-3 w-3 mr-1.5" />Edit
+                        </Button>
+                        <Button size="sm" variant={rewriteOpen === s.id ? 'default' : 'outline'} className="h-7 text-xs px-2.5"
+                          onClick={e => {
+                            e.stopPropagation()
+                            setSelected(s.id); setEditing(null)
+                            if (rewriteOpen === s.id) { setRewriteOpen(null); return }
+                            setRewritePrompt(letter.company_prompts?.[s.id]?.prompt ?? '')
+                            setRewriteOpen(s.id)
+                          }}>
+                          <RefreshCw className="h-3 w-3 mr-1.5" />Rewrite
+                          {letter.company_prompts?.[s.id] && rewriteOpen !== s.id && <span className="ml-1 h-1.5 w-1.5 rounded-full bg-primary inline-block" />}
+                        </Button>
+                      </>
+                    )}
+                  </div>
 
-              <div className="flex gap-0">
-                {/* Main content area */}
-                <div className={`min-w-0 ${promptPanelCompany === n.company_id ? 'flex-1' : 'w-full'}`}>
-                  {editingNarrative === n.company_id ? (
-                    <div className="space-y-2">
-                      <Textarea
-                        value={editText}
-                        onChange={e => setEditText(e.target.value)}
-                        rows={8}
-                        className="text-sm"
-                      />
+                  {rewriteOpen === s.id && (
+                    <div className="mb-3 space-y-2 rounded-lg border bg-muted/30 p-3" onClick={e => e.stopPropagation()}>
+                      <p className="text-[11px] text-muted-foreground">
+                        Rewrites this section from its sources, with the rest of the letter as context. The prompt is kept for next time.
+                      </p>
+                      <Textarea value={rewritePrompt} onChange={e => setRewritePrompt(e.target.value)} rows={3} className="text-xs"
+                        placeholder="e.g. Shorter, and lead with the new contract." />
                       <div className="flex gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => saveNarrative(n.company_id, editText)}
-                          disabled={saving}
-                        >
-                          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
-                          Save
+                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => rewrite(s.id)} disabled={rewriting === s.id}>
+                          {rewriting === s.id ? <Loader2 className="h-3 w-3 animate-spin mr-1.5" /> : <Sparkles className="h-3 w-3 mr-1.5" />}
+                          Rewrite section
                         </Button>
-                        <Button size="sm" variant="outline" onClick={() => setEditingNarrative(null)}>
-                          Cancel
-                        </Button>
+                        <Button size="sm" variant="outline" className="h-7 text-xs" onClick={() => setRewriteOpen(null)}>Cancel</Button>
                       </div>
                     </div>
-                  ) : (
-                    <div className="text-sm whitespace-pre-wrap text-muted-foreground leading-relaxed">
-                      {regenerating === n.company_id ? (
-                        <div className="flex items-center gap-2 py-4 text-muted-foreground">
-                          <Loader2 className="h-4 w-4 animate-spin" />
-                          <span className="text-xs">Analyzing company...</span>
-                        </div>
-                      ) : (
-                        n.narrative
-                      )}
+                  )}
+
+                  {editing === s.id ? (
+                    <div className="space-y-2" onClick={e => e.stopPropagation()}>
+                      <Textarea value={editText} onChange={e => setEditText(e.target.value)}
+                        rows={Math.min(24, Math.max(6, editText.split('\n').length + 2))} className="text-sm leading-relaxed" />
+                      <div className="flex gap-2">
+                        <Button size="sm" variant="outline" onClick={() => saveSection(s.id)} disabled={saving || editText === s.body}>
+                          {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}Save
+                        </Button>
+                        <Button size="sm" variant="outline" onClick={() => setEditing(null)}>Cancel</Button>
+                      </div>
                     </div>
+                  ) : rewriting === s.id ? (
+                    <div className="flex items-center gap-2 py-4 text-muted-foreground">
+                      <Loader2 className="h-4 w-4 animate-spin" /><span className="text-xs">Rewriting this section...</span>
+                    </div>
+                  ) : (
+                    <div className="text-sm whitespace-pre-wrap leading-relaxed">{s.body || <span className="text-muted-foreground">Empty</span>}</div>
                   )}
                 </div>
+              )
+            })}
 
-                {/* Inline prompt panel (slides in from right within card) */}
-                {promptPanelCompany === n.company_id && (
-                  <div className="w-[280px] shrink-0 border-l ml-4 pl-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <p className="text-xs font-medium">Company prompt</p>
-                      <button onClick={() => setPromptPanelCompany(null)} className="text-muted-foreground hover:text-foreground">
-                        <X className="h-3.5 w-3.5" />
-                      </button>
-                    </div>
-                    <p className="text-[11px] text-muted-foreground">
-                      Custom instructions for this company. Saving will regenerate the narrative.
-                    </p>
-                    <Textarea
-                      value={companyPromptText}
-                      onChange={e => setCompanyPromptText(e.target.value)}
-                      placeholder="e.g., Emphasize product milestones and customer growth..."
-                      rows={5}
-                      className="text-xs"
-                    />
+            {/* The portfolio table, as the exports carry it */}
+            <div className="rounded-card border">
+              <button onClick={() => { setTableOpen(!tableOpen); loadTable() }} className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-muted/50">
+                {tableOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                <span className="font-medium">Portfolio table</span>
+              </button>
+              {tableOpen && (
+                <div className="px-4 pb-4">
+                  {tableHtml === null ? (
+                    <div className="flex items-center gap-2 py-4 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /><span className="text-xs">Loading...</span></div>
+                  ) : table ? (
+                    // Sanitized HTML from buildTableHtml; tabular-nums so the figures line up.
+                    <div className="overflow-x-auto tabular-nums [&_table]:w-full [&_table]:text-xs [&_th]:px-2 [&_th]:py-1.5 [&_td]:px-2 [&_td]:py-1.5 [&_th]:border [&_td]:border [&_thead]:bg-muted/50"
+                      dangerouslySetInnerHTML={{ __html: table }} />
+                  ) : <p className="text-xs text-muted-foreground">No portfolio data for this period.</p>}
+                </div>
+              )}
+            </div>
+
+            {/* The whole letter as text, for a change across sections */}
+            {isDraft && (
+              <div className="rounded-card border">
+                <button onClick={() => setWholeOpen(!wholeOpen)} className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-muted/50">
+                  {wholeOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+                  <span className="font-medium">Edit the whole letter as text</span>
+                </button>
+                {wholeOpen && (
+                  <div className="px-4 pb-4 space-y-2">
+                    <p className="text-[11px] text-muted-foreground">Keep each heading on its own line: the letter is split into its sections again at the headings.</p>
+                    <Textarea value={wholeText} onChange={e => setWholeText(e.target.value)} rows={30} className="text-sm leading-relaxed" />
                     <div className="flex gap-2">
-                      <Button
-                        size="sm"
-                        variant="outline"
-                        className="h-7 text-xs"
-                        onClick={() => saveCompanyPromptAndRegenerate(n.company_id)}
-                        disabled={savingCompanyPrompt || regenerating === n.company_id}
-                      >
-                        {(savingCompanyPrompt || regenerating === n.company_id) ? (
-                          <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
-                        ) : (
-                          <Sparkles className="h-3 w-3 mr-1.5" />
-                        )}
-                        Save & analyze
+                      <Button size="sm" variant="outline" onClick={saveWhole} disabled={saving || wholeText === (letter.full_draft ?? '')}>
+                        {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}Save letter
                       </Button>
+                      <Button size="sm" variant="outline" onClick={() => setWholeText(letter.full_draft ?? '')} disabled={wholeText === (letter.full_draft ?? '')}>Revert</Button>
                     </div>
-                    {letter.company_prompts?.[n.company_id] && (
-                      <button
-                        className="text-[11px] text-muted-foreground hover:text-destructive"
-                        onClick={async () => {
-                          const existing = letter.company_prompts ?? {}
-                          const updated = { ...existing }
-                          delete updated[n.company_id]
-                          const res = await fetch(`/api/lp-letters/${letterId}`, {
-                            method: 'PATCH',
-                            headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ company_prompts: updated }),
-                          })
-                          if (res.ok) {
-                            const data = await res.json()
-                            setLetter(data)
-                            setCompanyPromptText('')
-                          }
-                        }}
-                      >
-                        Clear prompt
-                      </button>
-                    )}
                   </div>
                 )}
               </div>
+            )}
+          </div>
 
-              <p className="text-[10px] text-muted-foreground/50 mt-2">
-                Last updated: {new Date(n.updated_at).toLocaleString()}
-              </p>
-            </div>
-          ))}
-        </div>
-      )}
+          {/* The rail: what the chosen section was written from, and what the review found */}
+          <aside className="space-y-4 lg:sticky lg:top-4 lg:self-start lg:max-h-[calc(100vh-2rem)] lg:overflow-y-auto">
+            {current && <SourcesCard section={current} flags={flagsBySection.get(current.id) ?? []} />}
 
-      {/* Portfolio data view */}
-      {viewMode === 'portfolio' && (
-        <div className="space-y-6">
-          {loadingTable ? (
-            <div className="flex items-center gap-2 py-8 justify-center text-muted-foreground">
-              <Loader2 className="h-4 w-4 animate-spin" />
-              <span className="text-sm">Loading portfolio data...</span>
-            </div>
-          ) : previewData ? (
-            <>
-              {/* Fund metrics table */}
-              <div className="rounded-card border p-4">
-                <h2 className="font-medium text-base mb-3">Fund Summary</h2>
-                <div className="overflow-x-auto">
-                  <table className="w-full text-xs">
-                    <thead>
-                      <tr className="border-b bg-muted/50">
-                        <th className="text-left px-2 py-1.5 font-semibold">Fund</th>
-                        <th className="text-right px-2 py-1.5 font-semibold">Committed</th>
-                        <th className="text-right px-2 py-1.5 font-semibold">Called</th>
-                        <th className="text-right px-2 py-1.5 font-semibold">Distributions</th>
-                        <th className="text-right px-2 py-1.5 font-semibold">FMV</th>
-                        <th className="text-right px-2 py-1.5 font-semibold">DPI</th>
-                        <th className="text-right px-2 py-1.5 font-semibold">RVPI</th>
-                        <th className="text-right px-2 py-1.5 font-semibold">TVPI</th>
-                        <th className="text-right px-2 py-1.5 font-semibold">IRR</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <tr className="border-b">
-                        <td className="px-2 py-1.5">
-                          <div className="font-medium">{previewData.fundName}</div>
-                          <div className="text-muted-foreground">{previewData.portfolioGroup}</div>
-                        </td>
-                        {previewData.fundMetrics ? (
-                          <>
-                            <td className="text-right px-2 py-1.5 tabular-nums">{fmtCurrency(previewData.fundMetrics.committedCapital)}</td>
-                            <td className="text-right px-2 py-1.5 tabular-nums">{fmtCurrency(previewData.fundMetrics.paidInCapital)}</td>
-                            <td className="text-right px-2 py-1.5 tabular-nums">{fmtCurrency(previewData.fundMetrics.distributions)}</td>
-                            <td className="text-right px-2 py-1.5 tabular-nums">{fmtCurrency(previewData.fundMetrics.fmv)}</td>
-                            <td className="text-right px-2 py-1.5 tabular-nums">{previewData.fundMetrics.dpi != null ? `${previewData.fundMetrics.dpi.toFixed(2)}x` : '\u2014'}</td>
-                            <td className="text-right px-2 py-1.5 tabular-nums">{previewData.fundMetrics.rvpi != null ? `${previewData.fundMetrics.rvpi.toFixed(2)}x` : '\u2014'}</td>
-                            <td className="text-right px-2 py-1.5 tabular-nums">{previewData.fundMetrics.tvpi != null ? `${previewData.fundMetrics.tvpi.toFixed(2)}x` : '\u2014'}</td>
-                            <td className="text-right px-2 py-1.5 tabular-nums">{previewData.fundMetrics.irr != null ? `${(previewData.fundMetrics.irr * 100).toFixed(1)}%` : '\u2014'}</td>
-                          </>
-                        ) : (
-                          <>
-                            <td className="text-right px-2 py-1.5 tabular-nums">{'\u2014'}</td>
-                            <td className="text-right px-2 py-1.5 tabular-nums">{'\u2014'}</td>
-                            <td className="text-right px-2 py-1.5 tabular-nums">{'\u2014'}</td>
-                            <td className="text-right px-2 py-1.5 tabular-nums">{'\u2014'}</td>
-                            <td className="text-right px-2 py-1.5 tabular-nums">{'\u2014'}</td>
-                            <td className="text-right px-2 py-1.5 tabular-nums">{'\u2014'}</td>
-                            <td className="text-right px-2 py-1.5 tabular-nums">{'\u2014'}</td>
-                            <td className="text-right px-2 py-1.5 tabular-nums">{'\u2014'}</td>
-                          </>
-                        )}
-                      </tr>
-                    </tbody>
-                  </table>
-                </div>
+            <div className="rounded-card border p-4 space-y-2">
+              <div className="flex items-center gap-2">
+                <p className="text-xs font-medium flex-1">Review of the whole letter</p>
+                <button onClick={loadReview} className="text-muted-foreground hover:text-foreground" title="Run the review again" disabled={reviewing}>
+                  {reviewing ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+                </button>
               </div>
-
-              {/* Portfolio company table */}
-              {tableHtml && (
-                <div className="rounded-card border p-4">
-                  <h2 className="font-medium text-base mb-3">Portfolio Companies</h2>
-                  {/* Not markdown — sanitized HTML from buildTableHtml. The `prose` classes that
-                      used to lead this list did nothing (@tailwindcss/typography isn't installed);
-                      the [&_…] selectors are what actually styles the table. tabular-nums so the
-                      currency and MOIC columns line up, per CLAUDE.md. */}
-                  <div
-                    className="overflow-x-auto tabular-nums [&_table]:w-full [&_table]:text-xs [&_th]:px-2 [&_th]:py-1.5 [&_td]:px-2 [&_td]:py-1.5 [&_th]:border [&_td]:border [&_thead]:bg-muted/50"
-                    dangerouslySetInnerHTML={{ __html: tableHtml }}
-                  />
-                </div>
+              {!review ? (
+                <p className="text-xs text-muted-foreground">Checking the letter against the current figures...</p>
+              ) : (
+                <>
+                  {sections.filter(s => flagsBySection.has(s.id)).map(s => (
+                    <button key={s.id} onClick={() => setSelected(s.id)} className="flex w-full items-center gap-2 text-left text-xs hover:underline">
+                      <span className="flex-1 truncate">{s.heading ?? 'Opening'}</span>
+                      <span className="text-warning tabular-nums">{flagsBySection.get(s.id)!.length}</span>
+                    </button>
+                  ))}
+                  {letterFlags.map((f, i) => <FlagLine key={i} flag={f} />)}
+                  {flagCount === 0 && <p className="text-xs text-success">Every figure is in the sources, and every event is stated.</p>}
+                  <p className="text-[10px] text-muted-foreground/70">Checked against the figures as of {review.as_of}.</p>
+                </>
               )}
-            </>
-          ) : (
-            <div className="rounded-card border border-dashed p-12 text-center">
-              <p className="text-sm text-muted-foreground">No portfolio data available for this period.</p>
             </div>
-          )}
-        </div>
-      )}
 
-      {/* Full draft view */}
-      {viewMode === 'full' && hasContent && !regeneratingAll && (
-        <div className="space-y-4">
-          {letter.internal_notes && (
             <div className="rounded-card border bg-muted/30 p-4 space-y-1.5">
               <p className="text-xs font-medium">Internal notes · never shown to investors</p>
-              <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">{letter.internal_notes}</p>
+              {letter.internal_notes ? (
+                <p className="text-xs text-muted-foreground whitespace-pre-wrap leading-relaxed">{letter.internal_notes}</p>
+              ) : review?.missing_information.length ? (
+                <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-0.5">
+                  {review.missing_information.map((m, i) => <li key={i}>{m}</li>)}
+                </ul>
+              ) : (
+                <p className="text-xs text-muted-foreground">None.</p>
+              )}
             </div>
-          )}
-          <Textarea
-            value={fullDraft}
-            onChange={e => setFullDraft(e.target.value)}
-            rows={40}
-            className="font-mono text-sm leading-relaxed"
-          />
-          <div className="flex gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={saveFullDraft}
-              disabled={saving || fullDraft === letter.full_draft}
-            >
-              {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
-              Save draft
-            </Button>
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => setFullDraft(letter.full_draft ?? '')}
-              disabled={fullDraft === letter.full_draft}
-            >
-              Revert
-            </Button>
-          </div>
+          </aside>
         </div>
       )}
     </div>
   )
 }
 
+function StatusBadge({ status }: { status: string }) {
+  const cls = status === 'final' ? 'bg-success-subtle text-success' : status === 'generating' ? 'bg-muted text-muted-foreground' : 'bg-warning-subtle text-warning'
+  const label = status === 'final' ? 'Final' : status === 'generating' ? 'Generating' : 'Draft'
+  return <span className={`text-[10px] px-1.5 py-0.5 rounded ${cls}`}>{label}</span>
+}
+
+function MenuItem({ onClick, icon, children }: { onClick: () => void; icon: React.ReactNode; children: React.ReactNode }) {
+  return (
+    <button onClick={onClick} className="flex w-full items-center gap-2 rounded-sm px-2 py-1.5 text-sm hover:bg-muted">
+      <span className="text-muted-foreground">{icon}</span>{children}
+    </button>
+  )
+}
+
+function FlagLine({ flag }: { flag: LetterFlag }) {
+  return (
+    <p className="text-xs flex gap-1.5">
+      <AlertTriangle className="h-3 w-3 mt-0.5 shrink-0 text-warning" />
+      <span>{flag.message}</span>
+    </p>
+  )
+}
+
+/** What a section was written from, as stored when it was written. */
+function SourcesCard({ section, flags }: { section: LetterSection; flags: LetterFlag[] }) {
+  const src = section.sources
+  const company = src?.company
+  const fund = src?.fund
+  return (
+    <div className="rounded-card border p-4 space-y-3">
+      <div>
+        <p className="text-xs font-medium">{section.heading ?? 'Opening'}</p>
+        <p className="text-[10px] text-muted-foreground">
+          {src?.as_of ? `Written from the figures as of ${src.as_of}` : section.kind === 'text' ? 'Written from the letter as a whole' : 'No sources stored for this section'}
+        </p>
+      </div>
+
+      {flags.length > 0 && <div className="space-y-1.5">{flags.map((f, i) => <FlagLine key={i} flag={f} />)}</div>}
+
+      {company && (
+        <>
+          <p className="text-[11px] text-muted-foreground capitalize">{[company.status, company.stage].filter(Boolean).join(' · ')}</p>
+          <Figures figures={company.figures} />
+          <List title="Events to state" items={company.events} />
+          <List title="KPIs this quarter" items={company.kpis_this_quarter} />
+          {company.updates_this_quarter.length > 0 && (
+            <div className="space-y-1">
+              <p className="text-[11px] font-medium">Updates this quarter</p>
+              {company.updates_this_quarter.map((u, i) => (
+                <details key={i} className="text-xs">
+                  <summary className="cursor-pointer text-muted-foreground">{u.subject || 'Update'} · {u.received}</summary>
+                  <p className="mt-1 whitespace-pre-wrap text-muted-foreground leading-relaxed max-h-48 overflow-y-auto">{u.text}</p>
+                </details>
+              ))}
+            </div>
+          )}
+          <List title="Team notes" items={company.team_notes} />
+          {company.stored_business_update && (
+            <div className="space-y-1">
+              <p className="text-[11px] font-medium">Stored business update (undated)</p>
+              <p className="text-xs text-muted-foreground whitespace-pre-wrap">{company.stored_business_update}</p>
+            </div>
+          )}
+        </>
+      )}
+
+      {fund && (
+        <>
+          <Figures figures={fund.figures} />
+          <List title="Basis" items={fund.basis_notes} />
+        </>
+      )}
+    </div>
+  )
+}
+
+function Figures({ figures }: { figures: { label: string; value: string; basis: string }[] }) {
+  if (!figures.length) return null
+  return (
+    <table className="w-full text-xs">
+      <tbody>
+        {figures.map((f, i) => (
+          <tr key={i} className="border-b last:border-0">
+            <td className="py-1 pr-2 text-muted-foreground">{f.label}</td>
+            <td className="py-1 text-right tabular-nums">{f.value}</td>
+            <td className="py-1 pl-2 text-[10px] text-muted-foreground">{f.basis}</td>
+          </tr>
+        ))}
+      </tbody>
+    </table>
+  )
+}
+
+function List({ title, items }: { title: string; items: string[] }) {
+  if (!items.length) return null
+  return (
+    <div className="space-y-1">
+      <p className="text-[11px] font-medium">{title}</p>
+      <ul className="text-xs text-muted-foreground list-disc pl-4 space-y-0.5">{items.map((x, i) => <li key={i}>{x}</li>)}</ul>
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
-// Build portfolio table HTML from preview data (client-side, no AI)
+// The portfolio table from preview data (client-side, no AI)
 // ---------------------------------------------------------------------------
 
 function escHtml(s: string): string {
@@ -860,10 +682,10 @@ function buildTableHtml(preview: {
     return `<tr>
       <td>${escHtml(inv.companyName)}</td>
       <td style="text-transform:capitalize">${escHtml(inv.status)}</td>
-      <td>${escHtml(inv.stage ?? '\u2014')}</td>
+      <td>${escHtml(inv.stage ?? '—')}</td>
       <td style="text-align:right">${fmtCurrency(inv.totalInvested)}</td>
       <td style="text-align:right">${fmtCurrency(inv.fmv)}</td>
-      <td style="text-align:right">${inv.moic ? `${inv.moic.toFixed(2)}x` : '\u2014'}</td>
+      <td style="text-align:right">${inv.moic ? `${inv.moic.toFixed(2)}x` : '—'}</td>
     </tr>`
   })
 
@@ -884,7 +706,7 @@ function buildTableHtml(preview: {
       <td colspan="3"><strong>Total</strong></td>
       <td style="text-align:right"><strong>${fmtCurrency(preview.totals.totalInvested)}</strong></td>
       <td style="text-align:right"><strong>${fmtCurrency(preview.totals.totalFmv)}</strong></td>
-      <td style="text-align:right"><strong>${preview.totals.portfolioMoic ? `${preview.totals.portfolioMoic.toFixed(2)}x` : '\u2014'}</strong></td>
+      <td style="text-align:right"><strong>${preview.totals.portfolioMoic ? `${preview.totals.portfolioMoic.toFixed(2)}x` : '—'}</strong></td>
     </tr>
   </tfoot>
 </table>`

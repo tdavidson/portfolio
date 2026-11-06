@@ -2721,6 +2721,7 @@ export type Database = {
         Row: {
           company_narratives: Json | null
           company_prompts: Json | null
+          content: Json | null
           created_at: string | null
           created_by: string | null
           full_draft: string | null
@@ -2747,6 +2748,7 @@ export type Database = {
         Insert: {
           company_narratives?: Json | null
           company_prompts?: Json | null
+          content?: Json | null
           created_at?: string | null
           created_by?: string | null
           full_draft?: string | null
@@ -2773,6 +2775,7 @@ export type Database = {
         Update: {
           company_narratives?: Json | null
           company_prompts?: Json | null
+          content?: Json | null
           created_at?: string | null
           created_by?: string | null
           full_draft?: string | null
