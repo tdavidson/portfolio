@@ -58,7 +58,9 @@ describe('deal and diligence tools', () => {
 
   // Running a memo-agent stage on the assistant's own model writes only into the open draft, and
   // starting the stage (diligence_run_agent) was already approved, so those calls are not staged again.
-  const RUN_ON_ASSISTANT = ['diligence_stage_next', 'diligence_stage_submit']
+  // Saving a memo written in a chat, a partner's Word file, or outside research makes a new open
+  // draft or adds to the open draft's evidence, which only a partner can finalise, so it is not staged.
+  const RUN_ON_ASSISTANT = ['diligence_stage_next', 'diligence_stage_submit', 'diligence_draft_memo', 'diligence_add_research', 'diligence_import_memo']
   it('runs a stage on the assistant without asking twice', () => {
     for (const name of RUN_ON_ASSISTANT) expect(isDraftOnlyCall({ name }, {}), name).toBe(true)
   })

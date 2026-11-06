@@ -73,6 +73,8 @@ import { REPORT_TOOL_MANIFEST } from '@/lib/agent/report-tools-manifest'
 import { REPORT_HANDLERS } from '@/lib/agent/report-tools'
 import { LETTER_TOOL_MANIFEST } from '@/lib/agent/letter-tools-manifest'
 import { LETTER_HANDLERS } from '@/lib/agent/letter-tools'
+import { MEMO_TOOL_MANIFEST } from '@/lib/agent/memo-tools-manifest'
+import { MEMO_HANDLERS } from '@/lib/agent/memo-tools'
 import { QUERY_TOOL_MANIFEST } from '@/lib/agent/query-tools-manifest'
 import { QUERY_HANDLERS } from '@/lib/agent/query-tools'
 import { ENTITY_OPERATIONS_TOOL_MANIFEST, OPERATIONS_TOOL_MANIFEST } from '@/lib/agent/operations-tools-manifest'
@@ -641,6 +643,7 @@ export const AGENT_TOOLS: AgentTool[] = [
   ...bind(SETUP_TOOL_MANIFEST, SETUP_HANDLERS),
   ...bind(REPORT_TOOL_MANIFEST, REPORT_HANDLERS),
   ...bind(LETTER_TOOL_MANIFEST, LETTER_HANDLERS),
+  ...bind(MEMO_TOOL_MANIFEST, MEMO_HANDLERS),
   ...bind(QUERY_TOOL_MANIFEST, QUERY_HANDLERS),
   ...bind(OPERATIONS_TOOL_MANIFEST, OPERATIONS_HANDLERS),
   ...bind(LP_PORTAL_TOOL_MANIFEST, LP_PORTAL_HANDLERS),

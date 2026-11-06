@@ -150,3 +150,20 @@ describe('sectionsFromHeadings', () => {
     expect(out[4].custom).toBe(true)
   })
 })
+
+describe('readMemoDocx', () => {
+  it('reads back an exported memo under the same headings', async () => {
+    const { readMemoDocx } = await import('./design-template')
+    const out = await renderWithDesign(await sampleMemo(), {
+      header: { company_name: 'Northwind Labs' },
+      sections: [
+        { title: 'Summary', paragraphs: ['Northwind Labs routes freight for shippers in two regions.'] },
+        { title: 'Team', paragraphs: ['- A founder who ran operations.\n- A founder who built the software.'] },
+      ],
+    })
+    expect((await readMemoDocx(out)).sections).toEqual([
+      { title: 'Summary', paragraphs: ['Northwind Labs routes freight for shippers in two regions.'] },
+      { title: 'Team', paragraphs: ['- A founder who ran operations.\n- A founder who built the software.'] },
+    ])
+  })
+})

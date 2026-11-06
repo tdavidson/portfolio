@@ -86,6 +86,12 @@ const DRAFT_ONLY: Record<string, (input: Record<string, unknown>) => boolean> = 
   // agent can never finalise (diligence_finalize_memo stages), and starting the stage already staged.
   diligence_stage_next: () => true,
   diligence_stage_submit: () => true,
+  // A memo written in a chat, or a partner's Word file, is saved as a NEW open draft, and outside
+  // research goes into the open draft's evidence: neither can finalise anything (lib/memo-agent/
+  // assistant-memo.ts). Voice, settings and sample memos still stage.
+  diligence_draft_memo: () => true,
+  diligence_add_research: () => true,
+  diligence_import_memo: () => true,
   // Stage a feed as drafts and re-point those drafts; posting them is post_bank_transaction / post_drafts.
   import_bank_transactions: () => true,
   // An outside ledger lands as drafts too (lib/accounting/quickbooks/import-journal.ts); a mapping

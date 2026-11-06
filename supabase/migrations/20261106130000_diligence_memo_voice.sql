@@ -17,6 +17,7 @@ create table public.diligence_memo_voice (
   updated_at    timestamptz not null default now()
 );
 
+revoke all on public.diligence_memo_voice from anon, authenticated;
 grant select, insert, update, delete on public.diligence_memo_voice to service_role;
 
 alter table public.diligence_memo_voice enable row level security;
