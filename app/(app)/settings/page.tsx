@@ -42,6 +42,7 @@ import type { FeatureKey, FeatureVisibility } from '@/lib/types/features'
 import { AnalystToggleButton } from '@/components/analyst-button'
 import { AnalystPanel } from '@/components/analyst-panel'
 import { AffinityConnect } from '@/components/settings/affinity-connect'
+import { McpConnectors } from '@/components/settings/mcp-connector-card'
 import { DealResearchSettings } from '@/components/settings/deal-research-settings'
 import { AdminSectionContext, Section } from '@/components/settings/section'
 import type { SettingsData } from './_sections/types'
@@ -148,6 +149,7 @@ export default function SettingsPage() {
           token and every user needs their own. Admins get the same card inside Investment
           Workflow, where it belongs alongside deal screening and diligence. */}
       {!settings.isAdmin && <AffinityConnect />}
+      {!settings.isAdmin && <McpConnectors />}
       {!settings.isAdmin && (
         <AiSummaryPromptReadOnly prompt={settings.aiSummaryPrompt} />
       )}
@@ -260,6 +262,7 @@ export default function SettingsPage() {
             </Section>
             <MemoAgentSection />
             <AffinityConnect />
+            <McpConnectors />
           </ProductGroup>
 
           <ProductGroup

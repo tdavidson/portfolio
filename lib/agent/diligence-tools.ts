@@ -229,6 +229,7 @@ export const DILIGENCE_HANDLERS: Record<string, AgentToolHandler> = {
         summary: c.summary,
       })),
       ...(result.affinityLookups.length > 0 ? { affinity_lookups: result.affinityLookups } : {}),
+      ...(result.specterLookups.length > 0 ? { specter_lookups: result.specterLookups } : {}),
     }
   },
 

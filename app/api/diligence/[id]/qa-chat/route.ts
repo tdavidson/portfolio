@@ -91,6 +91,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   let answerText: string
   let citations: Array<{ document_id: string; summary: string }>
   let affinityLookups: string[]
+  let specterLookups: string[]
   let model: string
   try {
     const result = await answerDealQuestion({
@@ -105,6 +106,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     answerText = result.answer
     citations = result.citations
     affinityLookups = result.affinityLookups
+    specterLookups = result.specterLookups
     model = result.model
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err)
@@ -178,6 +180,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
     assistant_message: assistantMsg,
     // e.g. ['affinity_get_notes'] — lets the UI show "checked Affinity".
     affinity_lookups: affinityLookups,
+    specter_lookups: specterLookups,
   })
 }
 

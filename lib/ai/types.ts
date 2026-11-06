@@ -115,6 +115,12 @@ export interface McpServerConfig {
   url: string
   /** Bearer token passed to the MCP server (for Affinity: the user's API key). */
   authorizationToken?: string
+  /**
+   * When set, only these tools are turned on and every other tool the server has stays off.
+   * Calls through the connector skip staged approval, so a server that can write gets an
+   * allowlist of its read-only tools (lib/mcp-client/tools.ts).
+   */
+  allowedTools?: string[]
 }
 
 export interface CreateToolLoopParams extends Omit<CreateMessageParams, 'content'> {
@@ -143,6 +149,8 @@ export interface ToolCallRecord {
   /** Truncated — for surfacing "what the assistant looked up", not for replay. */
   resultPreview: string
   isError: boolean
+  /** Set for a call made on an MCP server through the provider's connector, e.g. 'specter'. */
+  server?: string
 }
 
 export interface ToolLoopResult extends AIResult {
