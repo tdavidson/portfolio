@@ -11,6 +11,7 @@ import { DEALS_TOOL_MANIFEST } from '@/lib/agent/deals-tools-manifest'
 import { LP_TOOL_MANIFEST } from '@/lib/agent/lp-tools-manifest'
 import { REPORT_TOOL_MANIFEST } from '@/lib/agent/report-tools-manifest'
 import { LETTER_TOOL_MANIFEST } from '@/lib/agent/letter-tools-manifest'
+import { MEMO_TOOL_MANIFEST } from '@/lib/agent/memo-tools-manifest'
 import { DOCUMENT_TOOL_MANIFEST } from '@/lib/agent/document-tools-manifest'
 import { QUERY_TOOL_MANIFEST } from '@/lib/agent/query-tools-manifest'
 import { ENTITY_OPERATIONS_TOOL_MANIFEST, OPERATIONS_TOOL_MANIFEST } from '@/lib/agent/operations-tools-manifest'
@@ -25,6 +26,7 @@ import { useAccess } from '@/components/access-context'
 const TOOL_GROUPS = [
   { label: 'Deal flow (inbound screening)', tools: DEALS_TOOL_MANIFEST },
   { label: 'Diligence (data room, checklist, memo)', tools: DILIGENCE_TOOL_MANIFEST },
+  { label: 'Investment memos (skill, voice, design, export)', tools: MEMO_TOOL_MANIFEST },
   { label: 'Portfolio, companies and performance', tools: PORTFOLIO_TOOL_MANIFEST },
   { label: 'Holdings: names, kinds and the fund register', tools: HOLDING_TOOL_MANIFEST },
   { label: 'LP reporting and capital accounts', tools: LP_TOOL_MANIFEST },

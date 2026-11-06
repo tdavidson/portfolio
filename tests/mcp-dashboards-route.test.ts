@@ -111,6 +111,7 @@ describe('resources', () => {
     expect(listed.map((r: any) => r.uri)).toEqual([
       DASHBOARD_RESOURCE_URI,
       'skill://lp-quarterly-letter/SKILL.md', 'skill://lp-quarterly-letter/references/voice.md', 'skill://lp-quarterly-letter/references/examples.md',
+      'skill://investment-memo/SKILL.md', 'skill://investment-memo/references/voice.md', 'skill://investment-memo/references/examples.md',
     ])
     const skill = (await rpc('resources/read', { uri: 'skill://lp-quarterly-letter/SKILL.md' })).body.result.contents[0]
     expect(skill).toMatchObject({ mimeType: 'text/markdown' })

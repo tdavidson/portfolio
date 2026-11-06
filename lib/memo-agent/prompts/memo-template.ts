@@ -19,10 +19,12 @@ const FIRST_PAGE_BUDGET = 2500  // chars of the exemplar's opening to show
 export async function buildMemoTemplateBlock(admin: Admin, fundId: string): Promise<string> {
   const { data: settings } = await admin
     .from('fund_settings')
-    .select('memo_first_page_anchor_id')
+    .select('memo_first_page_anchor_id, memo_design_anchor_id')
     .eq('fund_id', fundId)
     .maybeSingle()
-  const exemplarId = (settings as { memo_first_page_anchor_id: string | null } | null)?.memo_first_page_anchor_id ?? null
+  // The design template is the first-page model too, unless the fund picked a separate one.
+  const st = settings as { memo_first_page_anchor_id: string | null; memo_design_anchor_id?: string | null } | null
+  const exemplarId = st?.memo_first_page_anchor_id ?? st?.memo_design_anchor_id ?? null
 
   const anchors = await getActiveAnchors(fundId, admin)
   if (anchors.length === 0) return ''

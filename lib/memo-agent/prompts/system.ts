@@ -2,6 +2,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { ensureDefaults, getActiveSchemas, type ActiveSchema } from '@/lib/memo-agent/firm-schemas'
 import { buildVoiceSynthesisBlock } from '@/lib/memo-agent/style-anchors'
 import type { SchemaName } from '@/lib/memo-agent/validate'
+import { memoVoiceBlock } from '@/lib/memo-agent/skill'
+import { getMemoVoice } from '@/lib/memo-agent/voice-store'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -71,6 +73,10 @@ export async function buildSystemPrompt(params: {
   // Voice block only for stages that produce prose.
   let voice_confidence: SystemPromptResult['voice_confidence'] = 'unavailable'
   if (params.stage === 'draft' || params.stage === 'render') {
+    // The fund's saved memo voice and house rules (the same ones diligence_memo_skill hands a
+    // connected assistant), then the sample-memo excerpts it was learned from.
+    const saved = memoVoiceBlock(await getMemoVoice(admin as any, params.fundId))
+    if (saved) sections.push(saved)
     const v = await buildVoiceSynthesisBlock(params.fundId, admin)
     voice_confidence = v.confidence
     if (v.block) sections.push(v.block)

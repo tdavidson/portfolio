@@ -9,6 +9,7 @@ import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { useConfirm } from '@/components/confirm-dialog'
 import { createClient } from '@/lib/supabase/client'
+import { MemoVoicePanel } from '@/components/diligence/memo-voice-panel'
 
 type Confidence = 'unavailable' | 'preliminary' | 'reliable' | 'robust'
 
@@ -154,6 +155,8 @@ export function StyleAnchorsLibrary({ initialAnchors, initialConfidence, embedde
           ))}
         </div>
       )}
+
+      <MemoVoicePanel />
 
       <UploadDialog open={uploadOpen} onOpenChange={setUploadOpen} onUploaded={handleUploaded} />
     </div>

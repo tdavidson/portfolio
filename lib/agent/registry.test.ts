@@ -148,9 +148,11 @@ describe('agent tool registry', () => {
     expect(writes.length).toBeGreaterThan(0)
     for (const t of writes) {
       expect(t.name, t.name).toMatch(t.domain === 'deals' ? /^deals_/ : /^diligence_/)
-      // Each takes the deal it changes by name or id, except the two that create one.
-      // (and the deck upload URL, which is for a deal not created yet).
-      if (!['deals_create_inbound', 'diligence_create_deal', 'deals_deck_upload_url'].includes(t.name)) {
+      // Each takes the deal it changes by name or id, except the two that create one
+      // (and the deck upload URL, which is for a deal not created yet), and the fund-wide memo
+      // settings: the memo voice, sample memos, and the design template and schemas.
+      const fundWide = ['diligence_memo_voice_save', 'diligence_memo_settings_save', 'diligence_add_sample_memo']
+      if (!['deals_create_inbound', 'diligence_create_deal', 'deals_deck_upload_url', ...fundWide].includes(t.name)) {
         expect(t.inputSchema.required, t.name).toContain('deal')
       }
     }

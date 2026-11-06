@@ -73,7 +73,7 @@ describe('both packages', () => {
   it.each(['claude', 'chatgpt'] as const)('%s: carries every skill, each with a name matching its folder', target => {
     const files = pluginFiles(target, ctx)
     const skills = Object.keys(files).filter(p => /^skills\/[^/]+\/SKILL\.md$/.test(p))
-    expect(skills.sort()).toEqual(['skills/fund-analysis/SKILL.md', 'skills/fund-dashboards/SKILL.md', 'skills/lp-quarterly-letter/SKILL.md'])
+    expect(skills.sort()).toEqual(['skills/fund-analysis/SKILL.md', 'skills/fund-dashboards/SKILL.md', 'skills/investment-memo/SKILL.md', 'skills/lp-quarterly-letter/SKILL.md'])
     for (const path of skills) {
       const folder = path.split('/')[1]
       const front = /^---\n([\s\S]*?)\n---\n/.exec(files[path])

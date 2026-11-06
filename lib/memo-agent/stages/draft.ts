@@ -13,6 +13,10 @@ import {
 import { extractJsonObject } from '@/lib/memo-agent/parse-ai-json'
 import { buildMemoTemplateBlock } from '@/lib/memo-agent/prompts/memo-template'
 import { buildMemoConfigBlock, type MemoTemplateConfig } from '@/lib/memo-agent/prompts/memo-config'
+import { effectiveSections } from '@/lib/memo-agent/design-sections'
+import { loadMemoBrief } from '@/lib/memo-agent/brief'
+import { reviewParagraphs } from '@/lib/memo-agent/assistant-memo'
+import { MEMO_SKILL_VERSION } from '@/lib/memo-agent/skill'
 import type { IngestionOutput } from './ingest'
 import type { ResearchOutput } from './research'
 
@@ -127,13 +131,18 @@ export async function runDraft(params: {
   await note('Loading deal record…')
   const { data: dealRow } = await admin
     .from('diligence_deals')
-    .select('name, sector, stage_at_consideration, partner_memo_guidance, memo_template_config')
+    .select('name, sector, stage_at_consideration, deal_status, partner_memo_guidance, memo_template_config')
     .eq('id', dealId)
     .eq('fund_id', fundId)
     .maybeSingle()
   const deal = (dealRow as any) ?? { name: 'this deal' }
   const partnerGuidance = (deal.partner_memo_guidance ?? '').toString()
-  const templateConfig = (deal.memo_template_config ?? {}) as MemoTemplateConfig
+  let templateConfig = (deal.memo_template_config ?? {}) as MemoTemplateConfig
+  // No section list of its own: write under the fund design template's headings, when it has one.
+  if (!templateConfig.sections?.length) {
+    const fromDesign = await effectiveSections(admin as any, fundId, undefined)
+    if (fromDesign?.length) templateConfig = { ...templateConfig, sections: fromDesign as MemoTemplateConfig['sections'] }
+  }
   // Style override: when the partner has set one on the memo config, use it
   // instead of deal.stage_at_consideration for calibration. The config block
   // also restates this for the model, so both the calibration and the partner
@@ -275,6 +284,18 @@ export async function runDraft(params: {
     .update({ memo_draft_output: parsed as any })
     .eq('id', draft.id)
   if (updateErr) throw new Error(`Failed to persist draft: ${updateErr.message}`)
+
+  // The same review a memo saved over MCP gets, stored for the editor. Best effort: a fund whose
+  // database predates the review columns still gets its draft.
+  try {
+    const brief = await loadMemoBrief(admin as any, fundId, { ...deal, id: dealId })
+    const flags = reviewParagraphs(brief, parsed.paragraphs)
+    await (admin as any).from('diligence_memo_drafts')
+      .update({ review_flags: flags, skill_version: MEMO_SKILL_VERSION, written_by: 'memo_agent' })
+      .eq('id', draft.id)
+  } catch (err) {
+    warnings.push(`Review flags were not saved: ${err instanceof Error ? err.message : String(err)}`)
+  }
 
   await note('Writing partner attention items…')
   if (parsed.partner_attention.length > 0) {

@@ -148,6 +148,7 @@ export const TABLE_RULES: Record<string, TableRule> = {
   diligence_qa_chats: { scope: 'fund', domain: 'diligence' },
   firm_schemas: { scope: 'fund', domain: 'diligence' },
   style_anchor_memos: { scope: 'fund', domain: 'diligence' },
+  diligence_memo_voice: { scope: 'service', note: "A fund's memo voice, house rules and examples; read and written only by gated routes and agent tools." },
   memo_agent_prompts: { scope: 'fund', domain: 'diligence' },
   fund_memo_presets: { scope: 'fund', domain: 'diligence' },
 
