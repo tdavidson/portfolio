@@ -30,6 +30,7 @@ create table if not exists public.vehicle_reported_figures (
 create index if not exists vehicle_reported_figures_fund_idx
   on public.vehicle_reported_figures (fund_id, vehicle_id, as_of desc);
 
+revoke all on public.vehicle_reported_figures from anon, authenticated;
 grant select, insert, update, delete on public.vehicle_reported_figures to service_role;
 
 alter table public.vehicle_reported_figures enable row level security;
