@@ -2,6 +2,7 @@ import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Tabl
 import yaml from 'js-yaml'
 import type { MemoDraftOutput } from '@/lib/memo-agent/stages/draft'
 import type { DimensionScore } from '@/lib/memo-agent/stages/score'
+import type { DesignMemoInput } from './design-template'
 
 interface RenderInput {
   memo: MemoDraftOutput & { scores?: DimensionScore[] }
@@ -29,11 +30,15 @@ const FALLBACK_ORDER = [
 ]
 
 /**
- * Word doc render. Reuses the docx library already in package.json (used by
- * lib/lp-letters/export.ts). Returns a Buffer suitable for upload to storage
- * or direct download.
+ * The memo's sections in the order and with the titles the export uses: the partner's section config
+ * when set (authoritative, incl. custom and renamed sections), else the schema order, then any section
+ * that still has paragraphs. Shared by the generic render and the fund design-template render.
  */
-export async function renderDocx(input: RenderInput): Promise<Buffer> {
+export function memoSectionOrder(input: Pick<RenderInput, 'memo' | 'memoOutputYaml' | 'sectionConfig'>): {
+  order: string[]
+  sectionMeta: Map<string, SectionMeta>
+  paragraphsBySection: Map<string, MemoDraftOutput['paragraphs']>
+} {
   const sections = parseSections(input.memoOutputYaml)
   const sectionMeta = new Map(sections.map(s => [s.id, s]))
 
@@ -73,6 +78,45 @@ export async function renderDocx(input: RenderInput): Promise<Buffer> {
     if (!paragraphsBySection.has(p.section_id)) paragraphsBySection.set(p.section_id, [])
     paragraphsBySection.get(p.section_id)!.push(p)
   }
+
+  return { order, sectionMeta, paragraphsBySection }
+}
+
+/**
+ * Word doc render. Reuses the docx library already in package.json (used by
+ * lib/lp-letters/export.ts). Returns a Buffer suitable for upload to storage
+ * or direct download.
+ */
+/**
+ * The memo as the fund's design template takes it: the header fields, and each section's title and
+ * visible paragraphs in order. Only the memo's own content goes in. The app's working marks (the draft
+ * banner, version and agent lines, the projection and unverified tags, the scores table and the
+ * citation appendix) stay out, because the fund's memos have none of them.
+ */
+export function designMemoInput(input: Pick<RenderInput, 'memo' | 'memoOutputYaml' | 'sectionConfig' | 'dealName'>): DesignMemoInput {
+  const { order, sectionMeta, paragraphsBySection } = memoSectionOrder(input)
+  const h = (input.memo.header ?? {}) as Record<string, unknown>
+  const str = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+  const header: DesignMemoInput['header'] = {
+    company_name: str(h.company_name) ?? input.dealName,
+    sector: str(h.sector), stage: str(h.stage), round_size: str(h.round_size), valuation: str(h.valuation),
+    deal_lead: str(h.deal_lead), memo_date: str(h.memo_date), location: str(h.location), website: str(h.website),
+  }
+  const sections: DesignMemoInput['sections'] = []
+  for (const id of order) {
+    if (id === 'header' || id === 'appendix' || id === 'scoring_summary') continue
+    const meta = sectionMeta.get(id)
+    if (!meta || meta.kind === 'structured' || meta.kind === 'metadata') continue
+    const paragraphs = (paragraphsBySection.get(id) ?? []).filter(p => !p.hidden)
+      .slice().sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map(p => p.prose.trim()).filter(Boolean)
+    if (paragraphs.length === 0) continue
+    sections.push({ title: meta.title, paragraphs })
+  }
+  return { header, sections }
+}
+
+export async function renderDocx(input: RenderInput): Promise<Buffer> {
+  const { order, sectionMeta, paragraphsBySection } = memoSectionOrder(input)
 
   const children: (Paragraph | Table)[] = []
 

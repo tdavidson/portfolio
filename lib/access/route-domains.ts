@@ -479,6 +479,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/diligence/memo-presets': { domain: 'diligence' },
   'api/diligence/memo-presets/[presetId]': { domain: 'diligence' },
   'api/diligence/prompts': { domain: 'diligence' },
+  'api/diligence/memo-design': { domain: 'diligence' },
   // The memo agent's firm-wide configuration: house style, schemas, defaults.
   'api/firm/memo-agent-defaults': { domain: 'diligence' },
   'api/firm/schemas': { domain: 'diligence' },

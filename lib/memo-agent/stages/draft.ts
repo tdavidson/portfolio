@@ -13,6 +13,7 @@ import {
 import { extractJsonObject } from '@/lib/memo-agent/parse-ai-json'
 import { buildMemoTemplateBlock } from '@/lib/memo-agent/prompts/memo-template'
 import { buildMemoConfigBlock, type MemoTemplateConfig } from '@/lib/memo-agent/prompts/memo-config'
+import { effectiveSections } from '@/lib/memo-agent/design-sections'
 import type { IngestionOutput } from './ingest'
 import type { ResearchOutput } from './research'
 
@@ -133,7 +134,12 @@ export async function runDraft(params: {
     .maybeSingle()
   const deal = (dealRow as any) ?? { name: 'this deal' }
   const partnerGuidance = (deal.partner_memo_guidance ?? '').toString()
-  const templateConfig = (deal.memo_template_config ?? {}) as MemoTemplateConfig
+  let templateConfig = (deal.memo_template_config ?? {}) as MemoTemplateConfig
+  // No section list of its own: write under the fund design template's headings, when it has one.
+  if (!templateConfig.sections?.length) {
+    const fromDesign = await effectiveSections(admin as any, fundId, undefined)
+    if (fromDesign?.length) templateConfig = { ...templateConfig, sections: fromDesign as MemoTemplateConfig['sections'] }
+  }
   // Style override: when the partner has set one on the memo config, use it
   // instead of deal.stage_at_consideration for calibration. The config block
   // also restates this for the model, so both the calibration and the partner

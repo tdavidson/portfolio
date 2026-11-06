@@ -31,15 +31,16 @@ export async function GET() {
 
   // First-page exemplar (Phase 3) + the fund's sample memos to choose from.
   const [{ data: settings }, { data: anchorRows }] = await Promise.all([
-    admin.from('fund_settings').select('memo_first_page_anchor_id').eq('fund_id', fundId).maybeSingle(),
-    admin.from('style_anchor_memos').select('id, title, file_name').eq('fund_id', fundId).order('uploaded_at', { ascending: false }),
+    (admin as any).from('fund_settings').select('memo_first_page_anchor_id, memo_design_anchor_id').eq('fund_id', fundId).maybeSingle(),
+    admin.from('style_anchor_memos').select('id, title, file_name, file_format').eq('fund_id', fundId).order('uploaded_at', { ascending: false }),
   ])
 
   return NextResponse.json({
     guidance,
     first_page_anchor_id: (settings as any)?.memo_first_page_anchor_id ?? null,
-    anchors: ((anchorRows ?? []) as Array<{ id: string; title: string | null; file_name: string }>)
-      .map(a => ({ id: a.id, label: a.title || a.file_name })),
+    design_anchor_id: (settings as any)?.memo_design_anchor_id ?? null,
+    anchors: ((anchorRows ?? []) as Array<{ id: string; title: string | null; file_name: string; file_format: string | null }>)
+      .map(a => ({ id: a.id, label: a.title || a.file_name, file_name: a.file_name, file_format: a.file_format })),
   })
 }
 
@@ -58,6 +59,20 @@ export async function PATCH(req: NextRequest) {
       .update({ memo_first_page_anchor_id: id } as any)
       .eq('fund_id', fundId)
     if (setErr) return dbError(setErr, 'diligence-prompts-anchor')
+  }
+
+  // Design template: the sample memo whose Word file every export is written into.
+  if ('design_anchor_id' in body) {
+    const id = typeof body.design_anchor_id === 'string' && body.design_anchor_id ? body.design_anchor_id : null
+    if (id) {
+      const { data: anchor } = await admin.from('style_anchor_memos').select('id').eq('fund_id', fundId).eq('id', id).maybeSingle()
+      if (!anchor) return NextResponse.json({ error: 'That sample memo is not in this fund.' }, { status: 400 })
+    }
+    const { error: setErr } = await (admin as any)
+      .from('fund_settings')
+      .update({ memo_design_anchor_id: id })
+      .eq('fund_id', fundId)
+    if (setErr) return dbError(setErr, 'diligence-prompts-design')
   }
 
   const incoming = body?.guidance

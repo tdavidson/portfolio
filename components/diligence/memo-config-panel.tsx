@@ -88,6 +88,16 @@ interface MemoPreset {
   default_for_stage: string | null
 }
 
+type DesignInfo =
+  | { status: 'loading' }
+  | { status: 'none' }
+  | { status: 'unusable'; reason: string }
+  | {
+      status: 'ready'
+      design: { headings: string[]; fields: Array<{ field: string; label: string }>; title: string | null; warnings: string[] }
+      sections?: Array<{ id: string; title: string; custom?: boolean; cover?: string }>
+    }
+
 export function MemoConfigPanel({ dealId, defaultOpen }: { dealId: string; defaultOpen?: boolean }) {
   const confirm = useConfirm()
   const [open, setOpen] = useState(!!defaultOpen)
@@ -112,8 +122,12 @@ export function MemoConfigPanel({ dealId, defaultOpen }: { dealId: string; defau
 
   // First-page template — fund-level: which example memo's first page the agent
   // models new memos on. Moved here from the (removed) Diligence Settings page.
-  const [anchors, setAnchors] = useState<Array<{ id: string; label: string }>>([])
+  const [anchors, setAnchors] = useState<Array<{ id: string; label: string; file_format?: string | null }>>([])
   const [firstPageAnchorId, setFirstPageAnchorId] = useState<string>('')
+  // Design template — fund-level: the sample memo (a Word file) every export is written into, so the
+  // memo looks like the fund's own: fonts, styles, header, footer, first page and section headings.
+  const [designAnchorId, setDesignAnchorId] = useState<string>('')
+  const [design, setDesign] = useState<DesignInfo | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -128,11 +142,36 @@ export function MemoConfigPanel({ dealId, defaultOpen }: { dealId: string; defau
         setPresets((presetBody.presets ?? []) as MemoPreset[])
         setAnchors(Array.isArray(promptsBody.anchors) ? promptsBody.anchors : [])
         setFirstPageAnchorId(promptsBody.first_page_anchor_id ?? '')
+        setDesignAnchorId(promptsBody.design_anchor_id ?? '')
         setLoaded(true)
       })
       .catch(() => { setError('Failed to load memo settings.'); setLoaded(true) })
     return () => { cancelled = true }
   }, [dealId])
+
+  useEffect(() => {
+    if (!designAnchorId) { setDesign(null); return }
+    let cancelled = false
+    setDesign({ status: 'loading' })
+    fetch(`/api/diligence/memo-design?anchor=${encodeURIComponent(designAnchorId)}`)
+      .then(r => r.ok ? r.json() : { status: 'unusable', reason: 'Could not read the design template.' })
+      .then(body => { if (!cancelled) setDesign(body as DesignInfo) })
+      .catch(() => { if (!cancelled) setDesign({ status: 'unusable', reason: 'Could not read the design template.' }) })
+    return () => { cancelled = true }
+  }, [designAnchorId])
+
+  function useDesignSections() {
+    if (design?.status !== 'ready' || !design.sections?.length) return
+    const prior = new Map(sections.map(s => [s.id, s]))
+    setSections(design.sections.map(s => ({
+      id: s.id,
+      title: s.title,
+      included: true,
+      complexity: prior.get(s.id)?.complexity ?? 'standard',
+      custom: !!s.custom,
+      cover: s.custom ? (prior.get(s.id)?.cover || s.cover || '') : '',
+    })))
+  }
 
   function applyConfigToForm(guidance: string, cfg: MemoTemplateConfig) {
     // Legacy "points to emphasize" are now folded into the single guidance field.
@@ -249,7 +288,7 @@ export function MemoConfigPanel({ dealId, defaultOpen }: { dealId: string; defau
         fetch('/api/diligence/prompts', {
           method: 'PATCH',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ first_page_anchor_id: firstPageAnchorId || null }),
+          body: JSON.stringify({ first_page_anchor_id: firstPageAnchorId || null, design_anchor_id: designAnchorId || null }),
         }),
       ])
       if (!res.ok) {
@@ -449,6 +488,48 @@ export function MemoConfigPanel({ dealId, defaultOpen }: { dealId: string; defau
               </select>
             )}
             <p className="text-[10px] text-muted-foreground mt-1">An example memo whose first page (title block, framing, opening) the agent models new memos on. Fund-wide.</p>
+          </div>
+
+          <div>
+            <label className="block text-xs font-medium mb-1">Memo design template</label>
+            {anchors.length === 0 ? (
+              <p className="text-[10px] text-muted-foreground">No example memos uploaded yet. Add them in Settings → Memo agent → Style anchors.</p>
+            ) : (
+              <select
+                value={designAnchorId}
+                onChange={e => setDesignAnchorId(e.target.value)}
+                className="h-8 w-full rounded-md border border-input bg-background px-2 text-sm"
+              >
+                <option value="">— standard layout —</option>
+                {anchors.map(a => (
+                  <option key={a.id} value={a.id}>{a.label}{a.file_format && a.file_format.toLowerCase() !== 'docx' ? ` (${a.file_format.toUpperCase()}: needs the Word file)` : ''}</option>
+                ))}
+              </select>
+            )}
+            <p className="text-[10px] text-muted-foreground mt-1">
+              A sample memo in Word whose design every export copies: its fonts, heading and body styles, margins, header, footer,
+              logo and first page. Fund-wide.
+            </p>
+            {design?.status === 'loading' && <p className="text-[10px] text-muted-foreground mt-1">Reading the template…</p>}
+            {design?.status === 'unusable' && <p className="text-[10px] text-destructive mt-1">{design.reason}</p>}
+            {design?.status === 'ready' && (
+              <div className="mt-1.5 rounded-md border border-border bg-muted/40 p-2 text-[11px] space-y-1">
+                <div>
+                  <span className="font-medium">Sections:</span>{' '}
+                  {design.design.headings.length ? design.design.headings.join(' · ') : 'none found'}
+                </div>
+                <div>
+                  <span className="font-medium">First page fills:</span>{' '}
+                  {design.design.fields.length ? design.design.fields.map(f => f.label).join(', ') : 'the title only'}
+                </div>
+                {design.design.warnings.map(w => <div key={w} className="text-warning">{w}</div>)}
+                {design.sections && design.sections.length > 0 && (
+                  <Button type="button" variant="outline" size="sm" className="h-6 text-[11px] mt-1" onClick={useDesignSections}>
+                    Use the template&apos;s sections for this memo
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
 
           <div>
