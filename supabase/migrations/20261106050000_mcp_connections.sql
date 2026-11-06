@@ -34,6 +34,7 @@ create table if not exists public.mcp_connections (
 
 create index if not exists mcp_connections_fund_id_idx on public.mcp_connections (fund_id);
 
+revoke all on public.mcp_connections from anon, authenticated;
 grant select, insert, update, delete on public.mcp_connections to service_role;
 
 alter table public.mcp_connections enable row level security;
