@@ -1,7 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { decrypt } from '@/lib/crypto'
 import { getGoogleCredentials } from '@/lib/google/credentials'
-import { getAccessToken, uploadFile } from '@/lib/google/drive'
+import { exportFile, getAccessToken, uploadFile } from '@/lib/google/drive'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -89,5 +89,24 @@ export async function uploadTranscriptToDrive(params: {
   return {
     fileId,
     webViewLink: fileId ? `https://docs.google.com/document/d/${fileId}/edit` : null,
+  }
+}
+
+/**
+ * A Word memo as a PDF, converted by Google Drive so the PDF keeps the Word file's design exactly
+ * (its fonts, styles, header and footer). The temporary Google Doc is deleted afterwards. Needs the
+ * fund's Google Drive connection.
+ */
+export async function docxToPdfViaDrive(params: { admin: Admin; fundId: string; filename: string; buffer: Buffer }): Promise<Buffer> {
+  const { accessToken, defaultFolderId } = await resolveDriveAccess(params.admin, params.fundId)
+  if (!defaultFolderId) throw new Error('A PDF is converted through Google Drive, and no default Drive folder is set (Settings → Storage).')
+  const fileId = await uploadFile(accessToken, defaultFolderId, params.filename, params.buffer, DOCX_MIME, { convert: true })
+  if (!fileId) throw new Error('Google Drive did not accept the memo for conversion.')
+  try {
+    return await exportFile(accessToken, fileId, 'application/pdf')
+  } finally {
+    await fetch(`https://www.googleapis.com/drive/v3/files/${encodeURIComponent(fileId)}?supportsAllDrives=true`, {
+      method: 'DELETE', headers: { Authorization: `Bearer ${accessToken}` },
+    }).catch(() => {})
   }
 }

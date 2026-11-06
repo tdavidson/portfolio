@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, Loader2, FileDown, FileText, ExternalLink, Lock, AlertTriangle, AlertCircle, ChevronRight, Save, GripVertical, X } from 'lucide-react'
+import { ArrowLeft, Loader2, FileDown, FileText, ExternalLink, Lock, AlertTriangle, AlertCircle, ChevronRight, Save, GripVertical, Upload, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { useConfirm } from '@/components/confirm-dialog'
 import { formatSource, type SourceLabel } from '@/lib/memo-agent/render/source-labels'
@@ -46,7 +46,20 @@ interface Draft {
   finalized_by: string | null
   created_at: string
   memo_draft_output: MemoOutput | null
+  /** Who wrote it: the memo agent, Claude in a chat (assistant), a Word re-import, or a partner. */
+  written_by?: 'memo_agent' | 'assistant' | 'import' | 'partner' | null
+  /** The investment-memo review's flags (lib/memo-agent/review.ts). */
+  review_flags?: Array<{ kind: string; severity: 'must_fix' | 'check'; message: string; paragraph_id?: string; section?: string }> | null
 }
+
+const WRITTEN_BY: Record<string, string> = {
+  memo_agent: 'Written by the memo agent',
+  assistant: 'Written by Claude in a chat',
+  import: 'Re-imported from Word',
+  partner: 'Written by a partner',
+}
+
+type ExportFormat = 'docx' | 'gdoc' | 'pdf' | 'markdown'
 
 interface AttentionItem {
   id: string
@@ -111,10 +124,11 @@ export function MemoEditor({ dealId, dealName, draft: initial, initialAttention,
   const [proseDraft, setProseDraft] = useState<string>('')
   const [showAttention, setShowAttention] = useState(false)
   const [savingPara, setSavingPara] = useState(false)
-  const [exporting, setExporting] = useState<null | 'docx' | 'gdoc'>(null)
+  const [exporting, setExporting] = useState<null | ExportFormat>(null)
+  const [importing, setImporting] = useState(false)
   const [finalizing, setFinalizing] = useState(false)
   const [error, setError] = useState<string | null>(null)
-  const [exportResult, setExportResult] = useState<null | { url: string | null; format: string }>(null)
+  const [exportResult, setExportResult] = useState<null | { url: string | null; format: string; note?: string | null }>(null)
   // The deal's user-managed section config (order + titles + custom sections).
   const [sectionCfg, setSectionCfg] = useState<Array<{ id: string; title: string; included?: boolean }> | null>(null)
 
@@ -281,7 +295,7 @@ export function MemoEditor({ dealId, dealName, draft: initial, initialAttention,
     }
   }
 
-  async function exportTo(format: 'docx' | 'gdoc') {
+  async function exportTo(format: ExportFormat) {
     setExporting(format)
     setError(null)
     setExportResult(null)
@@ -293,14 +307,43 @@ export function MemoEditor({ dealId, dealName, draft: initial, initialAttention,
       })
       const body = await res.json()
       if (!res.ok) throw new Error(body.error ?? 'Render failed')
+      if (format === 'markdown' && typeof body.content === 'string') {
+        const url = URL.createObjectURL(new Blob([body.content], { type: 'text/markdown' }))
+        const a = document.createElement('a')
+        a.href = url
+        a.download = `${dealName.replace(/[\\/:*?"<>|]/g, '_')} memo (${draft.draft_version}).md`
+        a.click()
+        URL.revokeObjectURL(url)
+        return
+      }
       setExportResult({
         format,
         url: body.download_url ?? body.web_view_link ?? null,
+        note: body.design_note ?? null,
       })
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Render failed')
     } finally {
       setExporting(null)
+    }
+  }
+
+  // A partner's edited Word file back in: a new draft version with the edits, and the changes listed.
+  async function importWord(file: File) {
+    setImporting(true)
+    setError(null)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      form.append('draft_id', draft.id)
+      const res = await fetch(`/api/diligence/${dealId}/drafts/import`, { method: 'POST', body: form })
+      const body = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(body.error ?? 'Import failed')
+      window.location.href = `/diligence/${dealId}/drafts/${body.draft_id}`
+    } catch (err) {
+      setError(err instanceof Error ? err.message : 'Import failed')
+    } finally {
+      setImporting(false)
     }
   }
 
@@ -356,7 +399,10 @@ export function MemoEditor({ dealId, dealName, draft: initial, initialAttention,
               </span>
             )}
           </h1>
-          <div className="text-xs text-muted-foreground mt-0.5 font-mono">{draft.draft_version} · {draft.agent_version}</div>
+          <div className="text-xs text-muted-foreground mt-0.5">
+            <span className="font-mono">{draft.draft_version} · {draft.agent_version}</span>
+            {draft.written_by && WRITTEN_BY[draft.written_by] && <span> · {WRITTEN_BY[draft.written_by]}</span>}
+          </div>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           {dismissedAttention.length > 0 && (
@@ -372,6 +418,26 @@ export function MemoEditor({ dealId, dealName, draft: initial, initialAttention,
             {exporting === 'gdoc' ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <FileText className="h-3.5 w-3.5 mr-1" />}
             Google Doc
           </Button>
+          <Button variant="outline" size="sm" onClick={() => exportTo('pdf')} disabled={exporting !== null}>
+            {exporting === 'pdf' ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <FileDown className="h-3.5 w-3.5 mr-1" />}
+            PDF
+          </Button>
+          <Button variant="outline" size="sm" onClick={() => exportTo('markdown')} disabled={exporting !== null}>
+            {exporting === 'markdown' ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <FileText className="h-3.5 w-3.5 mr-1" />}
+            Markdown
+          </Button>
+          {draft.is_draft && (
+            <label className={`inline-flex items-center h-8 px-3 rounded-md border border-input text-sm cursor-pointer hover:bg-muted ${importing ? 'opacity-50 pointer-events-none' : ''}`}>
+              {importing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
+              Import Word
+              <input
+                type="file"
+                accept=".docx,application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+                className="hidden"
+                onChange={e => { const f = e.target.files?.[0]; e.target.value = ''; if (f) importWord(f) }}
+              />
+            </label>
+          )}
           {isAdmin && draft.is_draft && (
             <Button variant="outline" size="sm" onClick={finalize} disabled={finalizing}>
               {finalizing && <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" />}
@@ -384,7 +450,10 @@ export function MemoEditor({ dealId, dealName, draft: initial, initialAttention,
       {error && <div className="rounded-card border border-destructive/40 bg-destructive/5 p-3 text-sm text-destructive mb-4">{error}</div>}
       {exportResult?.url && (
         <div className="rounded-card border border-success/40 bg-success-subtle/50 dark:bg-success-subtle/10 p-3 text-sm mb-4 flex items-center justify-between gap-2">
-          <span>Export ready ({exportResult.format})</span>
+          <span>
+            Export ready ({exportResult.format})
+            {exportResult.note && <span className="block text-xs text-muted-foreground mt-0.5">{exportResult.note}</span>}
+          </span>
           <a href={exportResult.url} target="_blank" rel="noreferrer" className="inline-flex items-center gap-1 underline">
             Open <ExternalLink className="h-3 w-3" />
           </a>
@@ -392,6 +461,28 @@ export function MemoEditor({ dealId, dealName, draft: initial, initialAttention,
       )}
 
       <div className="max-w-3xl">
+        {/* The review's flags: what the investment-memo checklist found, for whoever wrote the draft. */}
+        {draft.is_draft && (draft.review_flags?.length ?? 0) > 0 && (
+          <details className="rounded-card border p-3 text-sm mb-4" open={draft.review_flags!.some(f => f.severity === 'must_fix')}>
+            <summary className="cursor-pointer text-xs font-medium">
+              Review: {draft.review_flags!.filter(f => f.severity === 'must_fix').length} to fix, {draft.review_flags!.filter(f => f.severity === 'check').length} to check
+            </summary>
+            <ul className="mt-2 space-y-1">
+              {draft.review_flags!.map((f, i) => (
+                <li key={i} className="text-xs flex gap-2">
+                  <span className={f.severity === 'must_fix' ? 'text-destructive' : 'text-warning'}>{f.severity === 'must_fix' ? 'Fix' : 'Check'}</span>
+                  <span className="text-muted-foreground">
+                    {f.paragraph_id ? (
+                      <button type="button" className="underline-offset-2 hover:underline" onClick={() => setSelected(f.paragraph_id!)}>{f.section ?? f.paragraph_id}</button>
+                    ) : f.section}
+                    {(f.paragraph_id || f.section) ? ': ' : ''}{f.message}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          </details>
+        )}
+
         {/* Warnings surfaced inline at the top of the memo; dismiss to clear. */}
         {openAttention.length > 0 && (
           <div className="space-y-2 mb-6">

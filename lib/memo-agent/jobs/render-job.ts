@@ -5,7 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getActiveSchema, ensureDefaults } from '@/lib/memo-agent/firm-schemas'
 import { renderMarkdown } from '@/lib/memo-agent/render/markdown'
 import { designMemoInput, renderDocx } from '@/lib/memo-agent/render/docx'
-import { uploadDocxToDrive } from '@/lib/memo-agent/render/gdoc'
+import { docxToPdfViaDrive, uploadDocxToDrive } from '@/lib/memo-agent/render/gdoc'
 import { parseDriveFolderUrl } from '@/lib/google/drive'
 
 type Admin = ReturnType<typeof createAdminClient>
@@ -27,7 +27,7 @@ interface RenderJob {
  */
 export async function runRenderJob(admin: Admin, job: RenderJob): Promise<unknown> {
   const format = (job.payload?.format as string) ?? 'markdown'
-  if (!['markdown', 'docx', 'gdoc'].includes(format)) {
+  if (!['markdown', 'docx', 'gdoc', 'pdf'].includes(format)) {
     throw new Error(`Unsupported render format: ${format}`)
   }
 
@@ -130,6 +130,20 @@ export async function runRenderJob(admin: Admin, job: RenderJob): Promise<unknow
   }
   const safeDealName = dealName.replace(/[\/\\:*?"<>|]/g, '_').slice(0, 80)
   const filename = `${safeDealName} memo (${(draft as any).draft_version}).docx`
+
+  if (format === 'pdf') {
+    // Converted by Google Drive, so the PDF keeps the Word file's (and the fund template's) design.
+    const pdf = await docxToPdfViaDrive({ admin: admin as any, fundId: job.fund_id, filename, buffer })
+    const pdfName = filename.replace(/\.docx$/, '.pdf')
+    const storagePath = `${job.deal_id}/renders/${Date.now()}_${pdfName}`
+    const { error: uploadErr } = await admin.storage
+      .from('diligence-documents')
+      .upload(storagePath, pdf, { contentType: 'application/pdf', upsert: true })
+    if (uploadErr) throw new Error(`Upload failed: ${uploadErr.message}`)
+    const { data: signed, error: signErr } = await admin.storage.from('diligence-documents').createSignedUrl(storagePath, 60 * 60 * 24)
+    if (signErr) throw new Error(`Signed URL failed: ${signErr.message}`)
+    return { format, filename: pdfName, download_url: signed?.signedUrl ?? null, storage_path: storagePath, bytes: pdf.length, design, design_note: designNote }
+  }
 
   if (format === 'docx') {
     const storagePath = `${job.deal_id}/renders/${Date.now()}_${filename}`

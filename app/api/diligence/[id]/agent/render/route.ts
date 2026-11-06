@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { runRenderJob } from '@/lib/memo-agent/jobs/render-job'
 
-const VALID_FORMATS = ['markdown', 'docx', 'gdoc'] as const
+const VALID_FORMATS = ['markdown', 'docx', 'gdoc', 'pdf'] as const
 
 /**
  * Render a draft synchronously. Markdown returns inline; docx returns a 24h

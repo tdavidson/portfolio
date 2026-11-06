@@ -524,3 +524,33 @@ export function sectionsFromHeadings(
   }
   return out
 }
+
+/**
+ * A memo's text from a Word file, by section: the same heading detection as the design reader, so a
+ * memo exported (in the fund's design or the standard layout) and edited in Word reads back under the
+ * same headings. Bulleted lines come back as "- " lines of one paragraph.
+ */
+export async function readMemoDocx(bytes: Uint8Array | Buffer): Promise<{ sections: Array<{ title: string; paragraphs: string[] }> }> {
+  const p = await parse(bytes)
+  const sections: Array<{ title: string; paragraphs: string[] }> = []
+  let current: { title: string; paragraphs: string[] } | null = null
+  let list: string[] = []
+  const flush = () => { if (current && list.length) current.paragraphs.push(list.map(l => `- ${l}`).join('\n')); list = [] }
+  for (const b of p.blocks.slice(p.firstSection)) {
+    if (b.kind === 'p' && b.level === p.sectionLevel && b.text) {
+      flush()
+      current = { title: b.text, paragraphs: [] }
+      sections.push(current)
+      continue
+    }
+    if (!current) continue
+    if (b.kind === 'tbl') { flush(); const t = textOf(b.xml).trim(); if (t) current.paragraphs.push(t); continue }
+    if (b.kind !== 'p' || !b.text) continue
+    if (b.bullet) { list.push(b.text); continue }
+    flush()
+    // A sub-heading inside a section is kept as its own short paragraph.
+    current.paragraphs.push(b.text)
+  }
+  flush()
+  return { sections }
+}
