@@ -5,7 +5,7 @@ import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 import { getLetter } from '@/lib/lp-letters/service'
 import { briefForLetter } from '@/lib/lp-letters/draft-from-brief'
 import { fromLetter } from '@/lib/lp-letters/content'
-import { avoidTerms, reviewLetter } from '@/lib/lp-letters/review'
+import { reviewLetter, reviewOptions } from '@/lib/lp-letters/review'
 
 /**
  * The review of a letter against a fresh brief: each flag names the section it is about, so the
@@ -28,8 +28,9 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
   if (!letter) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   try {
-    const { brief, investorNames, voice } = await briefForLetter(admin, fundId, letter)
-    const flags = reviewLetter(fromLetter(letter), brief, investorNames, letter.internal_notes, { avoid: avoidTerms(voice.houseRules) })
+    const loaded = await briefForLetter(admin, fundId, letter)
+    const { brief } = loaded
+    const flags = reviewLetter(fromLetter(letter), brief, loaded.investorNames, letter.internal_notes, reviewOptions(loaded))
     return NextResponse.json({ flags, missing_information: brief.missing_information, as_of: brief.as_of })
   } catch (err) {
     console.error('[lp-letters] Review error:', err instanceof Error ? err.message : err)

@@ -2,7 +2,7 @@
 name: lp-quarterly-letter
 description: Draft a fund's quarterly or year-end investor letter in the fund's own structure and voice, using Hemrock Portfolio data over MCP, and save it as an unshared draft for review.
 metadata:
-  version: "2.2.0"
+  version: "2.3.0"
 ---
 
 # Quarterly investor letter
@@ -16,19 +16,20 @@ The connector may be installed under another name, often the firm's. The tools a
 - **Entity**: the fund vehicle the letter is for.
 - **Period**: year and quarter. A Q4 letter may also be the year-end letter.
 - **The fund's letter template**: structure, voice, examples and house rules, from `lp_letter_skill`.
-- **The last letter sent**: the entity's most recent final letter in Hemrock, for fixed text and continuity.
+- **The entity's letter profile**: its fixed facts (names, the firm, stage, signatories, company display names and former names, footnotes, fixed paragraphs), from `lp_letter_profile_get` and in the brief as `profile`.
+- **The last letter sent**: the entity's most recent final letter in Hemrock, in the brief as `last_final_letter`, for fixed text and continuity.
 - **Partner notes**: their view of the market and the quarter, valuation decisions, new investment terms, events after quarter end, and anything to stress or leave out. Ask once at the start. If no one is there to answer, leave marked placeholders. Pass them to `lp_letter_brief` and `lp_draft_letter` as `partner_notes`, and any document they give you (a market report, a board deck) as `sources`, so they are kept with the letter and checked like the other sources.
 
 ## Fund profile
 
-The fixed facts of a fund, which change rarely and are copied, not written: its legal and short names, the firm's name, the stage of the fund (investing or harvesting), company display names and former names, any standing footnotes, the administrator or other parties the letter names, and the signatories. Take them from the last final letter for the same entity, and from the fund's structure where it lists them. Never take one fund's profile into another fund's letter.
+The fixed facts of a fund, which change rarely and are copied, not written: its legal and short names, the firm's name, the stage of the fund (investing or harvesting), company display names and former names, any standing footnotes, the administrator or other parties the letter names, and the signatories. Hemrock keeps them as the entity's letter profile: use it as given. Where it is empty, take them from the last final letter for the same entity, and offer to save them (`lp_letter_profile_get` with `propose_from_last_letter`, then `lp_letter_profile_save` once the person agrees). Never take one fund's profile into another fund's letter.
 
 ## Workflow
 
 1. **Confirm the fund and entity.** Call `list_funds`, and `use_fund` if needed, saying which fund is now active. List the entity's letters with `lp_letters`.
 2. **Get the template.** Call `lp_letter_skill`. Follow `references/structure.md`, `references/voice.md` and `references/examples.md`, and `references/house-rules.md` when it is there.
 3. **Get the brief.** Call `lp_letter_brief` (entity, year, quarter, `year_end` when it is the year-end letter). It holds the fund's figures (gross and net, each labeled), each company's figures and events, the quarter's updates and KPIs, team notes, stored background text with the date it was written, events after quarter end, the partners' notes and documents, the missing-information list and Hemrock's letter rules. Treat an update marked `confidential` as background only, never quoted. A stored business update marked `stale` predates the quarter: do not present it as news. Events in `after_quarter_end` are subsequent events: give their dates and keep them out of the quarter's figures.
-4. **Read the last final letter** for the entity: the newest letter in `lp_letters` with status `final`, opened with `lp_letter`. Drafts are not what was sent. Use it for the fund profile and for continuity: what was flagged, what was expected, each company's description and display name. Never carry one of its figures forward as current. If there is no final letter, ask the person for the one that was actually sent.
+4. **Read the last final letter** for the entity: `last_final_letter` in the brief (the newest final letter before this quarter). Drafts are not what was sent. Use it for the fund profile and for continuity: what was flagged, what was expected, each company's description and display name. Never carry one of its figures forward as current. If there is no final letter, ask the person for the one that was actually sent and bring it in with `lp_import_letter`.
 5. **Read full updates** with `get_updates` where a company's summary is not enough, for that company only.
 6. **Size each company section** (see "Sizing each company section").
 7. **Write the letter** in the fund's structure and voice.

@@ -303,7 +303,10 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/lp-letters/[id]/share': { domain: 'lp_relations', feature: 'lp_letters' },
   'api/lp-letters/[id]/sources': { domain: 'lp_relations', feature: 'lp_letters' },
   'api/lp-letters/example': { domain: 'lp_relations', feature: 'lp_letters' },
+  'api/lp-letters/import': { domain: 'lp_relations', feature: 'lp_letters' },
   'api/lp-letters/preview': { domain: 'lp_relations', feature: 'lp_letters' },
+  'api/lp-letters/profiles': { domain: 'lp_relations', feature: 'lp_letters' },
+  'api/lp-letters/profiles/seed': { domain: 'lp_relations', feature: 'lp_letters' },
   'api/lp-letters/templates': { domain: 'lp_relations', feature: 'lp_letters' },
   'api/lp-letters/templates/[id]': { domain: 'lp_relations', feature: 'lp_letters' },
 

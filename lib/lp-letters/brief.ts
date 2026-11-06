@@ -19,6 +19,7 @@ import type { PortfolioPreview, CompanyLetterData, PriceEvent, AfterQuarterEvent
 import { fmt } from './generate'
 import { getCurrencySymbol } from '@/lib/currency'
 import { LETTER_SKILL_VERSION, skillForWriter, type LetterVoice } from './skill'
+import { profileAsLayer, type LetterProfile } from './profile'
 
 import { MISSING_HEADING } from './internal'
 export { MISSING_HEADING }
@@ -79,6 +80,10 @@ export interface LetterBrief {
   partner_notes?: string | null
   /** Documents the partners added as sources for this letter. */
   sources?: LetterSourceDocument[]
+  /** The entity's letter profile: the fixed facts its letters copy (profile.ts). */
+  profile?: Omit<LetterProfile, 'template_id'>
+  /** The entity's last letter as sent: for fixed text and continuity, never for current figures. */
+  last_final_letter?: { period: string; text: string }
   missing_information: string[]
   excluded: string
 }
@@ -99,6 +104,10 @@ export interface BriefInput {
   partnerNotes?: string | null
   /** Documents added as sources for this letter (lp_letters.source_documents). */
   sources?: LetterSourceDocument[]
+  /** The entity's letter profile, merged over the firm-wide one. */
+  profile?: LetterProfile | null
+  /** The entity's most recent final letter before this period. */
+  lastLetter?: { period: string; text: string } | null
 }
 
 const MAX_UPDATE_CHARS = 4000
@@ -268,8 +277,11 @@ export function buildLetterBrief(input: BriefInput): LetterBrief {
   const currency = preview.fundCurrency
   const fund = preview.portfolioGroup || preview.fundName
   const period = preview.periodLabel
-  const clean = redactor(input.investorNames, preview.companies.map(c => c.investment.companyName))
+  // A signatory may also be an investor; their name stays in the sources so the letter can sign with it.
+  const signers = new Set((input.profile?.signatories ?? []).map(sg => sg.name.trim().toLowerCase()))
+  const clean = redactor((input.investorNames ?? []).filter(n => !signers.has(n.trim().toLowerCase())), preview.companies.map(c => c.investment.companyName))
   const missing: string[] = []
+  const named = new Map((input.profile?.company_names ?? []).map(c => [c.company_id, c]))
 
   if (preview.companies.length === 0) missing.push(`No portfolio companies are recorded for ${fund}.`)
 
@@ -305,11 +317,13 @@ export function buildLetterBrief(input: BriefInput): LetterBrief {
     }
     const after = afterQuarterLines(c.afterQuarterEnd ?? [], currency)
 
+    const profiled = named.get(inv.companyId)
     return {
       company_id: inv.companyId,
-      company: inv.companyName,
+      // The name the letter uses: the profile's display name, else the books'.
+      company: profiled?.display_name ?? inv.companyName,
       status: inv.status,
-      letter_status: letterStatus(inv.status),
+      letter_status: profiled?.status ?? letterStatus(inv.status),
       stage: inv.stage,
       figures: companyFigures(c, currency),
       events: companyEvents(c, year, quarter, currency),
@@ -365,6 +379,8 @@ export function buildLetterBrief(input: BriefInput): LetterBrief {
     ...(input.sources?.length
       ? { sources: input.sources.filter(d => d.text?.trim()).map(d => ({ name: d.name, text: clean(d.text.trim().slice(0, MAX_SOURCE_CHARS)) })) }
       : {}),
+    ...(input.profile && profileAsLayer(input.profile) ? { profile: (({ template_id: _t, ...rest }) => rest)(input.profile) } : {}),
+    ...(input.lastLetter?.text ? { last_final_letter: { period: input.lastLetter.period, text: clean(input.lastLetter.text) } } : {}),
     missing_information: missing,
     excluded:
       'No LP or investor-level data: investor names, commitments, capital accounts and investor-level figures are not read. ' +
@@ -400,8 +416,15 @@ export function writerPrompt(brief: LetterBrief, voice: LetterVoice, guidance?: 
     ...letterRules(),
     '',
     '2. LETTER PROFILE',
-    'No letter profile is saved for this entity yet. Where the structure calls for boilerplate, display names or signatories ' +
-      'the sources do not hold, leave a marked placeholder and list it under the missing information.',
+    ...(brief.profile && profileAsLayer({ ...brief.profile, template_id: null }, id => brief.companies.find(c => c.company_id === id)?.company)
+      ? [profileAsLayer({ ...brief.profile, template_id: null }, id => brief.companies.find(c => c.company_id === id)?.company)!,
+        'Copy these facts as given. Where the structure calls for something the profile does not hold, leave a marked placeholder.']
+      : ['No letter profile is saved for this entity yet. Where the structure calls for boilerplate, display names or signatories ' +
+        'the sources do not hold, leave a marked placeholder and list it under the missing information.']),
+    ...(brief.last_final_letter
+      ? [`The last letter sent (${brief.last_final_letter.period}) is in the brief: use it for fixed text, display names and ` +
+        'continuity (what was flagged, what was expected). Never carry one of its figures forward as current.']
+      : []),
     '',
     `3. STRUCTURE (the lp-quarterly-letter skill, version ${brief.skill.version})`,
     'The skill is written for an assistant that also saves the letter and makes a document from it. Here you write only the ' +

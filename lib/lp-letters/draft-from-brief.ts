@@ -16,6 +16,9 @@ import { contentColumns, createLetter, portfolioSummaryOf } from './service'
 import { attachSources, parseLetterText, type LetterContent } from './content'
 import { letterVoice, LETTER_SKILL_VERSION, type LetterVoice } from './skill'
 import { splitInternal } from './internal'
+import { lastFinalLetter, loadProfile, otherEntitiesCompanies } from './profile-store'
+import type { LetterProfile } from './profile'
+import { parseSeededProfile, seedProfilePrompt } from './seed-profile'
 import { sanitizeLetterHtml } from '@/lib/sanitize'
 import { done, dbFail, type Outcome } from '@/lib/service-outcome'
 import { createFundAIProvider } from '@/lib/ai'
@@ -128,6 +131,10 @@ export interface LoadedBrief {
   investorNames: string[]
   template: LetterTemplate
   voice: LetterVoice
+  /** The entity's letter profile (merged over the firm-wide one). */
+  profile: LetterProfile
+  /** Companies of the fund this entity doesn't hold, for the cross-entity check. Never in the brief. */
+  otherCompanies: string[]
 }
 
 export interface BriefOptions {
@@ -153,28 +160,34 @@ export function storedSources(x: unknown): StoredSourceDocument[] {
 export async function loadLetterBrief(
   admin: Admin, fundId: string, p: LetterPeriod, opts: BriefOptions = {},
 ): Promise<LoadedBrief> {
-  const template = await resolveTemplate(admin, fundId, opts.template)
+  const { profile } = await loadProfile(admin, fundId, p.vehicle)
+  // The entity's profile names its template when none is asked for.
+  const template = opts.template
+    ? await resolveTemplate(admin, fundId, opts.template)
+    : await resolveTemplate(admin, fundId, profile.template_id).catch(() => resolveTemplate(admin, fundId, null))
   const voice = letterVoice(template)
   const preview = await aggregatePortfolioData(admin as any, fundId, p.year, p.quarter, p.vehicle, !!p.yearEnd)
   const ids = preview.companies.map(c => c.investment.companyId)
-  const [updates, names] = await Promise.all([
+  const [updates, names, lastLetter, otherCompanies] = await Promise.all([
     quarterUpdates(admin, fundId, ids, p.year, p.quarter),
     investorNames(admin, fundId),
+    lastFinalLetter(admin, fundId, p.vehicle, p.year, p.quarter),
+    otherEntitiesCompanies(admin, fundId, ids),
   ])
   const brief = buildLetterBrief({
     preview, year: p.year, quarter: p.quarter, updates, investorNames: names, voice, guidance: opts.guidance,
-    partnerNotes: opts.partnerNotes, sources: opts.sources,
+    partnerNotes: opts.partnerNotes, sources: opts.sources, profile, lastLetter,
   })
-  return { brief, preview, investorNames: names, template, voice }
+  return { brief, preview, investorNames: names, template, voice, profile, otherCompanies }
 }
 
 /** A stored letter's brief: its period, its template (or the fund's default), its guidance, notes and documents. */
 export async function briefForLetter(admin: Admin, fundId: string, letter: any): Promise<LoadedBrief> {
-  const template = await templateForLetter(admin, fundId, letter.template_id)
+  // The letter's own template; none (or since deleted) falls to the entity profile's, then the fund's default.
   return loadLetterBrief(admin, fundId, {
     vehicle: letter.portfolio_group, year: letter.period_year, quarter: letter.period_quarter, yearEnd: !!letter.is_year_end,
   }, {
-    template: template.id, guidance: letter.generation_prompt, partnerNotes: letter.partner_notes ?? null,
+    template: letter.template_id ? await resolveTemplate(admin, fundId, letter.template_id).then(t => t.id, () => null) : null, guidance: letter.generation_prompt, partnerNotes: letter.partner_notes ?? null,
     sources: storedSources(letter.source_documents).map(d => ({ name: d.name, text: d.text })),
   })
 }
@@ -280,4 +293,34 @@ export async function rewriteSection(
     fundId, userId: userId ?? undefined, provider: providerType, model, feature: 'lp-letter-section', usage: result.usage,
   })
   return splitInternal(result.text.replace(/^##\s+.*\n+/, '')).body?.trim() ?? ''
+}
+
+/**
+ * A profile proposed from the entity's last letter as sent (or the letter named), for a person to
+ * review in the profile editor. Nothing is saved.
+ */
+export async function proposeProfile(
+  admin: Admin, fundId: string, userId: string | null, vehicle: string, letterId?: string | null,
+): Promise<{ profile: LetterProfile; letter: { id: string; period: string } } | null> {
+  let letter: { id: string; period: string; text: string } | null = null
+  if (letterId) {
+    const { data } = await (admin as any).from('lp_letters').select('id, period_label, full_draft, portfolio_group')
+      .eq('fund_id', fundId).eq('id', letterId).maybeSingle()
+    if (data && data.portfolio_group === vehicle && data.full_draft) letter = { id: data.id, period: data.period_label, text: splitInternal(data.full_draft).body }
+  } else {
+    letter = await lastFinalLetter(admin, fundId, vehicle, 9999, 4)
+  }
+  if (!letter) return null
+  const { data: companies } = await (admin as any).from('companies').select('id, name').eq('fund_id', fundId).eq('holding_type', 'company')
+  const known = ((companies ?? []) as any[]).filter(c => c.name).map(c => ({ id: String(c.id), name: String(c.name) }))
+  const { provider, model, providerType } = await createFundAIProvider(admin as any, fundId)
+  const result = await provider.createMessage({
+    model,
+    maxTokens: 4000,
+    system: 'You read investor letters and extract their fixed facts exactly as written. You return JSON only.',
+    content: seedProfilePrompt(letter.text, known),
+  })
+  await logAIUsage(admin as any, { fundId, userId: userId ?? undefined, provider: providerType, model, feature: 'lp-letter-profile-seed', usage: result.usage })
+  const profile = parseSeededProfile(result.text, known.map(c => c.id))
+  return profile ? { profile, letter: { id: letter.id, period: letter.period } } : null
 }

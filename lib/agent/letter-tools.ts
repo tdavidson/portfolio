@@ -8,12 +8,13 @@ import { resolveVehicle } from '@/lib/accounting/vehicle-resolver'
 import { unwrap } from '@/lib/service-outcome'
 import { reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
 import { siteOrigin } from '@/lib/site-links'
-import { createLetter, getLetter, letterData, listLetters, shareLetter, updateLetter, updateSection, writeLetterSections } from '@/lib/lp-letters/service'
-import { briefForLetter, loadLetterBrief, resolveTemplate, saveDraftLetter, writeWithFundAI, type LetterPeriod } from '@/lib/lp-letters/draft-from-brief'
+import { createLetter, getLetter, importLetter, letterData, listLetters, shareLetter, updateLetter, updateSection, writeLetterSections } from '@/lib/lp-letters/service'
+import { briefForLetter, loadLetterBrief, proposeProfile, resolveTemplate, saveDraftLetter, writeWithFundAI, type LetterPeriod } from '@/lib/lp-letters/draft-from-brief'
 import { LETTER_SKILL_MD, LETTER_SKILL_VERSION, letterVoice } from '@/lib/lp-letters/skill'
 import { fromLetter } from '@/lib/lp-letters/content'
-import { avoidTerms, reviewLetter } from '@/lib/lp-letters/review'
+import { reviewLetter, reviewOptions } from '@/lib/lp-letters/review'
 import { rateLimit } from '@/lib/rate-limit'
+import { loadProfile, saveProfile } from '@/lib/lp-letters/profile-store'
 import { requireUser } from './deals-tools'
 import { resolveInvestor } from './lp-record-tools'
 
@@ -130,7 +131,7 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
       written_by: given ? 'assistant' : 'fund AI',
       draft: text,
       sections: fromLetter(row).sections.map(s => ({ section_id: s.id, heading: s.heading })),
-      review_flags: reviewLetter(fromLetter(row), brief, investorNames, row.internal_notes, { avoid: avoidTerms(loaded.voice.houseRules) }),
+      review_flags: reviewLetter(fromLetter(row), brief, investorNames, row.internal_notes, reviewOptions(loaded)),
       missing_information: brief.missing_information,
       next:
         'This is a new, unshared draft. Show the user the draft and every review flag. Its "Missing information" section is ' +
@@ -201,11 +202,12 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
     // Text written from chat is reviewed against the letter's sources, as a drafted letter is.
     let review_flags: unknown[] | undefined
     if (fullDraft !== undefined || sections) {
-      const { brief, investorNames, voice } = await briefForLetter(ctx.admin, ctx.fundId, row)
+      const loadedForReview = await briefForLetter(ctx.admin, ctx.fundId, row)
+      const { brief, investorNames } = loadedForReview
       const touched = new Set(fromLetter(row).sections
         .filter(s => fullDraft !== undefined || sections!.some((x: any) => x?.section_id === s.id || (x?.company_id && x.company_id === s.company_id)))
         .map(s => s.id))
-      review_flags = reviewLetter(fromLetter(row), brief, investorNames, row.internal_notes, { avoid: avoidTerms(voice.houseRules) })
+      review_flags = reviewLetter(fromLetter(row), brief, investorNames, row.internal_notes, reviewOptions(loadedForReview))
         .filter(f => fullDraft !== undefined || (f.section_id !== null && touched.has(f.section_id)))
     }
     return { letter: summary(row), sections_written: sections?.length ?? 0, ...(review_flags ? { review_flags } : {}) }
@@ -222,5 +224,40 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
       shared_with: investors.filter(i => out.lp_investor_ids.includes(i.id)).map(i => i.name),
       note: out.lp_investor_ids.length ? 'They see it in their portal now.' : 'The letter is no longer shared with anyone.',
     }
+  },
+
+  lp_letter_profile_get: async (ctx: AgentToolContext, input: any) => {
+    const vehicle = input?.vehicle ? await resolveVehicle(ctx.admin, ctx.fundId, String(input.vehicle), { access: ctx.access }) : null
+    const v = await visible(ctx)
+    if (vehicle && v !== null && !v.includes(vehicle)) throw new Error('Not found')
+    const loaded = await loadProfile(ctx.admin, ctx.fundId, vehicle)
+    const proposed = input?.propose_from_last_letter && vehicle ? await proposeProfile(ctx.admin, ctx.fundId, ctx.userId ?? null, vehicle) : null
+    return {
+      vehicle: vehicle ?? 'firm-wide', profile: loaded.profile, own: loaded.own, firm_wide: loaded.firm, updated_at: loaded.updated_at,
+      ...(input?.propose_from_last_letter
+        ? proposed
+          ? { proposed: proposed.profile, from_letter: proposed.letter, next: 'Show the person the proposed profile; save it with lp_letter_profile_save once they agree.' }
+          : { proposed: null, note: vehicle ? 'No sent letter for this entity. Import one with lp_import_letter first.' : 'Name the entity whose last letter to read.' }
+        : {}),
+    }
+  },
+
+  lp_letter_profile_save: async (ctx: AgentToolContext, input: any) => {
+    const userId = requireUser(ctx.userId)
+    const vehicle = input?.vehicle ? await resolveVehicle(ctx.admin, ctx.fundId, String(input.vehicle), { access: ctx.access }) : null
+    const v = await visible(ctx)
+    if (vehicle && v !== null && !v.includes(vehicle)) throw new Error('Not found')
+    const template = typeof input?.template === 'string' && input.template.trim() ? (await resolveTemplate(ctx.admin, ctx.fundId, input.template)).id : null
+    const saved = unwrap(await saveProfile(ctx.admin, { fundId: ctx.fundId, userId, visible: v }, vehicle, { ...input, template_id: template }))
+    return { vehicle: vehicle ?? 'firm-wide', profile: saved.profile }
+  },
+
+  lp_import_letter: async (ctx: AgentToolContext, input: any) => {
+    const userId = requireUser(ctx.userId)
+    const vehicle = await resolveVehicle(ctx.admin, ctx.fundId, String(input?.vehicle ?? '') || undefined, { access: ctx.access })
+    const row = unwrap(await importLetter(ctx.admin, { fundId: ctx.fundId, userId, visible: await visible(ctx) }, {
+      vehicle, year: Number(input?.year), quarter: Number(input?.quarter), yearEnd: !!input?.year_end, text: String(input?.text ?? ''),
+    }))
+    return { letter: summary(row), sections: fromLetter(row).sections.map(s => ({ section_id: s.id, heading: s.heading })) }
   },
 }

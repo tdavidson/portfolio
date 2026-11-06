@@ -5,6 +5,7 @@
 
 import { MISSING_HEADING, investorsNamed, unlabeledPerformance, unstatedEvents, unsupportedNumbers, type LetterBrief } from './brief'
 import type { LetterContent } from './content'
+import { formerNamesUsed, type LetterProfile } from './profile'
 
 export interface LetterFlag {
   /** The section it is about; null for the letter as a whole. */
@@ -12,6 +13,7 @@ export interface LetterFlag {
   kind:
     | 'unsupported_number' | 'unlabeled_performance' | 'unstated_event' | 'investor_named' | 'missing_information'
     | 'invalid_date' | 'avoided_term' | 'stale_copy' | 'confidential_quoted'
+    | 'former_name' | 'copied_from_last_letter' | 'other_entity_company'
   message: string
   /** The text it points at, to find it in the section. */
   quote?: string
@@ -22,6 +24,19 @@ export interface ReviewOptions {
   avoid?: string[]
   /** Today, for dates in the future; defaults to the real today. */
   today?: string
+  /** The entity's letter profile: display names, signatories, fixed text. */
+  profile?: LetterProfile | null
+  /** Companies the fund holds through other entities only: a letter about this one shouldn't name them. */
+  otherCompanies?: string[]
+}
+
+/** Sections where naming companies outside the entity is expected: the market and the outlook. */
+const MARKET_HEADING = /\b(market|outlook|environment|landscape|macro|industry)\b/i
+const LAST_LETTER_RUN = 25
+
+/** The review's options from a loaded brief: the house rules' words to avoid, the profile, the other entities' companies. */
+export function reviewOptions(loaded: { voice: { houseRules?: string | null }; profile?: LetterProfile | null; otherCompanies?: string[] }): ReviewOptions {
+  return { avoid: avoidTerms(loaded.voice.houseRules), profile: loaded.profile ?? null, otherCompanies: loaded.otherCompanies ?? [] }
 }
 
 export function reviewLetter(
@@ -36,6 +51,11 @@ export function reviewLetter(
     })
   }
   const byId = new Map(brief.companies.map(c => [c.company_id, c]))
+  const signers = new Set((opts.profile?.signatories ?? []).map(sg => sg.name.trim().toLowerCase()))
+  const fixedHeadings = new Set((opts.profile?.fixed_text ?? []).map(f => f.heading.trim().toLowerCase()))
+  const lastSection = content.sections[content.sections.length - 1]?.id
+  const others = (opts.otherCompanies ?? []).filter(n => !brief.companies.some(c => c.company.toLowerCase() === n.toLowerCase()))
+  const escRe = (x: string) => x.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
   for (const s of content.sections) {
     const text = [s.heading, s.body].filter(Boolean).join('\n')
     for (const raw of unsupportedNumbers(text, brief).slice(0, 15)) {
@@ -45,6 +65,8 @@ export function reviewLetter(
       flags.push({ section_id: s.id, kind: 'unlabeled_performance', message: 'Performance figure without "gross" or "net".', quote: q })
     }
     for (const n of investorsNamed(text, brief, investorNames)) {
+      // A partner who is also an investor signs the letter: their name belongs in its last section.
+      if (s.id === lastSection && signers.has(n.trim().toLowerCase())) continue
       flags.push({ section_id: s.id, kind: 'investor_named', message: `Names an investor in the fund (${n}).`, quote: n })
     }
     const company = s.company_id ? byId.get(s.company_id) : undefined
@@ -60,6 +82,27 @@ export function reviewLetter(
         section_id: s.id, kind: 'stale_copy', quote: run,
         message: `Repeats the stored business update from ${company.stored_business_update_at}, which is older than this quarter.`,
       })
+    }
+    if (opts.profile) {
+      // The body, not the heading: a company section's heading is always its display name.
+      for (const f of formerNamesUsed(s.body, opts.profile)) {
+        flags.push({ section_id: s.id, kind: 'former_name', quote: f.former, message: `Calls the company "${f.former}"; the letter's name for it is "${f.display}".` })
+      }
+    }
+    // Last quarter's words, outside the paragraphs the profile says repeat.
+    if (brief.last_final_letter && !(s.heading && fixedHeadings.has(s.heading.trim().toLowerCase()))) {
+      const run = sharedRun(s.body, brief.last_final_letter.text, LAST_LETTER_RUN)
+      if (run) flags.push({
+        section_id: s.id, kind: 'copied_from_last_letter', quote: run,
+        message: `Repeats the ${brief.last_final_letter.period} letter word for word; check it is still true.`,
+      })
+    }
+    if (!(s.heading && MARKET_HEADING.test(s.heading))) {
+      for (const n of others) {
+        if (new RegExp(`\\b${escRe(n)}\\b`, 'i').test(text)) {
+          flags.push({ section_id: s.id, kind: 'other_entity_company', quote: n, message: `Names ${n}, which this entity does not hold.` })
+        }
+      }
     }
     // Wording from an update its sender marked confidential.
     for (const c of company ? [company] : brief.companies) {

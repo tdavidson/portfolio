@@ -9,6 +9,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { AnalystToggleButton } from '@/components/analyst-button'
 import { AnalystPanel } from '@/components/analyst-panel'
 import { VoiceDialog, type VoiceTemplate } from './voice-dialog'
+import { ImportLetterDialog, ProfileDialog } from './profile-dialog'
 import { useFeatureVisibility } from '@/components/feature-visibility-context'
 
 interface LetterSummary {
@@ -31,6 +32,8 @@ export default function LettersPage() {
   const [templates, setTemplates] = useState<VoiceTemplate[]>([])
   const [loading, setLoading] = useState(true)
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [importOpen, setImportOpen] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
@@ -78,6 +81,12 @@ export default function LettersPage() {
         <div className="flex items-center gap-3 pt-2">
           <Button size="sm" variant="outline" className="text-muted-foreground" onClick={() => setTemplateDialogOpen(true)}>
             Voice
+          </Button>
+          <Button size="sm" variant="outline" className="text-muted-foreground" onClick={() => setProfileOpen(true)}>
+            Profiles
+          </Button>
+          <Button size="sm" variant="outline" className="text-muted-foreground" onClick={() => setImportOpen(true)}>
+            Import sent letter
           </Button>
           <Link href="/letters/new">
             <Button size="sm" variant="outline" className="text-muted-foreground">
@@ -186,6 +195,8 @@ export default function LettersPage() {
         </DialogContent>
       </Dialog>
 
+      <ProfileDialog open={profileOpen} onOpenChange={setProfileOpen} templates={templates.filter(t => t.id).map(t => ({ id: t.id as string, name: t.name }))} />
+      <ImportLetterDialog open={importOpen} onOpenChange={setImportOpen} onImported={l => router.push(`/letters/${l.id}`)} />
       <VoiceDialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen} templates={templates} setTemplates={setTemplates} />
     </div>
   )

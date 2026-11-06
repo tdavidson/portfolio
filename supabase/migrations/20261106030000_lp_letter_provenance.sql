@@ -27,7 +27,7 @@ exception when duplicate_object then null; end $$;
 
 do $$ begin
   alter table public.lp_letters add constraint lp_letters_generated_by_check
-    check (generated_by in ('fund_ai', 'assistant') and source = 'generated');
+    check (generated_by is null or (generated_by in ('fund_ai', 'assistant') and source = 'generated')));
 exception when duplicate_object then null; end $$;
 
 create index if not exists lp_letters_vehicle_idx on public.lp_letters (vehicle_id, period_year desc, period_quarter desc);

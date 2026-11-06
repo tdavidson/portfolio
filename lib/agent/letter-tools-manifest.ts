@@ -172,4 +172,76 @@ export const LETTER_TOOL_MANIFEST: AgentToolMeta[] = [
       required: ['letter_id', 'investors'],
     },
   },
+  {
+    name: 'lp_letter_profile_get',
+    description:
+      "An entity's letter profile: the fixed facts its letters copy (legal and short names, the firm's name, investing or " +
+      'harvesting, signatories, company display names and former names, standing footnotes, parties named, fixed paragraphs) ' +
+      "and the template it uses. The entity's own fields over the firm-wide profile's; omit vehicle for the firm-wide one. " +
+      "With propose_from_last_letter, also reads the entity's last sent letter and returns a proposed profile; nothing is saved.",
+    scope: 'read',
+    ...base,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vehicle: { type: 'string', description: 'The entity. Omit for the firm-wide profile.' },
+        propose_from_last_letter: { type: 'boolean', description: "Read the entity's last sent letter and propose a profile from it. Saves nothing." },
+      },
+    },
+  },
+  {
+    name: 'lp_letter_profile_save',
+    description:
+      "Replace an entity's letter profile (or the firm-wide one, with no vehicle). Pass every field to keep: fields left out are " +
+      'cleared. Read it first with lp_letter_profile_get, which can propose one from the last sent letter. Show the person the ' +
+      'profile before saving; from a chat it waits for their approval.',
+
+    scope: 'write',
+    ...base,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vehicle: { type: 'string', description: 'The entity. Omit for the firm-wide profile.' },
+        legal_name: { type: 'string' },
+        short_name: { type: 'string' },
+        firm_name: { type: 'string' },
+        fund_stage: { type: 'string', enum: ['investing', 'harvesting'] },
+        signatories: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, title: { type: 'string' } }, required: ['name'] } },
+        company_names: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              company_id: { type: 'string' }, display_name: { type: 'string' },
+              former_names: { type: 'array', items: { type: 'string' } }, status: { type: 'string', description: 'A letter-facing status such as "Wound Down".' },
+            },
+            required: ['company_id'],
+          },
+        },
+        footnotes: { type: 'string' },
+        parties: { type: 'string' },
+        fixed_text: { type: 'array', items: { type: 'object', properties: { heading: { type: 'string' }, text: { type: 'string' } }, required: ['heading', 'text'] } },
+        template: { type: 'string', description: "The fund's letter template (name) this entity's letters use." },
+      },
+    },
+  },
+  {
+    name: 'lp_import_letter',
+    description:
+      'Bring in a letter as it was sent, as its text (the LP Letters page also takes the PDF or Word file). It is saved as a ' +
+      "final, imported letter for that entity and quarter, and becomes the entity's last sent letter for the next brief. " +
+      'Show the person the text and the period first.',
+    scope: 'write',
+    ...base,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vehicle: { type: 'string', description: 'The entity (portfolio_group) the letter was for.' },
+        year: { type: 'integer' }, quarter: { type: 'integer', minimum: 1, maximum: 4 },
+        year_end: { type: 'boolean' },
+        text: { type: 'string', description: 'The letter as sent.' },
+      },
+      required: ['vehicle', 'year', 'quarter', 'text'],
+    },
+  },
 ]

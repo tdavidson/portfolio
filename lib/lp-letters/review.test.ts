@@ -77,3 +77,36 @@ describe('the newer checks', () => {
     expect(kinds).toEqual(expect.arrayContaining([['company:c9', 'stale_copy'], ['company:c9', 'confidential_quoted'], ['company:c9', 'avoided_term']]))
   })
 })
+
+import { cleanProfile } from './profile'
+
+describe('the checks that read the profile and the last letter', () => {
+  const profile = cleanProfile({
+    signatories: [{ name: 'Jane Doe LP' }],
+    company_names: [{ company_id: 'c1', display_name: 'Acme Robotics', former_names: ['Apex'] }],
+    fixed_text: [{ heading: 'About the fund', text: 'x' }],
+  })
+  const last = 'Example Fund I invests in early stage robotics and analytics companies across North America and has done so since its first close in the spring of that year with a focus on seed rounds'
+  const b = { ...brief, companies: [company('c1', 'Acme Robotics')], missing_information: [], last_final_letter: { period: 'Q2 2026', text: last } } as LetterBrief
+  const content = parseLetterText([
+    '## Acme Robotics', 'Apex grew. Zephyr Labs also did well.',
+    '## About the fund', last,
+    '## Outlook', 'Zephyr Labs raised a large round. ' + last,
+    '## Closing', 'Sincerely, Jane Doe LP',
+  ].join('\n'), { companies: [{ id: 'c1', name: 'Acme Robotics' }] })
+  const flags = reviewLetter(content, b, ['Jane Doe LP'], 'notes', { profile, otherCompanies: ['Zephyr Labs', 'Acme Robotics'], today: '2026-11-06' })
+  const at = (kind: string) => flags.filter(f => f.kind === kind).map(f => f.section_id)
+
+  it('flags a former name used alone, and a company another entity holds outside the market sections', () => {
+    expect(at('former_name')).toEqual(['company:c1'])
+    expect(at('other_entity_company')).toEqual(['company:c1'])
+  })
+
+  it("flags last letter's words outside the fixed paragraphs", () => {
+    expect(at('copied_from_last_letter')).toEqual(['outlook'])
+  })
+
+  it('lets a signatory who is also an investor sign the last section', () => {
+    expect(at('investor_named')).toEqual([])
+  })
+})

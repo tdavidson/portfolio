@@ -11,7 +11,7 @@ import { aggregatePortfolioData } from './aggregate'
 import { buildPortfolioTableHtml } from './generate'
 import type { PortfolioPreview } from './aggregate'
 import { splitInternal } from './internal'
-import { isContent, narrativesOf, renderLetterText, reparse, replaceSection, fromLetter, orderCompanies, type LetterContent, type LetterSection } from './content'
+import { isContent, parseLetterText, narrativesOf, renderLetterText, reparse, replaceSection, fromLetter, orderCompanies, type LetterContent, type LetterSection } from './content'
 import { sanitizeLetterHtml } from '@/lib/sanitize'
 
 type Admin = SupabaseClient
@@ -333,5 +333,48 @@ export async function changeLetterSources(
     .from('lp_letters').update({ source_documents: next, updated_at: new Date().toISOString() })
     .eq('id', letterId).eq('fund_id', ctx.fundId).select().single()
   if (error) return dbFail(error, 'lp-letters-sources')
+  return done(data)
+}
+
+export interface ImportedLetter {
+  vehicle: string
+  year: number
+  quarter: number
+  yearEnd?: boolean
+  /** The letter's text as sent. */
+  text: string
+  /** The file as sent, once stored (lp-letter-originals). */
+  originalFile?: { path: string; name: string; type: string; size: number } | null
+}
+
+/**
+ * A letter as it was sent, brought in: final (a person sent it), source "imported", its text split
+ * into sections like any other, its partners' notes (if it had them) kept apart. It then counts as
+ * the entity's last sent letter for the next brief, and can seed the entity's letter profile.
+ */
+export async function importLetter(admin: Admin, ctx: { fundId: string; userId: string; visible: Visible }, input: ImportedLetter): Promise<Outcome<any>> {
+  if (!Number.isInteger(input.year) || input.year < 1990 || input.year > 2100) return fail(400, 'year must be a four-digit year')
+  if (![1, 2, 3, 4].includes(input.quarter)) return fail(400, 'quarter must be 1 to 4')
+  if (!input.text?.trim()) return fail(400, 'The letter has no text.')
+  const created = await createLetter(admin, ctx, {
+    period_year: input.year, period_quarter: input.quarter, portfolio_group: input.vehicle, is_year_end: !!input.yearEnd,
+  })
+  if (!created.ok) return created
+  const { data: companies } = await (admin as any).from('companies').select('id, name').eq('fund_id', ctx.fundId).eq('holding_type', 'company')
+  const known = ((companies ?? []) as any[]).filter(c => c.name).map(c => ({ id: String(c.id), name: String(c.name) }))
+  const { body, internal } = splitInternal(input.text.replace(/\r\n?/g, '\n').trim())
+  const content = parseLetterText(body ?? '', { companies: known })
+  const { data, error } = await (admin as any)
+    .from('lp_letters')
+    .update({
+      ...contentColumns(content, ctx.userId),
+      internal_notes: internal,
+      source: 'imported',
+      status: 'final',
+      original_file: input.originalFile ?? null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', created.value.id).eq('fund_id', ctx.fundId).select().single()
+  if (error) return dbFail(error, 'lp-letters-import')
   return done(data)
 }
