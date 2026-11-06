@@ -2658,40 +2658,52 @@ export type Database = {
       lp_letter_templates: {
         Row: {
           created_at: string | null
+          examples: string | null
           fund_id: string
+          house_rules: string | null
           id: string
           is_default: boolean
           name: string
           source_filename: string | null
+          source_files: Json | null
           source_format: string | null
           source_text: string | null
           source_type: string | null
+          structure: string | null
           style_guide: string | null
           updated_at: string | null
         }
         Insert: {
           created_at?: string | null
+          examples?: string | null
           fund_id: string
+          house_rules?: string | null
           id?: string
           is_default?: boolean
           name?: string
           source_filename?: string | null
+          source_files?: Json | null
           source_format?: string | null
           source_text?: string | null
           source_type?: string | null
+          structure?: string | null
           style_guide?: string | null
           updated_at?: string | null
         }
         Update: {
           created_at?: string | null
+          examples?: string | null
           fund_id?: string
+          house_rules?: string | null
           id?: string
           is_default?: boolean
           name?: string
           source_filename?: string | null
+          source_files?: Json | null
           source_format?: string | null
           source_text?: string | null
           source_type?: string | null
+          structure?: string | null
           style_guide?: string | null
           updated_at?: string | null
         }

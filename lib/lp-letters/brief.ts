@@ -201,9 +201,14 @@ export function instructionsFor(fund: string, period: string, voice: LetterVoice
     '',
     `STRUCTURE: follow the lp-quarterly-letter skill (version ${LETTER_SKILL_VERSION}): its structure, sizing, voice and ` +
       'review checklist. Read it with lp_letter_skill.',
+    ...(voice.structure
+      ? ["The fund has its own letter structure, which replaces the skill's general outline. It is in lp_letter_skill (references/structure.md):", voice.structure]
+      : []),
     ...(voice.source === 'fund'
       ? ['', `VOICE (the fund's own, from its "${voice.template}" letter template; it replaces the skill's general voice):`, voice.voice]
       : ['', "VOICE: the skill's general voice and examples (lp_letter_skill); this fund has not saved its own."]),
+    ...(voice.source === 'fund' && voice.examples ? ["The fund's own examples are in lp_letter_skill (references/examples.md)."] : []),
+    ...(voice.houseRules ? ['', "HOUSE RULES (the fund's own; follow them over the skill's voice and examples):", voice.houseRules] : []),
     ...(guidance?.trim() ? ['', 'GUIDANCE FOR THIS LETTER:', guidance.trim()] : []),
   ].join('\n')
 }
@@ -335,11 +340,15 @@ export function writerPrompt(brief: LetterBrief, voice: LetterVoice, guidance?: 
       'letter text, from the brief below; skip any step about tools or documents.',
     '',
     skillForWriter(),
+    ...(voice.structure
+      ? ['', `THE FUND'S OWN STRUCTURE (from its "${voice.template}" letter template; it replaces the general outline above)`, voice.structure]
+      : []),
     '',
     voice.source === 'fund' ? `4. VOICE (the fund's own, from its "${voice.template}" letter template)` : "4. VOICE (the skill's general voice)",
     voice.voice,
     ...(voice.examples ? ['', 'EXAMPLES (invented companies and figures: match the shape, never take facts from them)', voice.examples] : []),
-    ...(guidance?.trim() ? ['', '5. GUIDANCE FOR THIS LETTER', guidance.trim()] : []),
+    ...(voice.houseRules ? ['', "5. HOUSE RULES (the fund's own; follow them over the structure's voice, the voice and the examples)", voice.houseRules] : []),
+    ...(guidance?.trim() ? ['', `${voice.houseRules ? 6 : 5}. GUIDANCE FOR THIS LETTER`, guidance.trim()] : []),
   ]
   return `${layers.join('\n')}
 

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### LP letters: the fund's own letter, learned from its past letters
+- **Learn from past letters.** On the letters page, Voice > Learn from past letters takes up to 12 letters or memos (.docx or .pdf) at once. The fund's own AI reads them together and writes three parts: the **structure** (sections in order, headings, the paragraphs repeated every quarter, the tables, the fixed names and signatories), the **voice** (how the partners write) and **examples** (each part in full, with invented companies and figures). Names and figures the examples took from the letters are listed for the reviewer to replace.
+- **A draft until chosen.** A learned voice is saved as a template that letters do not use. A person edits the structure, voice, examples and **house rules** (standing instructions for every letter), then chooses it with "Use as fund voice". One template is the fund's voice at a time.
+- **Every writer gets all of it.** The fund's AI, the page's per-company generator and `lp_letter_skill` (as `references/structure.md`, `voice.md`, `examples.md` and `house-rules.md`) use the fund's structure, voice, examples and house rules. A letter created without picking a template is written in the fund's voice. All of it is fund data in `lp_letter_templates`; none of it is in the repo.
+- Migration `20261106040000_lp_letter_template_voice.sql` adds `structure`, `examples`, `house_rules` and `source_files` to `lp_letter_templates`. Apply it before deploying.
+
 ### LP letters: the lp-quarterly-letter skill, and notes that stay internal
 - **One skill for every writer.** `plugin/skills/lp-quarterly-letter/` is the process for a quarterly investor letter: a general outline, the sizing and number rules and a review checklist. It holds nothing of any fund's own letters; a fund's structure and voice are its data (below), and `tests/no-fund-letter-text.test.ts` fails on known letter text copied into the repo. The fund's own AI writes from it, and so does a Claude client, which reads it with the new **`lp_letter_skill`** tool or as `skill://lp-quarterly-letter/…` resources on the GP connection. It also ships in the plugin download. The skill is versioned, and each drafted letter records the version it was written to.
 - **Layered instructions.** The fund's AI now writes in priority order: the letter rules, the entity's letter profile (a placeholder until profiles exist), the skill, the voice and its examples, then the guidance for this letter. `lp_letter_brief` states the rules and points to the skill.

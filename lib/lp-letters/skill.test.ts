@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { DEFAULT_STYLE_GUIDE } from './default-template'
 import {
-  DEFAULT_EXAMPLES_MD, DEFAULT_VOICE_MD, LETTER_SKILL_MD, LETTER_SKILL_VERSION, WRITER_SECTIONS, letterVoice, sectionsOf, skillForWriter,
+  DEFAULT_EXAMPLES_MD, DEFAULT_VOICE_MD, LETTER_SKILL_MD, LETTER_SKILL_VERSION, WRITER_SECTIONS, letterVoice, sectionsOf, skillForWriter, voiceAsStyleGuide,
 } from './skill'
 import { listSkillResources, readSkillResource } from './skill-resources'
 
@@ -30,8 +30,24 @@ describe('the lp-quarterly-letter skill', () => {
 describe('the voice a letter is written in', () => {
   it("is the fund's own saved style guide when it has one", () => {
     expect(letterVoice({ name: 'House voice', styleGuide: 'Write like us.' })).toEqual({
-      source: 'fund', template: 'House voice', voice: 'Write like us.', examples: '',
+      source: 'fund', template: 'House voice', voice: 'Write like us.', examples: '', houseRules: '', structure: '',
     })
+  })
+
+  it("carries the fund's own examples and its house rules", () => {
+    const v = letterVoice({ name: 'House voice', styleGuide: 'Write like us.', examples: '## New investments\nAcme.', houseRules: 'ARR to one decimal.' })
+    expect(v).toMatchObject({ source: 'fund', examples: '## New investments\nAcme.', houseRules: 'ARR to one decimal.' })
+    // House rules add to the general voice too.
+    expect(letterVoice({ name: 'Rules only', styleGuide: null, houseRules: 'Sign from both partners.' }))
+      .toMatchObject({ source: 'default', template: 'Rules only', houseRules: 'Sign from both partners.', examples: DEFAULT_EXAMPLES_MD.trim() })
+  })
+
+  it('folds the voice into one style guide for the per-company writer, leaving out the general examples', () => {
+    const own = voiceAsStyleGuide(letterVoice({ name: 'H', styleGuide: 'Write like us.', examples: 'Ex.', houseRules: 'Rule.' }))
+    expect(own).toContain('Write like us.')
+    expect(own.indexOf('Ex.')).toBeLessThan(own.indexOf('HOUSE RULES'))
+    expect(own).toContain('Rule.')
+    expect(voiceAsStyleGuide(letterVoice(null))).toBe(DEFAULT_VOICE_MD.trim())
   })
 
   it("is the skill's general voice and examples otherwise, including for the old built-in Default", () => {

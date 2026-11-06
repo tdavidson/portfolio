@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
+import { outcomeResponse } from '@/lib/service-outcome'
+import { templateEdit, makeFundVoice } from '@/lib/lp-letters/templates'
 
 export async function GET(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
   const params = await props.params;
@@ -43,12 +45,22 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
   if (writeCheck instanceof NextResponse) return writeCheck
   const { fundId } = writeCheck
 
-  const body = await req.json()
-  const { name, style_guide } = body
+  const body = await req.json().catch(() => ({}))
+  const edit = templateEdit(body)
+  if (!edit.ok) return outcomeResponse(edit)
 
-  const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
-  if (name !== undefined) updates.name = name
-  if (style_guide !== undefined) updates.style_guide = style_guide
+  // "Use as the fund's voice": this template becomes the one letters are written in.
+  if (body?.is_default === true) {
+    if (Object.keys(edit.value).length) {
+      const saved = await admin.from('lp_letter_templates').update({ ...edit.value, updated_at: new Date().toISOString() })
+        .eq('id', params.id).eq('fund_id', fundId)
+      if (saved.error) return dbError(saved.error, 'lp-letters-templates-id')
+    }
+    return outcomeResponse(await makeFundVoice(admin, fundId, params.id))
+  }
+
+  const updates: Record<string, unknown> = { ...edit.value, updated_at: new Date().toISOString() }
+  if (body?.is_default === false) updates.is_default = false
 
   const { data, error } = await admin
     .from('lp_letter_templates')

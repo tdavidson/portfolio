@@ -78,7 +78,18 @@ async function investorNames(admin: Admin, fundId: string): Promise<string[]> {
 }
 
 /** A fund's saved letter template, or the built-in one (id null, no style guide of its own). */
-export interface LetterTemplate { id: string | null; name: string; styleGuide: string | null }
+export interface LetterTemplate {
+  id: string | null
+  name: string
+  styleGuide: string | null
+  examples?: string | null
+  houseRules?: string | null
+  structure?: string | null
+}
+
+const asTemplate = (t: any): LetterTemplate => ({
+  id: t.id, name: t.name, styleGuide: t.style_guide, examples: t.examples ?? null, houseRules: t.house_rules ?? null, structure: t.structure ?? null,
+})
 
 /**
  * The letter template whose style guide is the letter's voice: the one asked for (by id or name),
@@ -86,16 +97,28 @@ export interface LetterTemplate { id: string | null; name: string; styleGuide: s
  * matches nothing is an error, so a typo doesn't quietly fall back.
  */
 export async function resolveTemplate(admin: Admin, fundId: string, ref?: string | null): Promise<LetterTemplate> {
-  const { data } = await (admin as any).from('lp_letter_templates').select('id, name, style_guide, is_default').eq('fund_id', fundId)
-  const rows = ((data ?? []) as any[]).filter(t => t.style_guide)
+  const { data } = await (admin as any).from('lp_letter_templates')
+    .select('id, name, style_guide, structure, examples, house_rules, is_default').eq('fund_id', fundId)
+  const rows = ((data ?? []) as any[]).filter(t => t.style_guide || t.structure || t.house_rules)
   if (ref?.trim()) {
     const want = ref.trim().toLowerCase()
     const hit = rows.find(t => t.id === ref.trim() || String(t.name).toLowerCase() === want)
     if (!hit) throw new Error(`No letter template "${ref}". Templates: ${rows.map(t => t.name).join(', ') || 'none saved yet'}.`)
-    return { id: hit.id, name: hit.name, styleGuide: hit.style_guide }
+    return asTemplate(hit)
   }
   const def = rows.find(t => t.is_default)
-  return def ? { id: def.id, name: def.name, styleGuide: def.style_guide } : { id: null, name: 'Default', styleGuide: null }
+  return def ? asTemplate(def) : { id: null, name: 'Default', styleGuide: null }
+}
+
+/**
+ * A letter's template: the one it was created with, else (none chosen, or since deleted) the
+ * fund's default, so a letter made without picking one is still written in the fund's voice.
+ */
+export async function templateForLetter(admin: Admin, fundId: string, templateId: string | null | undefined): Promise<LetterTemplate> {
+  if (templateId) {
+    try { return await resolveTemplate(admin, fundId, templateId) } catch { /* deleted: the default applies */ }
+  }
+  return resolveTemplate(admin, fundId, null)
 }
 
 export interface LoadedBrief {

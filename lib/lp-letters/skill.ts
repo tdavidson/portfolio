@@ -70,19 +70,50 @@ export interface LetterVoice {
   /** The template it came from, when it is the fund's. */
   template: string | null
   voice: string
-  /** The general examples, or empty when the fund's own voice replaces them. */
+  /** The examples: the fund's own (learned from its letters), the general ones, or empty. */
   examples: string
+  /** The fund's house rules: standing instructions added to every letter. Empty when it has none. */
+  houseRules: string
+  /** The fund's own letter structure, which replaces the skill's general outline. Empty when it has none. */
+  structure: string
+}
+
+export interface VoiceTemplate {
+  name: string
+  styleGuide: string | null
+  examples?: string | null
+  houseRules?: string | null
+  structure?: string | null
 }
 
 /**
  * The voice a letter is written in. A fund's saved style guide replaces the skill's general voice
- * and examples, except the built-in "Default" style guide, which older funds saved as a row and
- * which the skill now supersedes.
+ * and examples (with its own examples, when it has them), except the built-in "Default" style
+ * guide, which older funds saved as a row and which the skill now supersedes. The structure and
+ * house rules are the template's either way: they apply with whichever voice does.
  */
-export function letterVoice(template: { name: string; styleGuide: string | null } | null): LetterVoice {
+export function letterVoice(template: VoiceTemplate | null): LetterVoice {
   const guide = template?.styleGuide?.trim() ?? ''
+  const houseRules = template?.houseRules?.trim() ?? ''
+  const structure = template?.structure?.trim() ?? ''
   if (guide && guide !== DEFAULT_STYLE_GUIDE.trim()) {
-    return { source: 'fund', template: template!.name, voice: guide, examples: '' }
+    return { source: 'fund', template: template!.name, voice: guide, examples: template?.examples?.trim() ?? '', houseRules, structure }
   }
-  return { source: 'default', template: null, voice: DEFAULT_VOICE_MD.trim(), examples: DEFAULT_EXAMPLES_MD.trim() }
+  return {
+    source: 'default', template: houseRules || structure ? template!.name : null,
+    voice: DEFAULT_VOICE_MD.trim(), examples: DEFAULT_EXAMPLES_MD.trim(), houseRules, structure,
+  }
+}
+
+/**
+ * The voice as one style guide, for the per-company writer, which takes a single text. The general
+ * examples stay out: that writer is called once per company, and they would only add length.
+ */
+export function voiceAsStyleGuide(v: LetterVoice): string {
+  return [
+    ...(v.structure ? ["THE FUND'S LETTER STRUCTURE (write each company section as it lays them out)", v.structure, '', 'VOICE'] : []),
+    v.voice,
+    ...(v.source === 'fund' && v.examples ? ['', 'EXAMPLES (invented companies and figures: match the shape, never take facts from them)', v.examples] : []),
+    ...(v.houseRules ? ['', "HOUSE RULES (the fund's own; follow them over the voice and examples)", v.houseRules] : []),
+  ].join('\n')
 }

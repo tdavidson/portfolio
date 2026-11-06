@@ -205,6 +205,24 @@ describe('LP letter tools', () => {
     expect(brief.skill).toMatchObject({ name: 'lp-quarterly-letter', voice: 'default' })
   })
 
+  it("writes in the fund's own structure, examples and house rules, in their layers", async () => {
+    Object.assign(store.tables.lp_letter_templates[0], {
+      structure: '## Sections\nOpening, then one section per company.', examples: '## New investments\nWe led Zephyr Labs.', house_rules: 'Give ARR to one decimal.',
+    })
+    await H.lp_draft_letter(ctx(), { vehicle: 'Fund I', year: 2026, quarter: 3, guidance: 'Lead with Acme.' })
+    const sent = (createMessage.mock.calls.at(-1) as any[])[0].content as string
+    const at = (t: string) => { const i = sent.indexOf(t); expect(i, t).toBeGreaterThan(-1); return i }
+    const order = [at('3. STRUCTURE'), at("THE FUND'S OWN STRUCTURE"), at('Opening, then one section per company.'), at("4. VOICE (the fund's own"), at('We led Zephyr Labs.'), at('5. HOUSE RULES'), at('Give ARR to one decimal.'), at('6. GUIDANCE FOR THIS LETTER')]
+    expect([...order].sort((a, b) => a - b)).toEqual(order)
+    const skill = await H.lp_letter_skill(ctx(), {}) as any
+    expect(skill.files['references/examples.md']).toBe('## New investments\nWe led Zephyr Labs.')
+    expect(skill.files['references/house-rules.md']).toBe('Give ARR to one decimal.')
+    expect(skill.files['references/structure.md']).toBe('## Sections\nOpening, then one section per company.')
+    const brief = await H.lp_letter_brief(ctx(), { vehicle: 'Fund I', year: 2026, quarter: 3 }) as any
+    expect(brief.instructions).toContain('HOUSE RULES')
+    expect(brief.instructions).toContain('Give ARR to one decimal.')
+  })
+
   it('uses the template and guidance asked for, and refuses a template that does not exist', async () => {
     const out = await H.lp_draft_letter(ctx(), { vehicle: 'Fund I', year: 2026, quarter: 3, template: 'short', guidance: 'Lead with Acme.', text: 'x\nMissing information' }) as any
     expect(out.template).toBe('Short')

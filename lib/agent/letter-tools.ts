@@ -82,12 +82,15 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
       version: LETTER_SKILL_VERSION,
       files: {
         'SKILL.md': LETTER_SKILL_MD,
+        ...(voice.structure ? { 'references/structure.md': voice.structure } : {}),
         'references/voice.md': voice.voice,
         ...(voice.examples ? { 'references/examples.md': voice.examples } : {}),
+        ...(voice.houseRules ? { 'references/house-rules.md': voice.houseRules } : {}),
       },
       voice: voice.source === 'fund'
-        ? { source: 'fund', template: voice.template, note: "The fund's own voice, from its letter template. It replaces the general voice and examples." }
-        : { source: 'default', template: null, note: "The skill's general voice: this fund has not saved its own." },
+        ? { source: 'fund', template: voice.template, note: "The fund's own voice and examples, from its letter template. They replace the general voice and examples." + (voice.structure ? " Its structure (references/structure.md) replaces the skill's general outline." : '') }
+        : { source: 'default', template: voice.template, note: "The skill's general voice: this fund has not saved its own." + (voice.structure ? " Its structure (references/structure.md) replaces the skill's general outline." : '') },
+      ...(voice.houseRules ? { house_rules: "The fund's house rules (references/house-rules.md) apply to every letter. Follow them over the voice and examples." } : {}),
       next: 'Follow SKILL.md with these references. Get the facts from lp_letter_brief, and save with lp_draft_letter.',
     }
   },

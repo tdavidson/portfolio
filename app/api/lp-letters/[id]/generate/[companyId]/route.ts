@@ -6,7 +6,8 @@ import { createFundAIProvider } from '@/lib/ai'
 import { logAIUsage } from '@/lib/ai/usage'
 import { aggregatePortfolioData } from '@/lib/lp-letters/aggregate'
 import { generateCompanyNarrative } from '@/lib/lp-letters/generate'
-import { letterVoice } from '@/lib/lp-letters/skill'
+import { letterVoice, voiceAsStyleGuide } from '@/lib/lp-letters/skill'
+import { templateForLetter } from '@/lib/lp-letters/draft-from-brief'
 import type { CompanyNarrative } from '@/lib/types/database'
 import { rateLimit } from '@/lib/rate-limit'
 
@@ -37,18 +38,9 @@ export async function POST(
 
   if (!letter) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  // Get template
-  // The letter's voice: its template's style guide, else the lp-quarterly-letter skill's general voice.
-  let savedGuide: string | null = null
-  if (letter.template_id) {
-    const { data: template } = await admin
-      .from('lp_letter_templates')
-      .select('style_guide')
-      .eq('id', letter.template_id)
-      .maybeSingle()
-    savedGuide = template?.style_guide ?? null
-  }
-  const styleGuide = letterVoice(savedGuide ? { name: 'template', styleGuide: savedGuide } : null).voice
+  // The letter's voice: its template (else the fund's default), with its examples and house rules,
+  // else the lp-quarterly-letter skill's general voice.
+  const styleGuide = voiceAsStyleGuide(letterVoice(await templateForLetter(admin, fundId, letter.template_id)))
 
   // Aggregate data
   const preview = await aggregatePortfolioData(

@@ -3,11 +3,12 @@
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { Plus, FileText, Loader2, Trash2, Upload, Lock } from 'lucide-react'
+import { Plus, FileText, Loader2, Trash2, Lock } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter } from '@/components/ui/dialog'
 import { AnalystToggleButton } from '@/components/analyst-button'
 import { AnalystPanel } from '@/components/analyst-panel'
+import { VoiceDialog, type VoiceTemplate } from './voice-dialog'
 import { useFeatureVisibility } from '@/components/feature-visibility-context'
 
 interface LetterSummary {
@@ -22,24 +23,14 @@ interface LetterSummary {
   updated_at: string
 }
 
-interface Template {
-  id: string
-  name: string
-  source_type: string | null
-  source_filename: string | null
-  is_default: boolean
-  created_at: string
-}
 
 export default function LettersPage() {
   const fv = useFeatureVisibility()
   const router = useRouter()
   const [letters, setLetters] = useState<LetterSummary[]>([])
-  const [templates, setTemplates] = useState<Template[]>([])
+  const [templates, setTemplates] = useState<VoiceTemplate[]>([])
   const [loading, setLoading] = useState(true)
   const [templateDialogOpen, setTemplateDialogOpen] = useState(false)
-  const [uploadingTemplate, setUploadingTemplate] = useState(false)
-  const [creatingDefault, setCreatingDefault] = useState(false)
   const [isAdmin, setIsAdmin] = useState(false)
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null)
   const [deleteConfirmText, setDeleteConfirmText] = useState('')
@@ -55,46 +46,6 @@ export default function LettersPage() {
       setTemplates(Array.isArray(templatesData) ? templatesData : [])
     }).finally(() => setLoading(false))
   }, [])
-
-  const handleCreateDefault = async () => {
-    setCreatingDefault(true)
-    const res = await fetch('/api/lp-letters/templates', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({}),
-    })
-    if (res.ok) {
-      const t = await res.json()
-      setTemplates(prev => [t, ...prev])
-    }
-    setCreatingDefault(false)
-    setTemplateDialogOpen(false)
-  }
-
-  const handleUploadTemplate = async (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0]
-    if (!file) return
-    setUploadingTemplate(true)
-    const formData = new FormData()
-    formData.append('file', file)
-    formData.append('name', file.name.replace(/\.(docx|pdf)$/i, ''))
-
-    const res = await fetch('/api/lp-letters/templates', {
-      method: 'POST',
-      body: formData,
-    })
-    if (res.ok) {
-      const t = await res.json()
-      setTemplates(prev => [t, ...prev])
-    }
-    setUploadingTemplate(false)
-    setTemplateDialogOpen(false)
-  }
-
-  const handleDeleteTemplate = async (id: string) => {
-    await fetch(`/api/lp-letters/templates/${id}`, { method: 'DELETE' })
-    setTemplates(prev => prev.filter(t => t.id !== id))
-  }
 
   const handleDeleteLetter = async () => {
     if (!deleteConfirmId || deleteConfirmText !== 'delete') return
@@ -126,7 +77,7 @@ export default function LettersPage() {
         <p className="text-sm text-muted-foreground">Create communications about your portfolio for your limited partners</p>
         <div className="flex items-center gap-3 pt-2">
           <Button size="sm" variant="outline" className="text-muted-foreground" onClick={() => setTemplateDialogOpen(true)}>
-            Templates ({templates.length})
+            Voice
           </Button>
           <Link href="/letters/new">
             <Button size="sm" variant="outline" className="text-muted-foreground">
@@ -144,10 +95,10 @@ export default function LettersPage() {
             <div className="rounded-card border border-dashed p-8 text-center space-y-3">
               <FileText className="h-8 w-8 mx-auto text-muted-foreground" />
               <p className="text-sm text-muted-foreground">
-                Set up a template first. Upload a previous LP letter to match your style, or use the default template.
+                Set up the fund&apos;s voice first: learn it from past letters, or use the general voice.
               </p>
               <Button size="sm" onClick={() => setTemplateDialogOpen(true)}>
-                Set up template
+                Set up voice
               </Button>
             </div>
           )}
@@ -235,64 +186,7 @@ export default function LettersPage() {
         </DialogContent>
       </Dialog>
 
-      {/* Template management dialog */}
-      <Dialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen}>
-        <DialogContent className="max-w-lg">
-          <DialogHeader>
-            <DialogTitle>Letter Templates</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-4">
-            {templates.length > 0 && (
-              <div className="space-y-2">
-                {templates.map(t => (
-                  <div key={t.id} className="flex items-center justify-between rounded-card border p-3">
-                    <div>
-                      <p className="text-sm font-medium">{t.name}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {t.source_type === 'default' ? 'Default template' : `Uploaded: ${t.source_filename}`}
-                      </p>
-                    </div>
-                    <button
-                      onClick={() => handleDeleteTemplate(t.id)}
-                      className="text-muted-foreground/50 hover:text-destructive"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                ))}
-              </div>
-            )}
-
-            <div className="flex gap-3">
-              <Button
-                size="sm"
-                variant="outline"
-                onClick={handleCreateDefault}
-                disabled={creatingDefault}
-              >
-                {creatingDefault ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}
-                Use default
-              </Button>
-              <Button size="sm" variant="outline" className="relative" disabled={uploadingTemplate}>
-                {uploadingTemplate ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Upload className="h-3.5 w-3.5 mr-1.5" />}
-                Upload letter
-                <input
-                  type="file"
-                  accept=".docx,.pdf"
-                  onChange={handleUploadTemplate}
-                  className="absolute inset-0 opacity-0 cursor-pointer"
-                  disabled={uploadingTemplate}
-                />
-              </Button>
-            </div>
-
-            <p className="text-xs text-muted-foreground">
-              Upload a previous LP letter (.docx or .pdf) and AI will analyze it to match your style.
-              Or use the built-in default template, <a href="/api/lp-letters/example" download className="underline hover:text-foreground">view an example</a>.
-            </p>
-          </div>
-        </DialogContent>
-      </Dialog>
+      <VoiceDialog open={templateDialogOpen} onOpenChange={setTemplateDialogOpen} templates={templates} setTemplates={setTemplates} />
     </div>
   )
 }
