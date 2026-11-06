@@ -22,6 +22,9 @@ export interface CompanyName {
 
 export interface FixedText { heading: string; text: string }
 
+/** The entity's id in another system (its fund administrator, say), so an assistant reads the right fund there. Data only. */
+export interface ExternalId { system: string; id: string }
+
 export interface LetterProfile {
   legal_name: string | null
   short_name: string | null
@@ -32,12 +35,13 @@ export interface LetterProfile {
   footnotes: string | null
   parties: string | null
   fixed_text: FixedText[]
+  external_ids: ExternalId[]
   template_id: string | null
 }
 
 export const EMPTY_PROFILE: LetterProfile = {
   legal_name: null, short_name: null, firm_name: null, fund_stage: null, signatories: [], company_names: [],
-  footnotes: null, parties: null, fixed_text: [], template_id: null,
+  footnotes: null, parties: null, fixed_text: [], external_ids: [], template_id: null,
 }
 
 const str = (v: unknown, max: number): string | null => (typeof v === 'string' && v.trim() ? v.trim().slice(0, max) : null)
@@ -61,6 +65,10 @@ export function cleanProfile(x: any): LetterProfile {
     .map((f: any) => ({ heading: str(f?.heading, 300), text: str(f?.text, 20_000) }))
     .filter((f: any) => f.heading && f.text)
     .slice(0, 30) as FixedText[]
+  const ids = (Array.isArray(x?.external_ids) ? x.external_ids : [])
+    .map((e: any) => ({ system: str(e?.system, 100), id: str(e?.id, 200) }))
+    .filter((e: any) => e.system && e.id)
+    .slice(0, 10) as ExternalId[]
   return {
     legal_name: str(x?.legal_name, 300),
     short_name: str(x?.short_name, 200),
@@ -71,6 +79,7 @@ export function cleanProfile(x: any): LetterProfile {
     footnotes: str(x?.footnotes, 20_000),
     parties: str(x?.parties, 5000),
     fixed_text: fixed,
+    external_ids: ids,
     template_id: str(x?.template_id, 100),
   }
 }
@@ -93,6 +102,7 @@ export function mergeProfiles(firm: LetterProfile | null, own: LetterProfile | n
     footnotes: b.footnotes ?? a.footnotes,
     parties: b.parties ?? a.parties,
     fixed_text: Array.from(byHeading.values()),
+    external_ids: b.external_ids.length ? b.external_ids : a.external_ids,
     template_id: b.template_id ?? a.template_id,
   }
 }
@@ -121,6 +131,7 @@ export function profileAsLayer(p: LetterProfile, companyNameOf: (id: string) => 
   }
   if (p.parties) lines.push(`Parties the letter names: ${p.parties}`)
   if (p.footnotes) lines.push(`Standing footnotes:\n${p.footnotes}`)
+  for (const e of p.external_ids) lines.push(`Id in ${e.system}: ${e.id}`)
   for (const f of p.fixed_text) lines.push(`Fixed text for "${f.heading}" (copy it unless the facts changed):\n${f.text}`)
   return lines.join('\n')
 }

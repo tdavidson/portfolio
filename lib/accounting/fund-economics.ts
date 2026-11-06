@@ -33,6 +33,7 @@ import { vehicleIdByName } from './vehicle-id'
 import { loadFundPreload, type FundPreload } from './fund-preload'
 import { xirr, type CashFlow } from '@/lib/xirr'
 import { lpRatios } from '@/lib/lp-metrics'
+import { latestReportedFigures } from './reported-figures'
 
 export interface FundMetrics {
   committed: number
@@ -70,6 +71,12 @@ export interface VehicleEconomics {
   /** The LP-class partners' dated cash movements, one per entry date. Only when asked for
    *  (`{ lpFlows: true }`) — the fund performance report lists them; the overview does not. */
   lpFlows?: LpDatedFlow[]
+  /**
+   * The latest figures another system (the fund administrator) reports for the vehicle, on or
+   * before the as-of date, as recorded (reported-figures.ts). Stated, never derived here; what an
+   * investor letter states as the net figures.
+   */
+  reported?: { metric: string; basis: string; value: number; source: string; as_of: string }[]
 }
 
 /**
@@ -289,7 +296,14 @@ export async function fundEconomics(
   // because each vehicle's queries waited for the previous vehicle to finish. (Mirrors what
   // generateLiveReport already does for /lps.) The fund-wide lookups are read once (preload) and
   // threaded in so the per-vehicle loaders skip their per-vehicle queries.
-  const out = await Promise.all(vehicles.map(v => vehicleEconomics(admin, fundId, v, asOf, preload)))
+  const [out, reported] = await Promise.all([
+    Promise.all(vehicles.map(v => vehicleEconomics(admin, fundId, v, asOf, preload))),
+    latestReportedFigures(admin, fundId, asOf),
+  ])
+  for (const v of out) {
+    const r = reported.get(v.vehicle)
+    if (r?.length) v.reported = r.map(f => ({ metric: f.metric, basis: f.basis, value: f.value, source: f.source, as_of: f.as_of }))
+  }
   return out.sort((a, b) => a.vehicle.localeCompare(b.vehicle))
 }
 

@@ -47,6 +47,14 @@ export interface KnownCompany { id: string; name: string }
 const HEADING_MARK = /^##\s+(.+?)\s*#*\s*$/
 const FUND_HEADING = /\b(fund )?performance\b|\bmetrics\b/i
 
+/** Section names letters commonly use: a line that is one of them starts a section in text without marks. */
+export const COMMON_HEADINGS = [
+  'Market commentary', 'Market update', 'Year in review', 'Fund performance', 'Fund performance metrics', 'Performance',
+  'Valuation changes', 'Valuation updates', 'Portfolio summary', 'Portfolio overview', 'New investments',
+  'Company updates', 'Portfolio updates', 'Portfolio company updates', 'After the quarter', 'Subsequent events',
+  'Closing', 'Closing thoughts',
+]
+
 const norm = (s: string) => s.trim().replace(/\s+/g, ' ').toLowerCase()
 const slug = (s: string) => norm(s).replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'section'
 
@@ -57,7 +65,8 @@ function companyOf(heading: string, companies: KnownCompany[]): KnownCompany | n
   for (const c of companies) {
     const n = norm(c.name)
     if (!n) continue
-    if (h === n || h.startsWith(`${n} (`) || h.startsWith(`${n} –`) || h.startsWith(`${n} -`)) {
+    // The name alone, or the name and a tagline: "Acme (Series A)", "Acme – logistics", "Acme: logistics".
+    if (h === n || [' (', ' –', ' —', ' -', ': ', ' |'].some(sep => h.startsWith(`${n}${sep}`))) {
       if (!best || n.length > norm(best.name).length) best = c
     }
   }
@@ -83,13 +92,27 @@ export function parseLetterText(text: string, opts: ParseOptions = {}): LetterCo
   const marked = lines.some(l => HEADING_MARK.test(l))
 
   const raw: { heading: string | null; lines: string[] }[] = [{ heading: null, lines: [] }]
-  for (const line of lines) {
+  // In text without marks, a company's name opens its section once. When the name stands on a line
+  // of its own more than once (in a valuation list before the company sections, say), the last one
+  // opens the section and the earlier ones are part of the text around them.
+  const companyLine = (plain: string): KnownCompany | null => {
+    if (!plain || plain.length > 120) return null
+    // A sentence ("Acme: raised its Series A.") is text; a heading doesn't end like one.
+    if (/[.!?]$/.test(plain) && plain.split(/\s+/).length > 3) return null
+    return companyOf(plain.replace(/[:.]$/, ''), companies)
+  }
+  const lastLine = new Map<string, number>()
+  if (!marked) lines.forEach((l, i) => { const c = companyLine(l.trim()); if (c) lastLine.set(c.id, i) })
+  for (const [i, line] of lines.entries()) {
     const m = line.match(HEADING_MARK)
     const plain = line.trim()
-    const isHeading = m
-      ? true
-      : !marked && plain.length > 0 && plain.length <= 120 && (known.has(norm(plain)) || !!companyOf(plain, companies))
-    if (isHeading) raw.push({ heading: (m ? m[1] : plain).trim(), lines: [] })
+    let isHeading = !!m
+    if (!m && !marked && plain.length > 0 && plain.length <= 120) {
+      const company = companyLine(plain)
+      if (company) isHeading = lastLine.get(company.id) === i
+      else if (known.has(norm(plain.replace(/:$/, '')))) isHeading = true
+    }
+    if (isHeading) raw.push({ heading: (m ? m[1] : plain.replace(/:$/, '')).trim(), lines: [] })
     else raw[raw.length - 1].lines.push(line)
   }
 

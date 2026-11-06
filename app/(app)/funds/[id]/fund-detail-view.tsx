@@ -18,6 +18,7 @@ import {
   ChartCard, EmptyPlot, AXIS, tooltipStyle, HUE, SLICE, sliceFill,
   INVEST_NEW, INVEST_FOLLOW, GAINS_HUE, PROCEEDS_HUE,
 } from '@/components/fund-chart-kit'
+import { formatReportedFigure } from '@/lib/accounting/reported-figures-shared'
 
 // The fund detail (lead) page. Everything here is READ-ONLY and derived — the same numbers as the
 // /funds overview (fund-economics), the schedule of investments (statements), and the growth
@@ -31,6 +32,8 @@ interface Metrics {
 interface VehicleEconomics {
   vehicle: string; vintageYear: number | null; source: 'ledger' | 'events'; lpCount: number
   fund: Metrics; lp: Metrics; gp?: Metrics; carryAccrued?: number
+  /** Figures the fund administrator reports, as recorded: stated, never derived here. */
+  reported?: { metric: string; basis: string; value: number; source: string; as_of: string }[]
 }
 interface SoiGroup { name: string; cost: number; fairValue: number; pctOfNetAssets: number }
 interface SoiRow {
@@ -220,7 +223,27 @@ export function FundDetailView({ vehicle, vehicleId, initial }: {
       <p className="-mt-3 text-xs text-muted-foreground">
         {basisNote}
         {irrIsGross && ' IRR is shown gross — the capital accounts do not span enough time to derive a net rate.'}
+        {!!econ.reported?.length && ' These are computed from the books.'}
       </p>
+
+      {/* The administrator's own figures, as recorded. They are what investor letters state as the
+          net figures, so they are shown apart from the computed ones and never blended with them. */}
+      {!!econ.reported?.length && (
+        <div className="rounded-card border p-4 space-y-2">
+          <p className="text-sm font-medium">
+            Reported by {Array.from(new Set(econ.reported.map(f => f.source))).join(', ')}, as of {econ.reported[0].as_of}
+          </p>
+          <div className="flex flex-wrap gap-x-6 gap-y-1 text-sm tabular-nums">
+            {econ.reported.map(f => (
+              <span key={`${f.metric}-${f.basis}`}>
+                <span className="text-muted-foreground">{f.basis === 'net' ? 'Net' : 'Gross'} {f.metric.toUpperCase()}</span>{' '}
+                {formatReportedFigure({ metric: f.metric as any, value: f.value })}
+              </span>
+            ))}
+          </div>
+          <p className="text-xs text-muted-foreground">Investor letters state these as the net figures.</p>
+        </div>
+      )}
 
       {/* Dated investment and capital series, when available. */}
       {(ts?.points.length ?? 0) > 0 && (

@@ -29,6 +29,7 @@ import { createCompanyNote } from '@/lib/notes/create'
 import { EDITABLE_TXN_FIELDS, deleteInvestmentTransaction, updateInvestmentTransaction } from '@/lib/portfolio/transaction-edit'
 import { unwrap } from '@/lib/service-outcome'
 import { setRoundTerms } from '@/lib/portfolio/round-terms'
+import { formatReportedFigure, latestReportedFigures, recordReportedFigures } from '@/lib/accounting/reported-figures'
 import { escrowExceedsGross } from '@/lib/portfolio/proceeds'
 import { loadReviewForAccess, loadReviewQueue, resolveReview } from '@/lib/review/resolve'
 
@@ -271,11 +272,17 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
       byVehicle.set(v, cur)
     }
 
+    const reported = await latestReportedFigures(admin, fundId)
     const out: any[] = []
     for (const [vehicle, t] of Array.from(byVehicle.entries())) {
       const called = r2(t.called)
+      const rep = reported.get(vehicle) ?? []
       out.push({
         vehicle,
+        basis: 'Computed from the LP register (paid-in, distributions, NAV).',
+        ...(rep.length ? {
+          reported: rep.map(f => ({ label: `${f.metric.toUpperCase()}, ${f.basis}`, value: formatReportedFigure(f), source: f.source, as_of: f.as_of })),
+        } : {}),
         committed: r2(t.committed),
         called,
         unfunded: r2(t.committed - called),
@@ -457,6 +464,13 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
     const c = await resolveCompany(admin, fundId, company, access)
     const vehicleNames = (await entityScopeFor(admin, access)).vehicleNames
     return { company: c.name, ...unwrap(await setRoundTerms(admin, { fundId, vehicleNames }, c.id, String(transaction_id), terms)) }
+  },
+
+  record_fund_figures: async ({ admin, fundId, userId, access }: AgentToolContext, input: any) => {
+    const vehicleNames = (await entityScopeFor(admin, access)).vehicleNames
+    return unwrap(await recordReportedFigures(admin, { fundId, userId: userId ?? null, vehicleNames }, {
+      vehicle: input?.vehicle, as_of: input?.as_of, source: input?.source, figures: input?.figures,
+    }))
   },
 
   delete_investment: async ({ admin, fundId, userId, access }: AgentToolContext, input: any) => {

@@ -6,6 +6,8 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { cleanProfile, mergeProfiles, type LetterProfile } from './profile'
 import { investorText } from './internal'
+import { fromLetter } from './content'
+import { hasStructuredContent } from './document'
 import { done, dbFail, fail, type Outcome } from '@/lib/service-outcome'
 
 type Admin = SupabaseClient
@@ -60,12 +62,16 @@ export async function saveProfile(
     const { data: t } = await (admin as any).from('lp_letter_templates').select('id').eq('fund_id', ctx.fundId).eq('id', p.template_id).maybeSingle()
     if (!t) return fail(400, 'No such letter template in this fund.')
   }
+  const existing = await rowOf(admin, ctx.fundId, vehicleId)
+  // external_ids is written only once its column exists (a row read back with it) or when set, so a
+  // save before migration 20261106150000 is applied still works for every other field.
+  const { external_ids, ...fields } = p
   const row = {
-    fund_id: ctx.fundId, vehicle_id: vehicleId, ...p,
+    fund_id: ctx.fundId, vehicle_id: vehicleId, ...fields,
+    ...(external_ids.length || (existing && 'external_ids' in existing) ? { external_ids } : {}),
     ...(opts.seededFrom ? { seeded_from_letter: opts.seededFrom } : {}),
     updated_at: new Date().toISOString(), updated_by: ctx.userId,
   }
-  const existing = await rowOf(admin, ctx.fundId, vehicleId)
   const { error } = existing
     ? await (admin as any).from('lp_letter_profiles').update(row).eq('id', existing.id).eq('fund_id', ctx.fundId)
     : await (admin as any).from('lp_letter_profiles').insert(row)
@@ -73,7 +79,11 @@ export async function saveProfile(
   return done(await loadProfile(admin, ctx.fundId, vehicle))
 }
 
-export interface LastLetter { id: string; period: string; text: string }
+export interface LastLetter {
+  id: string; period: string; text: string
+  /** Its section headings, so a new draft without "## " marks can be split the same way. */
+  headings?: string[]
+}
 
 const MAX_LAST_LETTER_CHARS = 30_000
 
@@ -84,13 +94,16 @@ const MAX_LAST_LETTER_CHARS = 30_000
 export async function lastFinalLetter(admin: Admin, fundId: string, vehicle: string, year: number, quarter: number): Promise<LastLetter | null> {
   const { data } = await (admin as any)
     .from('lp_letters')
-    .select('id, period_label, period_year, period_quarter, full_draft, status')
+    .select('id, period_label, period_year, period_quarter, full_draft, content, status')
     .eq('fund_id', fundId).eq('portfolio_group', vehicle).eq('status', 'final')
     .order('period_year', { ascending: false }).order('period_quarter', { ascending: false })
     .limit(20)
   const before = ((data ?? []) as any[]).find(l => l.period_year * 4 + l.period_quarter < year * 4 + quarter && l.full_draft)
   if (!before) return null
-  return { id: before.id, period: before.period_label, text: investorText(before.full_draft).slice(0, MAX_LAST_LETTER_CHARS) }
+  const headings = hasStructuredContent(before)
+    ? fromLetter(before).sections.map(s => s.heading).filter((h): h is string => !!h && h.length <= 120)
+    : []
+  return { id: before.id, period: before.period_label, text: investorText(before.full_draft).slice(0, MAX_LAST_LETTER_CHARS), ...(headings.length ? { headings } : {}) }
 }
 
 /** The names of the fund's companies this entity doesn't hold: a letter about it shouldn't name them. */

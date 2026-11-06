@@ -82,7 +82,10 @@ export const PORTFOLIO_TOOL_MANIFEST: AgentToolMeta[] = [
   },
   {
     name: 'fund_performance',
-    description: 'Fund-level performance per vehicle: committed, called, distributed, NAV, DPI, RVPI, TVPI, and gross MOIC on invested capital.',
+    description:
+      'Fund-level performance per vehicle: committed, called, distributed, NAV, DPI, RVPI, TVPI, and gross MOIC on invested ' +
+      "capital, computed from the LP register. Also `reported`: the latest figures the fund administrator reports, recorded " +
+      'with record_fund_figures, each with its source and date. When both are there, the reported ones are what investors are told.',
     scope: 'read',
     domain: 'portfolio',
     // Committed / called / distributed / NAV, read straight from the LP register — the fund's
@@ -93,6 +96,40 @@ export const PORTFOLIO_TOOL_MANIFEST: AgentToolMeta[] = [
     inputSchema: {
       type: 'object',
       properties: { vehicle: VEHICLE_FILTER },
+    },
+  },
+  {
+    name: 'record_fund_figures',
+    description:
+      "Record a vehicle's performance figures as another system reports them (the fund administrator's net TVPI, DPI and IRR, " +
+      'say), as of a date, naming the source. They are stated, never computed: the investor letter brief takes them exactly as ' +
+      'recorded for the quarter end, and fund_performance shows them. Read them from the source as of the quarter-end date, ' +
+      'whether or not the quarter is closed; never work one out from other figures. A figure already recorded for that date, ' +
+      'metric and basis is replaced.',
+    scope: 'write',
+    domain: 'portfolio',
+    accessDomain: 'accounting',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vehicle: { type: 'string', description: 'The vehicle (entity) name, from list_vehicles.' },
+        as_of: { type: 'string', description: 'The date the figures are as of (YYYY-MM-DD), normally the quarter end.' },
+        source: { type: 'string', description: 'The system the figures come from, as the letter may name it.' },
+        figures: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              metric: { type: 'string', enum: ['tvpi', 'dpi', 'rvpi', 'irr', 'moic'] },
+              basis: { type: 'string', enum: ['net', 'gross'], description: 'Default net.' },
+              value: { type: 'string', description: 'As the source states it: "1.16x", "4.73%". An IRR may also be a fraction (0.0473).' },
+              note: { type: 'string' },
+            },
+            required: ['metric', 'value'],
+          },
+        },
+      },
+      required: ['vehicle', 'as_of', 'source', 'figures'],
     },
   },
   {

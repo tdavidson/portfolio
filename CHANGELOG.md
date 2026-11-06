@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### LP letters: fund figures from their sources, never computed by the brief
+- **Gross figures from the performance report.** The brief's gross IRR and gross MOIC are the performance report's total-portfolio figures (the same holdings and calculation), not a calculation of the brief's own. Each fund figure now carries its `source` and `as_of`.
+- **Net figures as the administrator reports them.** Net TVPI, DPI and IRR are recorded as the fund administrator states them, as of a date and with the source named (`vehicle_reported_figures`, MCP `record_fund_figures`, staged like every write). The brief takes the ones dated the quarter end, closed or not; a missing one goes to the missing-information list and is never worked out from the ledger. Capital called, RVPI and portfolio fair value are no longer fund figures.
+- **Shown where the fund's figures are.** The fund page shows the recorded figures apart from the ones computed from the books, and `fund_performance` returns them as `reported`. The performance report says its net returns are the fee-paying partners' only.
+- **Rules and notes.** A new letter rule takes the performance table from `fund_figures` exactly as given, never recomputed, swapped or reconciled across sources; the basis notes say where each figure comes from.
+- **Review.** A bare number inside a name ("Fortune 500") is no longer flagged. Text without "## " marks splits on the last final letter's headings, the profile's fixed paragraphs and the usual section names; a company line with a tagline ("Acme: logistics") opens its section, and when a company's name stands alone more than once, the last one does.
+- **Letter profile ids.** A profile can hold the entity's id in another system (`external_ids`), so an assistant reads the right fund there.
+- Migration, additive: `20261106150000_vehicle_reported_figures.sql` (the table, service role only, and `lp_letter_profiles.external_ids`).
+
 ### LP letters: one letter page, a brief that checks itself, profiles, and the letter as a document
 - **One letter, in sections.** A letter is now stored as its sections in the fund's order (`lp_letters.content`), each with the sources it was written from; `full_draft` and `company_narratives` are copies made from it. The fund's AI, an assistant over MCP and the letter page all write the same sections. Older letters are read from their text.
 - **One letter page.** The three tabs become one view: each section edited in place or rewritten with a prompt (kept for next time), and beside the chosen section what it was written from (figures, events, updates with a Confidential badge, a stored update with its date and a Stale badge, events after quarter end, team notes) and what the review found in it. Partner notes and source documents (PDF, Word, text) are added on the page and read into the brief, never shown to investors.

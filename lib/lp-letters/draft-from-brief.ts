@@ -13,7 +13,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { aggregatePortfolioData, type PortfolioPreview } from './aggregate'
 import { buildPortfolioTableHtml } from './generate'
 import { contentColumns, createLetter, portfolioSummaryOf } from './service'
-import { attachSources, parseLetterText, type LetterContent } from './content'
+import { COMMON_HEADINGS, attachSources, parseLetterText, type LetterContent } from './content'
 import { letterVoice, LETTER_SKILL_VERSION, type LetterVoice } from './skill'
 import { splitInternal } from './internal'
 import { lastFinalLetter, loadProfile, otherEntitiesCompanies } from './profile-store'
@@ -23,8 +23,10 @@ import { sanitizeLetterHtml } from '@/lib/sanitize'
 import { done, dbFail, type Outcome } from '@/lib/service-outcome'
 import { createFundAIProvider } from '@/lib/ai'
 import { logAIUsage } from '@/lib/ai/usage'
+import { loadPortfolioPerformance } from '@/lib/lp-templates/performance-load'
+import { reportedFiguresAsOf } from '@/lib/accounting/reported-figures'
 import {
-  buildLetterBrief, quarterBounds, writerPrompt, sectionPrompt,
+  buildLetterBrief, quarterBounds, quarterEndDate, writerPrompt, sectionPrompt,
   type LetterBrief, type LetterSourceDocument, type StoredUpdate,
 } from './brief'
 
@@ -168,15 +170,21 @@ export async function loadLetterBrief(
   const voice = letterVoice(template)
   const preview = await aggregatePortfolioData(admin as any, fundId, p.year, p.quarter, p.vehicle, !!p.yearEnd)
   const ids = preview.companies.map(c => c.investment.companyId)
-  const [updates, names, lastLetter, otherCompanies] = await Promise.all([
+  const quarterEnd = quarterEndDate(p.year, p.quarter)
+  const [updates, names, lastLetter, otherCompanies, gross, reportedFigures] = await Promise.all([
     quarterUpdates(admin, fundId, ids, p.year, p.quarter),
     investorNames(admin, fundId),
     lastFinalLetter(admin, fundId, p.vehicle, p.year, p.quarter),
     otherEntitiesCompanies(admin, fundId, ids),
+    // The performance report's own gross returns, so the letter and the report state one figure.
+    p.vehicle ? loadPortfolioPerformance(admin, fundId, p.vehicle, quarterEnd).catch(() => null) : Promise.resolve(null),
+    p.vehicle ? reportedFiguresAsOf(admin, fundId, p.vehicle, quarterEnd) : Promise.resolve([]),
   ])
   const brief = buildLetterBrief({
     preview, year: p.year, quarter: p.quarter, updates, investorNames: names, voice, guidance: opts.guidance,
     partnerNotes: opts.partnerNotes, sources: opts.sources, profile, lastLetter,
+    grossPerformance: gross ? { irr: gross.total.grossIrr, moic: gross.total.grossMoic } : null,
+    reportedFigures,
   })
   return { brief, preview, investorNames: names, template, voice, profile, otherCompanies }
 }
@@ -213,7 +221,14 @@ export async function writeWithFundAI(
 
 /** The letter's sections from written text, each with the sources it was written from. */
 export function contentFromText(text: string, brief: LetterBrief): LetterContent {
-  return attachSources(parseLetterText(text, { companies: brief.companies.map(c => ({ id: c.company_id, name: c.company })) }), brief)
+  // Text without "## " marks is split on lines that match a heading the letter is likely to use:
+  // the last final letter's sections, the profile's fixed paragraphs, and the usual section names.
+  const headings = [
+    ...(brief.last_final_letter?.headings ?? []),
+    ...(brief.profile?.fixed_text ?? []).map(f => f.heading),
+    ...COMMON_HEADINGS,
+  ]
+  return attachSources(parseLetterText(text, { companies: brief.companies.map(c => ({ id: c.company_id, name: c.company })), headings }), brief)
 }
 
 /**

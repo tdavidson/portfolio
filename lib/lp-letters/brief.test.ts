@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import { buildLetterBrief, checkLetterDraft, redactor, MISSING_HEADING, type StoredUpdate } from './brief'
 import type { CompanyLetterData, PortfolioPreview } from './aggregate'
 import { letterVoice } from './skill'
+import type { ReportedFigure } from '@/lib/accounting/reported-figures-shared'
 
 const company = (over: Partial<CompanyLetterData['investment']> & { companyId: string; companyName: string }, extra: Partial<CompanyLetterData> = {}): CompanyLetterData => ({
   investment: {
@@ -46,9 +47,13 @@ const updates = new Map<string, StoredUpdate[]>([
 ])
 
 const fundMetrics = { committedCapital: 10_000_000, paidInCapital: 6_000_000, distributions: 1_000_000, fmv: 7_000_000, dpi: 0.17, rvpi: 1.17, tvpi: 1.33, irr: 0.124 }
+const fig = (metric: ReportedFigure['metric'], value: number, as_of = '2026-09-30'): ReportedFigure =>
+  ({ metric, basis: 'net', value, source: 'Example Administrator', as_of, note: null, recorded_at: null })
+const reportedFigures = [fig('tvpi', 1.25), fig('dpi', 0.1), fig('irr', 0.0612)]
+const grossPerformance = { irr: 0.183, moic: 1.45 }
 
 describe('the letter brief', () => {
-  const brief = buildLetterBrief({ preview: preview([acme, birch, cedar], fundMetrics), year: 2026, quarter: 3, updates, investorNames: ['Pat Investor LP', 'Acme'], voice: VOICE })
+  const brief = buildLetterBrief({ preview: preview([acme, birch, cedar], fundMetrics), year: 2026, quarter: 3, updates, investorNames: ['Pat Investor LP', 'Acme'], voice: VOICE, grossPerformance, reportedFigures })
 
   it("takes structure from the fund's template and keeps the rules every letter follows", () => {
     expect(brief.fund).toBe('Hemlock Fund I')
@@ -71,8 +76,13 @@ describe('the letter brief', () => {
     expect(acmeFigures).toContainEqual({ label: 'MOIC, gross', value: '2.00x', basis: 'gross' })
     expect(acmeFigures).toContainEqual({ label: 'Fair value, gross', value: '$2.0M', basis: 'gross' })
     expect(acmeFigures).toContainEqual({ label: 'Invested (cost)', value: '$1.0M', basis: 'cost' })
-    expect(brief.fund_figures).toContainEqual({ label: 'TVPI, net', value: '1.33x', basis: 'net' })
-    expect(brief.fund_figures).toContainEqual({ label: 'IRR, net', value: '12.4%', basis: 'net' })
+    // Net figures as the administrator reports them, never the ledger's 1.33x / 12.4%.
+    expect(brief.fund_figures).toContainEqual({ label: 'TVPI, net', value: '1.25x', basis: 'net', source: 'Example Administrator', as_of: '2026-09-30' })
+    expect(brief.fund_figures).toContainEqual({ label: 'IRR, net', value: '6.12%', basis: 'net', source: 'Example Administrator', as_of: '2026-09-30' })
+    expect(brief.fund_figures).toContainEqual({ label: 'IRR, gross', value: '18.30%', basis: 'gross', source: 'Performance report (total portfolio)', as_of: '2026-09-30' })
+    expect(brief.fund_figures).toContainEqual({ label: 'MOIC, gross', value: '1.45x', basis: 'gross', source: 'Performance report (total portfolio)', as_of: '2026-09-30' })
+    expect(brief.fund_figures.map(f => f.value)).not.toContain('1.33x')
+    expect(brief.fund_figures.map(f => f.label)).not.toEqual(expect.arrayContaining(['Capital called']))
     for (const f of [...brief.fund_figures, ...brief.companies.flatMap(c => c.figures)]) {
       if (/MOIC|TVPI|DPI|RVPI|IRR|fair value|proceeds/i.test(f.label)) expect(['gross', 'net'], f.label).toContain(f.basis)
     }
@@ -100,19 +110,26 @@ describe('the letter brief', () => {
     expect(brief.missing_information).toContain('Birch: no company update or KPI values are stored for Q3 2026.')
     // A write-off needs no update.
     expect(brief.missing_information.join(' ')).not.toContain('Cedar')
-    const noFlows = buildLetterBrief({ preview: preview([acme]), year: 2026, quarter: 3, updates, voice: VOICE })
-    expect(noFlows.missing_information.join(' ')).toContain('no fund cash flows are recorded')
+    const none = buildLetterBrief({ preview: preview([acme], fundMetrics), year: 2026, quarter: 3, updates, voice: VOICE })
+    // No recorded net figure: each is missing, and none is worked out from the ledger instead.
+    for (const m of ['TVPI, net', 'DPI, net', 'IRR, net']) {
+      expect(none.missing_information.some(x => x.startsWith(m) && x.includes('record_fund_figures'))).toBe(true)
+      expect(none.fund_figures.map(f => f.label)).not.toContain(m)
+    }
+    // A figure as of another date is not the quarter's.
+    const stale = buildLetterBrief({ preview: preview([acme]), year: 2026, quarter: 3, updates, voice: VOICE, reportedFigures: [fig('tvpi', 1.2, '2026-06-30')] })
+    expect(stale.fund_figures.map(f => f.label)).not.toContain('TVPI, net')
   })
 })
 
 describe('reviewing a draft', () => {
-  const brief = buildLetterBrief({ preview: preview([acme, birch, cedar], fundMetrics), year: 2026, quarter: 3, updates, voice: VOICE })
+  const brief = buildLetterBrief({ preview: preview([acme, birch, cedar], fundMetrics), year: 2026, quarter: 3, updates, voice: VOICE, grossPerformance, reportedFigures })
   const good = [
     'Three themes shaped Q3 2026.',
     'Acme grew ARR to $1.2M, up from $900,000, and holds at a gross MOIC of 2.00x.',
     'Birch closed a down round: its Series A priced at $0.9/share, below the Seed. It is held below cost at a gross MOIC of 0.40x.',
     'Cedar was written off.',
-    'The fund stands at a net TVPI of 1.33x and a net IRR of 12.4%.',
+    'The fund stands at a net TVPI of 1.25x and a net IRR of 6.12%.',
     '',
     'Missing information',
     '- Headcount for Acme.',
@@ -125,13 +142,13 @@ describe('reviewing a draft', () => {
   it('flags invented numbers, unlabeled performance, unstated events, a missing list and investor names', () => {
     const bad = [
       'Acme grew ARR 85% to $1.2M.',
-      'The fund TVPI is 1.33x.',
+      'The fund TVPI is 1.25x.',
       'We thank Pat Investor LP for their support.',
     ].join('\n')
     const flags = checkLetterDraft(bad, brief, ['Pat Investor LP'])
     expect(flags).toContain(`No "${MISSING_HEADING}" section at the end.`)
     expect(flags).toContain('"85%" does not appear in the sources.')
-    expect(flags.some(f => f.startsWith('Performance figure without "gross" or "net": "The fund TVPI is 1.33x."'))).toBe(true)
+    expect(flags.some(f => f.startsWith('Performance figure without "gross" or "net": "The fund TVPI is 1.25x."'))).toBe(true)
     expect(flags).toContain('Does not say plainly that Birch had a down round.')
     expect(flags).toContain('Does not say plainly that Cedar was written off.')
     expect(flags).toContain('Names an investor in the fund (Pat Investor LP).')
@@ -139,6 +156,12 @@ describe('reviewing a draft', () => {
 
   it('accepts rounding the sources support, and ignores years, quarters and small counts', () => {
     expect(checkLetterDraft(`${good}\nIn 2026 Acme's ARR passed $1.20 million across 3 markets.`, brief, [])).toEqual([])
+  })
+
+  it('takes a number inside a name for part of the name, and still checks counts and figures', () => {
+    expect(checkLetterDraft(`${good}\nAcme now sells to a Fortune 500 retailer and made the Inc. 5000 list.`, brief, [])).toEqual([])
+    const flags = checkLetterDraft(`${good}\nAcme hired 40 engineers.\nHeadcount: 45.\nRevenue 700 came in.`, brief, [])
+    for (const n of ['40', '45', '700']) expect(flags.some(f => f.startsWith(`"${n}"`)), n).toBe(true)
   })
 })
 
@@ -162,9 +185,8 @@ describe('the brief: dates, confidentiality, subsequent events and partner sourc
     ['c4', [{ receivedAt: '2026-10-02T00:00:00Z', subject: 'Confidential: board pack', periodLabel: 'Q3 2026', text: 'Term sheet signed at a higher price.' }]],
   ])
   const p = preview([dated])
-  p.totals.grossIrr = 0.183
   const b = buildLetterBrief({
-    preview: p, year: 2026, quarter: 3, updates: secret, voice: VOICE,
+    preview: p, year: 2026, quarter: 3, updates: secret, voice: VOICE, grossPerformance: { irr: 0.183, moic: null },
     partnerNotes: 'Lead with the Delta round.', sources: [{ name: 'market.pdf', text: 'Seed valuations fell 10% in the quarter.' }],
   })
   const c = b.companies[0]
@@ -183,7 +205,7 @@ describe('the brief: dates, confidentiality, subsequent events and partner sourc
   })
 
   it('carries gross IRR as a gross figure, and the partners\' notes and documents as sources', () => {
-    expect(b.fund_figures).toContainEqual({ label: 'Portfolio IRR, gross', value: '18.3%', basis: 'gross' })
+    expect(b.fund_figures).toContainEqual(expect.objectContaining({ label: 'IRR, gross', value: '18.30%', basis: 'gross' }))
     expect(b.partner_notes).toBe('Lead with the Delta round.')
     expect(b.sources).toEqual([{ name: 'market.pdf', text: 'Seed valuations fell 10% in the quarter.' }])
   })
@@ -191,7 +213,7 @@ describe('the brief: dates, confidentiality, subsequent events and partner sourc
   it('names exits and write-offs the way a letter does, and lists a missing gross IRR', () => {
     const q = buildLetterBrief({ preview: preview([company({ companyId: 'x', companyName: 'Exa', status: 'exited' }), cedar]), year: 2026, quarter: 3, updates: new Map(), voice: VOICE })
     expect(q.companies.map(x => x.letter_status)).toEqual(['Acquired', 'Written Off'])
-    expect(q.missing_information.some(m => /Gross IRR/.test(m))).toBe(true)
+    expect(q.missing_information.some(m => /^IRR, gross/.test(m))).toBe(true)
   })
 })
 

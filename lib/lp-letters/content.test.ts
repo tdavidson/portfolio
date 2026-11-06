@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
-  attachSources, fromLetter, knownCompanies, narrativesOf, orderCompanies, parseLetterText, renderLetterText, reparse, replaceSection,
+  COMMON_HEADINGS, attachSources, fromLetter, knownCompanies, narrativesOf, orderCompanies, parseLetterText, renderLetterText, reparse, replaceSection,
 } from './content'
 import type { BriefCompany, LetterBrief } from './brief'
 
@@ -32,6 +32,20 @@ describe('parseLetterText', () => {
       companies, headings: ['Outlook'],
     })
     expect(c.sections.map(s => s.id)).toEqual(['opening', 'company:c1', 'outlook', 'company:c2'])
+  })
+
+  it('splits unmarked text at usual section names, taglines and colons, and keeps a repeated name in its section', () => {
+    const text = [
+      'Dear partners,', '', 'Fund Performance Metrics', 'IRR, gross 18.30%.', '',
+      'Acme Robotics: warehouse automation', 'Acme grew.', 'Acme Robotics: raised a Series A this quarter.', '',
+      'Valuation updates:', 'Birch Analytics', 'Marked down.', '', 'Birch Analytics – data tools', 'Birch shipped.',
+    ].join('\n')
+    const c = parseLetterText(text, { companies, headings: COMMON_HEADINGS })
+    expect(c.sections.map(s => s.id)).toEqual(['opening', 'fund-performance-metrics', 'company:c1', 'valuation-updates', 'company:c2'])
+    expect(c.sections[2].body).toContain('raised a Series A')
+    // The name in the valuation list is text there; its last line of its own opens Birch's section.
+    expect(c.sections[3].body).toBe('Birch Analytics\nMarked down.')
+    expect(c.sections[4].body).toBe('Birch shipped.')
   })
 
   it('does not split unmarked lines at a heading-like line once the text is marked', () => {

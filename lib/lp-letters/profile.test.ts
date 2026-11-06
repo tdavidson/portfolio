@@ -46,3 +46,14 @@ describe('letter profiles', () => {
     expect(parseSeededProfile('no json here', [])).toBeNull()
   })
 })
+
+describe('external ids', () => {
+  it('keeps a system and id pair, drops half ones, and the entity\'s list wins over the firm\'s', () => {
+    const own = cleanProfile({ external_ids: [{ system: 'Administrator', id: 'fund-123' }, { system: 'x' }, 'junk'] })
+    expect(own.external_ids).toEqual([{ system: 'Administrator', id: 'fund-123' }])
+    const firm = cleanProfile({ external_ids: [{ system: 'Administrator', id: 'firm-1' }] })
+    expect(mergeProfiles(firm, own).external_ids).toEqual([{ system: 'Administrator', id: 'fund-123' }])
+    expect(mergeProfiles(firm, cleanProfile({})).external_ids).toEqual([{ system: 'Administrator', id: 'firm-1' }])
+    expect(profileAsLayer(own)).toContain('Id in Administrator: fund-123')
+  })
+})
