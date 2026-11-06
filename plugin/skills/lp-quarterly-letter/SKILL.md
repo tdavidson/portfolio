@@ -65,7 +65,7 @@ Use the fund's structure (`references/structure.md` from `lp_letter_skill`) when
 - **Fund performance**: the brief's fund metrics as a table, keeping each one's gross or net basis from the brief, with the fund's fixed definitions copied from the last final letter.
 - **Valuation changes**: when marks moved, which positions changed and why, in the terms of the fund's valuation policy.
 - **Portfolio summary**: a table of the companies with their status and the figures the fund shows.
-- **New investments**: each investment closed in the quarter: the company, the founders and the terms, from partner notes or deal documents only.
+- **New investments**: each investment closed in the quarter: the company, the founders and the terms, from the company's `new_investments` in the brief (the round terms stored in Hemrock), partner notes or deal documents only. When the partners give terms Hemrock lacks, offer to store them with `set_round_terms`.
 - **Company updates**: one section per company, in the order of the last final letter, with new companies last (see "Sizing each company section").
 - **After the quarter**: events after quarter end the partners want reported.
 - **Closing**: a short close and the signatories.

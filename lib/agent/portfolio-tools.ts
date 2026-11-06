@@ -28,6 +28,7 @@ import { createCompany } from '@/lib/companies/create'
 import { createCompanyNote } from '@/lib/notes/create'
 import { EDITABLE_TXN_FIELDS, deleteInvestmentTransaction, updateInvestmentTransaction } from '@/lib/portfolio/transaction-edit'
 import { unwrap } from '@/lib/service-outcome'
+import { setRoundTerms } from '@/lib/portfolio/round-terms'
 import { escrowExceedsGross } from '@/lib/portfolio/proceeds'
 import { loadReviewForAccess, loadReviewQueue, resolveReview } from '@/lib/review/resolve'
 
@@ -448,6 +449,14 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
     }
     const vehicleNames = (await entityScopeFor(admin, access)).vehicleNames
     return unwrap(await updateInvestmentTransaction(admin, { fundId, userId, vehicleNames }, c.id, transaction_id, changes))
+  },
+
+  set_round_terms: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
+    const { company, transaction_id, ...terms } = input ?? {}
+    if (!transaction_id) throw new Error('transaction_id is required (list_investments gives it)')
+    const c = await resolveCompany(admin, fundId, company, access)
+    const vehicleNames = (await entityScopeFor(admin, access)).vehicleNames
+    return { company: c.name, ...unwrap(await setRoundTerms(admin, { fundId, vehicleNames }, c.id, String(transaction_id), terms)) }
   },
 
   delete_investment: async ({ admin, fundId, userId, access }: AgentToolContext, input: any) => {

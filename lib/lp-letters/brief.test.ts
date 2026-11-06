@@ -194,3 +194,29 @@ describe('the brief: dates, confidentiality, subsequent events and partner sourc
     expect(q.missing_information.some(m => /Gross IRR/.test(m))).toBe(true)
   })
 })
+
+describe('the brief: new investments and their round terms', () => {
+  const withTerms = company({ companyId: 'c5', companyName: 'Echo' }, {
+    investmentsThisQuarter: [
+      {
+        date: '2026-08-12', amount: 500_000, round: 'Series A', security: 'Preferred', postMoney: null,
+        terms: { round_size: 10_000_000, valuation: 40_000_000, valuation_basis: 'post_money', currency: null, lead: 'Example Ventures', security: null, discount_pct: null, rights: 'pro rata, board observer', notes: null },
+      },
+      { date: '2026-09-01', amount: 100_000, round: 'Seed extension', security: null, postMoney: 12_000_000, terms: null },
+    ],
+  })
+  const b = buildLetterBrief({ preview: preview([withTerms]), year: 2026, quarter: 3, updates: new Map(), voice: VOICE })
+
+  it('states each investment with its stored terms, and the books\' post-money where no terms are stored', () => {
+    expect(b.companies[0].new_investments).toEqual([
+      '2026-08-12: the fund invested $500K (Series A, Preferred). Round terms: round size $10.0M; post-money valuation $40.0M; led by Example Ventures; rights: pro rata, board observer.',
+      '2026-09-01: the fund invested $100K (Seed extension). Post-money valuation in the books: $12.0M.',
+    ])
+  })
+
+  it('lists an investment without terms as missing', () => {
+    expect(b.missing_information.filter(m => /no round terms/.test(m))).toEqual([
+      expect.stringContaining('Echo: no round terms are stored for the Seed extension on 2026-09-01'),
+    ])
+  })
+})

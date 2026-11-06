@@ -2378,6 +2378,7 @@ export type Database = {
           proceeds_received: number | null
           proceeds_written_off: number | null
           round_name: string | null
+          round_terms: Json | null
           security_type: string | null
           share_price: number | null
           shares_acquired: number | null
@@ -2422,6 +2423,7 @@ export type Database = {
           proceeds_received?: number | null
           proceeds_written_off?: number | null
           round_name?: string | null
+          round_terms?: Json | null
           security_type?: string | null
           share_price?: number | null
           shares_acquired?: number | null
@@ -2466,6 +2468,7 @@ export type Database = {
           proceeds_received?: number | null
           proceeds_written_off?: number | null
           round_name?: string | null
+          round_terms?: Json | null
           security_type?: string | null
           share_price?: number | null
           shares_acquired?: number | null

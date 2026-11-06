@@ -21,6 +21,7 @@ import { fromLetter, type LetterContent, type LetterSection } from '@/lib/lp-let
 import type { LetterFlag } from '@/lib/lp-letters/review'
 import type { LetterChart } from '@/lib/lp-letters/document'
 import { PullDialog } from './pull-dialog'
+import { WordDialog } from './word-dialog'
 
 interface Letter {
   id: string
@@ -84,6 +85,7 @@ export default function LetterEditorPage() {
   const [copied, setCopied] = useState(false)
   const [googleDriveConnected, setGoogleDriveConnected] = useState(false)
   const [pullOpen, setPullOpen] = useState(false)
+  const [wordOpen, setWordOpen] = useState(false)
   const [notesOpen, setNotesOpen] = useState(false)
   const [partnerNotes, setPartnerNotes] = useState('')
   const [uploading, setUploading] = useState(false)
@@ -368,6 +370,16 @@ export default function LetterEditorPage() {
                 </MenuItem>
               </PopoverContent>
             </Popover>
+          )}
+          {hasContent && isDraft && (
+            <>
+              <Button size="sm" variant="outline" className="text-muted-foreground" onClick={() => setWordOpen(true)}
+                title="Replace this draft with the Word file the partners edited">
+                <FileText className="h-3.5 w-3.5 mr-1.5" />
+                Bring back from Word
+              </Button>
+              <WordDialog letterId={letterId} open={wordOpen} onOpenChange={setWordOpen} onReplaced={updated => accept(updated as Letter)} />
+            </>
           )}
           {googleDriveConnected && isDraft && (
             <>

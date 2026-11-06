@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { xirr, type CashFlow } from '@/lib/xirr'
 import { grossProceeds } from '@/lib/portfolio/proceeds'
+import { cleanRoundTerms, isEmptyRoundTerms, type RoundTerms } from '@/lib/portfolio/round-terms'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -63,6 +64,18 @@ export interface CompanyLetterData {
   latestUpdateAt?: string | null
   /** This entity's transactions dated after the as-of date, up to today: news a letter may mention as after the quarter. */
   afterQuarterEnd?: AfterQuarterEvent[]
+  /** This entity's investments dated in the quarter, with the round's stored terms. */
+  investmentsThisQuarter?: QuarterInvestment[]
+}
+
+export interface QuarterInvestment {
+  date: string
+  amount: number | null
+  round: string | null
+  security: string | null
+  postMoney: number | null
+  /** investment_transactions.round_terms; null when none are stored (or before 20261106110000). */
+  terms: RoundTerms | null
 }
 
 export interface AfterQuarterEvent {
@@ -162,9 +175,10 @@ export async function aggregatePortfolioData(
   // Filter by portfolio group using investment transactions
   const { data: allTransactions } = await admin
     .from('investment_transactions')
-    .select('company_id, transaction_type, transaction_date, round_name, investment_cost, share_price, proceeds_received, proceeds_escrow, cost_basis_exited, current_share_price, shares_acquired, unrealized_value_change, portfolio_group, converts_from_txn_id')
+    .select('id, company_id, transaction_type, transaction_date, round_name, security_type, postmoney_valuation, investment_cost, share_price, proceeds_received, proceeds_escrow, cost_basis_exited, current_share_price, shares_acquired, unrealized_value_change, portfolio_group, converts_from_txn_id')
     .eq('fund_id', fundId)
     .order('transaction_date', { ascending: true }) as { data: {
+      id: string; security_type: string | null; postmoney_valuation: number | null
       company_id: string; transaction_type: string; transaction_date: string | null
       round_name: string | null; investment_cost: number | null; share_price: number | null
       proceeds_received: number | null; proceeds_escrow: number | null
@@ -432,6 +446,30 @@ export async function aggregatePortfolioData(
     }
   const updateAt = new Map((updateDatesError ? [] : updateDates ?? []).map(r => [r.id, r.current_update_at]))
 
+  // The quarter's investments by this entity, with their round terms. The terms are their own query,
+  // so a database without the column (before 20261106110000) still builds the letter, without them.
+  const quarterStart = new Date(Date.UTC(year, (quarter - 1) * 3, 1)).toISOString().slice(0, 10)
+  const quarterInvestments = periodTransactions.filter(t =>
+    t.transaction_type === 'investment' && t.portfolio_group === portfolioGroup && !!t.transaction_date && t.transaction_date >= quarterStart)
+  const termsById = new Map<string, RoundTerms>()
+  if (quarterInvestments.length) {
+    const { data: termRows, error: termsError } = await admin
+      .from('investment_transactions').select('id, round_terms').eq('fund_id', fundId).in('id', quarterInvestments.map(t => t.id)) as {
+        data: { id: string; round_terms: unknown }[] | null; error: unknown
+      }
+    for (const r of termsError ? [] : termRows ?? []) {
+      const t = r.round_terms ? cleanRoundTerms(r.round_terms) : null
+      if (t && !isEmptyRoundTerms(t)) termsById.set(r.id, t)
+    }
+  }
+  const investmentsOf = (companyId: string): QuarterInvestment[] => quarterInvestments
+    .filter(t => t.company_id === companyId)
+    .map(t => ({
+      date: t.transaction_date!, amount: t.investment_cost == null ? null : Number(t.investment_cost), round: t.round_name,
+      security: t.security_type, postMoney: t.postmoney_valuation == null ? null : Number(t.postmoney_valuation),
+      terms: termsById.get(t.id) ?? null,
+    }))
+
   // What happened after the date, up to today: only once the quarter is over.
   const afterOf = (companyId: string): AfterQuarterEvent[] => {
     if (asOf !== quarterEnd) return []
@@ -516,6 +554,7 @@ export async function aggregatePortfolioData(
       latestUpdate: c.current_update,
       latestUpdateAt: updateAt.get(c.id) ?? null,
       afterQuarterEnd: afterOf(c.id),
+      investmentsThisQuarter: investmentsOf(c.id),
     })
   }
 

@@ -44,11 +44,17 @@ vi.mock('@/lib/vehicle-letterhead', async orig => ({
   documentLetterhead: async () => ({ name: 'Example Fund', logo: null, address: null, email: null }),
 }))
 
-import { POST, PATCH, DELETE } from '@/app/api/lp-letters/[id]/charts/route'
+import { POST as post, PATCH as patchRoute, DELETE as del } from '@/app/api/lp-letters/[id]/charts/route'
 import { GET as image } from '@/app/api/lp-letters/[id]/charts/[chartId]/route'
 import { POST as exportRoute } from '@/app/api/lp-letters/[id]/export/route'
+import { POST as pullWord } from '@/app/api/lp-letters/[id]/pull-word/route'
+import { buildLetterDocx } from '@/lib/lp-letters/docx-letter'
+import { letterDocument } from '@/lib/lp-letters/document'
 
 const PNG = new Uint8Array([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 0, 4, 0, 0, 0, 2, 8, 6, 0, 0, 0, 0, 0, 0, 0])
+const POST = async (...a: Parameters<typeof post>) => (await post(...a))!
+const PATCH = async (...a: Parameters<typeof patchRoute>) => (await patchRoute(...a))!
+const DELETE = async (...a: Parameters<typeof del>) => (await del(...a))!
 const params = (id = 'l1') => ({ params: Promise.resolve({ id }) })
 
 function upload(bytes: Uint8Array, fields: Record<string, string> = {}, id = 'l1') {
@@ -148,5 +154,37 @@ describe('letter export', () => {
     expect((await exp('rtf')).status).toBe(400)
     scope = { vehicleNames: ['Fund II'] }
     expect((await exp('markdown')).status).toBe(404)
+  })
+})
+
+describe('bringing a draft back from Word', () => {
+  const send = async (buf: Buffer, apply = false) => {
+    const form = new FormData()
+    form.append('file', new File([new Uint8Array(buf) as BlobPart], 'letter.docx'))
+    if (apply) form.append('apply', 'true')
+    return (await pullWord(new NextRequest('http://localhost/x', { method: 'POST', body: form }), params()))!
+  }
+
+  it("compares the export's own Word file with the draft and finds nothing changed", async () => {
+    const edited = { ...store.tables.lp_letters[0], content: { version: 1, sections: [
+      { id: 'opening', kind: 'text', heading: null, body: 'Dear partners.' },
+      { id: 'company:c1', kind: 'company', heading: 'Acme', company_id: 'c1', body: 'Acme grew fast.' },
+    ] } }
+    const buf = await buildLetterDocx(letterDocument(edited), { fundName: 'Example Fund', logo: null, address: null, chartBytes: new Map() })
+    const res = await send(buf)
+    expect(res.status).toBe(200)
+    const { comparison } = await res.json()
+    expect(comparison.sections).toEqual([{ section_id: 'company:c1', heading: 'Acme', change: 'changed' }])
+    // Not applied yet.
+    expect(store.tables.lp_letters[0].content.sections[1].body).toBe('Acme grew.')
+    const applied = await send(buf, true)
+    expect(applied.status).toBe(200)
+    expect(store.tables.lp_letters[0].content.sections[1].body).toBe('Acme grew fast.')
+  })
+
+  it('never changes a final letter', async () => {
+    store.tables.lp_letters[0].status = 'final'
+    const buf = await buildLetterDocx(letterDocument(store.tables.lp_letters[0]), { fundName: 'F', logo: null, address: null, chartBytes: new Map() })
+    expect((await send(buf, true)).status).toBe(409)
   })
 })

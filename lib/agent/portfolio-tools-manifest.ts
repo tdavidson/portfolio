@@ -230,6 +230,34 @@ export const PORTFOLIO_TOOL_MANIFEST: AgentToolMeta[] = [
     },
   },
   {
+    name: 'set_round_terms',
+    description:
+      'Record the terms of the financing round an investment was made in, on its transaction (list_investments gives the id): ' +
+      'the round size, the valuation and whether it is pre-money, post-money or a cap, the lead, the security, a discount and the ' +
+      "fund's rights. They replace what was stored; pass none to clear them. Descriptive only: nothing in the ledger, the marks " +
+      "or the returns changes. An investor letter's brief states them for the quarter's new investments.",
+    scope: 'write',
+    domain: 'portfolio',
+    accessFeature: 'investments',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        company: COMPANY,
+        transaction_id: { type: 'string', description: 'The investment (or round) transaction, from list_investments.' },
+        round_size: { type: 'number', description: 'The whole round, all investors together.' },
+        valuation: { type: 'number' },
+        valuation_basis: { type: 'string', enum: ['pre_money', 'post_money', 'cap'] },
+        currency: { type: 'string', description: "ISO code, when the round was priced in another currency than the fund's." },
+        lead: { type: 'string', description: 'The lead investor, as a letter may name it.' },
+        security: { type: 'string', description: 'e.g. "Series A preferred", "SAFE", "convertible note".' },
+        discount_pct: { type: 'number', description: 'A SAFE or note discount, in percent.' },
+        rights: { type: 'string', description: 'e.g. "pro rata, board seat, information rights".' },
+        notes: { type: 'string' },
+      },
+      required: ['company', 'transaction_id'],
+    },
+  },
+  {
     name: 'delete_investment',
     description:
       'Delete a recorded portfolio transaction (list_investments gives its id) and retract its journal entry, as a delete on the company page does. ' +

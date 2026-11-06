@@ -15,8 +15,9 @@
 // commitments, capital accounts or investor-level figures are read, and an investor name that turns
 // up in a company's update text is replaced before the text reaches a writer.
 
-import type { PortfolioPreview, CompanyLetterData, PriceEvent, AfterQuarterEvent } from './aggregate'
+import type { PortfolioPreview, CompanyLetterData, PriceEvent, AfterQuarterEvent, QuarterInvestment } from './aggregate'
 import { fmt } from './generate'
+import { roundTermsLine } from '@/lib/portfolio/round-terms'
 import { getCurrencySymbol } from '@/lib/currency'
 import { LETTER_SKILL_VERSION, skillForWriter, type LetterVoice } from './skill'
 import { profileAsLayer, type LetterProfile } from './profile'
@@ -60,6 +61,8 @@ export interface BriefCompany {
   stored_business_update_stale?: boolean | null
   /** Dated events after the quarter's end, up to the day the brief was read: subsequent events, not the quarter's. */
   after_quarter_end?: string[]
+  /** The fund's investments in the company this quarter, each with the round's stored terms. */
+  new_investments?: string[]
 }
 
 /** A document the partners added to one letter as a source (a market report, a board deck), as text. */
@@ -124,6 +127,17 @@ export function letterStatus(status: string): string {
   if (status === 'exited') return 'Acquired'
   if (status === 'written-off') return 'Written Off'
   return status ? status[0].toUpperCase() + status.slice(1) : status
+}
+
+/** The quarter's investments, as the letter's "New investments" section may state them. */
+export function newInvestmentLines(list: QuarterInvestment[], currency: string): string[] {
+  return list.map(i => {
+    const what = [i.round, i.security].filter(Boolean).join(', ')
+    const head = `${i.date}: the fund invested${i.amount != null ? ` ${fmt(i.amount, currency)}` : ''}${what ? ` (${what})` : ''}.`
+    const terms = i.terms ? roundTermsLine(i.terms, (n, cur) => fmt(n, cur || currency)) : null
+    const post = !i.terms?.valuation && i.postMoney ? ` Post-money valuation in the books: ${fmt(i.postMoney, currency)}.` : ''
+    return `${head}${terms ? ` Round terms: ${terms}.` : ''}${post}`
+  })
 }
 
 /** Subsequent events, as a letter may state them. */
@@ -240,6 +254,7 @@ export function letterRules(): string[] {
       `"${MISSING_HEADING}" what the partners would need to confirm before saying more.`,
     '- A stored business update marked stale was written before this quarter: do not present it as this quarter\'s news.',
     '- Events after quarter end may be mentioned only as subsequent events, with their dates; they are not in the quarter\'s figures.',
+    '- State a new investment\'s terms only as the brief or the partner notes give them; a term neither gives is missing, not estimated.',
     '- The partner notes and the added source documents are sources too, held to the same rules.',
     '- Plain text, no markdown, except one mark: start each section with a line "## " and its heading. A company\'s section ' +
       'heading is the company\'s name exactly as the brief gives it. The opening before the first heading needs none.',
@@ -316,6 +331,11 @@ export function buildLetterBrief(input: BriefInput): LetterBrief {
       missing.push(`${inv.companyName}: the stored business update is from ${storedAt}, before ${period}; nothing newer is stored.`)
     }
     const after = afterQuarterLines(c.afterQuarterEnd ?? [], currency)
+    const invested = c.investmentsThisQuarter ?? []
+    for (const i of invested) {
+      if (!i.terms) missing.push(`${inv.companyName}: no round terms are stored for the ${i.round ?? 'investment'} on ${i.date} (round size, valuation or cap, lead, rights). Give them in the partner notes, or record them with set_round_terms.`)
+    }
+    const newInvestments = newInvestmentLines(invested, currency)
 
     const profiled = named.get(inv.companyId)
     return {
@@ -334,6 +354,7 @@ export function buildLetterBrief(input: BriefInput): LetterBrief {
       stored_business_update_at: storedAt,
       stored_business_update_stale: stale,
       ...(after.length ? { after_quarter_end: after } : {}),
+      ...(newInvestments.length ? { new_investments: newInvestments } : {}),
     }
   })
 
