@@ -180,7 +180,17 @@ export class AnthropicProvider implements AIProvider {
       })),
       // Each declared MCP server must be referenced by exactly one toolset entry,
       // or the API rejects the request.
-      ...mcpServers.map(s => ({ type: 'mcp_toolset', mcp_server_name: s.name })),
+      ...mcpServers.map(s => ({
+        type: 'mcp_toolset',
+        mcp_server_name: s.name,
+        // An allowlist turns every tool off and then back on by name.
+        ...(s.allowedTools
+          ? {
+              default_config: { enabled: false },
+              configs: Object.fromEntries(s.allowedTools.map(name => [name, { enabled: true }])),
+            }
+          : {}),
+      })),
     ]
 
     if (params.enableWebSearch) {
@@ -265,6 +275,22 @@ export class AnthropicProvider implements AIProvider {
       if (text) finalText = text
 
       if (response.stop_reason === 'max_tokens') truncated = true
+
+      // Calls the connector already made on an MCP server, so a caller can say what was looked up.
+      for (const block of response.content as any[]) {
+        if (block?.type !== 'mcp_tool_use') continue
+        const result = (response.content as any[]).find(b => b?.type === 'mcp_tool_result' && b.tool_use_id === block.id)
+        const preview = typeof result?.content === 'string'
+          ? result.content
+          : Array.isArray(result?.content) ? result.content.map((c: any) => c?.text ?? '').join('') : ''
+        toolCalls.push({
+          name: block.name,
+          input: (block.input ?? {}) as Record<string, unknown>,
+          resultPreview: preview.slice(0, 500),
+          isError: !!result?.is_error,
+          server: block.server_name,
+        })
+      }
 
       const pending = response.content.filter(
         (b): b is Anthropic.ToolUseBlock => b.type === 'tool_use'

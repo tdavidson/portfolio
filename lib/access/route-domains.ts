@@ -548,6 +548,11 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // Affinity issues ONE KEY PER USER, scoped to that user's own permissions, so each member
   // connects their own. It lives under /settings but it is not administration.
   'api/settings/affinity': { domain: 'portfolio', level: 'any' },
+  // A member's own sign-ins to outside MCP servers (lib/mcp-client/servers.ts): their own
+  // credential, like the Affinity key. Features that use a connection gate themselves.
+  'api/settings/connectors/[server]': { domain: 'portfolio', level: 'any' },
+  'api/settings/connectors/[server]/connect': { domain: 'portfolio', level: 'any' },
+  'api/settings/connectors/[server]/callback': { domain: 'portfolio', level: 'any' },
   // A member's OWN agent credentials: GET lists only their keys, POST mints one for them. The
   // route refuses the read-only demo itself, and every call the key later makes is re-checked
   // against its owner's live grants — so the key can never exceed them. Gating this as admin

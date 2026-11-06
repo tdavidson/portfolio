@@ -49,3 +49,49 @@ describe('withCachedTail', () => {
     expect(withCachedTail([])).toEqual([])
   })
 })
+
+describe('createToolLoop with MCP servers', () => {
+  async function run(mcpServers: Array<{ name: string; url: string; authorizationToken?: string; allowedTools?: string[] }>, content: any[]) {
+    const { AnthropicProvider } = await import('./anthropic')
+    const provider = new AnthropicProvider('test-key')
+    const requests: any[] = []
+    ;(provider as any).client = {
+      beta: {
+        messages: {
+          stream: (req: any) => {
+            requests.push(req)
+            return { finalMessage: async () => ({ content, stop_reason: 'end_turn', usage: { input_tokens: 1, output_tokens: 1 } }) }
+          },
+        },
+      },
+    }
+    const result = await provider.createToolLoop({ model: 'claude-test', maxTokens: 100, content: 'q', mcpServers })
+    return { request: requests[0], result }
+  }
+
+  it('turns on only the allowlisted tools', async () => {
+    const { request } = await run([{ name: 'specter', url: 'https://mcp.data.example/mcp', authorizationToken: 't', allowedTools: ['find_company', 'get_company_funding'] }], [{ type: 'text', text: 'ok' }])
+    expect(request.tools).toEqual([{
+      type: 'mcp_toolset',
+      mcp_server_name: 'specter',
+      default_config: { enabled: false },
+      configs: { find_company: { enabled: true }, get_company_funding: { enabled: true } },
+    }])
+    expect(request.mcp_servers).toEqual([{ type: 'url', name: 'specter', url: 'https://mcp.data.example/mcp', authorization_token: 't' }])
+  })
+
+  it('leaves every tool on when there is no allowlist', async () => {
+    const { request } = await run([{ name: 'affinity', url: 'https://crm.example/mcp' }], [{ type: 'text', text: 'ok' }])
+    expect(request.tools).toEqual([{ type: 'mcp_toolset', mcp_server_name: 'affinity' }])
+  })
+
+  it('records the calls the connector made', async () => {
+    const { result } = await run([{ name: 'specter', url: 'https://mcp.data.example/mcp', allowedTools: ['find_company'] }], [
+      { type: 'mcp_tool_use', id: 'm1', name: 'find_company', server_name: 'specter', input: { domain: 'acme.example' } },
+      { type: 'mcp_tool_result', tool_use_id: 'm1', is_error: false, content: [{ type: 'text', text: 'Acme' }] },
+      { type: 'text', text: 'Acme is…' },
+    ])
+    expect(result.toolCalls).toEqual([{ name: 'find_company', input: { domain: 'acme.example' }, resultPreview: 'Acme', isError: false, server: 'specter' }])
+    expect(result.text).toBe('Acme is…')
+  })
+})

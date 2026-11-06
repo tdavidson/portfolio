@@ -310,6 +310,7 @@ export const TABLE_RULES: Record<string, TableRule> = {
   // ---- Never through the Data API ------------------------------------------------------------
   fund_api_keys: { scope: 'service', note: 'API key material.' },
   affinity_credentials: { scope: 'service', note: 'Per-user Affinity API key.' },
+  mcp_connections: { scope: 'service', note: 'Per-user OAuth tokens for outside MCP servers.' },
   oauth_clients: { scope: 'service', note: 'Client secrets and the redirect-URI allowlist.' },
   oauth_tokens: { scope: 'service', note: 'Access/refresh token hashes.' },
   oauth_authorization_codes: { scope: 'service', note: 'Single-use authorization codes and PKCE challenges.' },

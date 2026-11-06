@@ -19,7 +19,8 @@ import { extractJsonObject } from '@/lib/memo-agent/parse-ai-json'
 import { buildQAChatContext } from '@/lib/diligence/qa-chat-context'
 import { getAffinityKey } from '@/lib/affinity/credentials'
 import { AFFINITY_TOOLS, makeAffinityExecutor, affinityMcpServer } from '@/lib/affinity/tools'
-import type { AIResult } from '@/lib/ai/types'
+import { getMcpServerForUser } from '@/lib/mcp-client/connections'
+import type { AIResult, McpServerConfig } from '@/lib/ai/types'
 
 export interface QACitation {
   document_id: string
@@ -32,6 +33,8 @@ export interface DealAnswer {
   citations: QACitation[]
   /** e.g. ['affinity_get_notes'] — which CRM lookups the model actually made. */
   affinityLookups: string[]
+  /** e.g. ['find_company'] — which Specter tools the model actually called. */
+  specterLookups: string[]
   model: string
   /** The documents the model was allowed to cite, so a caller can name them. */
   citableDocs: Array<{ id: string; file_name: string }>
@@ -91,6 +94,14 @@ export async function answerDealQuestion(params: AnswerDealQuestionParams): Prom
   // evidence-only answer rather than pretending the assistant has CRM access it doesn't.
   const affinityAvailable = !!affinityKey && provider.supportsToolLoop === true
 
+  // Specter, like Affinity, rides on the asking user's own sign-in, and only its read-only
+  // tools are turned on (lib/mcp-client/connections.ts). Not connected, or a provider without
+  // tool use, means no Specter.
+  const specterServer: McpServerConfig | null = userId && provider.supportsToolLoop === true
+    ? await getMcpServerForUser(admin, userId, 'specter').catch(() => null)
+    : null
+  const specterAvailable = !!specterServer
+
   const affinityBlock = affinityAvailable
     ? `
 
@@ -111,14 +122,36 @@ documents are the primary evidence. Content you take from Affinity should be att
 answer as coming from an Affinity note (with its date), not cited as a data-room document.`
     : ''
 
-  const systemPrompt = `You answer partner questions about an active diligence deal using the evidence below${affinityAvailable ? ', plus the fund\'s Affinity CRM when the question is about relationship history' : ''}. If the evidence does not contain the answer, say so plainly and suggest where the partner could look (a missing document, a research gap, a question to ask the founders).
+  const specterBlock = specterAvailable
+    ? `
+
+SPECTER ACCESS
+You can look up outside company, people and investor data in Specter with its tools: funding
+rounds, investors, competitors, revenue and headcount signals, founders' career histories.
+
+When to reach for Specter:
+- The question is about the market or the outside view of the company: competitors, who has
+  invested, how the team or headcount has changed, what the founders did before.
+- You need to check a claim in the data room against an outside source.
+
+Do NOT use Specter for questions the data room already answers. Resolve the company once (by its
+website domain if you know it) and reuse the result. Attribute anything you take from Specter as
+coming from Specter, never cite it as a data-room document, and say when Specter and the data room
+disagree.`
+    : ''
+
+  const extraSources = [
+    affinityAvailable ? 'the fund\'s Affinity CRM when the question is about relationship history' : null,
+    specterAvailable ? 'Specter for outside company, people and investor data' : null,
+  ].filter(Boolean).join(', and ')
+  const systemPrompt = `You answer partner questions about an active diligence deal using the evidence below${extraSources ? `, plus ${extraSources}` : ''}. If the evidence does not contain the answer, say so plainly and suggest where the partner could look (a missing document, a research gap, a question to ask the founders).
 
 Rules:
 - Be concise and direct. No throat-clearing.
 - Never fabricate numbers, names, or sources.
 - When you cite a document, reference it by its file name as listed in DATA-ROOM EVIDENCE.
 - If multiple sources agree, say so. If they contradict, surface the contradiction.
-- Stage-aware: ${ctx.stage ? `this is a ${ctx.stage} company, calibrate expectations accordingly` : 'no stage on record, ask the partner if it matters'}.${affinityBlock}
+- Stage-aware: ${ctx.stage ? `this is a ${ctx.stage} company, calibrate expectations accordingly` : 'no stage on record, ask the partner if it matters'}.${affinityBlock}${specterBlock}
 
 Output format: return JSON ONLY of the form:
 {
@@ -138,22 +171,31 @@ ${ctx.text}`
 
   let result: AIResult
   let affinityLookups: string[] = []
+  let specterLookups: string[] = []
 
-  if (affinityAvailable && provider.createToolLoop) {
+  if ((affinityAvailable || specterAvailable) && provider.createToolLoop) {
+    // Affinity is either our read-only tools, or its hosted MCP server if the fund opted into
+    // it (which also grants the model write access — see lib/affinity/tools.ts).
+    const affinityViaMcp = affinityAvailable && useMcp
+    const mcpServers: McpServerConfig[] = [
+      ...(affinityViaMcp ? [affinityMcpServer(affinityKey!)] : []),
+      ...(specterServer ? [specterServer] : []),
+    ]
     const loop = await provider.createToolLoop({
       model,
       maxTokens: 1500,
       system: withTopicalGuardrail(systemPrompt),
       content: userTurn,
-      // Either our read-only tools, or Affinity's hosted MCP server if the fund opted
-      // into it (which also grants the model write access — see lib/affinity/tools.ts).
-      ...(useMcp
-        ? { mcpServers: [affinityMcpServer(affinityKey!)] }
-        : { tools: AFFINITY_TOOLS, executeTool: makeAffinityExecutor(affinityKey!) }),
-      maxIterations: 5,
+      ...(affinityAvailable && !affinityViaMcp
+        ? { tools: AFFINITY_TOOLS, executeTool: makeAffinityExecutor(affinityKey!) }
+        : {}),
+      ...(mcpServers.length > 0 ? { mcpServers } : {}),
+      maxIterations: specterAvailable ? 8 : 5,
     })
     result = loop
-    affinityLookups = loop.toolCalls.filter(c => !c.isError).map(c => c.name)
+    const ok = loop.toolCalls.filter(c => !c.isError)
+    affinityLookups = ok.filter(c => c.server !== 'specter').map(c => c.name)
+    specterLookups = ok.filter(c => c.server === 'specter').map(c => c.name)
   } else {
     result = await provider.createMessage({
       model,
@@ -184,5 +226,5 @@ ${ctx.text}`
   }
   // Non-JSON reply falls through with `answer = text` — degrade, don't fail the turn.
 
-  return { answer, citations, affinityLookups, model, citableDocs: ctx.citableDocs }
+  return { answer, citations, affinityLookups, specterLookups, model, citableDocs: ctx.citableDocs }
 }
