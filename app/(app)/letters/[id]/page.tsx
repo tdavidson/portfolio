@@ -10,6 +10,7 @@ import { Tabs, TabsList, TabsTrigger } from '@/components/ui/tabs'
 import { useFeatureVisibility, useIsAdmin } from '@/components/feature-visibility-context'
 import { LpShareControl } from '@/components/lp-share-control'
 import { sanitizeLetterHtml } from '@/lib/sanitize'
+import { PullDialog } from './pull-dialog'
 
 const DEFAULT_PROMPT_PLACEHOLDER = `## LP Letter Style Guide (Default)
 
@@ -127,6 +128,7 @@ export default function LetterEditorPage() {
   const [viewMode, setViewMode] = useState<'sections' | 'portfolio' | 'full'>('sections')
   const [exporting, setExporting] = useState<string | null>(null)
   const [googleDriveConnected, setGoogleDriveConnected] = useState(false)
+  const [pullOpen, setPullOpen] = useState(false)
   const [globalPromptOpen, setGlobalPromptOpen] = useState(false)
   const [globalPromptText, setGlobalPromptText] = useState('')
   const [savingGlobalPrompt, setSavingGlobalPrompt] = useState(false)
@@ -429,6 +431,26 @@ export default function LetterEditorPage() {
               {exporting === 'google-docs' ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <ExternalLink className="h-3.5 w-3.5 mr-1.5" />}
               Google Docs
             </Button>
+          )}
+          {googleDriveConnected && letter.status === 'draft' && (
+            <>
+              <Button
+                size="sm"
+                variant="outline"
+                className="text-muted-foreground"
+                onClick={() => setPullOpen(true)}
+                title="Replace this draft with the Google Doc the partners edited"
+              >
+                <Download className="h-3.5 w-3.5 mr-1.5" />
+                Pull from Google Doc
+              </Button>
+              <PullDialog
+                letterId={letterId}
+                open={pullOpen}
+                onOpenChange={setPullOpen}
+                onReplaced={updated => { setLetter(updated); setFullDraft(updated.full_draft ?? '') }}
+              />
+            </>
           )}
           {/* Sharing into the portal is the portal's own switch — `lp_portal_access` was a second
               key for the same idea and has been folded into `lp_portal`. */}

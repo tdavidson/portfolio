@@ -5,6 +5,8 @@ import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
 import { buildDocxBuffer, exportToGoogleDocs } from '@/lib/lp-letters/export'
 import { investorText } from '@/lib/lp-letters/internal'
+import { fundDriveToken } from '@/lib/google/fund-drive'
+import { outcomeResponse } from '@/lib/service-outcome'
 import type { CompanyNarrative } from '@/lib/types/database'
 
 interface StoredPortfolioCompany {
@@ -114,31 +116,9 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   // Google Docs export
   if (format === 'google-docs') {
     try {
-      const { decrypt } = await import('@/lib/crypto')
-      const { getGoogleCredentials } = await import('@/lib/google/credentials')
-      const { getAccessToken } = await import('@/lib/google/drive')
-
-      const { data: settings } = await admin
-        .from('fund_settings')
-        .select('google_refresh_token_encrypted, encryption_key_encrypted, google_drive_folder_id')
-        .eq('fund_id', fundId)
-        .single()
-
-      if (!settings?.google_refresh_token_encrypted || !settings?.encryption_key_encrypted) {
-        return NextResponse.json({ error: 'Google Drive not connected' }, { status: 400 })
-      }
-
-      const kek = process.env.ENCRYPTION_KEY
-      if (!kek) return NextResponse.json({ error: 'Server misconfiguration' }, { status: 500 })
-
-      const dek = decrypt(settings.encryption_key_encrypted, kek)
-      const refreshToken = decrypt(settings.google_refresh_token_encrypted, dek)
-
-      const creds = await getGoogleCredentials(admin, fundId)
-      if (!creds) return NextResponse.json({ error: 'Google OAuth credentials not configured' }, { status: 400 })
-
-      const accessToken = await getAccessToken(refreshToken, creds.clientId, creds.clientSecret)
-      const driveFolderId = settings.google_drive_folder_id || 'root'
+      const drive = await fundDriveToken(admin, fundId)
+      if (!drive.ok) return outcomeResponse(drive)
+      const { accessToken, folderId: driveFolderId } = drive.value
 
       const url = await exportToGoogleDocs(exportData, fundName, accessToken, driveFolderId)
       return NextResponse.json({ url })

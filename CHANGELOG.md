@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### LP letters: pull a draft back from a Google Doc
+- **Pull from Google Doc.** On a draft letter, paste the link to the Google Doc the partners edited. The app reads it through the fund's connected Google Drive, shows the lines added and removed, and only on "Replace the draft" saves the doc's text as the letter. The internal notes are kept, and a final letter is never changed: put it back to draft first. Nothing syncs on its own, so the app stays the record of what was sent (`lib/lp-letters/pull.ts`, `POST /api/lp-letters/[id]/pull-google-doc`).
+
 ### LP letters: the fund's own letter, learned from its past letters
 - **Learn from past letters.** On the letters page, Voice > Learn from past letters takes up to 12 letters or memos (.docx or .pdf) at once. The fund's own AI reads them together and writes three parts: the **structure** (sections in order, headings, the paragraphs repeated every quarter, the tables, the fixed names and signatories), the **voice** (how the partners write) and **examples** (each part in full, with invented companies and figures). Names and figures the examples took from the letters are listed for the reviewer to replace.
 - **A draft until chosen.** A learned voice is saved as a template that letters do not use. A person edits the structure, voice, examples and **house rules** (standing instructions for every letter), then chooses it with "Use as fund voice". One template is the fund's voice at a time.
