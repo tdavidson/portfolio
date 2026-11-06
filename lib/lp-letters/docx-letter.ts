@@ -87,7 +87,8 @@ export async function buildLetterDocx(doc: LetterDocument, opts: DocxLetterOptio
         children.push(new Paragraph({ spacing: { after: 120 }, children: [] }))
       } else {
         const bytes = opts.chartBytes.get(b.chart.id)
-        if (!bytes) continue
+        // Word takes the PNG export-letter.ts makes of a drawn chart, never the SVG itself.
+        if (!bytes || b.chart.content_type === 'image/svg+xml') continue
         const size = fit(b.chart.width && b.chart.height ? { width: b.chart.width, height: b.chart.height } : imageSize(bytes), MAX_WIDTH_PX, 700)
         const caption = b.chart.caption ?? ''
         children.push(new Paragraph({

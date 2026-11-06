@@ -37,7 +37,7 @@ const admin = new Proxy(store.admin as any, {
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) } }) }))
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => admin }))
 vi.mock('@/lib/api-helpers', async orig => ({ ...(await orig<any>()), assertWriteAccess: async () => ({ fundId: 'fund-1', userId: 'u1', role: 'admin' }) }))
-vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScopeForUser: async () => scope }))
+vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScopeForUser: async () => scope, entityScopeFor: async () => ({ vehicleNames: scope ? scope.vehicleNames : [] }) }))
 vi.mock('@/lib/rate-limit', () => ({ rateLimit: async () => null }))
 vi.mock('@/lib/lp-letters/service', async orig => ({
   ...(await orig<any>()),
@@ -216,7 +216,25 @@ describe('charts drawn from the letter\'s figures', () => {
     expect(saved.status).toBe(200)
     const [c] = store.tables.lp_letters[0].charts
     expect(c).toMatchObject({ section_id: 'company:c1', caption: p.caption, generated: { kind: 'value_by_company', as_of: '2026-09-30', options: { color: 'ink', limit: 5 } } })
+    expect(c.content_type).toBe('image/svg+xml')
     expect(objects.has(`lp-letter-charts/${c.path}`)).toBe(true)
+    // The page shows it locked down, and the Word file gets a PNG of it.
+    const img = await image(new NextRequest('http://localhost/x'), { params: Promise.resolve({ id: 'l1', chartId: c.id }) })
+    expect(img.headers.get('content-type')).toBe('image/svg+xml')
+    expect(img.headers.get('content-security-policy')).toContain("default-src 'none'")
+    const docx = await exportRoute(new NextRequest('http://localhost/x', { method: 'POST', body: JSON.stringify({ format: 'docx' }) }), params())
+    const zip = await (await import('jszip')).default.loadAsync(await docx.arrayBuffer())
+    expect(Object.keys(zip.files).filter(f => f.startsWith('word/media/') && f.endsWith('.png'))).toHaveLength(1)
+  })
+
+  it('is what the assistant adds with lp_letter_add_chart', async () => {
+    const { LETTER_HANDLERS: LETTER_TOOL_HANDLERS } = await import('@/lib/agent/letter-tools') as any
+    const ctx = { admin, fundId: 'fund-1', userId: 'u1', access: { role: 'admin' } } as any
+    const drawn = await LETTER_TOOL_HANDLERS.lp_letter_chart(ctx, { letter_id: 'l1', kind: 'multiple_by_company' })
+    expect(drawn.svg).toContain('3.00x')
+    const added = await LETTER_TOOL_HANDLERS.lp_letter_add_chart(ctx, { letter_id: 'l1', kind: 'multiple_by_company', section_id: 'opening', color: 'ink' })
+    expect(added).toMatchObject({ section_id: 'opening', caption: expect.stringMatching(/Gross multiple/) })
+    expect(store.tables.lp_letters[0].charts[0].generated.options.color).toBe('ink')
   })
 
   it('refuses an unknown chart, one with nothing to draw, and a final letter', async () => {

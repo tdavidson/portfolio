@@ -18,7 +18,8 @@ export interface LetterChart {
   caption: string | null
   /** Storage path in lp-letter-charts. Named by the image's hash: an upload never replaces another. */
   path: string
-  content_type: 'image/png' | 'image/jpeg'
+  /** SVG only for charts drawn from the letter's figures (fund-charts.ts), never an upload. */
+  content_type: 'image/png' | 'image/jpeg' | 'image/svg+xml'
   sha256: string
   width: number | null
   height: number | null
@@ -112,7 +113,7 @@ export interface DocumentLetter {
 /** The letter's charts as stored, the ones that look right only. */
 export function chartsOf(letter: { charts?: unknown }): LetterChart[] {
   return ((Array.isArray(letter.charts) ? letter.charts : []) as any[])
-    .filter(c => c && typeof c.id === 'string' && typeof c.path === 'string' && (c.content_type === 'image/png' || c.content_type === 'image/jpeg'))
+    .filter(c => c && typeof c.id === 'string' && typeof c.path === 'string' && (c.content_type === 'image/png' || c.content_type === 'image/jpeg' || (c.content_type === 'image/svg+xml' && !!c.generated)))
 }
 
 export function letterDocument(letter: DocumentLetter, opts: { title?: string } = {}): LetterDocument {
@@ -162,7 +163,7 @@ export function documentMarkdown(doc: LetterDocument): string {
 }
 
 export function chartFileName(c: LetterChart): string {
-  return `chart-${c.sha256.slice(0, 12)}.${c.content_type === 'image/png' ? 'png' : 'jpg'}`
+  return `chart-${c.sha256.slice(0, 12)}.${c.content_type === 'image/png' ? 'png' : c.content_type === 'image/svg+xml' ? 'svg' : 'jpg'}`
 }
 
 /** The JSON export: the document, without storage paths. */

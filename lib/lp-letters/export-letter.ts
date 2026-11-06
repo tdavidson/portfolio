@@ -40,8 +40,19 @@ export async function letterDocx(admin: Admin, fundId: string, letter: any): Pro
   const letterhead = await documentLetterhead(admin, fundId, fund, letter.portfolio_group ? [letter.portfolio_group] : [])
   const fundName = letterhead.name || fund?.name || 'Fund'
   if (hasStructuredContent(letter)) {
-    const bytes = await chartBytes(admin, fundId, letter.id, chartsOf(letter))
-    const buffer = await buildLetterDocx(letterDocument(letter), {
+    const charts = chartsOf(letter)
+    const bytes = await chartBytes(admin, fundId, letter.id, charts)
+    // Word takes PNG and JPEG: a chart drawn as SVG (fund-charts.ts) becomes a PNG here.
+    const svgs = charts.filter(c => c.content_type === 'image/svg+xml' && bytes.has(c.id))
+    if (svgs.length) {
+      const { renderSvgToPng } = await import('@/lib/lp-report-pdf')
+      for (const c of svgs) {
+        const png = await renderSvgToPng(Buffer.from(bytes.get(c.id)!).toString('utf8'), { width: c.width ?? 720, height: c.height ?? 400 })
+        bytes.set(c.id, new Uint8Array(png))
+      }
+    }
+    const asPng = { ...letter, charts: charts.map(c => (c.content_type === 'image/svg+xml' ? { ...c, content_type: 'image/png' as const } : c)) }
+    const buffer = await buildLetterDocx(letterDocument(asPng), {
       fundName, logo: letterhead.logo, address: contactBlock(letterhead), chartBytes: bytes,
     })
     return { buffer, fundName }

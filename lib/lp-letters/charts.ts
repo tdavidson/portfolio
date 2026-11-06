@@ -43,21 +43,32 @@ const cleanCaption = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim
 /** Add an image (PNG or JPEG, by its bytes) to a draft letter, after a section or at the end. */
 export async function addChart(
   admin: Admin, ctx: Ctx, letterId: string,
-  input: { bytes: Uint8Array; caption?: unknown; sectionId?: unknown; generated?: LetterChart['generated'] },
+  input: { bytes: Uint8Array; caption?: unknown; sectionId?: unknown },
 ): Promise<Outcome<LetterChart[]>> {
   const found = await editable(admin, ctx, letterId)
   if (!found.ok) return found
+  // Uploads are PNG or JPEG only, by their bytes: an uploaded SVG could carry script.
   const type = sniffImage(input.bytes)
   if (!type) return fail(400, 'A chart must be a PNG or JPEG image.')
   if (input.bytes.length > MAX_CHART_BYTES) return fail(400, 'A chart image must be 5 MB or less.')
-  const current = chartsOf(found.value)
+  return storeChart(admin, ctx, letterId, found.value, { ...input, type, size: imageSize(input.bytes) })
+}
+
+const EXT: Record<LetterChart['content_type'], string> = { 'image/png': 'png', 'image/jpeg': 'jpg', 'image/svg+xml': 'svg' }
+
+async function storeChart(
+  admin: Admin, ctx: Ctx, letterId: string, letter: any,
+  input: { bytes: Uint8Array; type: LetterChart['content_type']; size: { width: number; height: number } | null; caption?: unknown; sectionId?: unknown; generated?: LetterChart['generated'] },
+): Promise<Outcome<LetterChart[]>> {
+  const type = input.type
+  const current = chartsOf(letter)
   if (current.length >= MAX_CHARTS) return fail(400, `A letter can have at most ${MAX_CHARTS} charts.`)
   const sha256 = createHash('sha256').update(input.bytes).digest('hex')
-  const path = `${ctx.fundId}/${letterId}/${sha256}.${type === 'image/png' ? 'png' : 'jpg'}`
+  const path = `${ctx.fundId}/${letterId}/${sha256}.${EXT[type]}`
   // upsert false: an object at that path is this same image, already stored.
   const { error: upErr } = await (admin as any).storage.from(CHART_BUCKET).upload(path, input.bytes, { contentType: type, upsert: false })
   if (upErr && !/exist|duplicate/i.test(String(upErr.message ?? ''))) return fail(500, 'Could not store the chart image.')
-  const size = imageSize(input.bytes)
+  const size = input.size
   const chart: LetterChart = {
     id: `chart-${sha256.slice(0, 8)}-${Date.now().toString(36)}`,
     section_id: typeof input.sectionId === 'string' && input.sectionId ? input.sectionId.slice(0, 200) : null,
@@ -125,13 +136,12 @@ export function chartDataUris(charts: LetterChart[], bytes: Map<string, Uint8Arr
 
 /**
  * A chart of the letter's own figures (the entity's portfolio as of the quarter), drawn and added
- * to a draft like an uploaded one. Without `save` it is only drawn, for a preview.
+ * to a draft like an uploaded one: the letter page and lp_letter_add_chart both come here. Without
+ * `save` it is only drawn, for a preview.
  */
 export async function fundChart(
   admin: Admin, ctx: Ctx, letterId: string,
   input: { kind: unknown; options?: unknown; sectionId?: unknown; caption?: unknown; save: boolean },
-  /** SVG to PNG (renderSvgToPng in lp-report-pdf.ts), passed in so this file doesn't pull in the browser. */
-  render?: (svg: string, size: { width: number; height: number }) => Promise<Buffer>,
 ): Promise<Outcome<{ chart: FundChart; charts?: LetterChart[] }>> {
   const { FUND_CHART_KINDS, CHART_COLORS, buildFundChart } = await import('./fund-charts')
   const kind = String(input.kind ?? '') as FundChartKind
@@ -155,10 +165,10 @@ export async function fundChart(
   const chart = buildFundChart(kind, preview, options, (settings?.data?.theme as any)?.accent ?? null)
   if (chart.empty) return fail(400, chart.empty)
   if (!input.save) return done({ chart })
-  if (!render) return fail(500, 'No renderer for the chart.')
-  const png = await render(chart.svg, { width: chart.width, height: chart.height })
-  const added = await addChart(admin, ctx, letterId, {
-    bytes: new Uint8Array(png),
+  // Stored as the SVG it was drawn as, which needs no browser here: the PDF shows it as it is, and
+  // the Word export turns it into a PNG (export-letter.ts). Only drawings made here are ever SVG.
+  const added = await storeChart(admin, ctx, letterId, letter, {
+    bytes: new TextEncoder().encode(chart.svg), type: 'image/svg+xml', size: { width: chart.width, height: chart.height },
     caption: typeof input.caption === 'string' && input.caption.trim() ? input.caption : chart.caption,
     sectionId: input.sectionId,
     generated: { kind, as_of: preview.asOf ?? null, options: { ...options } },

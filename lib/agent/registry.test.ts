@@ -67,7 +67,7 @@ describe('agent tool registry', () => {
     expect(writable.map(t => t.name).sort()).toEqual([
       'issue_capital_call', 'lp_add_document', 'lp_announce', 'lp_authorized_user_add', 'lp_authorized_user_remove',
       'lp_change_request_decide', 'lp_correct_commitment', 'lp_create_entity', 'lp_create_investor', 'lp_create_letter', 'lp_delete_commitment',
-      'lp_delete_entity', 'lp_delete_investor', 'lp_document_upload_url', 'lp_draft_letter', 'lp_import_letter', 'lp_letter_profile_save', 'lp_merge_investors',
+      'lp_delete_entity', 'lp_delete_investor', 'lp_document_upload_url', 'lp_draft_letter', 'lp_import_letter', 'lp_letter_add_chart', 'lp_letter_profile_save', 'lp_merge_investors',
       'lp_portal_account_status', 'lp_portal_invite', 'lp_portal_invite_bulk', 'lp_portal_resend_invite', 'lp_portal_settings',
       'lp_portal_unlink', 'lp_proposed_call_approve', 'lp_proposed_call_discard', 'lp_proposed_call_propose',
       'lp_proposed_call_revise', 'lp_record_commitment', 'lp_send_item', 'lp_share_letter', 'lp_update_entity',

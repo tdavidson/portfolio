@@ -128,6 +128,57 @@ export const LETTER_TOOL_MANIFEST: AgentToolMeta[] = [
     },
   },
   {
+    name: 'lp_letter_chart',
+    description:
+      "Draw a fund-performance chart from an LP letter's own figures (its entity's portfolio as of the quarter), without adding it: " +
+      'returns the chart as SVG and its suggested caption, to check before lp_letter_add_chart.',
+    scope: 'read',
+    ...base,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        letter_id: LETTER,
+        kind: {
+          type: 'string', enum: ['value_by_company', 'multiple_by_company', 'value_bridge', 'capital_net'],
+          description: 'value_by_company: value (realized + fair value) against cost, gross. multiple_by_company: gross multiple, with 1.0x marked. ' +
+            'value_bridge: invested, realized and remaining value, gross. capital_net: paid-in, distributed and remaining value with DPI, RVPI and TVPI, net.',
+        },
+        color: { type: 'string', enum: ['series', 'accent', 'ink'], description: "series: blue (default); accent: the fund's theme accent; ink: grey, for print." },
+        limit: { type: 'number', description: 'Companies to show, largest first. Default all.' },
+        active_only: { type: 'boolean', description: 'Leave out exited and written-off companies.' },
+        sort: { type: 'string', enum: ['value', 'name'] },
+      },
+      required: ['letter_id', 'kind'],
+    },
+  },
+  {
+    name: 'lp_letter_add_chart',
+    description:
+      "Add a fund-performance chart to a draft LP letter, drawn from the letter's own figures as of the quarter (see lp_letter_chart), " +
+      'after the section you name or at the end. It is stored as drawn, with a dated caption, and appears on the letter page, in the PDF ' +
+      'and in the Word file; it does not change if the books do. Refused on a final letter.',
+    scope: 'write',
+    ...base,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        letter_id: LETTER,
+        kind: {
+          type: 'string', enum: ['value_by_company', 'multiple_by_company', 'value_bridge', 'capital_net'],
+          description: 'value_by_company: value (realized + fair value) against cost, gross. multiple_by_company: gross multiple, with 1.0x marked. ' +
+            'value_bridge: invested, realized and remaining value, gross. capital_net: paid-in, distributed and remaining value with DPI, RVPI and TVPI, net.',
+        },
+        color: { type: 'string', enum: ['series', 'accent', 'ink'], description: "series: blue (default); accent: the fund's theme accent; ink: grey, for print." },
+        limit: { type: 'number', description: 'Companies to show, largest first. Default all.' },
+        active_only: { type: 'boolean', description: 'Leave out exited and written-off companies.' },
+        sort: { type: 'string', enum: ['value', 'name'] },
+        section_id: { type: 'string', description: 'The section it follows, from lp_letter. Default: the end of the letter.' },
+        caption: { type: 'string', description: 'Default: the suggested caption, which states the basis and the date.' },
+      },
+      required: ['letter_id', 'kind'],
+    },
+  },
+  {
     name: 'lp_create_letter',
     description: 'Start a draft LP letter for an entity and quarter. Then write it with lp_write_letter, or generate it on the LP Letters page.',
     scope: 'write',

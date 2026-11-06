@@ -701,7 +701,7 @@ export function buildDocumentLetterHtml(opts: {
       } else {
         const src = charts.get(b.chart.id)
         // Only an image data URI reaches the src attribute.
-        if (!src || !/^data:image\/(png|jpeg);base64,[A-Za-z0-9+/]+=*$/.test(src)) continue
+        if (!src || !/^data:image\/(png|jpeg|svg\+xml);base64,[A-Za-z0-9+/]+=*$/.test(src)) continue
         parts.push(`<figure><img src="${src}" alt="${esc(b.chart.caption ?? 'Chart')}"/>${b.chart.caption ? `<figcaption>${esc(b.chart.caption)}</figcaption>` : ''}</figure>`)
       }
     }

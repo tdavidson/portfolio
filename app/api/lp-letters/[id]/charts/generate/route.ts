@@ -5,7 +5,6 @@ import { assertWriteAccess } from '@/lib/api-helpers'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 import { outcomeResponse } from '@/lib/service-outcome'
 import { fundChart } from '@/lib/lp-letters/charts'
-import { renderSvgToPng } from '@/lib/lp-report-pdf'
 import { rateLimit } from '@/lib/rate-limit'
 
 export const maxDuration = 60
@@ -30,7 +29,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const ctx = { fundId: writeCheck.fundId, userId: user.id, visible: scope ? scope.vehicleNames : [] as string[] }
   const out = await fundChart(admin, ctx, params.id, {
     kind: body?.kind, options: body?.options, sectionId: body?.section_id, caption: body?.caption, save: body?.save === true,
-  }, renderSvgToPng)
+  })
   return outcomeResponse(out, v => ({
     svg: v.chart.svg, width: v.chart.width, height: v.chart.height, caption: v.chart.caption,
     ...(v.charts ? { charts: v.charts } : {}),

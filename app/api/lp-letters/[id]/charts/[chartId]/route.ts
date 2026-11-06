@@ -30,6 +30,8 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
       // Immutable: the path is the image's hash, and the id never points at another image.
       'Cache-Control': 'private, max-age=31536000, immutable',
       'X-Content-Type-Options': 'nosniff',
+      // A drawn chart is SVG: opened on its own it may not run or fetch anything.
+      'Content-Security-Policy': "default-src 'none'; style-src 'unsafe-inline'; sandbox",
     },
   })
 }

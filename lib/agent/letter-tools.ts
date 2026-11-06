@@ -18,6 +18,7 @@ import { loadProfile, saveProfile } from '@/lib/lp-letters/profile-store'
 // The pure document only: the PDF renderer (export-letter.ts) stays out of the MCP routes' bundle.
 import { documentJson, documentMarkdown, hasStructuredContent, letterDocument } from '@/lib/lp-letters/document'
 import { investorText } from '@/lib/lp-letters/internal'
+import { fundChart } from '@/lib/lp-letters/charts'
 import { requireUser } from './deals-tools'
 import { resolveInvestor } from './lp-record-tools'
 
@@ -167,6 +168,23 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
       return { ...link, text: hasStructuredContent(l) ? documentMarkdown(doc) : investorText(l.full_draft) }
     }
     return link
+  },
+
+  lp_letter_chart: async (ctx: AgentToolContext, input: any) => {
+    const userId = requireUser(ctx.userId)
+    const out = unwrap(await fundChart(ctx.admin, { fundId: ctx.fundId, userId, visible: await visible(ctx) }, String(input?.letter_id ?? ''), {
+      kind: input?.kind, options: input, save: false,
+    }))
+    return { kind: out.chart.kind, caption: out.chart.caption, svg: out.chart.svg, next: 'Add it with lp_letter_add_chart.' }
+  },
+
+  lp_letter_add_chart: async (ctx: AgentToolContext, input: any) => {
+    const userId = requireUser(ctx.userId)
+    const out = unwrap(await fundChart(ctx.admin, { fundId: ctx.fundId, userId, visible: await visible(ctx) }, String(input?.letter_id ?? ''), {
+      kind: input?.kind, options: input, sectionId: input?.section_id, caption: input?.caption, save: true,
+    }))
+    const added = out.charts?.[out.charts.length - 1]
+    return { chart_id: added?.id, caption: added?.caption, section_id: added?.section_id ?? null, charts: out.charts?.length ?? 0 }
   },
 
   lp_create_letter: async (ctx: AgentToolContext, input: any) => {
