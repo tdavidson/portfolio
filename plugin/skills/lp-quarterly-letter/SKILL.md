@@ -2,7 +2,7 @@
 name: lp-quarterly-letter
 description: Draft a fund's quarterly or year-end investor letter in the fund's own structure and voice, using Hemrock Portfolio data over MCP, and save it as an unshared draft for review.
 metadata:
-  version: "2.4.0"
+  version: "2.5.0"
 ---
 
 # Quarterly investor letter
@@ -19,6 +19,7 @@ The connector may be installed under another name, often the firm's. The tools a
 - **The entity's letter profile**: its fixed facts (names, the firm, stage, signatories, company display names and former names, footnotes, fixed paragraphs), from `lp_letter_profile_get` and in the brief as `profile`.
 - **The last letter sent**: the entity's most recent final letter in Hemrock, in the brief as `last_final_letter`, for fixed text and continuity.
 - **Partner notes**: their view of the market and the quarter, valuation decisions, new investment terms, events after quarter end, and anything to stress or leave out. Ask once at the start. If no one is there to answer, leave marked placeholders. Pass them to `lp_letter_brief` and `lp_draft_letter` as `partner_notes`, and any document they give you (a market report, a board deck) as `sources`, so they are kept with the letter and checked like the other sources.
+- **Fund performance figures**: in the brief's `fund_figures`, each with its source and as-of date. Gross IRR and gross MOIC are Hemrock's performance report figures for the total portfolio. Net figures (TVPI, DPI, IRR) are the fund administrator's, as recorded in Hemrock; Hemrock never computes them. All are as of the quarter end, whether or not the quarter is closed. When a net figure is missing, read it from the administrator (through its connector, if the session has one) as of the quarter end, show the person, and record it with `record_fund_figures` before drafting; the entity's letter profile may hold the administrator's id for the fund (`external_ids`).
 
 ## Fund profile
 
@@ -62,7 +63,7 @@ Use the fund's structure (`references/structure.md` from `lp_letter_skill`) when
 - **Opening**: a greeting and one sentence placing the fund at the quarter end, from the brief's figures.
 - **Market commentary**: the partners' own section. Write it only from their notes and from data the person provides, citing it by name. Otherwise leave a placeholder.
 - **Year in review**: in a year-end letter, the partners' view of the year, from their notes.
-- **Fund performance**: the brief's fund metrics as a table, keeping each one's gross or net basis from the brief, with the fund's fixed definitions copied from the last final letter.
+- **Fund performance**: a table of the brief's `fund_figures` exactly as given, each with its gross or net basis. Gross and net figures come from different systems that calculate returns differently, so never reconcile them, swap one for the other, or flag the difference. If a figure is missing, leave a placeholder and list it as missing; never work it out from other figures. Copy the fund's fixed definitions from the last final letter.
 - **Valuation changes**: when marks moved, which positions changed and why, in the terms of the fund's valuation policy.
 - **Portfolio summary**: a table of the companies with their status and the figures the fund shows.
 - **New investments**: each investment closed in the quarter: the company, the founders and the terms, from the company's `new_investments` in the brief (the round terms stored in Hemrock), partner notes or deal documents only. When the partners give terms Hemrock lacks, offer to store them with `set_round_terms`.
@@ -79,6 +80,7 @@ Hemrock's copy is plain text with one mark: each section opens with a "## " line
 - **Figures only**: a sentence or two stating them plainly, then the figures.
 - **An event only** (a financing, markdown, write-off or exit): the event first, then the fund's resulting position.
 - **Nothing new**: one sentence that says so. Do not repeat last quarter's figures or pad it.
+- **Events in the brief** are stated in the company's own section, in plain terms (markdown, down round, write-off, exit), even when another section, such as valuation changes, already mentions them.
 
 Treat `stored_business_update` in the brief as undated background that may be old. Never present it as news, never repeat its plans or forecasts once their dates have passed, and use it at most for the company's description.
 
@@ -93,7 +95,7 @@ These hold whatever the voice says.
 - Use only figures from the brief, the updates read with `get_updates` and partner notes.
 - For a change, use the change the source reports, or give both values ("$900K, down from $1.1M in Q2"). Never compute a growth rate, burn, runway or total yourself.
 - Keep the reported currency.
-- Keep each fund metric's gross or net basis from the brief.
+- Keep each fund metric's gross or net basis from the brief, and state it as the brief gives it.
 
 **Confidentiality**
 - Never name or describe an investor in the fund. The brief already leaves them out.
@@ -105,7 +107,7 @@ These hold whatever the voice says.
 - [ ] The sections, their order, the fixed paragraphs and the signatories match the fund's structure and the last final letter.
 - [ ] Each number can be found in the brief, an update or the partner notes, matching in value and period.
 - [ ] Nothing derived: no growth rates, burn, runway or sums you worked out.
-- [ ] Each fund metric keeps the brief's gross or net basis, and any gap is listed as missing.
+- [ ] The performance table shows `fund_figures` exactly as given, as of the quarter end, each with its basis; nothing recomputed or swapped; any gap is a placeholder listed as missing.
 - [ ] Each event in the brief is named for what it is: a markdown, down round, write-off or exit.
 - [ ] Stored background text is never passed off as news from the quarter.
 - [ ] No other fund's positions or expectations appear.

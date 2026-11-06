@@ -64,7 +64,8 @@ export const CREDIT_FACILITY_TOOL_MANIFEST: AgentToolMeta[] = [
       'net and gross IRR and multiple, with and without the subscription facility; gross IRR and MOIC of the realized, ' +
       'unrealized and total portfolio; and every cash flow of the fee-paying limited partners typed by ILPA transaction ' +
       'type, with notes on what was assumed. Writes nothing. The same data downloads as a spreadsheet from the fund ' +
-      'performance page.',
+      "performance page. Its net returns are the fee-paying partners' only: an investor letter's net figures are the " +
+      "administrator's, recorded with record_fund_figures; its gross portfolio IRR and MOIC are the letter brief's gross figures.",
     scope: 'read',
     accessDomain: 'accounting',
     inputSchema: { type: 'object', properties: { asOf: { type: 'string', description: 'YYYY-MM-DD. Default: the last quarter end.' } } },

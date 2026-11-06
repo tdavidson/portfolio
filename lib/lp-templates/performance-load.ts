@@ -34,7 +34,7 @@ import { txnsForVehicle } from '@/lib/accounting/soi'
 import { computeSummary } from '@/lib/investments'
 import type { InvestmentTransaction, CompanyStatus } from '@/lib/types/database'
 import { facilitiesWithStatus, loadFacilityRegister, type DrawPurpose, type FacilityWithStatus } from '@/lib/accounting/credit-facility'
-import { buildIlpaPerformance, portfolioPerformance, type IlpaPerformance, type PerformanceFlow, type PortfolioHolding } from './performance'
+import { buildIlpaPerformance, portfolioPerformance, type IlpaPerformance, type PerformanceFlow, type PortfolioHolding, type PortfolioPerformance } from './performance'
 import { ILPA_PERFORMANCE_ATTRIBUTION, type PerformanceType } from './performance-types'
 
 const DRAWDOWN_TYPE: Record<DrawPurpose, PerformanceType> = {
@@ -239,6 +239,51 @@ export function typedPerformanceFlows(x: FlowInputs): TypedFlows {
   }
 }
 
+/**
+ * The vehicle's holdings as of a date, from the investment tracker: what the performance report's
+ * gross portfolio returns are computed on. The investor letter's brief takes its gross IRR and MOIC
+ * from the same holdings (loadPortfolioPerformance), so the two always state the same figure.
+ */
+export function portfolioHoldings(
+  txns: InvestmentTransaction[], companies: { id: string; status: string | null }[], group: string, asOf: string,
+): PortfolioHolding[] {
+  const byCompany = new Map<string, InvestmentTransaction[]>()
+  for (const t of txns) {
+    if (!byCompany.has(t.company_id)) byCompany.set(t.company_id, [])
+    byCompany.get(t.company_id)!.push(t)
+  }
+  const asOfDate = new Date(`${asOf}T00:00:00Z`)
+  const holdings: PortfolioHolding[] = []
+  for (const c of companies) {
+    const relevant = txnsForVehicle(byCompany.get(c.id) ?? [], group).filter(t => !t.transaction_date || t.transaction_date <= asOf)
+    if (!relevant.some(t => t.transaction_type === 'investment' && t.portfolio_group === group)) continue
+    const status = (c.status ?? 'active') as CompanyStatus
+    const s = computeSummary(relevant, status, asOfDate)
+    const hFlows: { date: string; amount: number }[] = []
+    for (const t of relevant) {
+      if (!t.transaction_date) continue
+      if (t.transaction_type === 'investment' && t.investment_cost) hFlows.push({ date: t.transaction_date, amount: -t.investment_cost })
+      else if (t.transaction_type === 'proceeds' && t.proceeds_received) hFlows.push({ date: t.transaction_date, amount: t.proceeds_received })
+    }
+    const realized = status !== 'active'
+    holdings.push({ realized, invested: s.totalInvested, proceeds: s.totalRealized, value: realized ? 0 : s.unrealizedValue, flows: hFlows })
+  }
+  return holdings
+}
+
+/** The performance report's gross portfolio returns for a vehicle, as of a date, alone. */
+export async function loadPortfolioPerformance(
+  admin: SupabaseClient, fundId: string, group: string, asOf: string,
+): Promise<PortfolioPerformance | null> {
+  const [txnRows, companyRows] = await Promise.all([
+    admin.from('investment_transactions' as any).select('*').eq('fund_id', fundId),
+    admin.from('companies' as any).select('id, status').eq('fund_id', fundId),
+  ])
+  if ((txnRows as any)?.error || (companyRows as any)?.error) return null
+  const holdings = portfolioHoldings((((txnRows as any)?.data as InvestmentTransaction[]) ?? []), (((companyRows as any)?.data as any[]) ?? []), group, asOf)
+  return holdings.length ? portfolioPerformance(holdings, asOf) : null
+}
+
 export async function loadIlpaPerformance(
   admin: SupabaseClient,
   fundId: string,
@@ -281,33 +326,15 @@ export async function loadIlpaPerformance(
   })
 
   // ── Portfolio ─────────────────────────────────────────────────────────────
-  const txns = (((txnRows as any)?.data as InvestmentTransaction[]) ?? [])
-  const byCompany = new Map<string, InvestmentTransaction[]>()
-  for (const t of txns) {
-    if (!byCompany.has(t.company_id)) byCompany.set(t.company_id, [])
-    byCompany.get(t.company_id)!.push(t)
-  }
-  const asOfDate = new Date(`${asOf}T00:00:00Z`)
-  const holdings: PortfolioHolding[] = []
-  for (const c of (((companyRows as any)?.data as any[]) ?? [])) {
-    const relevant = txnsForVehicle(byCompany.get(c.id) ?? [], group).filter(t => !t.transaction_date || t.transaction_date <= asOf)
-    if (!relevant.some(t => t.transaction_type === 'investment' && t.portfolio_group === group)) continue
-    const status = (c.status ?? 'active') as CompanyStatus
-    const s = computeSummary(relevant, status, asOfDate)
-    const hFlows: { date: string; amount: number }[] = []
-    for (const t of relevant) {
-      if (!t.transaction_date) continue
-      if (t.transaction_type === 'investment' && t.investment_cost) hFlows.push({ date: t.transaction_date, amount: -t.investment_cost })
-      else if (t.transaction_type === 'proceeds' && t.proceeds_received) hFlows.push({ date: t.transaction_date, amount: t.proceeds_received })
-    }
-    const realized = status !== 'active'
-    holdings.push({ realized, invested: s.totalInvested, proceeds: s.totalRealized, value: realized ? 0 : s.unrealizedValue, flows: hFlows })
-  }
+  const holdings = portfolioHoldings(
+    (((txnRows as any)?.data as InvestmentTransaction[]) ?? []), (((companyRows as any)?.data as any[]) ?? []), group, asOf,
+  )
 
   // ── Notes ─────────────────────────────────────────────────────────────────
   const footnotes: string[] = [
     `Cash flows are the fee-paying limited partners' share of the fund: ${t.included} partner${t.included === 1 ? '' : 's'} with ${money(t.feePayingCommitment, currency)} of ${money(t.totalCommitment, currency)} committed. The general partner and partners who do not bear the management fee are excluded.`,
     "Net asset value is the fee-paying partners' capital on the books at the date, after accrued carried interest. The gross returns add back carried interest paid and accrued.",
+    "The net returns here are the fee-paying limited partners' only, so they can differ from the fund's net figures as the fund administrator reports them, which are what investor letters state.",
   ]
   if (t.untyped > 0.005) {
     footnotes.push(`${money(t.untyped, currency)} of contributions came from calls that do not say what they were for (or from entries outside a call), so they are shown as Capital Call: Investments. Add purposes to those calls to type them.`)

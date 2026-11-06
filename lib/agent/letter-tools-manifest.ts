@@ -290,6 +290,11 @@ export const LETTER_TOOL_MANIFEST: AgentToolMeta[] = [
         footnotes: { type: 'string' },
         parties: { type: 'string' },
         fixed_text: { type: 'array', items: { type: 'object', properties: { heading: { type: 'string' }, text: { type: 'string' } }, required: ['heading', 'text'] } },
+        external_ids: {
+          type: 'array',
+          description: "The entity's id in another system, such as its fund administrator's, so its figures are read from the right fund there.",
+          items: { type: 'object', properties: { system: { type: 'string' }, id: { type: 'string' } }, required: ['system', 'id'] },
+        },
         template: { type: 'string', description: "The fund's letter template (name) this entity's letters use." },
       },
     },
