@@ -286,6 +286,24 @@ export const PORTFOLIO_TOOL_MANIFEST: AgentToolMeta[] = [
     inputSchema: { type: 'object', properties: { job_id: { type: 'string', description: 'The job id a tool returned (its job.id).' } }, required: ['job_id'] },
   },
   {
+    name: 'reprocess_company_update',
+    description:
+      'Run the update pipeline again on a saved company update, as the Emails page\'s Reprocess button does: after a file was ' +
+      'added to it with add_email_attachment, after a failure, or when the company\'s details or KPIs should be read again. ' +
+      'The KPIs and review items the last run recorded from it are replaced; the company it is filed under is kept. Pass ' +
+      'the update: its source_email_id from get_updates, or the job id submit_company_update returned. Returns what was ' +
+      'recorded and what needs review, or a job to check with company_update_status if it takes longer.',
+    scope: 'write',
+    domain: 'portfolio',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        update: { type: 'string', description: 'The saved update: source_email_id from get_updates, its update id, or a company_update job id.' },
+      },
+      required: ['update'],
+    },
+  },
+  {
     name: 'review_queue',
     description:
       'The open review queue: figures the update pipeline was unsure of (low confidence, a duplicate or ambiguous period, a new ' +

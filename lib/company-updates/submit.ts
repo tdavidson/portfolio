@@ -8,7 +8,7 @@
  * The pipeline is keyed to an `inbound_emails` row, so this writes one, the way the manual deal form
  * does (app/api/deals/manual): routed to reporting, from the person who submitted it, with the files
  * scanned and stored as attachments. It then shows on the Emails page beside mailed updates, where it
- * can be reprocessed or rerouted like any other.
+ * can be reprocessed or rerouted like any other (from a chat, with reprocess_company_update).
  *
  * From a connected chat the call is staged, and runs when someone approves it (lib/agent/dispatch.ts).
  *
@@ -21,7 +21,8 @@ import type { AccessContext } from '@/lib/access/effective'
 import { scanFileAsync } from '@/lib/security/scan-file'
 import { runPipeline, type PostmarkPayload } from '@/lib/pipeline/processEmail'
 import { sanitizeFilename, fileExt } from '@/lib/deals/submission-validation'
-import { jobHandle, type JobHandle } from '@/lib/agent/jobs'
+import { jobHandle, jobRecordId, type JobHandle } from '@/lib/agent/jobs'
+import { resetForReprocess, runReprocess } from '@/lib/pipeline/reprocess'
 import { readStagedUploads, removeStaged } from '@/lib/uploads/signed-upload'
 import { after } from 'next/server'
 
@@ -192,7 +193,7 @@ export async function submitCompanyUpdate(deps: Deps, input: SubmitUpdateInput):
       const message = e instanceof Error ? e.message : String(e)
       console.error('[submit_company_update] pipeline failed:', e)
       await db.from('inbound_emails').update({ processing_status: 'failed', processing_error: message.slice(0, 500) }).eq('id', emailId)
-      warnings.push('Processing failed. It is saved on the Emails page, where it can be reprocessed.')
+      warnings.push('Processing failed. It is saved on the Emails page; reprocess it with reprocess_company_update once the cause is fixed.')
       return true
     })
   let timer: ReturnType<typeof setTimeout> | undefined
@@ -233,6 +234,71 @@ export async function companyUpdateStatus(admin: SupabaseClient, fundId: string,
     ...result, warnings: await pipelineWarnings(admin, emailId),
     url: `${(origin ?? '').replace(/\/$/, '')}/emails/${emailId}`, job: jobHandle('company_update', emailId, result.status),
   }
+}
+
+/**
+ * Finds a saved update a caller may reprocess, by the job id submit_company_update returned, the
+ * email's id (source_email_id from get_updates), or the update's own id from get_updates. Only one
+ * this fund received, routed to reporting, and about a company the caller can see (an unmatched one
+ * only for a caller who sees every company).
+ */
+export async function findSavedUpdate(admin: SupabaseClient, fundId: string, ref: unknown, visibleCompanyIds: string[] | null) {
+  const db = admin as any
+  const id = jobRecordId('company_update', ref)
+  const columns = 'id, fund_id, company_id, routed_to, raw_payload, processing_status, subject'
+  let { data: email } = await db.from('inbound_emails').select(columns).eq('id', id).eq('fund_id', fundId).maybeSingle()
+  if (!email) {
+    const { data: update } = await db.from('company_updates').select('source_email_id').eq('id', id).eq('fund_id', fundId).maybeSingle()
+    if (update?.source_email_id) {
+      ({ data: email } = await db.from('inbound_emails').select(columns).eq('id', update.source_email_id).eq('fund_id', fundId).maybeSingle())
+    }
+  }
+  const visible = !!email && (visibleCompanyIds === null || (!!email.company_id && visibleCompanyIds.includes(email.company_id)))
+  if (!visible || email.routed_to !== 'reporting') {
+    throw new Error('No saved company update with that id. get_updates lists them (pass its source_email_id), or pass the job id submit_company_update returned.')
+  }
+  return email as { id: string; fund_id: string; company_id: string | null; routed_to: string; raw_payload: unknown; processing_status: string | null; subject: string | null }
+}
+
+/**
+ * `reprocess_company_update`: runs the pipeline again on a saved update, as the Emails page's
+ * Reprocess button does (lib/pipeline/reprocess.ts). The KPIs and review items the last run wrote
+ * are replaced; the company it is filed under is kept. A file added with add_email_attachment is
+ * read this time. Like submit_company_update, a long run comes back as a job.
+ */
+export async function reprocessCompanyUpdate(
+  deps: { admin: SupabaseClient; fundId: string; visibleCompanyIds: string[] | null; origin?: string; budgetMs?: number },
+  input: { update?: unknown },
+): Promise<SubmitUpdateResult> {
+  const { admin, fundId } = deps
+  const email = await findSavedUpdate(admin, fundId, input?.update, deps.visibleCompanyIds)
+  if (email.processing_status === 'processing') {
+    throw new Error('That update is still processing. Check it with company_update_status before reprocessing.')
+  }
+  if (!email.raw_payload) throw new Error('That update has nothing stored to reprocess.')
+  await resetForReprocess(admin, email)
+
+  const run = runReprocess(admin, email).then(() => true)
+  let timer: ReturnType<typeof setTimeout> | undefined
+  const finished = await Promise.race([run, new Promise<false>(r => { timer = setTimeout(() => r(false), deps.budgetMs ?? PIPELINE_BUDGET_MS) })])
+  clearTimeout(timer)
+  const url = `${(deps.origin ?? '').replace(/\/$/, '')}/emails/${email.id}`
+  if (!finished) {
+    keepAlive(run)
+    return {
+      emailId: email.id, status: 'processing', company: null, metricsRecorded: [], needsReview: [], warnings: [], url,
+      job: jobHandle('company_update', email.id, 'processing'),
+    }
+  }
+  const result = await outcome(admin, email.id)
+  if (result.status === 'pending') {
+    return {
+      ...result, url, job: jobHandle('company_update', email.id, result.status),
+      warnings: ['Saved but not read: this fund has no server AI key. Read it with inbox_read, record each figure with ' +
+        'record_metric_value, then call inbox_done with this emailId and the company.'],
+    }
+  }
+  return { ...result, warnings: await pipelineWarnings(admin, email.id), url, job: jobHandle('company_update', email.id, result.status) }
 }
 
 /** What the pipeline did with it, read back from what it wrote. */

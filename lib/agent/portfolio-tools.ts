@@ -19,7 +19,8 @@ import { filterByCompany, groupWriteDenial, scopeCompanyRows, scopeGroups, scope
 import { validateConversionLink } from '@/lib/accounting/conversion-link'
 import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
 import { fetchAllRows, latestInvestmentRows } from '@/lib/accounting/load'
-import { companyUpdateStatus, submitCompanyUpdate } from '@/lib/company-updates/submit'
+import { companyUpdateStatus, reprocessCompanyUpdate, submitCompanyUpdate } from '@/lib/company-updates/submit'
+import { rateLimit } from '@/lib/rate-limit'
 import { jobRecordId } from './jobs'
 import { writeMetricValue } from '@/lib/pending-actions/metric-value'
 import { parseMetricPeriod } from '@/lib/metrics/period'
@@ -352,6 +353,14 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
 
   company_update_status: async ({ admin, fundId, access, origin }: AgentToolContext, input: any) =>
     companyUpdateStatus(admin, fundId, jobRecordId('company_update', String(input?.job_id ?? '')), await visibleCompanyIds(admin, access), origin),
+
+  reprocess_company_update: async ({ admin, fundId, userId, access, origin }: AgentToolContext, input: any) => {
+    // The same budget as the Emails page's Reprocess button: each run is a full AI read.
+    if (userId && await rateLimit({ key: `reprocess:${userId}`, limit: 10, windowSeconds: 300 })) {
+      throw new Error('Too many reprocessing runs in the last few minutes. Wait a little and try again.')
+    }
+    return reprocessCompanyUpdate({ admin, fundId, origin, visibleCompanyIds: await visibleCompanyIds(admin, access) }, input ?? {})
+  },
 
   record_metric_value: async ({ admin, fundId, userId, access }: AgentToolContext, input: any) => {
     const company = await resolveCompany(admin, fundId, String(input?.company ?? ''), access)

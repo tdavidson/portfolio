@@ -14,6 +14,8 @@
 
 import { describeSetupPlan, parseSetupPlan } from '@/lib/onboarding/setup-plan'
 import { resolveCompany } from './portfolio-tools'
+import { findSavedUpdate } from '@/lib/company-updates/submit'
+import { visibleCompanyIds } from '@/lib/access/scope'
 import { resolveInboundDeal } from './deals-tools'
 import { resolveDeal } from './diligence-tools'
 import { DESTRUCTIVE_PREVIEWS } from './destructive-tools'
@@ -105,6 +107,14 @@ async function resolveEntity(deps: ActionDeps, tool: AgentTool, input: Record<st
       return null
     }
   }
+  // Reprocessing a saved update: the stager's when the update is filed under a company they can see.
+  if (tool.name === 'reprocess_company_update') {
+    const email = await findSavedUpdate(deps.admin, deps.fundId, input.update, await visibleCompanyIds(deps.admin, deps.access))
+    if (email.company_id) {
+      await resolveCompany(deps.admin, deps.fundId, email.company_id, deps.access)
+      return null
+    }
+  }
   // A new company names the entities that will hold it; each must be the stager's.
   if (tool.name === 'create_company' && Array.isArray(input.vehicles) && input.vehicles.length > 0) {
     for (const v of input.vehicles) await resolveVehicleWithAccess(deps.admin, deps.access, String(v), 'read')
@@ -166,6 +176,15 @@ export async function previewToolCall(deps: ActionDeps, raw: unknown): Promise<P
         tool: tool.name, vehicle,
         input: { company: args.input.company ?? null, subject: args.input.subject ?? null, text: text.slice(0, 500), files },
       },
+    }
+  }
+  if (tool.name === 'reprocess_company_update') {
+    const email = await findSavedUpdate(deps.admin, deps.fundId, args.input.update, await visibleCompanyIds(deps.admin, deps.access))
+    const company = email.company_id ? await resolveCompany(deps.admin, deps.fundId, email.company_id, deps.access) : null
+    return {
+      summary: `Reprocess the update "${email.subject ?? 'Company update'}"${company?.name ? ` for ${company.name}` : ''}: ` +
+        'its KPIs and review items are read again and replace the last run\'s.',
+      details: { tool: tool.name, vehicle, input: { update: email.id, subject: email.subject, company: company?.name ?? null } },
     }
   }
   // A change to a company's record: each field from what it is now to what it would be.
