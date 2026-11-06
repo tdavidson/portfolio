@@ -6,7 +6,7 @@ import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 import { outcomeResponse } from '@/lib/service-outcome'
 import { getLetter, updateSection } from '@/lib/lp-letters/service'
 import { fromLetter } from '@/lib/lp-letters/content'
-import { loadLetterBrief, rewriteSection, templateForLetter } from '@/lib/lp-letters/draft-from-brief'
+import { briefForLetter, rewriteSection } from '@/lib/lp-letters/draft-from-brief'
 import { rateLimit } from '@/lib/rate-limit'
 
 export const maxDuration = 120
@@ -62,10 +62,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   }
 
   try {
-    const template = await templateForLetter(g.admin, g.fundId, letter.template_id)
-    const loaded = await loadLetterBrief(g.admin, g.fundId, {
-      vehicle: letter.portfolio_group, year: letter.period_year, quarter: letter.period_quarter, yearEnd: !!letter.is_year_end,
-    }, { template: template.id, guidance: letter.generation_prompt })
+    const loaded = await briefForLetter(g.admin, g.fundId, letter)
     const text = await rewriteSection(g.admin, g.fundId, g.user.id, loaded, content, sectionId, letter.generation_prompt, prompts[sectionId]?.prompt)
     if (!text) return NextResponse.json({ error: 'The AI returned nothing for this section. Try again.' }, { status: 502 })
     return outcomeResponse(await updateSection(g.admin, { fundId: g.fundId, userId: g.user.id, visible: g.visible }, params.id, sectionId, { body: text }))

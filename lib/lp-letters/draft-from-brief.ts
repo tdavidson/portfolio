@@ -22,7 +22,7 @@ import { createFundAIProvider } from '@/lib/ai'
 import { logAIUsage } from '@/lib/ai/usage'
 import {
   buildLetterBrief, quarterBounds, writerPrompt, sectionPrompt,
-  type LetterBrief, type StoredUpdate,
+  type LetterBrief, type LetterSourceDocument, type StoredUpdate,
 } from './brief'
 
 type Admin = SupabaseClient
@@ -130,8 +130,28 @@ export interface LoadedBrief {
   voice: LetterVoice
 }
 
+export interface BriefOptions {
+  template?: string | null
+  guidance?: string | null
+  partnerNotes?: string | null
+  sources?: LetterSourceDocument[]
+}
+
+/** A letter's added source documents, as stored (lp_letters.source_documents). */
+export interface StoredSourceDocument extends LetterSourceDocument {
+  id: string
+  added_at: string
+  added_by: string | null
+}
+
+export function storedSources(x: unknown): StoredSourceDocument[] {
+  return (Array.isArray(x) ? x : [])
+    .filter((d: any) => d && typeof d.name === 'string' && typeof d.text === 'string')
+    .map((d: any) => ({ id: String(d.id ?? d.name), name: d.name, text: d.text, added_at: String(d.added_at ?? ''), added_by: d.added_by ?? null }))
+}
+
 export async function loadLetterBrief(
-  admin: Admin, fundId: string, p: LetterPeriod, opts: { template?: string | null; guidance?: string | null } = {},
+  admin: Admin, fundId: string, p: LetterPeriod, opts: BriefOptions = {},
 ): Promise<LoadedBrief> {
   const template = await resolveTemplate(admin, fundId, opts.template)
   const voice = letterVoice(template)
@@ -143,8 +163,20 @@ export async function loadLetterBrief(
   ])
   const brief = buildLetterBrief({
     preview, year: p.year, quarter: p.quarter, updates, investorNames: names, voice, guidance: opts.guidance,
+    partnerNotes: opts.partnerNotes, sources: opts.sources,
   })
   return { brief, preview, investorNames: names, template, voice }
+}
+
+/** A stored letter's brief: its period, its template (or the fund's default), its guidance, notes and documents. */
+export async function briefForLetter(admin: Admin, fundId: string, letter: any): Promise<LoadedBrief> {
+  const template = await templateForLetter(admin, fundId, letter.template_id)
+  return loadLetterBrief(admin, fundId, {
+    vehicle: letter.portfolio_group, year: letter.period_year, quarter: letter.period_quarter, yearEnd: !!letter.is_year_end,
+  }, {
+    template: template.id, guidance: letter.generation_prompt, partnerNotes: letter.partner_notes ?? null,
+    sources: storedSources(letter.source_documents).map(d => ({ name: d.name, text: d.text })),
+  })
 }
 
 /** The fund's own AI provider writes the letter from the brief, in one call, in the layers of writerPrompt. */
@@ -207,12 +239,21 @@ export async function saveDraftLetter(
   admin: Admin, ctx: { fundId: string; userId: string; visible: string[] | null },
   p: LetterPeriod, text: string, loaded: Pick<LoadedBrief, 'preview' | 'template' | 'brief'>, guidance?: string | null,
   generatedBy: 'fund_ai' | 'assistant' = 'fund_ai',
+  given: { partnerNotes?: string | null; sources?: LetterSourceDocument[] } = {},
 ): Promise<Outcome<any>> {
   const created = await createLetter(admin, ctx, {
     period_year: p.year, period_quarter: p.quarter, portfolio_group: p.vehicle, is_year_end: !!p.yearEnd,
     template_id: loaded.template.id, generation_prompt: guidance?.trim() || null,
   })
   if (!created.ok) return created
+  // The notes and documents it was written from stay with the letter, for a rewrite or a review later.
+  if (given.partnerNotes?.trim() || given.sources?.length) {
+    const at = new Date().toISOString()
+    await (admin as any).from('lp_letters').update({
+      partner_notes: given.partnerNotes?.trim() || null,
+      source_documents: (given.sources ?? []).map((d, i) => ({ id: `src-${Date.now()}-${i}`, name: d.name, text: d.text, added_at: at, added_by: ctx.userId })),
+    }).eq('id', created.value.id).eq('fund_id', ctx.fundId)
+  }
   return writeDraftInto(admin, ctx, created.value.id, text, loaded, generatedBy)
 }
 

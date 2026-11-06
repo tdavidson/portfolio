@@ -21,6 +21,12 @@ const PERIOD = {
     year_end: { type: 'boolean', description: 'Also the year-end letter.' },
     template: { type: 'string', description: "The fund's letter template (name) that sets the structure and style. Default: the fund's default template." },
     guidance: { type: 'string', description: 'Extra guidance for this letter, e.g. what to open with. Kept with the letter.' },
+    partner_notes: { type: 'string', description: "The partners' own notes for this letter: facts and emphasis. A source like any other; kept with the letter." },
+    sources: {
+      type: 'array',
+      description: 'Documents to write from, as text (a market report, a board deck). Kept with the letter; never shown to investors.',
+      items: { type: 'object', properties: { name: { type: 'string' }, text: { type: 'string' } }, required: ['text'] },
+    },
   } as Record<string, any>,
   required: ['vehicle', 'year', 'quarter'],
 }

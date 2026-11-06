@@ -292,13 +292,13 @@ export function VoiceDialog({ open, onOpenChange, templates, setTemplates }: Pro
             </div>
             <div className="space-y-1.5">
               <Label htmlFor="edit-rules">House rules</Label>
-              <p className="text-xs text-muted-foreground">Standing instructions for every letter. They win over the voice and examples.</p>
+              <p className="text-xs text-muted-foreground">Standing instructions for every letter. They win over the voice and examples. A line starting &quot;Avoid:&quot; lists words the review flags wherever they appear.</p>
               <Textarea
                 id="edit-rules"
                 rows={5}
                 value={houseRules}
                 onChange={e => setHouseRules(e.target.value)}
-                placeholder={'Always state ARR to one decimal, e.g. $1.2M.\nSign every letter from both managing partners.\nNever mention a company\'s next round before it closes.'}
+                placeholder={'Always state ARR to one decimal, e.g. $1.2M.\nSign every letter from both managing partners.\nNever mention a company\'s next round before it closes.\nAvoid: synergy, best-in-class'}
               />
             </div>
             <div className="flex flex-wrap justify-between gap-3">

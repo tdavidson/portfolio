@@ -148,3 +148,49 @@ describe('redactor', () => {
     expect(clean('Ann and Annual plan')).toBe('[investor] and Annual plan')
   })
 })
+
+describe('the brief: dates, confidentiality, subsequent events and partner sources', () => {
+  const dated = company({ companyId: 'c4', companyName: 'Delta' }, {
+    latestUpdate: 'Delta signed its first two enterprise customers and is hiring a sales lead.',
+    latestUpdateAt: '2026-03-02T10:00:00Z',
+    afterQuarterEnd: [
+      { date: '2026-10-20', kind: 'investment', round: 'Series A', amount: 500_000, sharePrice: 2 },
+      { date: '2026-10-25', kind: 'mark', round: null, amount: -100_000, sharePrice: null },
+    ],
+  })
+  const secret = new Map<string, StoredUpdate[]>([
+    ['c4', [{ receivedAt: '2026-10-02T00:00:00Z', subject: 'Confidential: board pack', periodLabel: 'Q3 2026', text: 'Term sheet signed at a higher price.' }]],
+  ])
+  const p = preview([dated])
+  p.totals.grossIrr = 0.183
+  const b = buildLetterBrief({
+    preview: p, year: 2026, quarter: 3, updates: secret, voice: VOICE,
+    partnerNotes: 'Lead with the Delta round.', sources: [{ name: 'market.pdf', text: 'Seed valuations fell 10% in the quarter.' }],
+  })
+  const c = b.companies[0]
+
+  it('dates the stored update and marks it stale when it predates the quarter', () => {
+    expect(c).toMatchObject({ stored_business_update_at: '2026-03-02', stored_business_update_stale: true, letter_status: 'Active' })
+  })
+
+  it('marks an update its sender called confidential, and says how to treat it', () => {
+    expect(c.updates_this_quarter[0].confidential).toBe(true)
+    expect(b.instructions).toMatch(/marked confidential is background only/)
+  })
+
+  it('lists events after quarter end as dated subsequent events', () => {
+    expect(c.after_quarter_end).toEqual(['2026-10-20: the fund invested $500K (Series A).', '2026-10-25: marked down by $100K.'])
+  })
+
+  it('carries gross IRR as a gross figure, and the partners\' notes and documents as sources', () => {
+    expect(b.fund_figures).toContainEqual({ label: 'Portfolio IRR, gross', value: '18.3%', basis: 'gross' })
+    expect(b.partner_notes).toBe('Lead with the Delta round.')
+    expect(b.sources).toEqual([{ name: 'market.pdf', text: 'Seed valuations fell 10% in the quarter.' }])
+  })
+
+  it('names exits and write-offs the way a letter does, and lists a missing gross IRR', () => {
+    const q = buildLetterBrief({ preview: preview([company({ companyId: 'x', companyName: 'Exa', status: 'exited' }), cedar]), year: 2026, quarter: 3, updates: new Map(), voice: VOICE })
+    expect(q.companies.map(x => x.letter_status)).toEqual(['Acquired', 'Written Off'])
+    expect(q.missing_information.some(m => /Gross IRR/.test(m))).toBe(true)
+  })
+})

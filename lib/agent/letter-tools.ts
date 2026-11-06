@@ -9,10 +9,10 @@ import { unwrap } from '@/lib/service-outcome'
 import { reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
 import { siteOrigin } from '@/lib/site-links'
 import { createLetter, getLetter, letterData, listLetters, shareLetter, updateLetter, updateSection, writeLetterSections } from '@/lib/lp-letters/service'
-import { loadLetterBrief, resolveTemplate, saveDraftLetter, writeWithFundAI, type LetterPeriod } from '@/lib/lp-letters/draft-from-brief'
+import { briefForLetter, loadLetterBrief, resolveTemplate, saveDraftLetter, writeWithFundAI, type LetterPeriod } from '@/lib/lp-letters/draft-from-brief'
 import { LETTER_SKILL_MD, LETTER_SKILL_VERSION, letterVoice } from '@/lib/lp-letters/skill'
 import { fromLetter } from '@/lib/lp-letters/content'
-import { reviewLetter } from '@/lib/lp-letters/review'
+import { avoidTerms, reviewLetter } from '@/lib/lp-letters/review'
 import { rateLimit } from '@/lib/rate-limit'
 import { requireUser } from './deals-tools'
 import { resolveInvestor } from './lp-record-tools'
@@ -42,6 +42,11 @@ async function periodOf(ctx: AgentToolContext, input: any): Promise<LetterPeriod
 const briefOpts = (input: any) => ({
   template: typeof input?.template === 'string' ? input.template : null,
   guidance: typeof input?.guidance === 'string' ? input.guidance.slice(0, 4000) : null,
+  partnerNotes: typeof input?.partner_notes === 'string' ? input.partner_notes.slice(0, 6000) : null,
+  sources: (Array.isArray(input?.sources) ? input.sources : [])
+    .filter((d: any) => d && typeof d.text === 'string' && d.text.trim())
+    .slice(0, 10)
+    .map((d: any, i: number) => ({ name: String(d.name ?? `Source ${i + 1}`).slice(0, 200), text: String(d.text).slice(0, 50_000) })),
 })
 
 const summary = (l: any) => ({
@@ -117,6 +122,7 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
     if (!text) throw new Error('The draft came back empty. Try again, or write it from lp_letter_brief and pass text.')
     const row = unwrap(await saveDraftLetter(
       ctx.admin, { fundId: ctx.fundId, userId, visible: await visible(ctx) }, p, text, loaded, opts.guidance, given ? 'assistant' : 'fund_ai',
+      { partnerNotes: opts.partnerNotes, sources: opts.sources },
     ))
     return {
       letter: summary(row),
@@ -124,7 +130,7 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
       written_by: given ? 'assistant' : 'fund AI',
       draft: text,
       sections: fromLetter(row).sections.map(s => ({ section_id: s.id, heading: s.heading })),
-      review_flags: reviewLetter(fromLetter(row), brief, investorNames, row.internal_notes),
+      review_flags: reviewLetter(fromLetter(row), brief, investorNames, row.internal_notes, { avoid: avoidTerms(loaded.voice.houseRules) }),
       missing_information: brief.missing_information,
       next:
         'This is a new, unshared draft. Show the user the draft and every review flag. Its "Missing information" section is ' +
@@ -195,13 +201,11 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
     // Text written from chat is reviewed against the letter's sources, as a drafted letter is.
     let review_flags: unknown[] | undefined
     if (fullDraft !== undefined || sections) {
-      const { brief, investorNames } = await loadLetterBrief(ctx.admin, ctx.fundId, {
-        vehicle: row.portfolio_group, year: row.period_year, quarter: row.period_quarter, yearEnd: !!row.is_year_end,
-      }, { template: row.template_id ?? null })
+      const { brief, investorNames, voice } = await briefForLetter(ctx.admin, ctx.fundId, row)
       const touched = new Set(fromLetter(row).sections
         .filter(s => fullDraft !== undefined || sections!.some((x: any) => x?.section_id === s.id || (x?.company_id && x.company_id === s.company_id)))
         .map(s => s.id))
-      review_flags = reviewLetter(fromLetter(row), brief, investorNames, row.internal_notes)
+      review_flags = reviewLetter(fromLetter(row), brief, investorNames, row.internal_notes, { avoid: avoidTerms(voice.houseRules) })
         .filter(f => fullDraft !== undefined || (f.section_id !== null && touched.has(f.section_id)))
     }
     return { letter: summary(row), sections_written: sections?.length ?? 0, ...(review_flags ? { review_flags } : {}) }

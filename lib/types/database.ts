@@ -221,6 +221,7 @@ export type Database = {
           contact_email: string[] | null
           created_at: string | null
           current_update: string | null
+          current_update_at: string | null
           founded_year: number | null
           founders: string | null
           fund_id: string
@@ -243,6 +244,7 @@ export type Database = {
           contact_email?: string[] | null
           created_at?: string | null
           current_update?: string | null
+          current_update_at?: string | null
           founded_year?: number | null
           founders?: string | null
           fund_id: string
@@ -265,6 +267,7 @@ export type Database = {
           contact_email?: string[] | null
           created_at?: string | null
           current_update?: string | null
+          current_update_at?: string | null
           founded_year?: number | null
           founders?: string | null
           fund_id?: string
@@ -2727,6 +2730,8 @@ export type Database = {
           full_draft: string | null
           generated_by: string | null
           internal_notes: string | null
+          partner_notes: string | null
+          source_documents: Json
           skill_version: string | null
           source: string | null
           vehicle_id: string | null
@@ -2754,6 +2759,8 @@ export type Database = {
           full_draft?: string | null
           generated_by?: string | null
           internal_notes?: string | null
+          partner_notes?: string | null
+          source_documents?: Json
           skill_version?: string | null
           source?: string | null
           vehicle_id?: string | null
@@ -2781,6 +2788,8 @@ export type Database = {
           full_draft?: string | null
           generated_by?: string | null
           internal_notes?: string | null
+          partner_notes?: string | null
+          source_documents?: Json
           skill_version?: string | null
           source?: string | null
           vehicle_id?: string | null

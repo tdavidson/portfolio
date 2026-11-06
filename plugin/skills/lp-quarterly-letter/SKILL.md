@@ -2,7 +2,7 @@
 name: lp-quarterly-letter
 description: Draft a fund's quarterly or year-end investor letter in the fund's own structure and voice, using Hemrock Portfolio data over MCP, and save it as an unshared draft for review.
 metadata:
-  version: "2.1.0"
+  version: "2.2.0"
 ---
 
 # Quarterly investor letter
@@ -17,7 +17,7 @@ The connector may be installed under another name, often the firm's. The tools a
 - **Period**: year and quarter. A Q4 letter may also be the year-end letter.
 - **The fund's letter template**: structure, voice, examples and house rules, from `lp_letter_skill`.
 - **The last letter sent**: the entity's most recent final letter in Hemrock, for fixed text and continuity.
-- **Partner notes**: their view of the market and the quarter, valuation decisions, new investment terms, events after quarter end, and anything to stress or leave out. Ask once at the start. If no one is there to answer, leave marked placeholders.
+- **Partner notes**: their view of the market and the quarter, valuation decisions, new investment terms, events after quarter end, and anything to stress or leave out. Ask once at the start. If no one is there to answer, leave marked placeholders. Pass them to `lp_letter_brief` and `lp_draft_letter` as `partner_notes`, and any document they give you (a market report, a board deck) as `sources`, so they are kept with the letter and checked like the other sources.
 
 ## Fund profile
 
@@ -27,13 +27,13 @@ The fixed facts of a fund, which change rarely and are copied, not written: its 
 
 1. **Confirm the fund and entity.** Call `list_funds`, and `use_fund` if needed, saying which fund is now active. List the entity's letters with `lp_letters`.
 2. **Get the template.** Call `lp_letter_skill`. Follow `references/structure.md`, `references/voice.md` and `references/examples.md`, and `references/house-rules.md` when it is there.
-3. **Get the brief.** Call `lp_letter_brief` (entity, year, quarter, `year_end` when it is the year-end letter). It holds the fund's figures, each company's figures and events, the quarter's updates and KPIs, team notes, stored background text, the missing-information list and Hemrock's letter rules.
+3. **Get the brief.** Call `lp_letter_brief` (entity, year, quarter, `year_end` when it is the year-end letter). It holds the fund's figures (gross and net, each labeled), each company's figures and events, the quarter's updates and KPIs, team notes, stored background text with the date it was written, events after quarter end, the partners' notes and documents, the missing-information list and Hemrock's letter rules. Treat an update marked `confidential` as background only, never quoted. A stored business update marked `stale` predates the quarter: do not present it as news. Events in `after_quarter_end` are subsequent events: give their dates and keep them out of the quarter's figures.
 4. **Read the last final letter** for the entity: the newest letter in `lp_letters` with status `final`, opened with `lp_letter`. Drafts are not what was sent. Use it for the fund profile and for continuity: what was flagged, what was expected, each company's description and display name. Never carry one of its figures forward as current. If there is no final letter, ask the person for the one that was actually sent.
 5. **Read full updates** with `get_updates` where a company's summary is not enough, for that company only.
 6. **Size each company section** (see "Sizing each company section").
 7. **Write the letter** in the fund's structure and voice.
-8. **Review it** against the checklist below and fix every failure.
-9. **Save it as a draft in Hemrock.** A new letter: `lp_draft_letter` with `text`. An existing draft: show the person the text, then `lp_write_letter`. Pass `activeFund` exactly as `list_funds` or `use_fund` reported it.
+8. **Review it** against the checklist below and fix every failure. Hemrock reviews it again when you save it; each flag names the section it is in.
+9. **Save it as a draft in Hemrock.** A new letter: `lp_draft_letter` with `text`. An existing draft: show the person the text, then `lp_write_letter`, one section at a time by its `section_id` from `lp_letter`, or the whole letter as `full_draft`. Pass `activeFund` exactly as `list_funds` or `use_fund` reported it.
 10. **Make the document** the partners will edit (see "Output document").
 11. **Report back**: the document, every review flag Hemrock returned, the missing information, the judgment calls you made and every placeholder still open. Never set `mark_final` and never share a letter: a person does both in Hemrock.
 
@@ -111,5 +111,6 @@ These hold whatever the voice says.
 - [ ] No investor named, and no confidential detail without the partners' confirmation.
 - [ ] Bad news is stated early and plainly, and the house rules are followed.
 - [ ] Names are spelled as in the sources and the summary table.
+- [ ] Every date is a real date and none is in the future; no word the house rules say to avoid (an "Avoid:" line) appears.
 - [ ] Hemrock's copy ends with "Missing information", starting with the brief's items, and every placeholder is in the report back.
 - [ ] The document exists, matches Hemrock's text and has no "Missing information" section.

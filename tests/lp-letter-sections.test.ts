@@ -35,7 +35,7 @@ vi.mock('@/lib/activity', () => ({ logActivity: () => {} }))
 vi.mock('@/lib/lp-letters/draft-from-brief', async orig => ({
   ...(await orig<any>()),
   templateForLetter: async () => ({ id: 't1', name: 'Default' }),
-  loadLetterBrief: async () => ({ brief, preview, investorNames: [], template: { id: 't1', name: 'Default' }, voice: {} }),
+  briefForLetter: async () => ({ brief, preview, investorNames: [], template: { id: 't1', name: 'Default' }, voice: { houseRules: 'Avoid: synergy' } }),
   writeWithFundAI: (...a: unknown[]) => (writeWithFundAI as any)(...a),
   rewriteSection: (...a: unknown[]) => (rewriteSection as any)(...a),
 }))
@@ -107,13 +107,15 @@ describe('the structured letter routes', () => {
 
   it('reviews the letter with each flag naming its section', async () => {
     await generate(req(), p('l1'))
-    await editSection(req({ body: 'Acme is at 9.9x.' }), ps('l1', 'company:c1'))
+    await editSection(req({ body: 'Acme is at 9.9x, with real synergy.' }), ps('l1', 'company:c1'))
     const res = await review(new NextRequest('http://localhost/x'), p('l1'))
     expect(res.status).toBe(200)
     const out = await res.json()
     expect(out.as_of).toBe('2026-10-01')
     expect(out.flags).toEqual(expect.arrayContaining([
       expect.objectContaining({ section_id: 'company:c1', kind: 'unsupported_number', quote: '9.9x' }),
+      // The fund's house rules name words to avoid.
+      expect.objectContaining({ section_id: 'company:c1', kind: 'avoided_term', quote: 'synergy' }),
     ]))
     expect(out.flags.every((f: any) => f.section_id === 'company:c1')).toBe(true)
   })

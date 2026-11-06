@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 import { getLetter } from '@/lib/lp-letters/service'
-import { loadLetterBrief, templateForLetter, writeDraftInto, writeWithFundAI } from '@/lib/lp-letters/draft-from-brief'
+import { briefForLetter, writeDraftInto, writeWithFundAI } from '@/lib/lp-letters/draft-from-brief'
 import { logActivity } from '@/lib/activity'
 import { rateLimit } from '@/lib/rate-limit'
 
@@ -41,10 +41,7 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
     .eq('id', params.id)
 
   try {
-    const template = await templateForLetter(admin, fundId, letter.template_id)
-    const loaded = await loadLetterBrief(admin, fundId, {
-      vehicle: letter.portfolio_group, year: letter.period_year, quarter: letter.period_quarter, yearEnd: !!letter.is_year_end,
-    }, { template: template.id, guidance: letter.generation_prompt })
+    const loaded = await briefForLetter(admin, fundId, letter)
     const text = await writeWithFundAI(admin, fundId, user.id, loaded.brief, loaded.voice, letter.generation_prompt)
     if (!text) throw new Error('The draft came back empty')
     const saved = await writeDraftInto(admin, { fundId, userId: user.id }, params.id, text, loaded, 'fund_ai')

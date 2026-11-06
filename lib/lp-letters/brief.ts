@@ -15,7 +15,7 @@
 // commitments, capital accounts or investor-level figures are read, and an investor name that turns
 // up in a company's update text is replaced before the text reaches a writer.
 
-import type { PortfolioPreview, CompanyLetterData, PriceEvent } from './aggregate'
+import type { PortfolioPreview, CompanyLetterData, PriceEvent, AfterQuarterEvent } from './aggregate'
 import { fmt } from './generate'
 import { getCurrencySymbol } from '@/lib/currency'
 import { LETTER_SKILL_VERSION, skillForWriter, type LetterVoice } from './skill'
@@ -42,16 +42,27 @@ export interface BriefCompany {
   company_id: string
   company: string
   status: string
+  /** The status as a letter names it: Active, Acquired (an exit) or Written Off. */
+  letter_status?: string
   stage: string | null
   figures: Figure[]
   /** Facts from the books a letter must state plainly: write-offs, down rounds, markdowns. */
   events: string[]
-  updates_this_quarter: { received: string; subject: string | null; period: string | null; text: string }[]
+  /** Confidential updates are background only: never quoted or disclosed in the letter. */
+  updates_this_quarter: { received: string; subject: string | null; period: string | null; text: string; confidential?: boolean }[]
   kpis_this_quarter: string[]
   team_notes: string[]
-  /** The company's stored "current update" field, undated. */
+  /** The company's stored "current update" field. */
   stored_business_update: string | null
+  /** When it was last written (null: not recorded), and whether that is before this quarter began. */
+  stored_business_update_at?: string | null
+  stored_business_update_stale?: boolean | null
+  /** Dated events after the quarter's end, up to the day the brief was read: subsequent events, not the quarter's. */
+  after_quarter_end?: string[]
 }
+
+/** A document the partners added to one letter as a source (a market report, a board deck), as text. */
+export interface LetterSourceDocument { name: string; text: string }
 
 export interface LetterBrief {
   fund: string
@@ -64,6 +75,10 @@ export interface LetterBrief {
   basis_notes: string[]
   fund_figures: Figure[]
   companies: BriefCompany[]
+  /** The partners' own notes for this letter: facts and emphasis, a source like any other. */
+  partner_notes?: string | null
+  /** Documents the partners added as sources for this letter. */
+  sources?: LetterSourceDocument[]
   missing_information: string[]
   excluded: string
 }
@@ -80,10 +95,39 @@ export interface BriefInput {
   voice: LetterVoice
   /** Guidance for this one letter, kept with it (lp_letters.generation_prompt). */
   guidance?: string | null
+  /** The partners' notes for this letter (lp_letters.partner_notes). */
+  partnerNotes?: string | null
+  /** Documents added as sources for this letter (lp_letters.source_documents). */
+  sources?: LetterSourceDocument[]
 }
 
 const MAX_UPDATE_CHARS = 4000
 const MAX_NOTE_CHARS = 600
+const MAX_SOURCE_CHARS = 12_000
+const MAX_PARTNER_NOTES_CHARS = 6000
+
+/** An update its sender marked as not for passing on. */
+const CONFIDENTIAL = /\b(confidential|not for (?:distribution|circulation)|do not (?:share|forward|distribute|circulate)|strictly private|under (?:an? )?nda)\b/i
+export const isConfidential = (subject: string | null, text: string) => CONFIDENTIAL.test(`${subject ?? ''}\n${text.slice(0, 1500)}`)
+
+/** A company's status as a letter names it. */
+export function letterStatus(status: string): string {
+  if (status === 'exited') return 'Acquired'
+  if (status === 'written-off') return 'Written Off'
+  return status ? status[0].toUpperCase() + status.slice(1) : status
+}
+
+/** Subsequent events, as a letter may state them. */
+export function afterQuarterLines(events: AfterQuarterEvent[], currency: string): string[] {
+  return events.map(e => {
+    const round = e.round ? ` (${e.round})` : ''
+    if (e.kind === 'investment') return `${e.date}: the fund invested${e.amount ? ` ${fmt(e.amount, currency)}` : ''}${round}.`
+    if (e.kind === 'proceeds') return `${e.date}: proceeds received${e.amount ? `, ${fmt(e.amount, currency)} gross` : ''}${round}.`
+    if (e.kind === 'round') return `${e.date}: a priced round${round}${e.sharePrice != null ? ` at ${e.sharePrice} per share` : ''}.`
+    if (e.amount != null) return `${e.date}: ${e.amount < 0 ? 'marked down' : 'marked up'} by ${fmt(Math.abs(e.amount), currency)}${round}.`
+    return `${e.date}: revalued${e.sharePrice != null ? ` at ${e.sharePrice} per share` : ''}${round}.`
+  })
+}
 
 export function quarterBounds(year: number, quarter: number): { start: string; end: string } {
   const start = new Date(Date.UTC(year, (quarter - 1) * 3, 1))
@@ -183,6 +227,11 @@ export function letterRules(): string[] {
     `- End with a section headed "${MISSING_HEADING}" listing what the sources lack, starting with every item the brief already ` +
       'lists as missing. It is kept with the letter for the partners and is never shown to investors.',
     '- Do not name or describe any investor in the fund.',
+    '- An update marked confidential is background only: do not quote it or disclose what it says. List in ' +
+      `"${MISSING_HEADING}" what the partners would need to confirm before saying more.`,
+    '- A stored business update marked stale was written before this quarter: do not present it as this quarter\'s news.',
+    '- Events after quarter end may be mentioned only as subsequent events, with their dates; they are not in the quarter\'s figures.',
+    '- The partner notes and the added source documents are sources too, held to the same rules.',
     '- Plain text, no markdown, except one mark: start each section with a line "## " and its heading. A company\'s section ' +
       'heading is the company\'s name exactly as the brief gives it. The opening before the first heading needs none.',
   ]
@@ -231,6 +280,7 @@ export function buildLetterBrief(input: BriefInput): LetterBrief {
       subject: u.subject ? clean(u.subject) : null,
       period: u.periodLabel,
       text: clean(u.text.trim().slice(0, MAX_UPDATE_CHARS)),
+      ...(isConfidential(u.subject, u.text) ? { confidential: true } : {}),
     })).filter(u => u.text)
     const kpis = c.metrics
       .filter(m => m.currentValue != null && m.currentValue !== '')
@@ -248,10 +298,18 @@ export function buildLetterBrief(input: BriefInput): LetterBrief {
       if (noValues.length && (kpis.length || updates.length)) missing.push(`${inv.companyName}: no ${period} values for ${noValues.join(', ')}.`)
     }
 
+    const storedAt = c.latestUpdate?.trim() && c.latestUpdateAt ? c.latestUpdateAt.slice(0, 10) : null
+    const stale = c.latestUpdate?.trim() ? (storedAt ? storedAt < quarterBounds(year, quarter).start : null) : null
+    if (stale && inv.status === 'active' && !updates.length) {
+      missing.push(`${inv.companyName}: the stored business update is from ${storedAt}, before ${period}; nothing newer is stored.`)
+    }
+    const after = afterQuarterLines(c.afterQuarterEnd ?? [], currency)
+
     return {
       company_id: inv.companyId,
       company: inv.companyName,
       status: inv.status,
+      letter_status: letterStatus(inv.status),
       stage: inv.stage,
       figures: companyFigures(c, currency),
       events: companyEvents(c, year, quarter, currency),
@@ -259,6 +317,9 @@ export function buildLetterBrief(input: BriefInput): LetterBrief {
       kpis_this_quarter: kpis,
       team_notes: c.recentNotes.map(n => clean(n.trim().slice(0, MAX_NOTE_CHARS))).filter(Boolean),
       stored_business_update: c.latestUpdate?.trim() ? clean(c.latestUpdate.trim().slice(0, 2000)) : null,
+      stored_business_update_at: storedAt,
+      stored_business_update_stale: stale,
+      ...(after.length ? { after_quarter_end: after } : {}),
     }
   })
 
@@ -268,6 +329,8 @@ export function buildLetterBrief(input: BriefInput): LetterBrief {
     { label: 'Portfolio fair value, gross', value: fmt(t.totalFmv, currency), basis: 'gross' },
   ]
   if (t.portfolioMoic != null) fundFigures.push({ label: 'Portfolio MOIC, gross', value: `${t.portfolioMoic.toFixed(2)}x`, basis: 'gross' })
+  if (t.grossIrr != null) fundFigures.push({ label: 'Portfolio IRR, gross', value: `${(t.grossIrr * 100).toFixed(1)}%`, basis: 'gross' })
+  else if (preview.companies.length) missing.push(`Gross IRR for ${fund}: the dated investments and proceeds are too few to compute it.`)
   const fm = preview.fundMetrics
   if (fm) {
     fundFigures.push({ label: 'Capital called', value: fmt(fm.paidInCapital, currency), basis: 'cash' })
@@ -298,6 +361,10 @@ export function buildLetterBrief(input: BriefInput): LetterBrief {
     ],
     fund_figures: fundFigures,
     companies,
+    ...(input.partnerNotes?.trim() ? { partner_notes: clean(input.partnerNotes.trim().slice(0, MAX_PARTNER_NOTES_CHARS)) } : {}),
+    ...(input.sources?.length
+      ? { sources: input.sources.filter(d => d.text?.trim()).map(d => ({ name: d.name, text: clean(d.text.trim().slice(0, MAX_SOURCE_CHARS)) })) }
+      : {}),
     missing_information: missing,
     excluded:
       'No LP or investor-level data: investor names, commitments, capital accounts and investor-level figures are not read. ' +

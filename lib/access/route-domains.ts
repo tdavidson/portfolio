@@ -301,6 +301,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/lp-letters/[id]/review': { domain: 'lp_relations', feature: 'lp_letters' },
   'api/lp-letters/[id]/sections/[sectionId]': { domain: 'lp_relations', feature: 'lp_letters' },
   'api/lp-letters/[id]/share': { domain: 'lp_relations', feature: 'lp_letters' },
+  'api/lp-letters/[id]/sources': { domain: 'lp_relations', feature: 'lp_letters' },
   'api/lp-letters/example': { domain: 'lp_relations', feature: 'lp_letters' },
   'api/lp-letters/preview': { domain: 'lp_relations', feature: 'lp_letters' },
   'api/lp-letters/templates': { domain: 'lp_relations', feature: 'lp_letters' },

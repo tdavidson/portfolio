@@ -1,4 +1,4 @@
--- supabase/migrations/20261106050000_lp_letter_content.sql
+-- supabase/migrations/20261106070000_lp_letter_content.sql
 --
 -- The structured letter (lib/lp-letters/content.ts): the letter's sections in order, each with its
 -- heading, its text and the sources it was written from (a copy of the brief's figures, events,

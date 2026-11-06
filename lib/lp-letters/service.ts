@@ -132,6 +132,8 @@ export interface LetterChanges {
   full_draft?: unknown
   /** The partners' notes kept with the letter and never shown to investors (internal.ts). */
   internal_notes?: unknown
+  /** The partners' notes for writing this letter: a source, never shown to investors. */
+  partner_notes?: unknown
   status?: unknown
   generation_prompt?: unknown
   company_prompts?: unknown
@@ -145,6 +147,7 @@ export async function updateLetter(admin: Admin, ctx: { fundId: string; visible:
   const { company_narratives, full_draft, internal_notes, status, generation_prompt, company_prompts } = input
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
   if (internal_notes !== undefined) updates.internal_notes = internal_notes == null ? null : String(internal_notes)
+  if (input.partner_notes !== undefined) updates.partner_notes = input.partner_notes == null ? null : String(input.partner_notes).slice(0, 20_000).trim() || null
   // A "Missing information" section written into the text moves to the internal notes, so it can
   // never be shared with the letter.
   if (company_narratives !== undefined && input.content === undefined && full_draft === undefined) {
@@ -297,4 +300,38 @@ export async function shareLetter(admin: Admin, ctx: { fundId: string; userId: s
     if (error) return dbFail(error, 'lp-letters-share')
   }
   return done({ lp_investor_ids: target })
+}
+
+/** At most this many documents per letter, each kept to this many characters of text. */
+export const MAX_LETTER_SOURCES = 10
+export const MAX_SOURCE_TEXT = 50_000
+
+/**
+ * Add documents to a letter as sources, as text, or take one off. They are the letter's own: read
+ * into its brief when it is written, rewritten or reviewed, and never shown to investors.
+ */
+export async function changeLetterSources(
+  admin: Admin, ctx: { fundId: string; userId: string; visible: Visible }, letterId: string,
+  change: { add?: { name: string; text: string }[]; remove?: string },
+): Promise<Outcome<any>> {
+  const found = await getLetter(admin, ctx.fundId, ctx.visible, letterId)
+  if (!found.ok) return found
+  const letter = found.value
+  if (!letter) return fail(404, 'Not found')
+  const current = (Array.isArray(letter.source_documents) ? letter.source_documents : []) as any[]
+  let next = current.filter(d => !change.remove || d?.id !== change.remove)
+  if (change.remove && next.length === current.length) return fail(404, 'No such source on this letter.')
+  if (change.add?.length) {
+    const at = new Date().toISOString()
+    const added = change.add
+      .filter(d => d.text.trim())
+      .map((d, i) => ({ id: `src-${Date.now().toString(36)}-${i}`, name: d.name.slice(0, 200), text: d.text.slice(0, MAX_SOURCE_TEXT), added_at: at, added_by: ctx.userId }))
+    if (current.length + added.length > MAX_LETTER_SOURCES) return fail(400, `A letter can have at most ${MAX_LETTER_SOURCES} source documents.`)
+    next = [...next, ...added]
+  }
+  const { data, error } = await (admin as any)
+    .from('lp_letters').update({ source_documents: next, updated_at: new Date().toISOString() })
+    .eq('id', letterId).eq('fund_id', ctx.fundId).select().single()
+  if (error) return dbFail(error, 'lp-letters-sources')
+  return done(data)
 }

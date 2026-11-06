@@ -9,7 +9,7 @@ import { useParams } from 'next/navigation'
 import Link from 'next/link'
 import {
   AlertTriangle, Check, ChevronDown, ChevronRight, Copy, Download, ExternalLink, FileText, Loader2, Lock,
-  Pencil, RefreshCw, Save, Sparkles, X,
+  Paperclip, Pencil, RefreshCw, Save, Sparkles, Trash2, X,
 } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Textarea } from '@/components/ui/textarea'
@@ -37,6 +37,9 @@ interface Letter {
   full_draft: string | null
   /** The partners' "Missing information" notes: kept with the letter, never shown to investors. */
   internal_notes?: string | null
+  /** The partners' notes and added documents: sources for writing, never shown to investors. */
+  partner_notes?: string | null
+  source_documents?: { id: string; name: string; text: string; added_at: string }[] | null
   generation_prompt: string | null
   generation_error: string | null
   company_prompts: Record<string, { prompt: string; mode: 'add' | 'replace' }> | null
@@ -78,11 +81,15 @@ export default function LetterEditorPage() {
   const [copied, setCopied] = useState(false)
   const [googleDriveConnected, setGoogleDriveConnected] = useState(false)
   const [pullOpen, setPullOpen] = useState(false)
+  const [notesOpen, setNotesOpen] = useState(false)
+  const [partnerNotes, setPartnerNotes] = useState('')
+  const [uploading, setUploading] = useState(false)
 
   const accept = useCallback((data: Letter) => {
     setLetter(data)
     setWholeText(data.full_draft ?? '')
     setGuidance(data.generation_prompt ?? '')
+    setPartnerNotes(data.partner_notes ?? '')
   }, [])
 
   const loadLetter = useCallback(async () => {
@@ -168,6 +175,32 @@ export default function LetterEditorPage() {
     const res = await fetch(`/api/lp-letters/${letterId}`, patch({ generation_prompt: guidance.trim() || null }))
     if (res.ok) accept(await res.json()); else await fail(res, 'Saving the guidance failed.')
     setSaving(false)
+  }
+
+  const savePartnerNotes = async () => {
+    setSaving(true)
+    const res = await fetch(`/api/lp-letters/${letterId}`, patch({ partner_notes: partnerNotes.trim() || null }))
+    if (res.ok) accept(await res.json()); else await fail(res, 'Saving the notes failed.')
+    setSaving(false)
+  }
+
+  const addSources = async (files: FileList | null) => {
+    if (!files?.length) return
+    setUploading(true); setError(null)
+    const form = new FormData()
+    for (const f of Array.from(files)) form.append('files', f)
+    const res = await fetch(`/api/lp-letters/${letterId}/sources`, { method: 'POST', body: form })
+    if (res.ok) {
+      const data = await res.json()
+      accept(data)
+      if (data.unread?.length) setError(`Could not read ${data.unread.join(', ')}.`)
+    } else await fail(res, 'Adding the documents failed.')
+    setUploading(false)
+  }
+
+  const removeSource = async (id: string) => {
+    const res = await fetch(`/api/lp-letters/${letterId}/sources?source=${encodeURIComponent(id)}`, { method: 'DELETE' })
+    if (res.ok) accept(await res.json()); else await fail(res, 'Removing the document failed.')
   }
 
   const saveWhole = async () => {
@@ -360,6 +393,55 @@ export default function LetterEditorPage() {
               {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
               Save guidance
             </Button>
+          </div>
+        )}
+      </div>
+
+      {/* What the partners add for this letter: notes and documents, read as sources */}
+      <div className="rounded-card border mb-4">
+        <button onClick={() => setNotesOpen(!notesOpen)} className="flex items-center gap-2 w-full px-4 py-2.5 text-left text-sm hover:bg-muted/50">
+          {notesOpen ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
+          <span className="font-medium">Partner notes and sources</span>
+          {(letter.partner_notes || letter.source_documents?.length) ? (
+            <span className="text-[10px] text-muted-foreground bg-muted px-1.5 py-0.5 rounded tabular-nums">
+              {[letter.partner_notes ? 'notes' : null, letter.source_documents?.length ? `${letter.source_documents.length} ${letter.source_documents.length === 1 ? 'document' : 'documents'}` : null].filter(Boolean).join(' · ')}
+            </span>
+          ) : null}
+        </button>
+        {notesOpen && (
+          <div className="px-4 pb-3 space-y-3">
+            <p className="text-[11px] text-muted-foreground">
+              Facts and context only the partners have, and documents to write from (a market report, a board deck). The letter
+              may draw on them like the books; they are never shown to investors.
+            </p>
+            <Textarea value={partnerNotes} onChange={e => setPartnerNotes(e.target.value)} rows={4} className="text-sm"
+              placeholder="e.g. Acme's new CEO starts in January; we led Birch's bridge on the same terms as the seed." />
+            <div className="flex flex-wrap items-center gap-2">
+              <Button size="sm" variant="outline" onClick={savePartnerNotes} disabled={saving || partnerNotes === (letter.partner_notes ?? '')}>
+                {saving ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Save className="h-3.5 w-3.5 mr-1.5" />}
+                Save notes
+              </Button>
+              <label className={`inline-flex items-center rounded-lg border px-3 h-8 text-sm cursor-pointer hover:bg-muted ${uploading ? 'opacity-60 pointer-events-none' : ''}`}>
+                {uploading ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <Paperclip className="h-3.5 w-3.5 mr-1.5" />}
+                Add documents
+                <input type="file" multiple className="hidden" accept=".pdf,.docx,.txt,.md,.csv,.xlsx"
+                  onChange={e => { addSources(e.target.files); e.target.value = '' }} />
+              </label>
+            </div>
+            {letter.source_documents?.length ? (
+              <ul className="space-y-1">
+                {letter.source_documents.map(d => (
+                  <li key={d.id} className="flex items-center gap-2 text-xs">
+                    <FileText className="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+                    <span className="flex-1 truncate">{d.name}</span>
+                    <span className="text-muted-foreground tabular-nums">{d.text.length.toLocaleString()} characters</span>
+                    <button onClick={() => removeSource(d.id)} className="text-muted-foreground hover:text-destructive" aria-label={`Remove ${d.name}`}>
+                      <Trash2 className="h-3.5 w-3.5" />
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            ) : null}
           </div>
         )}
       </div>
@@ -597,16 +679,20 @@ function SourcesCard({ section, flags }: { section: LetterSection; flags: Letter
 
       {company && (
         <>
-          <p className="text-[11px] text-muted-foreground capitalize">{[company.status, company.stage].filter(Boolean).join(' · ')}</p>
+          <p className="text-[11px] text-muted-foreground">{[company.letter_status ?? company.status, company.stage].filter(Boolean).join(' · ')}</p>
           <Figures figures={company.figures} />
           <List title="Events to state" items={company.events} />
+          <List title="After quarter end" items={company.after_quarter_end ?? []} />
           <List title="KPIs this quarter" items={company.kpis_this_quarter} />
           {company.updates_this_quarter.length > 0 && (
             <div className="space-y-1">
               <p className="text-[11px] font-medium">Updates this quarter</p>
               {company.updates_this_quarter.map((u, i) => (
                 <details key={i} className="text-xs">
-                  <summary className="cursor-pointer text-muted-foreground">{u.subject || 'Update'} · {u.received}</summary>
+                  <summary className="cursor-pointer text-muted-foreground">
+                    {u.subject || 'Update'} · {u.received}
+                    {u.confidential && <span className="ml-1.5 rounded bg-warning-subtle px-1 py-0.5 text-[10px] text-warning">Confidential</span>}
+                  </summary>
                   <p className="mt-1 whitespace-pre-wrap text-muted-foreground leading-relaxed max-h-48 overflow-y-auto">{u.text}</p>
                 </details>
               ))}
@@ -615,7 +701,11 @@ function SourcesCard({ section, flags }: { section: LetterSection; flags: Letter
           <List title="Team notes" items={company.team_notes} />
           {company.stored_business_update && (
             <div className="space-y-1">
-              <p className="text-[11px] font-medium">Stored business update (undated)</p>
+              <p className="text-[11px] font-medium flex items-center gap-1.5">
+                Stored business update
+                <span className="font-normal text-muted-foreground">{company.stored_business_update_at ? `· ${company.stored_business_update_at}` : '· undated'}</span>
+                {company.stored_business_update_stale && <span className="rounded bg-warning-subtle px-1 py-0.5 text-[10px] font-normal text-warning">Stale</span>}
+              </p>
               <p className="text-xs text-muted-foreground whitespace-pre-wrap">{company.stored_business_update}</p>
             </div>
           )}
