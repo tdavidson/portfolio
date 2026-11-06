@@ -108,7 +108,13 @@ describe('tools/list', () => {
 describe('resources', () => {
   it('lists and serves the view the tools point at', async () => {
     const listed = (await rpc('resources/list')).body.result.resources
-    expect(listed.map((r: any) => r.uri)).toEqual([DASHBOARD_RESOURCE_URI])
+    expect(listed.map((r: any) => r.uri)).toEqual([
+      DASHBOARD_RESOURCE_URI,
+      'skill://lp-quarterly-letter/SKILL.md', 'skill://lp-quarterly-letter/references/voice.md', 'skill://lp-quarterly-letter/references/examples.md',
+    ])
+    const skill = (await rpc('resources/read', { uri: 'skill://lp-quarterly-letter/SKILL.md' })).body.result.contents[0]
+    expect(skill).toMatchObject({ mimeType: 'text/markdown' })
+    expect(skill.text).toMatch(/^---\nname: lp-quarterly-letter/)
 
     const read = (await rpc('resources/read', { uri: DASHBOARD_RESOURCE_URI })).body.result.contents[0]
     expect(read.mimeType).toBe('text/html;profile=mcp-app')

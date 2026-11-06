@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import { buildLetterBrief, checkLetterDraft, redactor, MISSING_HEADING, type StoredUpdate } from './brief'
 import type { CompanyLetterData, PortfolioPreview } from './aggregate'
+import { letterVoice } from './skill'
 
 const company = (over: Partial<CompanyLetterData['investment']> & { companyId: string; companyName: string }, extra: Partial<CompanyLetterData> = {}): CompanyLetterData => ({
   investment: {
@@ -16,6 +17,7 @@ const company = (over: Partial<CompanyLetterData['investment']> & { companyId: s
 })
 
 const STYLE = 'Open with the three most important themes. Close with next quarter\'s priorities.'
+const VOICE = letterVoice({ name: 'House style', styleGuide: STYLE })
 
 const preview = (companies: CompanyLetterData[], fundMetrics: PortfolioPreview['fundMetrics'] = null): PortfolioPreview => ({
   asOf: '2026-09-30', fundName: 'Hemlock Ventures', fundCurrency: 'USD', periodLabel: 'Q3 2026', portfolioGroup: 'Hemlock Fund I',
@@ -46,7 +48,7 @@ const updates = new Map<string, StoredUpdate[]>([
 const fundMetrics = { committedCapital: 10_000_000, paidInCapital: 6_000_000, distributions: 1_000_000, fmv: 7_000_000, dpi: 0.17, rvpi: 1.17, tvpi: 1.33, irr: 0.124 }
 
 describe('the letter brief', () => {
-  const brief = buildLetterBrief({ preview: preview([acme, birch, cedar], fundMetrics), year: 2026, quarter: 3, updates, investorNames: ['Pat Investor LP', 'Acme'], styleGuide: STYLE })
+  const brief = buildLetterBrief({ preview: preview([acme, birch, cedar], fundMetrics), year: 2026, quarter: 3, updates, investorNames: ['Pat Investor LP', 'Acme'], voice: VOICE })
 
   it("takes structure from the fund's template and keeps the rules every letter follows", () => {
     expect(brief.fund).toBe('Hemlock Fund I')
@@ -55,7 +57,7 @@ describe('the letter brief', () => {
     expect(brief.instructions).toContain('gross or net')
     expect(brief.instructions).toContain(`"${MISSING_HEADING}"`)
     expect(brief.instructions).not.toContain('GUIDANCE FOR THIS LETTER')
-    const guided = buildLetterBrief({ preview: preview([acme]), year: 2026, quarter: 3, updates, styleGuide: STYLE, guidance: 'Lead with the Birch news.' })
+    const guided = buildLetterBrief({ preview: preview([acme]), year: 2026, quarter: 3, updates, voice: VOICE, guidance: 'Lead with the Birch news.' })
     expect(guided.instructions).toContain('GUIDANCE FOR THIS LETTER:\nLead with the Birch news.')
   })
 
@@ -98,13 +100,13 @@ describe('the letter brief', () => {
     expect(brief.missing_information).toContain('Birch: no company update or KPI values are stored for Q3 2026.')
     // A write-off needs no update.
     expect(brief.missing_information.join(' ')).not.toContain('Cedar')
-    const noFlows = buildLetterBrief({ preview: preview([acme]), year: 2026, quarter: 3, updates, styleGuide: STYLE })
+    const noFlows = buildLetterBrief({ preview: preview([acme]), year: 2026, quarter: 3, updates, voice: VOICE })
     expect(noFlows.missing_information.join(' ')).toContain('no fund cash flows are recorded')
   })
 })
 
 describe('reviewing a draft', () => {
-  const brief = buildLetterBrief({ preview: preview([acme, birch, cedar], fundMetrics), year: 2026, quarter: 3, updates, styleGuide: STYLE })
+  const brief = buildLetterBrief({ preview: preview([acme, birch, cedar], fundMetrics), year: 2026, quarter: 3, updates, voice: VOICE })
   const good = [
     'Three themes shaped Q3 2026.',
     'Acme grew ARR to $1.2M, up from $900,000, and holds at a gross MOIC of 2.00x.',
@@ -144,5 +146,77 @@ describe('redactor', () => {
   it('replaces whole names only', () => {
     const clean = redactor(['Ann'])
     expect(clean('Ann and Annual plan')).toBe('[investor] and Annual plan')
+  })
+})
+
+describe('the brief: dates, confidentiality, subsequent events and partner sources', () => {
+  const dated = company({ companyId: 'c4', companyName: 'Delta' }, {
+    latestUpdate: 'Delta signed its first two enterprise customers and is hiring a sales lead.',
+    latestUpdateAt: '2026-03-02T10:00:00Z',
+    afterQuarterEnd: [
+      { date: '2026-10-20', kind: 'investment', round: 'Series A', amount: 500_000, sharePrice: 2 },
+      { date: '2026-10-25', kind: 'mark', round: null, amount: -100_000, sharePrice: null },
+    ],
+  })
+  const secret = new Map<string, StoredUpdate[]>([
+    ['c4', [{ receivedAt: '2026-10-02T00:00:00Z', subject: 'Confidential: board pack', periodLabel: 'Q3 2026', text: 'Term sheet signed at a higher price.' }]],
+  ])
+  const p = preview([dated])
+  p.totals.grossIrr = 0.183
+  const b = buildLetterBrief({
+    preview: p, year: 2026, quarter: 3, updates: secret, voice: VOICE,
+    partnerNotes: 'Lead with the Delta round.', sources: [{ name: 'market.pdf', text: 'Seed valuations fell 10% in the quarter.' }],
+  })
+  const c = b.companies[0]
+
+  it('dates the stored update and marks it stale when it predates the quarter', () => {
+    expect(c).toMatchObject({ stored_business_update_at: '2026-03-02', stored_business_update_stale: true, letter_status: 'Active' })
+  })
+
+  it('marks an update its sender called confidential, and says how to treat it', () => {
+    expect(c.updates_this_quarter[0].confidential).toBe(true)
+    expect(b.instructions).toMatch(/marked confidential is background only/)
+  })
+
+  it('lists events after quarter end as dated subsequent events', () => {
+    expect(c.after_quarter_end).toEqual(['2026-10-20: the fund invested $500K (Series A).', '2026-10-25: marked down by $100K.'])
+  })
+
+  it('carries gross IRR as a gross figure, and the partners\' notes and documents as sources', () => {
+    expect(b.fund_figures).toContainEqual({ label: 'Portfolio IRR, gross', value: '18.3%', basis: 'gross' })
+    expect(b.partner_notes).toBe('Lead with the Delta round.')
+    expect(b.sources).toEqual([{ name: 'market.pdf', text: 'Seed valuations fell 10% in the quarter.' }])
+  })
+
+  it('names exits and write-offs the way a letter does, and lists a missing gross IRR', () => {
+    const q = buildLetterBrief({ preview: preview([company({ companyId: 'x', companyName: 'Exa', status: 'exited' }), cedar]), year: 2026, quarter: 3, updates: new Map(), voice: VOICE })
+    expect(q.companies.map(x => x.letter_status)).toEqual(['Acquired', 'Written Off'])
+    expect(q.missing_information.some(m => /Gross IRR/.test(m))).toBe(true)
+  })
+})
+
+describe('the brief: new investments and their round terms', () => {
+  const withTerms = company({ companyId: 'c5', companyName: 'Echo' }, {
+    investmentsThisQuarter: [
+      {
+        date: '2026-08-12', amount: 500_000, round: 'Series A', security: 'Preferred', postMoney: null,
+        terms: { round_size: 10_000_000, valuation: 40_000_000, valuation_basis: 'post_money', currency: null, lead: 'Example Ventures', security: null, discount_pct: null, rights: 'pro rata, board observer', notes: null },
+      },
+      { date: '2026-09-01', amount: 100_000, round: 'Seed extension', security: null, postMoney: 12_000_000, terms: null },
+    ],
+  })
+  const b = buildLetterBrief({ preview: preview([withTerms]), year: 2026, quarter: 3, updates: new Map(), voice: VOICE })
+
+  it('states each investment with its stored terms, and the books\' post-money where no terms are stored', () => {
+    expect(b.companies[0].new_investments).toEqual([
+      '2026-08-12: the fund invested $500K (Series A, Preferred). Round terms: round size $10.0M; post-money valuation $40.0M; led by Example Ventures; rights: pro rata, board observer.',
+      '2026-09-01: the fund invested $100K (Seed extension). Post-money valuation in the books: $12.0M.',
+    ])
+  })
+
+  it('lists an investment without terms as missing', () => {
+    expect(b.missing_information.filter(m => /no round terms/.test(m))).toEqual([
+      expect.stringContaining('Echo: no round terms are stored for the Seed extension on 2026-09-01'),
+    ])
   })
 })

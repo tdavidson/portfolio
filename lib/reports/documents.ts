@@ -33,7 +33,8 @@ import type { XLSX_TYPE } from '@/lib/forecast/workbook-document'
 export interface FundDocument {
   body: Buffer
   fileName: string
-  contentType: 'application/pdf' | 'application/zip' | typeof XLSX_TYPE
+  /** An LP letter's export (lp_letter_export) may also be Word, Markdown or JSON. */
+  contentType: 'application/pdf' | 'application/zip' | typeof XLSX_TYPE | string
 }
 
 /**

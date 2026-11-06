@@ -21,6 +21,12 @@ const PERIOD = {
     year_end: { type: 'boolean', description: 'Also the year-end letter.' },
     template: { type: 'string', description: "The fund's letter template (name) that sets the structure and style. Default: the fund's default template." },
     guidance: { type: 'string', description: 'Extra guidance for this letter, e.g. what to open with. Kept with the letter.' },
+    partner_notes: { type: 'string', description: "The partners' own notes for this letter: facts and emphasis. A source like any other; kept with the letter." },
+    sources: {
+      type: 'array',
+      description: 'Documents to write from, as text (a market report, a board deck). Kept with the letter; never shown to investors.',
+      items: { type: 'object', properties: { name: { type: 'string' }, text: { type: 'string' } }, required: ['text'] },
+    },
   } as Record<string, any>,
   required: ['vehicle', 'year', 'quarter'],
 }
@@ -36,7 +42,9 @@ export const LETTER_TOOL_MANIFEST: AgentToolMeta[] = [
   },
   {
     name: 'lp_letter',
-    description: 'One LP letter: its full draft, its company sections (with company ids), and its prompt.',
+    description:
+      'One LP letter: its sections in order (each with its id, heading and text, and a company_id for a company\'s), its full ' +
+      'text, its internal notes and its prompt. Edit a section with lp_write_letter by its section_id.',
     scope: 'read',
     ...base,
     inputSchema: { type: 'object', properties: { letter_id: LETTER }, required: ['letter_id'] },
@@ -52,13 +60,24 @@ export const LETTER_TOOL_MANIFEST: AgentToolMeta[] = [
     inputSchema: { type: 'object', properties: { letter_id: LETTER }, required: ['letter_id'] },
   },
   {
+    name: 'lp_letter_skill',
+    description:
+      'The lp-quarterly-letter skill, as this app holds it: SKILL.md (the structure, sizing, voice rules and review checklist ' +
+      'every LP letter follows) and its references, voice.md and examples.md. Where the fund has saved its own voice (its ' +
+      'letter template), that replaces the general voice and examples. Read it before writing a letter from lp_letter_brief; ' +
+      'it is always the current version, so prefer it to a copy you hold.',
+    scope: 'read',
+    ...base,
+    inputSchema: { type: 'object', properties: { template: PERIOD.properties.template } },
+  },
+  {
     name: 'lp_letter_brief',
     description:
       'Everything a quarterly LP letter may be written from, for an entity and quarter, as of the quarter end: each company\'s ' +
       'stored updates, KPI values and team notes for the quarter, its figures from the books labeled gross, net, cost or cash, ' +
       'the write-offs, down rounds and markdowns the books show, and what is missing. Its instructions are the fund\'s letter ' +
-      'template plus the rules every letter keeps. No LP or investor-level data is included. Follow the instructions exactly ' +
-      'when writing; then save with lp_draft_letter (text).',
+      'voice plus the rules every letter keeps. No LP or investor-level data is included. Follow the instructions exactly ' +
+      'when writing, and the lp-quarterly-letter skill (read it with lp_letter_skill); then save with lp_draft_letter (text).',
     scope: 'read',
     ...base,
     inputSchema: PERIOD,
@@ -91,6 +110,75 @@ export const LETTER_TOOL_MANIFEST: AgentToolMeta[] = [
     inputSchema: { type: 'object', properties: { letter_id: LETTER }, required: ['letter_id'] },
   },
   {
+    name: 'lp_letter_export',
+    description:
+      'An LP letter as investors would receive it, without the partners\' "Missing information" notes: format "docx" (Word, ' +
+      'with real heading, list, table and caption styles, the logo, the charts and page numbers), "pdf" (the letter layout), ' +
+      '"markdown" ("## " headings and tables) or "json" (the sections as blocks). Word and PDF come back as a download link ' +
+      'that works for an hour; Markdown and JSON come back as text too.',
+    scope: 'read',
+    ...base,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        letter_id: LETTER,
+        format: { type: 'string', enum: ['docx', 'pdf', 'markdown', 'json'], description: 'Default docx.' },
+      },
+      required: ['letter_id'],
+    },
+  },
+  {
+    name: 'lp_letter_chart',
+    description:
+      "Draw a fund-performance chart from an LP letter's own figures (its entity's portfolio as of the quarter), without adding it: " +
+      'returns the chart as SVG and its suggested caption, to check before lp_letter_add_chart.',
+    scope: 'read',
+    ...base,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        letter_id: LETTER,
+        kind: {
+          type: 'string', enum: ['value_by_company', 'multiple_by_company', 'value_bridge', 'capital_net'],
+          description: 'value_by_company: value (realized + fair value) against cost, gross. multiple_by_company: gross multiple, with 1.0x marked. ' +
+            'value_bridge: invested, realized and remaining value, gross. capital_net: paid-in, distributed and remaining value with DPI, RVPI and TVPI, net.',
+        },
+        color: { type: 'string', enum: ['series', 'accent', 'ink'], description: "series: blue (default); accent: the fund's theme accent; ink: grey, for print." },
+        limit: { type: 'number', description: 'Companies to show, largest first. Default all.' },
+        active_only: { type: 'boolean', description: 'Leave out exited and written-off companies.' },
+        sort: { type: 'string', enum: ['value', 'name'] },
+      },
+      required: ['letter_id', 'kind'],
+    },
+  },
+  {
+    name: 'lp_letter_add_chart',
+    description:
+      "Add a fund-performance chart to a draft LP letter, drawn from the letter's own figures as of the quarter (see lp_letter_chart), " +
+      'after the section you name or at the end. It is stored as drawn, with a dated caption, and appears on the letter page, in the PDF ' +
+      'and in the Word file; it does not change if the books do. Refused on a final letter.',
+    scope: 'write',
+    ...base,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        letter_id: LETTER,
+        kind: {
+          type: 'string', enum: ['value_by_company', 'multiple_by_company', 'value_bridge', 'capital_net'],
+          description: 'value_by_company: value (realized + fair value) against cost, gross. multiple_by_company: gross multiple, with 1.0x marked. ' +
+            'value_bridge: invested, realized and remaining value, gross. capital_net: paid-in, distributed and remaining value with DPI, RVPI and TVPI, net.',
+        },
+        color: { type: 'string', enum: ['series', 'accent', 'ink'], description: "series: blue (default); accent: the fund's theme accent; ink: grey, for print." },
+        limit: { type: 'number', description: 'Companies to show, largest first. Default all.' },
+        active_only: { type: 'boolean', description: 'Leave out exited and written-off companies.' },
+        sort: { type: 'string', enum: ['value', 'name'] },
+        section_id: { type: 'string', description: 'The section it follows, from lp_letter. Default: the end of the letter.' },
+        caption: { type: 'string', description: 'Default: the suggested caption, which states the basis and the date.' },
+      },
+      required: ['letter_id', 'kind'],
+    },
+  },
+  {
     name: 'lp_create_letter',
     description: 'Start a draft LP letter for an entity and quarter. Then write it with lp_write_letter, or generate it on the LP Letters page.',
     scope: 'write',
@@ -110,10 +198,11 @@ export const LETTER_TOOL_MANIFEST: AgentToolMeta[] = [
   {
     name: 'lp_write_letter',
     description:
-      'Write an LP letter. sections replaces those companies\' updates (plain text, ids from lp_letter_data) and rebuilds the ' +
-      'portfolio table and the full draft around them, as generating does. full_draft replaces the whole text instead, for ' +
-      'edits such as the market commentary; pass it after sections, since sections rebuild the draft. A full_draft comes back ' +
-      'with review flags against the letter\'s sources; show them to the user. Show the user the text before calling.',
+      'Write an LP letter. sections replaces those sections\' text: name each by section_id (from lp_letter), or a company\'s by ' +
+      'company_id (ids from lp_letter_data), which adds its section if the letter has none. full_draft replaces the whole text ' +
+      'instead, with a "## " line opening each section; each section keeps the sources it was written from. Writes come back ' +
+      'with review flags against the letter\'s sources, each naming its section; show them to the user. Show the user the text ' +
+      'before calling.',
     scope: 'write',
     ...base,
     inputSchema: {
@@ -122,7 +211,16 @@ export const LETTER_TOOL_MANIFEST: AgentToolMeta[] = [
         letter_id: LETTER,
         sections: {
           type: 'array',
-          items: { type: 'object', properties: { company_id: { type: 'string' }, narrative: { type: 'string' } }, required: ['company_id', 'narrative'] },
+          items: {
+            type: 'object',
+            properties: {
+              section_id: { type: 'string', description: 'The section, from lp_letter.' },
+              company_id: { type: 'string', description: 'Or a company, for its section.' },
+              heading: { type: 'string', description: 'A new heading for the section (section_id only).' },
+              text: { type: 'string', description: 'The section\'s text, without its heading.' },
+              narrative: { type: 'string', description: 'The same as text (older name).' },
+            },
+          },
         },
         full_draft: { type: 'string' },
         mark_final: { type: 'boolean', description: 'Mark the letter final: a person has reviewed it. Only a final letter can be shared.' },
@@ -141,6 +239,78 @@ export const LETTER_TOOL_MANIFEST: AgentToolMeta[] = [
       type: 'object',
       properties: { letter_id: LETTER, investors: { type: 'array', items: { type: 'string' } } },
       required: ['letter_id', 'investors'],
+    },
+  },
+  {
+    name: 'lp_letter_profile_get',
+    description:
+      "An entity's letter profile: the fixed facts its letters copy (legal and short names, the firm's name, investing or " +
+      'harvesting, signatories, company display names and former names, standing footnotes, parties named, fixed paragraphs) ' +
+      "and the template it uses. The entity's own fields over the firm-wide profile's; omit vehicle for the firm-wide one. " +
+      "With propose_from_last_letter, also reads the entity's last sent letter and returns a proposed profile; nothing is saved.",
+    scope: 'read',
+    ...base,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vehicle: { type: 'string', description: 'The entity. Omit for the firm-wide profile.' },
+        propose_from_last_letter: { type: 'boolean', description: "Read the entity's last sent letter and propose a profile from it. Saves nothing." },
+      },
+    },
+  },
+  {
+    name: 'lp_letter_profile_save',
+    description:
+      "Replace an entity's letter profile (or the firm-wide one, with no vehicle). Pass every field to keep: fields left out are " +
+      'cleared. Read it first with lp_letter_profile_get, which can propose one from the last sent letter. Show the person the ' +
+      'profile before saving; from a chat it waits for their approval.',
+
+    scope: 'write',
+    ...base,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vehicle: { type: 'string', description: 'The entity. Omit for the firm-wide profile.' },
+        legal_name: { type: 'string' },
+        short_name: { type: 'string' },
+        firm_name: { type: 'string' },
+        fund_stage: { type: 'string', enum: ['investing', 'harvesting'] },
+        signatories: { type: 'array', items: { type: 'object', properties: { name: { type: 'string' }, title: { type: 'string' } }, required: ['name'] } },
+        company_names: {
+          type: 'array',
+          items: {
+            type: 'object',
+            properties: {
+              company_id: { type: 'string' }, display_name: { type: 'string' },
+              former_names: { type: 'array', items: { type: 'string' } }, status: { type: 'string', description: 'A letter-facing status such as "Wound Down".' },
+            },
+            required: ['company_id'],
+          },
+        },
+        footnotes: { type: 'string' },
+        parties: { type: 'string' },
+        fixed_text: { type: 'array', items: { type: 'object', properties: { heading: { type: 'string' }, text: { type: 'string' } }, required: ['heading', 'text'] } },
+        template: { type: 'string', description: "The fund's letter template (name) this entity's letters use." },
+      },
+    },
+  },
+  {
+    name: 'lp_import_letter',
+    description:
+      'Bring in a letter as it was sent, as its text (the LP Letters page also takes the PDF or Word file). It is saved as a ' +
+      "final, imported letter for that entity and quarter, and becomes the entity's last sent letter for the next brief. " +
+      'Show the person the text and the period first.',
+    scope: 'write',
+    ...base,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vehicle: { type: 'string', description: 'The entity (portfolio_group) the letter was for.' },
+        year: { type: 'integer' }, quarter: { type: 'integer', minimum: 1, maximum: 4 },
+        year_end: { type: 'boolean' },
+        text: { type: 'string', description: 'The letter as sent.' },
+      },
+      required: ['vehicle', 'year', 'quarter', 'text'],
     },
   },
 ]

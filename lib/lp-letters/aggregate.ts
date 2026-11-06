@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { xirr, type CashFlow } from '@/lib/xirr'
 import { grossProceeds } from '@/lib/portfolio/proceeds'
+import { cleanRoundTerms, isEmptyRoundTerms, type RoundTerms } from '@/lib/portfolio/round-terms'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -59,6 +60,31 @@ export interface CompanyLetterData {
   recentNotes: string[]
   latestSummary: string | null
   latestUpdate: string | null
+  /** When latestUpdate was last written (companies.current_update_at); null before that was recorded. */
+  latestUpdateAt?: string | null
+  /** This entity's transactions dated after the as-of date, up to today: news a letter may mention as after the quarter. */
+  afterQuarterEnd?: AfterQuarterEvent[]
+  /** This entity's investments dated in the quarter, with the round's stored terms. */
+  investmentsThisQuarter?: QuarterInvestment[]
+}
+
+export interface QuarterInvestment {
+  date: string
+  amount: number | null
+  round: string | null
+  security: string | null
+  postMoney: number | null
+  /** investment_transactions.round_terms; null when none are stored (or before 20261106110000). */
+  terms: RoundTerms | null
+}
+
+export interface AfterQuarterEvent {
+  date: string
+  kind: 'investment' | 'proceeds' | 'round' | 'mark'
+  round: string | null
+  /** Cost for an investment, gross proceeds, or the change in value for a mark without a price. */
+  amount: number | null
+  sharePrice: number | null
 }
 
 export interface FundMetrics {
@@ -90,6 +116,8 @@ export interface PortfolioPreview {
     totalFmv: number
     totalRealized: number
     portfolioMoic: number | null
+    /** Gross IRR on the portfolio: investments and proceeds as dated, fair value as of the date. Before fees and carry. */
+    grossIrr?: number | null
     activeCount: number
     exitedCount: number
     writtenOffCount: number
@@ -147,9 +175,10 @@ export async function aggregatePortfolioData(
   // Filter by portfolio group using investment transactions
   const { data: allTransactions } = await admin
     .from('investment_transactions')
-    .select('company_id, transaction_type, transaction_date, round_name, investment_cost, share_price, proceeds_received, proceeds_escrow, cost_basis_exited, current_share_price, shares_acquired, unrealized_value_change, portfolio_group, converts_from_txn_id')
+    .select('id, company_id, transaction_type, transaction_date, round_name, security_type, postmoney_valuation, investment_cost, share_price, proceeds_received, proceeds_escrow, cost_basis_exited, current_share_price, shares_acquired, unrealized_value_change, portfolio_group, converts_from_txn_id')
     .eq('fund_id', fundId)
     .order('transaction_date', { ascending: true }) as { data: {
+      id: string; security_type: string | null; postmoney_valuation: number | null
       company_id: string; transaction_type: string; transaction_date: string | null
       round_name: string | null; investment_cost: number | null; share_price: number | null
       proceeds_received: number | null; proceeds_escrow: number | null
@@ -213,6 +242,8 @@ export async function aggregatePortfolioData(
   // Compute investment summaries using canonical per-round cost basis logic
   // (matches the portfolio investments API computation)
   const investmentSummaries: CompanyInvestmentSummary[] = []
+  // The portfolio's own cash flows, for a gross IRR: cost out, proceeds in, fair value at the end.
+  const grossFlows: CashFlow[] = []
   for (const c of allGroupCompanies) {
     const txns = periodTransactions.filter(t => t.company_id === c.id)
 
@@ -286,6 +317,9 @@ export async function aggregatePortfolioData(
     for (const t of relevantTxns) {
       if (t.transaction_type === 'investment') {
         totalInvested += Number(t.investment_cost ?? 0)
+        if (t.transaction_date && Number(t.investment_cost ?? 0) && !t.converts_from_txn_id) {
+          grossFlows.push({ date: new Date(`${t.transaction_date}T00:00:00Z`), amount: -Number(t.investment_cost) })
+        }
         const roundName = t.round_name ?? 'Unknown'
         const existing = roundMap.get(roundName)
         if (existing) {
@@ -303,6 +337,7 @@ export async function aggregatePortfolioData(
       if (t.transaction_type === 'proceeds') {
         // Gross, escrow included — proceeds_escrow is a part of it, not an addition (lib/portfolio/proceeds.ts).
         totalRealized += grossProceeds(t)
+        if (t.transaction_date && grossProceeds(t)) grossFlows.push({ date: new Date(`${t.transaction_date}T00:00:00Z`), amount: grossProceeds(t) })
         if (t.round_name && t.cost_basis_exited != null) {
           const round = roundMap.get(t.round_name)
           if (round) round.costBasisExited += Math.abs(Number(t.cost_basis_exited))
@@ -403,6 +438,58 @@ export async function aggregatePortfolioData(
   const prevQ = quarter === 1 ? 4 : quarter - 1
   const prevY = quarter === 1 ? year - 1 : year
 
+  // When each stored business update was written. Its own query, so a database without the column
+  // (before 20261106080000) still builds the letter, with no dates.
+  const { data: updateDates, error: updateDatesError } = await admin
+    .from('companies').select('id, current_update_at').in('id', companyIds.length > 0 ? companyIds : ['__none__']) as {
+      data: { id: string; current_update_at: string | null }[] | null; error: unknown
+    }
+  const updateAt = new Map((updateDatesError ? [] : updateDates ?? []).map(r => [r.id, r.current_update_at]))
+
+  // The quarter's investments by this entity, with their round terms. The terms are their own query,
+  // so a database without the column (before 20261106110000) still builds the letter, without them.
+  const quarterStart = new Date(Date.UTC(year, (quarter - 1) * 3, 1)).toISOString().slice(0, 10)
+  const quarterInvestments = periodTransactions.filter(t =>
+    t.transaction_type === 'investment' && t.portfolio_group === portfolioGroup && !!t.transaction_date && t.transaction_date >= quarterStart)
+  const termsById = new Map<string, RoundTerms>()
+  if (quarterInvestments.length) {
+    const { data: termRows, error: termsError } = await admin
+      .from('investment_transactions').select('id, round_terms').eq('fund_id', fundId).in('id', quarterInvestments.map(t => t.id)) as {
+        data: { id: string; round_terms: unknown }[] | null; error: unknown
+      }
+    for (const r of termsError ? [] : termRows ?? []) {
+      const t = r.round_terms ? cleanRoundTerms(r.round_terms) : null
+      if (t && !isEmptyRoundTerms(t)) termsById.set(r.id, t)
+    }
+  }
+  const investmentsOf = (companyId: string): QuarterInvestment[] => quarterInvestments
+    .filter(t => t.company_id === companyId)
+    .map(t => ({
+      date: t.transaction_date!, amount: t.investment_cost == null ? null : Number(t.investment_cost), round: t.round_name,
+      security: t.security_type, postMoney: t.postmoney_valuation == null ? null : Number(t.postmoney_valuation),
+      terms: termsById.get(t.id) ?? null,
+    }))
+
+  // What happened after the date, up to today: only once the quarter is over.
+  const afterOf = (companyId: string): AfterQuarterEvent[] => {
+    if (asOf !== quarterEnd) return []
+    return (allTransactions ?? [])
+      .filter(t => t.company_id === companyId && t.transaction_date && t.transaction_date > asOf && t.transaction_date <= today)
+      .filter(t => t.portfolio_group === portfolioGroup || (!t.portfolio_group && (t.transaction_type === 'round_info' || t.transaction_type === 'unrealized_gain_change')))
+      .flatMap((t): AfterQuarterEvent[] => {
+        const base = { date: t.transaction_date!, round: t.round_name ?? null }
+        if (t.transaction_type === 'investment' && !t.converts_from_txn_id) {
+          return [{ ...base, kind: 'investment', amount: Number(t.investment_cost ?? 0) || null, sharePrice: t.share_price != null ? Number(t.share_price) : null }]
+        }
+        if (t.transaction_type === 'proceeds') return [{ ...base, kind: 'proceeds', amount: grossProceeds(t) || null, sharePrice: null }]
+        if (t.transaction_type === 'round_info' && t.share_price != null) return [{ ...base, kind: 'round', amount: null, sharePrice: Number(t.share_price) }]
+        if (t.transaction_type === 'unrealized_gain_change') {
+          return [{ ...base, kind: 'mark', amount: t.unrealized_value_change != null ? Number(t.unrealized_value_change) : null, sharePrice: t.current_share_price != null ? Number(t.current_share_price) : null }]
+        }
+        return []
+      })
+  }
+
   // Fetch recent notes and summaries per company
   const companyDataMap = new Map<string, CompanyLetterData>()
   for (const c of allGroupCompanies) {
@@ -465,6 +552,9 @@ export async function aggregatePortfolioData(
       recentNotes: (notes ?? []).map(n => n.content),
       latestSummary: summary?.summary_text ?? null,
       latestUpdate: c.current_update,
+      latestUpdateAt: updateAt.get(c.id) ?? null,
+      afterQuarterEnd: afterOf(c.id),
+      investmentsThisQuarter: investmentsOf(c.id),
     })
   }
 
@@ -474,6 +564,9 @@ export async function aggregatePortfolioData(
   const totalFmv = investmentSummaries.reduce((s, c) => s + c.fmv, 0)
   const totalRealized = investmentSummaries.reduce((s, c) => s + c.totalRealized, 0)
   const portfolioMoic = totalInvested > 0 ? totalFmv / totalInvested : null
+  const unrealizedFmv = investmentSummaries.filter(s => s.status !== 'exited').reduce((sum, c) => sum + c.fmv, 0)
+  if (unrealizedFmv > 0) grossFlows.push({ date: new Date(`${asOf}T00:00:00Z`), amount: unrealizedFmv })
+  const grossIrr = grossFlows.some(f => f.amount < 0) && grossFlows.some(f => f.amount > 0) ? xirr(grossFlows) : null
 
   // Fund-level cash flow metrics (net, matching funds page computation)
   const { data: cashFlows } = await admin
@@ -550,6 +643,7 @@ export async function aggregatePortfolioData(
       totalFmv,
       totalRealized,
       portfolioMoic,
+      grossIrr: grossIrr != null && Number.isFinite(grossIrr) ? grossIrr : null,
       activeCount: activeCompanies.length,
       exitedCount: investmentSummaries.filter(s => s.status === 'exited').length,
       writtenOffCount: investmentSummaries.filter(s => s.status === 'written-off').length,

@@ -5,9 +5,13 @@ import { assertWriteAccess } from '@/lib/api-helpers'
 import { dbError } from '@/lib/api-error'
 import { DEFAULT_STYLE_GUIDE, DEFAULT_TEMPLATE_NAME } from '@/lib/lp-letters/default-template'
 import { extractFromBuffer } from '@/lib/parsing/extractAttachmentText'
-import { createFundAIProvider } from '@/lib/ai'
-import { logAIUsage } from '@/lib/ai/usage'
-import { analyzeTemplate } from '@/lib/lp-letters/generate'
+import { rateLimit } from '@/lib/rate-limit'
+import { outcomeResponse } from '@/lib/service-outcome'
+import { MAX_DOCUMENTS, type SourceDocument } from '@/lib/lp-letters/learn-voice'
+import { learnVoiceTemplate, makeFundVoice } from '@/lib/lp-letters/templates'
+
+// Learning a voice reads every document in one long AI call.
+export const maxDuration = 300
 
 export async function GET() {
   const supabase = await createClient()
@@ -46,58 +50,35 @@ export async function POST(req: NextRequest) {
 
   const contentType = req.headers.get('content-type') ?? ''
 
-  // Handle file upload (multipart) or JSON (use default)
+  // Past letters or memos (multipart): learn the fund's voice from them, as a draft to review.
   if (contentType.includes('multipart/form-data')) {
+    const limited = await rateLimit({ key: `lp-letter-voice:${user.id}`, limit: 3, windowSeconds: 600 })
+    if (limited) return limited
+
     const formData = await req.formData()
-    const file = formData.get('file') as File | null
-    const name = (formData.get('name') as string) ?? 'Custom Template'
+    const files = formData.getAll('file').filter((f): f is File => typeof f !== 'string')
+    const name = String(formData.get('name') ?? '').trim() || 'Learned voice'
 
-    if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
-
-    // Reject files over 20MB before buffering into memory
-    if (file.size > 20 * 1024 * 1024) {
-      return NextResponse.json({ error: 'File too large (max 20MB)' }, { status: 400 })
+    if (!files.length) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
+    if (files.length > MAX_DOCUMENTS) {
+      return NextResponse.json({ error: `Upload at most ${MAX_DOCUMENTS} documents at a time` }, { status: 400 })
     }
+    // Reject files over 20MB before buffering any into memory
+    const big = files.find(f => f.size > 20 * 1024 * 1024)
+    if (big) return NextResponse.json({ error: `${big.name} is too large (max 20MB)` }, { status: 400 })
 
-    const buffer = Buffer.from(await file.arrayBuffer())
-    const extracted = await extractFromBuffer(buffer, file.name, file.type)
-
-    if (!extracted.extractedText) {
-      return NextResponse.json({ error: 'Could not extract text from file' }, { status: 400 })
+    const docs: SourceDocument[] = []
+    const unread: string[] = []
+    for (const file of files) {
+      const extracted = await extractFromBuffer(Buffer.from(await file.arrayBuffer()), file.name, file.type)
+      if (extracted.extractedText?.trim()) docs.push({ filename: file.name, text: extracted.extractedText })
+      else unread.push(file.name)
     }
+    if (!docs.length) return NextResponse.json({ error: 'Could not extract text from the files' }, { status: 400 })
 
-    // Analyze the template using AI
-    const { provider, model, providerType } = await createFundAIProvider(admin, fundId)
-    const { styleGuide, usage } = await analyzeTemplate(provider, model, extracted.extractedText)
-
-    await logAIUsage(admin, {
-      fundId,
-      userId: user.id,
-      provider: providerType,
-      model,
-      feature: 'lp-letter-template-analysis',
-      usage,
-    })
-
-    const sourceFormat = file.name.endsWith('.docx') ? 'docx' : 'pdf'
-
-    const { data, error } = await admin
-      .from('lp_letter_templates')
-      .insert({
-        fund_id: fundId,
-        name,
-        style_guide: styleGuide,
-        source_filename: file.name,
-        source_type: 'upload',
-        source_format: sourceFormat,
-        source_text: extracted.extractedText.slice(0, 100_000),
-        is_default: false,
-      })
-      .select()
-      .single()
-
-    if (error) return dbError(error, 'lp-letters-templates')
-    return NextResponse.json(data, { status: 201 })
+    const out = await learnVoiceTemplate(admin, { fundId, userId: user.id }, name, docs)
+    if (!out.ok) return outcomeResponse(out)
+    return NextResponse.json({ ...out.value.template, reused_from_sources: out.value.reused, unread_files: unread }, { status: 201 })
   }
 
   // JSON body — create default template
@@ -111,11 +92,13 @@ export async function POST(req: NextRequest) {
       name,
       style_guide: DEFAULT_STYLE_GUIDE,
       source_type: 'default',
-      is_default: true,
+      is_default: false,
     })
     .select()
     .single()
 
   if (error) return dbError(error, 'lp-letters-templates')
-  return NextResponse.json(data, { status: 201 })
+  // It becomes the fund's voice, and the only one.
+  const made = await makeFundVoice(admin, fundId, data.id)
+  return made.ok ? NextResponse.json(made.value, { status: 201 }) : outcomeResponse(made)
 }

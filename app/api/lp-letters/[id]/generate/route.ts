@@ -2,17 +2,21 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
-import { createFundAIProvider } from '@/lib/ai'
-import { logAIUsage } from '@/lib/ai/usage'
-import { aggregatePortfolioData } from '@/lib/lp-letters/aggregate'
-import { buildPortfolioTableHtml, generateAllNarratives, assembleFullDraft } from '@/lib/lp-letters/generate'
-import { sanitizeLetterHtml } from '@/lib/sanitize'
-import { DEFAULT_STYLE_GUIDE } from '@/lib/lp-letters/default-template'
+import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
+import { getLetter } from '@/lib/lp-letters/service'
+import { briefForLetter, writeDraftInto, writeWithFundAI } from '@/lib/lp-letters/draft-from-brief'
 import { logActivity } from '@/lib/activity'
 import { rateLimit } from '@/lib/rate-limit'
 
+// The whole letter is one AI call from the brief, which can take a minute or two.
+export const maxDuration = 300
+
+/**
+ * Write the whole letter with the fund's AI: the same brief, layers and rules as lp_draft_letter,
+ * saved as the letter's sections. The letter page and the MCP tools go through this one generator.
+ */
 export async function POST(_req: NextRequest, props: { params: Promise<{ id: string }> }) {
-  const params = await props.params;
+  const params = await props.params
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -25,118 +29,36 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
   const limited = await rateLimit({ key: `lp-letter-gen:${user.id}`, limit: 5, windowSeconds: 300 })
   if (limited) return limited
 
-  // Get the letter
-  const { data: letter } = await admin
-    .from('lp_letters')
-    .select('*')
-    .eq('id', params.id)
-    .eq('fund_id', fundId)
-    .maybeSingle()
-
+  const scope = await loadEntityScopeForUser(admin, user.id)
+  const found = await getLetter(admin, fundId, scope ? scope.vehicleNames : [], params.id)
+  const letter = found.ok ? found.value : null
   if (!letter) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (letter.status === 'generating') return NextResponse.json({ error: 'This letter is already being generated.' }, { status: 409 })
 
-  // Get the template style guide
-  let styleGuide = DEFAULT_STYLE_GUIDE
-  if (letter.template_id) {
-    const { data: template } = await admin
-      .from('lp_letter_templates')
-      .select('style_guide')
-      .eq('id', letter.template_id)
-      .maybeSingle()
-    if (template?.style_guide) styleGuide = template.style_guide
-  }
-
-  // Set status to generating, clear any previous error
   await admin
     .from('lp_letters')
     .update({ status: 'generating', generation_error: null, updated_at: new Date().toISOString() })
     .eq('id', params.id)
 
   try {
-    // Aggregate data
-    const preview = await aggregatePortfolioData(
-      admin, fundId,
-      letter.period_year, letter.period_quarter,
-      letter.portfolio_group, letter.is_year_end
-    )
-
-    // Build portfolio table.
-    //
-    // Sanitized on the way IN as well as on the way out. The generator escapes the database strings
-    // it interpolates, so this is not distrust of it — it is the persistence half of SEC-004: what
-    // lands in `lp_letters.portfolio_table_html` should already be safe, so a future reader that
-    // forgets to sanitize is not the whole defense. The render boundaries sanitize too.
-    const portfolioTableHtml = sanitizeLetterHtml(buildPortfolioTableHtml(preview)) ?? ''
-
-    // Generate narratives
-    const { provider, model, providerType } = await createFundAIProvider(admin, fundId)
-    const companyPrompts = (letter.company_prompts && typeof letter.company_prompts === 'object')
-      ? letter.company_prompts as Record<string, { prompt: string; mode: 'add' | 'replace' }>
-      : null
-    const { narratives, totalUsage } = await generateAllNarratives(
-      provider, model, preview, styleGuide, letter.generation_prompt, companyPrompts
-    )
-
-    // Assemble full draft
-    const fullDraft = assembleFullDraft(preview, portfolioTableHtml, narratives, preview.fundCurrency)
-
-    // Store portfolio summary for export (avoids recalculating from transactions)
-    const portfolioSummary = preview.companies.map(c => ({
-      company_id: c.investment.companyId,
-      company_name: c.investment.companyName,
-      status: c.investment.status,
-      stage: c.investment.stage,
-      total_invested: c.investment.totalInvested,
-      fmv: c.investment.fmv,
-      moic: c.investment.moic,
-    }))
-
-    // Save
-    await admin
-      .from('lp_letters')
-      .update({
-        portfolio_table_html: portfolioTableHtml,
-        company_narratives: narratives as any,
-        full_draft: fullDraft,
-        portfolio_summary: portfolioSummary as any,
-        status: 'draft',
-        updated_at: new Date().toISOString(),
-      })
-      .eq('id', params.id)
-
-    // Log usage
-    await logAIUsage(admin, {
-      fundId,
-      userId: user.id,
-      provider: providerType,
-      model,
-      feature: 'lp-letter-generation',
-      usage: totalUsage,
-    })
+    const loaded = await briefForLetter(admin, fundId, letter)
+    const text = await writeWithFundAI(admin, fundId, user.id, loaded.brief, loaded.voice, letter.generation_prompt)
+    if (!text) throw new Error('The draft came back empty')
+    const saved = await writeDraftInto(admin, { fundId, userId: user.id }, params.id, text, loaded, 'fund_ai')
+    if (!saved.ok) throw new Error(saved.error)
 
     logActivity(admin, fundId, user.id, 'lp-letter.generate', {
       letterId: params.id,
       periodLabel: letter.period_label,
-      companiesCount: narratives.length,
+      sections: Array.isArray(saved.value.content?.sections) ? saved.value.content.sections.length : 0,
     })
-
-    // Return updated letter
-    const { data: updated } = await admin
-      .from('lp_letters')
-      .select('*')
-      .eq('id', params.id)
-      .single()
-
-    return NextResponse.json(updated)
+    return NextResponse.json(saved.value)
   } catch (err) {
-    const internalError = err instanceof Error ? err.message : 'Generation failed'
-    // Log the full error server-side, store a safe message for the UI
-    console.error('[lp-letters] Generation error detail:', internalError)
+    console.error('[lp-letters] Generation error detail:', err instanceof Error ? err.message : err)
     await admin
       .from('lp_letters')
       .update({ status: 'draft', generation_error: 'Letter generation failed. Please try again.', updated_at: new Date().toISOString() })
       .eq('id', params.id)
-
     return NextResponse.json({ error: 'Letter generation failed. Please try again.' }, { status: 500 })
   }
 }

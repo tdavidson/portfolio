@@ -43,7 +43,7 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
 
   const body = await req.json()
   const scope = await loadEntityScopeForUser(admin, user.id)
-  return outcomeResponse(await updateLetter(admin, { fundId, visible: scope ? scope.vehicleNames : [] }, params.id, body ?? {}))
+  return outcomeResponse(await updateLetter(admin, { fundId, userId: user.id, visible: scope ? scope.vehicleNames : [] }, params.id, body ?? {}))
 }
 
 export async function DELETE(_req: NextRequest, props: { params: Promise<{ id: string }> }) {

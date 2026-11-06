@@ -14,6 +14,7 @@ import { useFeatureVisibility } from '@/components/feature-visibility-context'
 interface Template {
   id: string
   name: string
+  is_default?: boolean
 }
 
 interface PreviewCompany {
@@ -76,7 +77,11 @@ export default function NewLetterPage() {
   // Load templates and portfolio groups
   useEffect(() => {
     fetch('/api/lp-letters/templates').then(r => r.json()).then(data => {
-      if (Array.isArray(data)) setTemplates(data)
+      if (!Array.isArray(data)) return
+      setTemplates(data)
+      // Start on the fund's voice, so a letter made without picking is written in it.
+      const voice = data.find((t: Template) => t.is_default) ?? data[0]
+      if (voice) setTemplateId(voice.id)
     })
 
     // Fetch portfolio groups from companies
@@ -212,7 +217,7 @@ export default function NewLetterPage() {
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
                   {templates.map(t => (
-                    <SelectItem key={t.id} value={t.id}>{t.name}</SelectItem>
+                    <SelectItem key={t.id} value={t.id}>{t.name}{t.is_default ? ' (fund voice)' : ''}</SelectItem>
                   ))}
                 </SelectContent>
               </Select>

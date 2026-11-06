@@ -8,10 +8,17 @@ import { resolveVehicle } from '@/lib/accounting/vehicle-resolver'
 import { unwrap } from '@/lib/service-outcome'
 import { reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
 import { siteOrigin } from '@/lib/site-links'
-import { createLetter, getLetter, letterData, listLetters, shareLetter, updateLetter, writeLetterSections } from '@/lib/lp-letters/service'
-import { loadLetterBrief, saveDraftLetter, writeWithFundAI, type LetterPeriod } from '@/lib/lp-letters/draft-from-brief'
-import { checkLetterDraft } from '@/lib/lp-letters/brief'
+import { createLetter, getLetter, importLetter, letterData, listLetters, shareLetter, updateLetter, updateSection, writeLetterSections } from '@/lib/lp-letters/service'
+import { briefForLetter, loadLetterBrief, proposeProfile, resolveTemplate, saveDraftLetter, writeWithFundAI, type LetterPeriod } from '@/lib/lp-letters/draft-from-brief'
+import { LETTER_SKILL_MD, LETTER_SKILL_VERSION, letterVoice } from '@/lib/lp-letters/skill'
+import { fromLetter } from '@/lib/lp-letters/content'
+import { reviewLetter, reviewOptions } from '@/lib/lp-letters/review'
 import { rateLimit } from '@/lib/rate-limit'
+import { loadProfile, saveProfile } from '@/lib/lp-letters/profile-store'
+// The pure document only: the PDF renderer (export-letter.ts) stays out of the MCP routes' bundle.
+import { documentJson, documentMarkdown, hasStructuredContent, letterDocument } from '@/lib/lp-letters/document'
+import { investorText } from '@/lib/lp-letters/internal'
+import { fundChart } from '@/lib/lp-letters/charts'
 import { requireUser } from './deals-tools'
 import { resolveInvestor } from './lp-record-tools'
 
@@ -40,10 +47,18 @@ async function periodOf(ctx: AgentToolContext, input: any): Promise<LetterPeriod
 const briefOpts = (input: any) => ({
   template: typeof input?.template === 'string' ? input.template : null,
   guidance: typeof input?.guidance === 'string' ? input.guidance.slice(0, 4000) : null,
+  partnerNotes: typeof input?.partner_notes === 'string' ? input.partner_notes.slice(0, 6000) : null,
+  sources: (Array.isArray(input?.sources) ? input.sources : [])
+    .filter((d: any) => d && typeof d.text === 'string' && d.text.trim())
+    .slice(0, 10)
+    .map((d: any, i: number) => ({ name: String(d.name ?? `Source ${i + 1}`).slice(0, 200), text: String(d.text).slice(0, 50_000) })),
 })
 
 const summary = (l: any) => ({
   id: l.id, period: l.period_label, vehicle: l.portfolio_group, status: l.status, year_end: !!l.is_year_end, updated_at: l.updated_at,
+  // How it was written: generated (by the fund's AI or an assistant), imported (a letter as sent), or
+  // null for a letter from before this was recorded.
+  source: l.source ?? null, generated_by: l.generated_by ?? null, skill_version: l.skill_version ?? null,
 })
 
 export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
@@ -59,7 +74,10 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
       ...summary(l),
       prompt: l.generation_prompt ?? null,
       full_draft: l.full_draft ?? null,
-      sections: ((l.company_narratives ?? []) as any[]).map(n => ({ company_id: n.company_id, company: n.company_name, narrative: n.narrative })),
+      internal_notes: l.internal_notes ?? null,
+      sections: fromLetter(l).sections.map(s => ({
+        section_id: s.id, kind: s.kind, heading: s.heading, ...(s.company_id ? { company_id: s.company_id } : {}), text: s.body,
+      })),
       generation_error: l.generation_error ?? null,
     }
   },
@@ -67,6 +85,27 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
   lp_letter_data: async (ctx: AgentToolContext, input: any) => {
     const l = await letterOf(ctx, input?.letter_id)
     return { letter: summary(l), ...(await letterData(ctx.admin, ctx.fundId, l)) }
+  },
+
+  lp_letter_skill: async (ctx: AgentToolContext, input: any) => {
+    const template = await resolveTemplate(ctx.admin, ctx.fundId, typeof input?.template === 'string' ? input.template : null)
+    const voice = letterVoice(template)
+    return {
+      skill: 'lp-quarterly-letter',
+      version: LETTER_SKILL_VERSION,
+      files: {
+        'SKILL.md': LETTER_SKILL_MD,
+        ...(voice.structure ? { 'references/structure.md': voice.structure } : {}),
+        'references/voice.md': voice.voice,
+        ...(voice.examples ? { 'references/examples.md': voice.examples } : {}),
+        ...(voice.houseRules ? { 'references/house-rules.md': voice.houseRules } : {}),
+      },
+      voice: voice.source === 'fund'
+        ? { source: 'fund', template: voice.template, note: "The fund's own voice and examples, from its letter template. They replace the general voice and examples." + (voice.structure ? " Its structure (references/structure.md) replaces the skill's general outline." : '') }
+        : { source: 'default', template: voice.template, note: "The skill's general voice: this fund has not saved its own." + (voice.structure ? " Its structure (references/structure.md) replaces the skill's general outline." : '') },
+      ...(voice.houseRules ? { house_rules: "The fund's house rules (references/house-rules.md) apply to every letter. Follow them over the voice and examples." } : {}),
+      next: 'Follow SKILL.md with these references. Get the facts from lp_letter_brief, and save with lp_draft_letter.',
+    }
   },
 
   lp_letter_brief: async (ctx: AgentToolContext, input: any) => {
@@ -84,19 +123,24 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
     const opts = briefOpts(input)
     const loaded = await loadLetterBrief(ctx.admin, ctx.fundId, p, opts)
     const { brief, investorNames } = loaded
-    const text = given ?? await writeWithFundAI(ctx.admin, ctx.fundId, userId, brief)
+    const text = given ?? await writeWithFundAI(ctx.admin, ctx.fundId, userId, brief, loaded.voice, opts.guidance)
     if (!text) throw new Error('The draft came back empty. Try again, or write it from lp_letter_brief and pass text.')
-    const row = unwrap(await saveDraftLetter(ctx.admin, { fundId: ctx.fundId, userId, visible: await visible(ctx) }, p, text, loaded, opts.guidance))
+    const row = unwrap(await saveDraftLetter(
+      ctx.admin, { fundId: ctx.fundId, userId, visible: await visible(ctx) }, p, text, loaded, opts.guidance, given ? 'assistant' : 'fund_ai',
+      { partnerNotes: opts.partnerNotes, sources: opts.sources },
+    ))
     return {
       letter: summary(row),
       template: loaded.template.name,
       written_by: given ? 'assistant' : 'fund AI',
       draft: text,
-      review_flags: checkLetterDraft(text, brief, investorNames),
+      sections: fromLetter(row).sections.map(s => ({ section_id: s.id, heading: s.heading })),
+      review_flags: reviewLetter(fromLetter(row), brief, investorNames, row.internal_notes, reviewOptions(loaded)),
       missing_information: brief.missing_information,
       next:
-        'This is a new, unshared draft. Show the user the draft and every review flag. Edits go through lp_write_letter ' +
-        '(full_draft). Once a person has reviewed it, it is marked final (lp_write_letter mark_final) and only then can an ' +
+        'This is a new, unshared draft. Show the user the draft and every review flag. Its "Missing information" section is ' +
+        'kept with the letter as internal notes (lp_letter internal_notes) and is never shown to investors. Edits go through lp_write_letter ' +
+        '(one section by section_id, or full_draft). Once a person has reviewed it, it is marked final (lp_write_letter mark_final) and only then can an ' +
         'admin share it (lp_share_letter).',
     }
   },
@@ -107,6 +151,40 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
     if (l.status === 'generating') throw new Error('This letter is being generated. Ask again when it finishes.')
     const { token, expiresAt } = signReportLink({ fundId: ctx.fundId, userId, kind: 'lp_letter', args: { letter: l.id } })
     return { document: `${l.period_label} letter (PDF)`, url: reportLinkUrl(ctx.origin ?? siteOrigin(), token), expires_at: expiresAt }
+  },
+
+  lp_letter_export: async (ctx: AgentToolContext, input: any) => {
+    const userId = requireUser(ctx.userId)
+    const l = await letterOf(ctx, input?.letter_id)
+    if (l.status === 'generating') throw new Error('This letter is being generated. Ask again when it finishes.')
+    const format = String(input?.format ?? 'docx')
+    if (!['docx', 'pdf', 'markdown', 'json'].includes(format)) throw new Error('format must be docx, pdf, markdown or json')
+    const { token, expiresAt } = signReportLink({ fundId: ctx.fundId, userId, kind: 'lp_letter', args: { letter: l.id, format } })
+    const link = { document: `${l.period_label} letter (${format === 'docx' ? 'Word' : format === 'pdf' ? 'PDF' : format === 'json' ? 'JSON' : 'Markdown'})`, url: reportLinkUrl(ctx.origin ?? siteOrigin(), token), expires_at: expiresAt }
+    if (format === 'markdown' || format === 'json') {
+      // The same text the link gives (export-letter.ts).
+      const doc = letterDocument(l)
+      if (format === 'json') return { ...link, letter: { letter_id: l.id, ...(documentJson(doc) as object) } }
+      return { ...link, text: hasStructuredContent(l) ? documentMarkdown(doc) : investorText(l.full_draft) }
+    }
+    return link
+  },
+
+  lp_letter_chart: async (ctx: AgentToolContext, input: any) => {
+    const userId = requireUser(ctx.userId)
+    const out = unwrap(await fundChart(ctx.admin, { fundId: ctx.fundId, userId, visible: await visible(ctx) }, String(input?.letter_id ?? ''), {
+      kind: input?.kind, options: input, save: false,
+    }))
+    return { kind: out.chart.kind, caption: out.chart.caption, svg: out.chart.svg, next: 'Add it with lp_letter_add_chart.' }
+  },
+
+  lp_letter_add_chart: async (ctx: AgentToolContext, input: any) => {
+    const userId = requireUser(ctx.userId)
+    const out = unwrap(await fundChart(ctx.admin, { fundId: ctx.fundId, userId, visible: await visible(ctx) }, String(input?.letter_id ?? ''), {
+      kind: input?.kind, options: input, sectionId: input?.section_id, caption: input?.caption, save: true,
+    }))
+    const added = out.charts?.[out.charts.length - 1]
+    return { chart_id: added?.id, caption: added?.caption, section_id: added?.section_id ?? null, charts: out.charts?.length ?? 0 }
   },
 
   lp_create_letter: async (ctx: AgentToolContext, input: any) => {
@@ -127,31 +205,48 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
     const userId = requireUser(ctx.userId)
     const id = String(input?.letter_id ?? '')
     const v = await visible(ctx)
+    const wctx = { fundId: ctx.fundId, userId, visible: v }
     const sections = Array.isArray(input?.sections) ? input.sections : null
     const fullDraft = typeof input?.full_draft === 'string' ? input.full_draft : undefined
     const markFinal = !!(input?.mark_final ?? input?.mark_complete)
     if (!sections && fullDraft === undefined && !markFinal) throw new Error('Pass sections, full_draft or mark_final.')
     if (sections) {
-      const clean = sections.map((s: any) => ({ company_id: String(s?.company_id ?? ''), narrative: String(s?.narrative ?? '') }))
-      if (clean.some((s: any) => !s.company_id || !s.narrative.trim())) throw new Error('Each section needs a company_id and its text.')
-      unwrap(await writeLetterSections(ctx.admin, { fundId: ctx.fundId, userId, visible: v }, id, clean))
+      const clean = sections.map((s: any) => ({
+        section_id: s?.section_id ? String(s.section_id) : null,
+        company_id: s?.company_id ? String(s.company_id) : null,
+        heading: typeof s?.heading === 'string' ? s.heading : undefined,
+        text: String(s?.text ?? s?.narrative ?? ''),
+      }))
+      if (clean.some((s: any) => (!s.section_id && !s.company_id) || !s.text.trim())) {
+        throw new Error('Each section needs a section_id (or company_id) and its text.')
+      }
+      // Sections named by id are edited in place; companies named by id go through the company writer,
+      // which also adds a section for a company the letter has none for.
+      for (const s of clean.filter((s: any) => s.section_id)) {
+        unwrap(await updateSection(ctx.admin, wctx, id, s.section_id, { body: s.text, ...(s.heading !== undefined ? { heading: s.heading } : {}) }))
+      }
+      const byCompany = clean.filter((s: any) => !s.section_id).map((s: any) => ({ company_id: s.company_id, narrative: s.text }))
+      if (byCompany.length) unwrap(await writeLetterSections(ctx.admin, wctx, id, byCompany))
     }
     let row: any = null
     if (fullDraft !== undefined || markFinal) {
-      row = unwrap(await updateLetter(ctx.admin, { fundId: ctx.fundId, visible: v }, id, {
+      row = unwrap(await updateLetter(ctx.admin, wctx, id, {
         ...(fullDraft !== undefined ? { full_draft: fullDraft } : {}),
         ...(markFinal ? { status: 'final' } : {}),
       }))
     } else {
       row = await letterOf(ctx, id)
     }
-    // A full draft written from chat is reviewed against the letter's sources, as a drafted one is.
-    let review_flags: string[] | undefined
-    if (fullDraft !== undefined) {
-      const { brief, investorNames } = await loadLetterBrief(ctx.admin, ctx.fundId, {
-        vehicle: row.portfolio_group, year: row.period_year, quarter: row.period_quarter, yearEnd: !!row.is_year_end,
-      }, { template: row.template_id ?? null })
-      review_flags = checkLetterDraft(fullDraft, brief, investorNames)
+    // Text written from chat is reviewed against the letter's sources, as a drafted letter is.
+    let review_flags: unknown[] | undefined
+    if (fullDraft !== undefined || sections) {
+      const loadedForReview = await briefForLetter(ctx.admin, ctx.fundId, row)
+      const { brief, investorNames } = loadedForReview
+      const touched = new Set(fromLetter(row).sections
+        .filter(s => fullDraft !== undefined || sections!.some((x: any) => x?.section_id === s.id || (x?.company_id && x.company_id === s.company_id)))
+        .map(s => s.id))
+      review_flags = reviewLetter(fromLetter(row), brief, investorNames, row.internal_notes, reviewOptions(loadedForReview))
+        .filter(f => fullDraft !== undefined || (f.section_id !== null && touched.has(f.section_id)))
     }
     return { letter: summary(row), sections_written: sections?.length ?? 0, ...(review_flags ? { review_flags } : {}) }
   },
@@ -167,5 +262,40 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
       shared_with: investors.filter(i => out.lp_investor_ids.includes(i.id)).map(i => i.name),
       note: out.lp_investor_ids.length ? 'They see it in their portal now.' : 'The letter is no longer shared with anyone.',
     }
+  },
+
+  lp_letter_profile_get: async (ctx: AgentToolContext, input: any) => {
+    const vehicle = input?.vehicle ? await resolveVehicle(ctx.admin, ctx.fundId, String(input.vehicle), { access: ctx.access }) : null
+    const v = await visible(ctx)
+    if (vehicle && v !== null && !v.includes(vehicle)) throw new Error('Not found')
+    const loaded = await loadProfile(ctx.admin, ctx.fundId, vehicle)
+    const proposed = input?.propose_from_last_letter && vehicle ? await proposeProfile(ctx.admin, ctx.fundId, ctx.userId ?? null, vehicle) : null
+    return {
+      vehicle: vehicle ?? 'firm-wide', profile: loaded.profile, own: loaded.own, firm_wide: loaded.firm, updated_at: loaded.updated_at,
+      ...(input?.propose_from_last_letter
+        ? proposed
+          ? { proposed: proposed.profile, from_letter: proposed.letter, next: 'Show the person the proposed profile; save it with lp_letter_profile_save once they agree.' }
+          : { proposed: null, note: vehicle ? 'No sent letter for this entity. Import one with lp_import_letter first.' : 'Name the entity whose last letter to read.' }
+        : {}),
+    }
+  },
+
+  lp_letter_profile_save: async (ctx: AgentToolContext, input: any) => {
+    const userId = requireUser(ctx.userId)
+    const vehicle = input?.vehicle ? await resolveVehicle(ctx.admin, ctx.fundId, String(input.vehicle), { access: ctx.access }) : null
+    const v = await visible(ctx)
+    if (vehicle && v !== null && !v.includes(vehicle)) throw new Error('Not found')
+    const template = typeof input?.template === 'string' && input.template.trim() ? (await resolveTemplate(ctx.admin, ctx.fundId, input.template)).id : null
+    const saved = unwrap(await saveProfile(ctx.admin, { fundId: ctx.fundId, userId, visible: v }, vehicle, { ...input, template_id: template }))
+    return { vehicle: vehicle ?? 'firm-wide', profile: saved.profile }
+  },
+
+  lp_import_letter: async (ctx: AgentToolContext, input: any) => {
+    const userId = requireUser(ctx.userId)
+    const vehicle = await resolveVehicle(ctx.admin, ctx.fundId, String(input?.vehicle ?? '') || undefined, { access: ctx.access })
+    const row = unwrap(await importLetter(ctx.admin, { fundId: ctx.fundId, userId, visible: await visible(ctx) }, {
+      vehicle, year: Number(input?.year), quarter: Number(input?.quarter), yearEnd: !!input?.year_end, text: String(input?.text ?? ''),
+    }))
+    return { letter: summary(row), sections: fromLetter(row).sections.map(s => ({ section_id: s.id, heading: s.heading })) }
   },
 }

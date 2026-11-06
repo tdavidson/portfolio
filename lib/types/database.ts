@@ -221,6 +221,7 @@ export type Database = {
           contact_email: string[] | null
           created_at: string | null
           current_update: string | null
+          current_update_at: string | null
           founded_year: number | null
           founders: string | null
           fund_id: string
@@ -243,6 +244,7 @@ export type Database = {
           contact_email?: string[] | null
           created_at?: string | null
           current_update?: string | null
+          current_update_at?: string | null
           founded_year?: number | null
           founders?: string | null
           fund_id: string
@@ -265,6 +267,7 @@ export type Database = {
           contact_email?: string[] | null
           created_at?: string | null
           current_update?: string | null
+          current_update_at?: string | null
           founded_year?: number | null
           founders?: string | null
           fund_id?: string
@@ -2375,6 +2378,7 @@ export type Database = {
           proceeds_received: number | null
           proceeds_written_off: number | null
           round_name: string | null
+          round_terms: Json | null
           security_type: string | null
           share_price: number | null
           shares_acquired: number | null
@@ -2419,6 +2423,7 @@ export type Database = {
           proceeds_received?: number | null
           proceeds_written_off?: number | null
           round_name?: string | null
+          round_terms?: Json | null
           security_type?: string | null
           share_price?: number | null
           shares_acquired?: number | null
@@ -2463,6 +2468,7 @@ export type Database = {
           proceeds_received?: number | null
           proceeds_written_off?: number | null
           round_name?: string | null
+          round_terms?: Json | null
           security_type?: string | null
           share_price?: number | null
           shares_acquired?: number | null
@@ -2658,40 +2664,52 @@ export type Database = {
       lp_letter_templates: {
         Row: {
           created_at: string | null
+          examples: string | null
           fund_id: string
+          house_rules: string | null
           id: string
           is_default: boolean
           name: string
           source_filename: string | null
+          source_files: Json | null
           source_format: string | null
           source_text: string | null
           source_type: string | null
+          structure: string | null
           style_guide: string | null
           updated_at: string | null
         }
         Insert: {
           created_at?: string | null
+          examples?: string | null
           fund_id: string
+          house_rules?: string | null
           id?: string
           is_default?: boolean
           name?: string
           source_filename?: string | null
+          source_files?: Json | null
           source_format?: string | null
           source_text?: string | null
           source_type?: string | null
+          structure?: string | null
           style_guide?: string | null
           updated_at?: string | null
         }
         Update: {
           created_at?: string | null
+          examples?: string | null
           fund_id?: string
+          house_rules?: string | null
           id?: string
           is_default?: boolean
           name?: string
           source_filename?: string | null
+          source_files?: Json | null
           source_format?: string | null
           source_text?: string | null
           source_type?: string | null
+          structure?: string | null
           style_guide?: string | null
           updated_at?: string | null
         }
@@ -2709,9 +2727,18 @@ export type Database = {
         Row: {
           company_narratives: Json | null
           company_prompts: Json | null
+          content: Json | null
           created_at: string | null
           created_by: string | null
           full_draft: string | null
+          generated_by: string | null
+          internal_notes: string | null
+          partner_notes: string | null
+          source_documents: Json
+          charts: Json
+          skill_version: string | null
+          source: string | null
+          vehicle_id: string | null
           fund_id: string
           generation_error: string | null
           generation_prompt: string | null
@@ -2730,9 +2757,18 @@ export type Database = {
         Insert: {
           company_narratives?: Json | null
           company_prompts?: Json | null
+          content?: Json | null
           created_at?: string | null
           created_by?: string | null
           full_draft?: string | null
+          generated_by?: string | null
+          internal_notes?: string | null
+          partner_notes?: string | null
+          source_documents?: Json
+          charts?: Json
+          skill_version?: string | null
+          source?: string | null
+          vehicle_id?: string | null
           fund_id: string
           generation_error?: string | null
           generation_prompt?: string | null
@@ -2751,9 +2787,18 @@ export type Database = {
         Update: {
           company_narratives?: Json | null
           company_prompts?: Json | null
+          content?: Json | null
           created_at?: string | null
           created_by?: string | null
           full_draft?: string | null
+          generated_by?: string | null
+          internal_notes?: string | null
+          partner_notes?: string | null
+          source_documents?: Json
+          charts?: Json
+          skill_version?: string | null
+          source?: string | null
+          vehicle_id?: string | null
           fund_id?: string
           generation_error?: string | null
           generation_prompt?: string | null

@@ -12,15 +12,20 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { aggregatePortfolioData, type PortfolioPreview } from './aggregate'
 import { buildPortfolioTableHtml } from './generate'
-import { createLetter } from './service'
-import { DEFAULT_STYLE_GUIDE } from './default-template'
+import { contentColumns, createLetter, portfolioSummaryOf } from './service'
+import { attachSources, parseLetterText, type LetterContent } from './content'
+import { letterVoice, LETTER_SKILL_VERSION, type LetterVoice } from './skill'
+import { splitInternal } from './internal'
+import { lastFinalLetter, loadProfile, otherEntitiesCompanies } from './profile-store'
+import type { LetterProfile } from './profile'
+import { parseSeededProfile, seedProfilePrompt } from './seed-profile'
 import { sanitizeLetterHtml } from '@/lib/sanitize'
 import { done, dbFail, type Outcome } from '@/lib/service-outcome'
 import { createFundAIProvider } from '@/lib/ai'
 import { logAIUsage } from '@/lib/ai/usage'
 import {
-  briefAsPrompt, buildLetterBrief, quarterBounds,
-  type LetterBrief, type StoredUpdate,
+  buildLetterBrief, quarterBounds, writerPrompt, sectionPrompt,
+  type LetterBrief, type LetterSourceDocument, type StoredUpdate,
 } from './brief'
 
 type Admin = SupabaseClient
@@ -76,24 +81,48 @@ async function investorNames(admin: Admin, fundId: string): Promise<string[]> {
   return ((data ?? []) as any[]).map(r => String(r.name ?? '')).filter(Boolean)
 }
 
-export interface LetterTemplate { id: string | null; name: string; styleGuide: string }
+/** A fund's saved letter template, or the built-in one (id null, no style guide of its own). */
+export interface LetterTemplate {
+  id: string | null
+  name: string
+  styleGuide: string | null
+  examples?: string | null
+  houseRules?: string | null
+  structure?: string | null
+}
+
+const asTemplate = (t: any): LetterTemplate => ({
+  id: t.id, name: t.name, styleGuide: t.style_guide, examples: t.examples ?? null, houseRules: t.house_rules ?? null, structure: t.structure ?? null,
+})
 
 /**
- * The letter template whose style guide sets a letter's structure: the one asked for (by id or
- * name), else the fund's default, else the built-in default. A name that matches nothing is an
- * error, so a typo doesn't quietly fall back.
+ * The letter template whose style guide is the letter's voice: the one asked for (by id or name),
+ * else the fund's default, else none, and the skill's general voice applies (skill.ts). A name that
+ * matches nothing is an error, so a typo doesn't quietly fall back.
  */
 export async function resolveTemplate(admin: Admin, fundId: string, ref?: string | null): Promise<LetterTemplate> {
-  const { data } = await (admin as any).from('lp_letter_templates').select('id, name, style_guide, is_default').eq('fund_id', fundId)
-  const rows = ((data ?? []) as any[]).filter(t => t.style_guide)
+  const { data } = await (admin as any).from('lp_letter_templates')
+    .select('id, name, style_guide, structure, examples, house_rules, is_default').eq('fund_id', fundId)
+  const rows = ((data ?? []) as any[]).filter(t => t.style_guide || t.structure || t.house_rules)
   if (ref?.trim()) {
     const want = ref.trim().toLowerCase()
     const hit = rows.find(t => t.id === ref.trim() || String(t.name).toLowerCase() === want)
     if (!hit) throw new Error(`No letter template "${ref}". Templates: ${rows.map(t => t.name).join(', ') || 'none saved yet'}.`)
-    return { id: hit.id, name: hit.name, styleGuide: hit.style_guide }
+    return asTemplate(hit)
   }
   const def = rows.find(t => t.is_default)
-  return def ? { id: def.id, name: def.name, styleGuide: def.style_guide } : { id: null, name: 'Default', styleGuide: DEFAULT_STYLE_GUIDE }
+  return def ? asTemplate(def) : { id: null, name: 'Default', styleGuide: null }
+}
+
+/**
+ * A letter's template: the one it was created with, else (none chosen, or since deleted) the
+ * fund's default, so a letter made without picking one is still written in the fund's voice.
+ */
+export async function templateForLetter(admin: Admin, fundId: string, templateId: string | null | undefined): Promise<LetterTemplate> {
+  if (templateId) {
+    try { return await resolveTemplate(admin, fundId, templateId) } catch { /* deleted: the default applies */ }
+  }
+  return resolveTemplate(admin, fundId, null)
 }
 
 export interface LoadedBrief {
@@ -101,34 +130,80 @@ export interface LoadedBrief {
   preview: PortfolioPreview
   investorNames: string[]
   template: LetterTemplate
+  voice: LetterVoice
+  /** The entity's letter profile (merged over the firm-wide one). */
+  profile: LetterProfile
+  /** Companies of the fund this entity doesn't hold, for the cross-entity check. Never in the brief. */
+  otherCompanies: string[]
+}
+
+export interface BriefOptions {
+  template?: string | null
+  guidance?: string | null
+  partnerNotes?: string | null
+  sources?: LetterSourceDocument[]
+}
+
+/** A letter's added source documents, as stored (lp_letters.source_documents). */
+export interface StoredSourceDocument extends LetterSourceDocument {
+  id: string
+  added_at: string
+  added_by: string | null
+}
+
+export function storedSources(x: unknown): StoredSourceDocument[] {
+  return (Array.isArray(x) ? x : [])
+    .filter((d: any) => d && typeof d.name === 'string' && typeof d.text === 'string')
+    .map((d: any) => ({ id: String(d.id ?? d.name), name: d.name, text: d.text, added_at: String(d.added_at ?? ''), added_by: d.added_by ?? null }))
 }
 
 export async function loadLetterBrief(
-  admin: Admin, fundId: string, p: LetterPeriod, opts: { template?: string | null; guidance?: string | null } = {},
+  admin: Admin, fundId: string, p: LetterPeriod, opts: BriefOptions = {},
 ): Promise<LoadedBrief> {
-  const template = await resolveTemplate(admin, fundId, opts.template)
+  const { profile } = await loadProfile(admin, fundId, p.vehicle)
+  // The entity's profile names its template when none is asked for.
+  const template = opts.template
+    ? await resolveTemplate(admin, fundId, opts.template)
+    : await resolveTemplate(admin, fundId, profile.template_id).catch(() => resolveTemplate(admin, fundId, null))
+  const voice = letterVoice(template)
   const preview = await aggregatePortfolioData(admin as any, fundId, p.year, p.quarter, p.vehicle, !!p.yearEnd)
   const ids = preview.companies.map(c => c.investment.companyId)
-  const [updates, names] = await Promise.all([
+  const [updates, names, lastLetter, otherCompanies] = await Promise.all([
     quarterUpdates(admin, fundId, ids, p.year, p.quarter),
     investorNames(admin, fundId),
+    lastFinalLetter(admin, fundId, p.vehicle, p.year, p.quarter),
+    otherEntitiesCompanies(admin, fundId, ids),
   ])
   const brief = buildLetterBrief({
-    preview, year: p.year, quarter: p.quarter, updates, investorNames: names, styleGuide: template.styleGuide, guidance: opts.guidance,
+    preview, year: p.year, quarter: p.quarter, updates, investorNames: names, voice, guidance: opts.guidance,
+    partnerNotes: opts.partnerNotes, sources: opts.sources, profile, lastLetter,
   })
-  return { brief, preview, investorNames: names, template }
+  return { brief, preview, investorNames: names, template, voice, profile, otherCompanies }
 }
 
-/** The fund's own AI provider writes the letter from the brief, in one call. */
-export async function writeWithFundAI(admin: Admin, fundId: string, userId: string | null, brief: LetterBrief): Promise<string> {
+/** A stored letter's brief: its period, its template (or the fund's default), its guidance, notes and documents. */
+export async function briefForLetter(admin: Admin, fundId: string, letter: any): Promise<LoadedBrief> {
+  // The letter's own template; none (or since deleted) falls to the entity profile's, then the fund's default.
+  return loadLetterBrief(admin, fundId, {
+    vehicle: letter.portfolio_group, year: letter.period_year, quarter: letter.period_quarter, yearEnd: !!letter.is_year_end,
+  }, {
+    template: letter.template_id ? await resolveTemplate(admin, fundId, letter.template_id).then(t => t.id, () => null) : null, guidance: letter.generation_prompt, partnerNotes: letter.partner_notes ?? null,
+    sources: storedSources(letter.source_documents).map(d => ({ name: d.name, text: d.text })),
+  })
+}
+
+/** The fund's own AI provider writes the letter from the brief, in one call, in the layers of writerPrompt. */
+export async function writeWithFundAI(
+  admin: Admin, fundId: string, userId: string | null, brief: LetterBrief, voice: LetterVoice, guidance?: string | null,
+): Promise<string> {
   const { provider, model, providerType } = await createFundAIProvider(admin as any, fundId)
   const result = await provider.createMessage({
     model,
-    maxTokens: 4000,
+    maxTokens: 8000,
     system:
       "You write a venture fund's quarterly letter to its limited partners. You write plainly and precisely, state bad news " +
-      'directly, and never add a number or claim your sources do not contain. Plain text, no markdown.',
-    content: briefAsPrompt(brief),
+      'directly, and never add a number or claim your sources do not contain. Plain text, with a "## " line opening each section.',
+    content: writerPrompt(brief, voice, guidance),
   })
   await logAIUsage(admin as any, {
     fundId, userId: userId ?? undefined, provider: providerType, model, feature: 'lp-letter-draft', usage: result.usage,
@@ -136,34 +211,116 @@ export async function writeWithFundAI(admin: Admin, fundId: string, userId: stri
   return result.text.trim()
 }
 
+/** The letter's sections from written text, each with the sources it was written from. */
+export function contentFromText(text: string, brief: LetterBrief): LetterContent {
+  return attachSources(parseLetterText(text, { companies: brief.companies.map(c => ({ id: c.company_id, name: c.company })) }), brief)
+}
+
 /**
- * Save a drafted letter as a new letter: status draft, shared with no one. The portfolio table and
- * summary come from the books, as for a generated letter, so the PDF and export carry the same
- * figures the draft was written from.
+ * Write a drafted letter's text into a letter: its sections with their sources, the copies older
+ * readers use, the internal notes, and the portfolio table and summary from the books, so the PDF
+ * and exports carry the same figures the draft was written from.
  */
+export async function writeDraftInto(
+  admin: Admin, ctx: { fundId: string; userId: string }, letterId: string, text: string,
+  loaded: Pick<LoadedBrief, 'preview' | 'brief'>, generatedBy: 'fund_ai' | 'assistant',
+): Promise<Outcome<any>> {
+  const { body, internal } = splitInternal(text)
+  const content = contentFromText(body ?? '', loaded.brief)
+  const { data, error } = await (admin as any)
+    .from('lp_letters')
+    .update({
+      ...contentColumns(content, ctx.userId),
+      // The "Missing information" section is kept with the letter, apart from what investors see.
+      internal_notes: internal,
+      source: 'generated',
+      generated_by: generatedBy,
+      skill_version: LETTER_SKILL_VERSION,
+      portfolio_table_html: sanitizeLetterHtml(buildPortfolioTableHtml(loaded.preview)) ?? '',
+      portfolio_summary: portfolioSummaryOf(loaded.preview),
+      status: 'draft',
+      generation_error: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq('id', letterId).eq('fund_id', ctx.fundId).select().single()
+  if (error) return dbFail(error, 'lp-letters-draft')
+  return done(data)
+}
+
+/** Save a drafted letter as a new letter: status draft, shared with no one. */
 export async function saveDraftLetter(
   admin: Admin, ctx: { fundId: string; userId: string; visible: string[] | null },
-  p: LetterPeriod, text: string, loaded: Pick<LoadedBrief, 'preview' | 'template'>, guidance?: string | null,
+  p: LetterPeriod, text: string, loaded: Pick<LoadedBrief, 'preview' | 'template' | 'brief'>, guidance?: string | null,
+  generatedBy: 'fund_ai' | 'assistant' = 'fund_ai',
+  given: { partnerNotes?: string | null; sources?: LetterSourceDocument[] } = {},
 ): Promise<Outcome<any>> {
-  const { preview } = loaded
   const created = await createLetter(admin, ctx, {
     period_year: p.year, period_quarter: p.quarter, portfolio_group: p.vehicle, is_year_end: !!p.yearEnd,
     template_id: loaded.template.id, generation_prompt: guidance?.trim() || null,
   })
   if (!created.ok) return created
-  const { data, error } = await (admin as any)
-    .from('lp_letters')
-    .update({
-      full_draft: text,
-      portfolio_table_html: sanitizeLetterHtml(buildPortfolioTableHtml(preview)) ?? '',
-      portfolio_summary: preview.companies.map(c => ({
-        company_id: c.investment.companyId, company_name: c.investment.companyName, status: c.investment.status,
-        stage: c.investment.stage, total_invested: c.investment.totalInvested, fmv: c.investment.fmv, moic: c.investment.moic,
-      })),
-      status: 'draft',
-      updated_at: new Date().toISOString(),
-    })
-    .eq('id', created.value.id).eq('fund_id', ctx.fundId).select().single()
-  if (error) return dbFail(error, 'lp-letters-draft')
-  return done(data)
+  // The notes and documents it was written from stay with the letter, for a rewrite or a review later.
+  if (given.partnerNotes?.trim() || given.sources?.length) {
+    const at = new Date().toISOString()
+    await (admin as any).from('lp_letters').update({
+      partner_notes: given.partnerNotes?.trim() || null,
+      source_documents: (given.sources ?? []).map((d, i) => ({ id: `src-${Date.now()}-${i}`, name: d.name, text: d.text, added_at: at, added_by: ctx.userId })),
+    }).eq('id', created.value.id).eq('fund_id', ctx.fundId)
+  }
+  return writeDraftInto(admin, ctx, created.value.id, text, loaded, generatedBy)
+}
+
+/**
+ * Rewrite one section with the fund's AI: the same layers and brief as the whole letter, the rest of
+ * the letter as it stands for context, and this section's own guidance. Returns the new text only.
+ */
+export async function rewriteSection(
+  admin: Admin, fundId: string, userId: string | null, loaded: Pick<LoadedBrief, 'brief' | 'voice'>,
+  content: LetterContent, sectionId: string, guidance?: string | null, sectionGuidance?: string | null,
+): Promise<string> {
+  const section = content.sections.find(s => s.id === sectionId)
+  if (!section) throw new Error(`No section "${sectionId}" in this letter.`)
+  const { provider, model, providerType } = await createFundAIProvider(admin as any, fundId)
+  const result = await provider.createMessage({
+    model,
+    maxTokens: 3000,
+    system:
+      "You rewrite one section of a venture fund's quarterly letter to its limited partners. You write plainly and precisely, " +
+      'state bad news directly, and never add a number or claim your sources do not contain. Plain text, no markdown.',
+    content: sectionPrompt(loaded.brief, loaded.voice, content, section, guidance, sectionGuidance),
+  })
+  await logAIUsage(admin as any, {
+    fundId, userId: userId ?? undefined, provider: providerType, model, feature: 'lp-letter-section', usage: result.usage,
+  })
+  return splitInternal(result.text.replace(/^##\s+.*\n+/, '')).body?.trim() ?? ''
+}
+
+/**
+ * A profile proposed from the entity's last letter as sent (or the letter named), for a person to
+ * review in the profile editor. Nothing is saved.
+ */
+export async function proposeProfile(
+  admin: Admin, fundId: string, userId: string | null, vehicle: string, letterId?: string | null,
+): Promise<{ profile: LetterProfile; letter: { id: string; period: string } } | null> {
+  let letter: { id: string; period: string; text: string } | null = null
+  if (letterId) {
+    const { data } = await (admin as any).from('lp_letters').select('id, period_label, full_draft, portfolio_group')
+      .eq('fund_id', fundId).eq('id', letterId).maybeSingle()
+    if (data && data.portfolio_group === vehicle && data.full_draft) letter = { id: data.id, period: data.period_label, text: splitInternal(data.full_draft).body }
+  } else {
+    letter = await lastFinalLetter(admin, fundId, vehicle, 9999, 4)
+  }
+  if (!letter) return null
+  const { data: companies } = await (admin as any).from('companies').select('id, name').eq('fund_id', fundId).eq('holding_type', 'company')
+  const known = ((companies ?? []) as any[]).filter(c => c.name).map(c => ({ id: String(c.id), name: String(c.name) }))
+  const { provider, model, providerType } = await createFundAIProvider(admin as any, fundId)
+  const result = await provider.createMessage({
+    model,
+    maxTokens: 4000,
+    system: 'You read investor letters and extract their fixed facts exactly as written. You return JSON only.',
+    content: seedProfilePrompt(letter.text, known),
+  })
+  await logAIUsage(admin as any, { fundId, userId: userId ?? undefined, provider: providerType, model, feature: 'lp-letter-profile-seed', usage: result.usage })
+  const profile = parseSeededProfile(result.text, known.map(c => c.id))
+  return profile ? { profile, letter: { id: letter.id, period: letter.period } } : null
 }

@@ -23,6 +23,7 @@ import { logLpAccessEvent } from '@/lib/lp-access-log'
 import { connectorPrincipal, lpConnectorEnabled } from '@/lib/portal/principal'
 import { PortalError, portalLetterShare, portalStatementInvestors } from '@/lib/portal/service'
 import { getLetter } from '@/lib/lp-letters/service'
+import { exportLetter, LETTER_EXPORT_FORMATS, type LetterExportFormat } from '@/lib/lp-letters/export-letter'
 import { renderPdf as renderTemplateDocumentPdf } from '@/lib/document-templates/pdf'
 import { callNoticePreviewPdf } from '@/lib/accounting/notice-preview'
 import { closeBundleZip, loadCloseBundle } from '@/lib/accounting/close-bundle'
@@ -188,6 +189,12 @@ async function fundDocument(admin: ReturnType<typeof createAdminClient>, claims:
         const scope = await entityScopeFor(admin, access)
         const letter = await getLetter(admin, fundId, scope.vehicleNames, a.letter ?? '')
         if (!letter.ok || !letter.value || letter.value.status === 'generating') return notFound()
+        // lp_letter_export's links name a format; lp_letter_pdf's don't, and are the PDF.
+        if (a.format && a.format !== 'pdf') {
+          if (!LETTER_EXPORT_FORMATS.includes(a.format as LetterExportFormat)) return notFound()
+          doc = await exportLetter(admin, fundId, letter.value, a.format as LetterExportFormat)
+          break
+        }
         const result = await generateLetterPdf(admin, { fundId, letterId: letter.value.id })
         doc = result ? { body: result.pdf, fileName: result.fileName, contentType: 'application/pdf' } : null
         break
