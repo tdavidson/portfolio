@@ -3,6 +3,7 @@ import { getMcpServer } from '@/lib/mcp-client/servers'
 import { buildAuthorizationUrl, createPkce, discoverAuth, McpOAuthError, registerClient } from '@/lib/mcp-client/oauth'
 import { createMcpOAuthState, MCP_OAUTH_STATE_COOKIE, MCP_OAUTH_STATE_TTL_SECONDS } from '@/lib/mcp-client/oauth-state'
 import { connectorMember, connectorRedirectUri } from '@/lib/mcp-client/route-helpers'
+import { isMcpServerEnabled } from '@/lib/mcp-client/connections'
 import { PRODUCT_NAME, requestOrigin } from '@/lib/site-links'
 
 /**
@@ -22,6 +23,10 @@ export async function GET(req: NextRequest, ctx: Ctx) {
   if (!server) return NextResponse.json({ error: 'Unknown connector' }, { status: 404 })
   const guard = await connectorMember()
   if ('error' in guard) return guard.error
+
+  if (!(await isMcpServerEnabled(guard.admin, guard.fundId, server.id))) {
+    return backToSettings(req, `connector=${server.id}&connector_error=disabled`)
+  }
 
   const encryptionKey = process.env.ENCRYPTION_KEY
   if (!encryptionKey) return NextResponse.json({ error: 'Server misconfiguration: ENCRYPTION_KEY not set' }, { status: 500 })

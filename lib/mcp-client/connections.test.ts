@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from 'vitest'
 import { memoryAdmin } from '../../tests/helpers/memory-admin'
 import { encrypt, decrypt } from '@/lib/crypto'
-import { getMcpServerForUser } from './connections'
+import { getMcpServerForUser, isMcpServerEnabled, setMcpServerEnabled } from './connections'
 import type { FetchLike } from './oauth'
 
 const KEK = 'b'.repeat(64)
@@ -9,9 +9,9 @@ const DEK = 'c'.repeat(64)
 const NOW = Date.parse('2026-11-06T12:00:00Z')
 const SPECTER = 'https://mcp.tryspecter.com/mcp'
 
-function setup(row: Record<string, unknown> = {}) {
+function setup(row: Record<string, unknown> = {}, enabled: string[] = ['specter']) {
   return memoryAdmin({
-    fund_settings: [{ fund_id: 'fund-1', encryption_key_encrypted: encrypt(DEK, KEK) }],
+    fund_settings: [{ fund_id: 'fund-1', encryption_key_encrypted: encrypt(DEK, KEK), mcp_servers_enabled: enabled }],
     mcp_connections: [{
       id: 'conn-1', user_id: 'user-1', fund_id: 'fund-1', server_id: 'specter',
       client_id: 'client-1', client_secret_encrypted: null, token_endpoint: 'https://auth.data.example/token',
@@ -35,6 +35,11 @@ describe('getMcpServerForUser', () => {
     const { admin } = setup()
     const server = await getMcpServerForUser(admin as any, 'user-1', 'specter', { fetchImpl: noNetwork, now: NOW })
     expect(server).toEqual({ name: 'specter', url: SPECTER, authorizationToken: 'at-old', allowedTools: ['find_company'] })
+  })
+
+  it('is null when an admin has not turned the server on for the fund', async () => {
+    const { admin } = setup({}, [])
+    expect(await getMcpServerForUser(admin as any, 'user-1', 'specter', { fetchImpl: noNetwork, now: NOW })).toBeNull()
   })
 
   it('is null for a member who has not connected, or an unknown server', async () => {
@@ -70,5 +75,17 @@ describe('getMcpServerForUser', () => {
     const { admin } = setup({ tools_checked_at: new Date(NOW - 2 * 24 * 60 * 60 * 1000).toISOString() })
     const server = await getMcpServerForUser(admin as any, 'user-1', 'specter', { fetchImpl: noNetwork, now: NOW })
     expect(server?.allowedTools).toEqual(['find_company'])
+  })
+})
+
+describe('fund switch', () => {
+  it('turns a server on and off without touching others', async () => {
+    const { admin, tables } = setup({}, ['other'])
+    await setMcpServerEnabled(admin as any, 'fund-1', 'specter', true)
+    expect(tables.fund_settings[0].mcp_servers_enabled).toEqual(['other', 'specter'])
+    expect(await isMcpServerEnabled(admin as any, 'fund-1', 'specter')).toBe(true)
+    await setMcpServerEnabled(admin as any, 'fund-1', 'specter', false)
+    expect(tables.fund_settings[0].mcp_servers_enabled).toEqual(['other'])
+    expect(await isMcpServerEnabled(admin as any, 'fund-1', 'specter')).toBe(false)
   })
 })

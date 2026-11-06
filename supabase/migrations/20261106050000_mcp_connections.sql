@@ -39,6 +39,13 @@ grant select, insert, update, delete on public.mcp_connections to service_role;
 
 alter table public.mcp_connections enable row level security;
 
+-- Which outside MCP servers an admin has turned on for the fund. Off until an admin turns a server
+-- on in Settings; members then connect their own accounts.
+alter table public.fund_settings
+  add column if not exists mcp_servers_enabled text[] not null default '{}';
+
+select public.grant_fund_settings_member_columns();
+
 -- Documents a member saves from Specter into a deal's data room are badged by source.
 alter table diligence_documents
   drop constraint if exists diligence_documents_source_kind_check;

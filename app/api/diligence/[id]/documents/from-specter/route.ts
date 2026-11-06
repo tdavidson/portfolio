@@ -34,10 +34,10 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
   await props.params
   const guard = await member()
   if ('error' in guard) return guard.error
-  const status = await getMcpConnectionStatus(guard.admin, guard.userId, 'specter')
+  const status = await getMcpConnectionStatus(guard.admin, guard.fundId, guard.userId, 'specter')
   const { provider } = await getStageProvider(guard.admin, guard.fundId, 'research')
   return NextResponse.json({
-    connected: status.connected,
+    connected: status.enabled && status.connected,
     supported: provider.supportsToolLoop === true,
   })
 }

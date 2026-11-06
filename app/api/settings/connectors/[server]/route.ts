@@ -5,7 +5,8 @@ import { connectorMember } from '@/lib/mcp-client/route-helpers'
 
 /**
  * A member's own connection to an outside MCP server (lib/mcp-client/servers.ts).
- * GET says whether they're connected; DELETE disconnects. Tokens are never returned.
+ * GET says whether the fund has it on and whether they're connected; DELETE disconnects. Tokens are
+ * never returned. An admin turns a server on or off at ./fund.
  */
 
 type Ctx = { params: Promise<{ server: string }> }
@@ -17,8 +18,8 @@ export async function GET(_req: NextRequest, ctx: Ctx) {
   const guard = await connectorMember()
   if ('error' in guard) return guard.error
 
-  const status = await getMcpConnectionStatus(guard.admin, guard.userId, server.id)
-  return NextResponse.json({ server: { id: server.id, name: server.name }, ...status })
+  const status = await getMcpConnectionStatus(guard.admin, guard.fundId, guard.userId, server.id)
+  return NextResponse.json({ server: { id: server.id, name: server.name }, isAdmin: guard.isAdmin, ...status })
 }
 
 export async function DELETE(_req: NextRequest, ctx: Ctx) {

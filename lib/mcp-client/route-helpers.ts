@@ -11,11 +11,16 @@ export async function connectorMember() {
   const admin = createAdminClient()
   const { data: membership } = await admin
     .from('fund_members')
-    .select('fund_id')
+    .select('fund_id, role')
     .eq('user_id', user.id)
     .maybeSingle()
   if (!membership) return { error: NextResponse.json({ error: 'No fund found' }, { status: 403 }) }
-  return { admin, fundId: (membership as any).fund_id as string, userId: user.id }
+  return {
+    admin,
+    fundId: (membership as any).fund_id as string,
+    userId: user.id,
+    isAdmin: (membership as any).role === 'admin',
+  }
 }
 
 /**

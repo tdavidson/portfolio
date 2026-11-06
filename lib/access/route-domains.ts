@@ -554,6 +554,8 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/settings/connectors/[server]': { domain: 'portfolio', level: 'any' },
   'api/settings/connectors/[server]/connect': { domain: 'portfolio', level: 'any' },
   'api/settings/connectors/[server]/callback': { domain: 'portfolio', level: 'any' },
+  // Turning a connector on or off for the whole fund.
+  'api/settings/connectors/[server]/fund': { domain: 'admin' },
   // A member's OWN agent credentials: GET lists only their keys, POST mints one for them. The
   // route refuses the read-only demo itself, and every call the key later makes is re-checked
   // against its owner's live grants — so the key can never exceed them. Gating this as admin

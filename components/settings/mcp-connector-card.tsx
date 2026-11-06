@@ -15,6 +15,8 @@ import { MCP_SERVERS, type McpServerDefinition } from '@/lib/mcp-client/servers'
  */
 
 interface Status {
+  enabled: boolean
+  isAdmin: boolean
   connected: boolean
   readTools: number
   lastError: string | null
@@ -27,6 +29,7 @@ const ERRORS: Record<string, string> = {
   discovery_failed: 'Couldn’t find the service’s sign-in page.',
   consent_denied: 'Sign-in was cancelled.',
   invalid_state: 'The sign-in expired or came from another browser. Try again.',
+  disabled: 'An admin needs to turn this on for the fund first.',
   token_exchange_failed: 'The service didn’t finish the sign-in. Try again.',
 }
 
@@ -36,7 +39,7 @@ function McpConnectorCard({ server }: { server: McpServerDefinition }) {
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
 
   useEffect(() => {
-    const empty: Status = { connected: false, readTools: 0, lastError: null, connectedAt: null }
+    const empty: Status = { enabled: false, isAdmin: false, connected: false, readTools: 0, lastError: null, connectedAt: null }
     fetch(`/api/settings/connectors/${server.id}`)
       .then(r => (r.ok ? r.json() : null))
       .catch(() => null)
@@ -54,15 +57,28 @@ function McpConnectorCard({ server }: { server: McpServerDefinition }) {
   async function disconnect() {
     setBusy(true)
     await fetch(`/api/settings/connectors/${server.id}`, { method: 'DELETE' })
-    setStatus({ connected: false, readTools: 0, lastError: null, connectedAt: null })
+    setStatus(s => s && { ...s, connected: false, readTools: 0, lastError: null, connectedAt: null })
     setNotice(null)
+    setBusy(false)
+  }
+
+  async function setEnabled(enabled: boolean) {
+    setBusy(true)
+    const res = await fetch(`/api/settings/connectors/${server.id}/fund`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    })
+    if (res.ok) setStatus(s => s && { ...s, enabled })
+    else setNotice({ ok: false, text: 'Couldn’t save that setting.' })
     setBusy(false)
   }
 
   // A plain link: the connect route answers with a redirect to the service's sign-in page.
   const connectHref = `/api/settings/connectors/${server.id}/connect`
 
-  if (!status) return null
+  // Members don't see a connector the fund hasn't turned on.
+  if (!status || (!status.enabled && !status.isAdmin)) return null
 
   return (
     <Card>
@@ -84,7 +100,26 @@ function McpConnectorCard({ server }: { server: McpServerDefinition }) {
           </div>
         )}
 
-        {status.connected ? (
+        {status.isAdmin && (
+          <label className="flex items-start gap-2 text-sm cursor-pointer">
+            <input
+              type="checkbox"
+              checked={status.enabled}
+              onChange={e => setEnabled(e.target.checked)}
+              disabled={busy}
+              className="mt-1 h-3.5 w-3.5"
+            />
+            <span>
+              Turn on {server.name} for the fund
+              <span className="block text-xs text-muted-foreground">
+                Lets every member connect their own {server.name} account. Turning it off stops the
+                assistant using {server.name} for everyone.
+              </span>
+            </span>
+          </label>
+        )}
+
+        {!status.enabled ? null : status.connected ? (
           <>
             <div className="flex items-center gap-2 text-sm">
               <CheckCircle2 className="h-4 w-4 text-success" />

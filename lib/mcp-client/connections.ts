@@ -19,6 +19,8 @@ const REFRESH_MARGIN_MS = 2 * 60 * 1000
 const TOOLS_TTL_MS = 24 * 60 * 60 * 1000
 
 export interface McpConnectionStatus {
+  /** Whether an admin has turned this server on for the fund. */
+  enabled: boolean
   connected: boolean
   readTools: number
   lastError: string | null
@@ -43,6 +45,30 @@ interface Row {
 }
 
 const ROW_COLUMNS = 'id, fund_id, client_id, client_secret_encrypted, token_endpoint, access_token_encrypted, refresh_token_encrypted, expires_at, read_tools, tools_checked_at, last_error, created_at, last_used_at'
+
+/** Whether an admin has turned this server on for the fund (fund_settings.mcp_servers_enabled). */
+export async function isMcpServerEnabled(admin: SupabaseClient, fundId: string, serverId: string): Promise<boolean> {
+  const { data } = await (admin as any)
+    .from('fund_settings')
+    .select('mcp_servers_enabled')
+    .eq('fund_id', fundId)
+    .maybeSingle()
+  const list = (data as any)?.mcp_servers_enabled
+  return Array.isArray(list) && list.includes(serverId)
+}
+
+/** Turn a server on or off for the fund. Members' connections are kept, just unused while off. */
+export async function setMcpServerEnabled(admin: SupabaseClient, fundId: string, serverId: string, enabled: boolean): Promise<void> {
+  const { data } = await (admin as any)
+    .from('fund_settings')
+    .select('mcp_servers_enabled')
+    .eq('fund_id', fundId)
+    .maybeSingle()
+  const current: string[] = Array.isArray((data as any)?.mcp_servers_enabled) ? (data as any).mcp_servers_enabled : []
+  const next = enabled ? [...new Set([...current, serverId])] : current.filter(id => id !== serverId)
+  const { error } = await (admin as any).from('fund_settings').update({ mcp_servers_enabled: next.sort() }).eq('fund_id', fundId)
+  if (error) throw new Error(`Failed to save the setting: ${error.message}`)
+}
 
 async function loadRow(admin: SupabaseClient, userId: string, serverId: string): Promise<Row | null> {
   const { data } = await (admin as any)
@@ -95,9 +121,10 @@ export async function saveMcpConnection(admin: SupabaseClient, input: {
   if (error) throw new Error(`Failed to save the connection: ${error.message}`)
 }
 
-export async function getMcpConnectionStatus(admin: SupabaseClient, userId: string, serverId: string): Promise<McpConnectionStatus> {
-  const row = await loadRow(admin, userId, serverId)
+export async function getMcpConnectionStatus(admin: SupabaseClient, fundId: string, userId: string, serverId: string): Promise<McpConnectionStatus> {
+  const [enabled, row] = await Promise.all([isMcpServerEnabled(admin, fundId, serverId), loadRow(admin, userId, serverId)])
   return {
+    enabled,
     connected: !!row,
     readTools: row?.read_tools?.length ?? 0,
     lastError: row?.last_error ?? null,
@@ -119,7 +146,7 @@ async function markError(admin: SupabaseClient, rowId: string, message: string):
 
 /**
  * The member's server config for a tool loop, with a fresh token and the read-only tool list.
- * Null when they haven't connected, the token can't be refreshed, or the server has no read-only
+ * Null when the server is off for the fund, they haven't connected, the token can't be refreshed, or the server has no read-only
  * tools: callers treat that as "not available for this member", not as an error.
  */
 export async function getMcpServerForUser(
@@ -132,6 +159,8 @@ export async function getMcpServerForUser(
   if (!server) return null
   const row = await loadRow(admin, userId, serverId)
   if (!row) return null
+  // Off for the fund means off for everyone, whatever they connected.
+  if (!(await isMcpServerEnabled(admin, row.fund_id, serverId))) return null
   const dek = await getFundDek(admin, row.fund_id)
   if (!dek) return null
 

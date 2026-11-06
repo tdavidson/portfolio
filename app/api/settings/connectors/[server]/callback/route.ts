@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { getMcpServer } from '@/lib/mcp-client/servers'
 import { exchangeCode, McpOAuthError } from '@/lib/mcp-client/oauth'
 import { consumeMcpOAuthState, MCP_OAUTH_STATE_COOKIE } from '@/lib/mcp-client/oauth-state'
-import { readOnlyToolNames, saveMcpConnection } from '@/lib/mcp-client/connections'
+import { isMcpServerEnabled, readOnlyToolNames, saveMcpConnection } from '@/lib/mcp-client/connections'
 import { connectorMember, connectorRedirectUri } from '@/lib/mcp-client/route-helpers'
 import { requestOrigin } from '@/lib/site-links'
 
@@ -44,6 +44,7 @@ export async function GET(req: NextRequest, ctx: Ctx) {
     userId: guard.userId,
   })
   if (!transaction || transaction.fundId !== guard.fundId) return done('connector_error=invalid_state')
+  if (!(await isMcpServerEnabled(guard.admin, guard.fundId, server.id))) return done('connector_error=disabled')
   if (req.nextUrl.searchParams.get('error')) return done('connector_error=consent_denied')
   const code = req.nextUrl.searchParams.get('code')
   if (!code) return done('connector_error=missing_params')
