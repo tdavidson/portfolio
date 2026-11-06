@@ -24,6 +24,8 @@ export interface LetterChart {
   height: number | null
   uploaded_at: string
   uploaded_by: string | null
+  /** A chart drawn from the letter's figures (fund-charts.ts), not uploaded: which, and as of when. */
+  generated?: { kind: string; as_of: string | null; options: Record<string, unknown> } | null
 }
 
 export type Block =

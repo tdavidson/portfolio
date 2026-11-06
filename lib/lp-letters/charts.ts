@@ -11,6 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getLetter } from './service'
 import { chartsOf, imageSize, sniffImage, type LetterChart } from './document'
 import { done, dbFail, fail, type Outcome } from '@/lib/service-outcome'
+import type { FundChart, FundChartKind, FundChartOptions } from './fund-charts'
 
 type Admin = SupabaseClient
 type Ctx = { fundId: string; userId: string; visible: string[] | null }
@@ -42,7 +43,7 @@ const cleanCaption = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim
 /** Add an image (PNG or JPEG, by its bytes) to a draft letter, after a section or at the end. */
 export async function addChart(
   admin: Admin, ctx: Ctx, letterId: string,
-  input: { bytes: Uint8Array; caption?: unknown; sectionId?: unknown },
+  input: { bytes: Uint8Array; caption?: unknown; sectionId?: unknown; generated?: LetterChart['generated'] },
 ): Promise<Outcome<LetterChart[]>> {
   const found = await editable(admin, ctx, letterId)
   if (!found.ok) return found
@@ -64,6 +65,7 @@ export async function addChart(
     path, content_type: type, sha256,
     width: size?.width ?? null, height: size?.height ?? null,
     uploaded_at: new Date().toISOString(), uploaded_by: ctx.userId,
+    ...(input.generated ? { generated: input.generated } : {}),
   }
   return saveCharts(admin, ctx, letterId, [...current, chart])
 }
@@ -119,4 +121,48 @@ export function chartDataUris(charts: LetterChart[], bytes: Map<string, Uint8Arr
     if (b) out.set(c.id, `data:${c.content_type};base64,${Buffer.from(b).toString('base64')}`)
   }
   return out
+}
+
+/**
+ * A chart of the letter's own figures (the entity's portfolio as of the quarter), drawn and added
+ * to a draft like an uploaded one. Without `save` it is only drawn, for a preview.
+ */
+export async function fundChart(
+  admin: Admin, ctx: Ctx, letterId: string,
+  input: { kind: unknown; options?: unknown; sectionId?: unknown; caption?: unknown; save: boolean },
+  /** SVG to PNG (renderSvgToPng in lp-report-pdf.ts), passed in so this file doesn't pull in the browser. */
+  render?: (svg: string, size: { width: number; height: number }) => Promise<Buffer>,
+): Promise<Outcome<{ chart: FundChart; charts?: LetterChart[] }>> {
+  const { FUND_CHART_KINDS, CHART_COLORS, buildFundChart } = await import('./fund-charts')
+  const kind = String(input.kind ?? '') as FundChartKind
+  if (!FUND_CHART_KINDS.includes(kind)) return fail(400, `kind must be one of ${FUND_CHART_KINDS.join(', ')}`)
+  const found = input.save ? await editable(admin, ctx, letterId) : await getLetter(admin, ctx.fundId, ctx.visible, letterId)
+  if (!found.ok) return found
+  if (!found.value) return fail(404, 'Not found')
+  const letter = found.value
+  const o = (input.options ?? {}) as any
+  const options: FundChartOptions = {
+    color: CHART_COLORS.includes(o.color) ? o.color : 'series',
+    limit: Number.isInteger(Number(o.limit)) && Number(o.limit) > 0 ? Math.min(50, Number(o.limit)) : 0,
+    activeOnly: o.active_only === true || o.activeOnly === true,
+    sort: o.sort === 'name' ? 'name' : 'value',
+  }
+  const { letterData } = await import('./service')
+  const [preview, settings] = await Promise.all([
+    letterData(admin, ctx.fundId, letter),
+    (admin as any).from('fund_settings').select('theme').eq('fund_id', ctx.fundId).maybeSingle(),
+  ])
+  const chart = buildFundChart(kind, preview, options, (settings?.data?.theme as any)?.accent ?? null)
+  if (chart.empty) return fail(400, chart.empty)
+  if (!input.save) return done({ chart })
+  if (!render) return fail(500, 'No renderer for the chart.')
+  const png = await render(chart.svg, { width: chart.width, height: chart.height })
+  const added = await addChart(admin, ctx, letterId, {
+    bytes: new Uint8Array(png),
+    caption: typeof input.caption === 'string' && input.caption.trim() ? input.caption : chart.caption,
+    sectionId: input.sectionId,
+    generated: { kind, as_of: preview.asOf ?? null, options: { ...options } },
+  })
+  if (!added.ok) return added
+  return done({ chart, charts: added.value })
 }

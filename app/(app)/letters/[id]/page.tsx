@@ -93,6 +93,9 @@ export default function LetterEditorPage() {
   const [chartCaption, setChartCaption] = useState('')
   const [chartSection, setChartSection] = useState('')
   const [chartUploading, setChartUploading] = useState(false)
+  const [fc, setFc] = useState({ kind: 'value_by_company', color: 'series', limit: '0', active_only: false, sort: 'value' })
+  const [fcPreview, setFcPreview] = useState<{ svg: string; caption: string } | null>(null)
+  const [fcBusy, setFcBusy] = useState<'preview' | 'save' | null>(null)
 
   const accept = useCallback((data: Letter) => {
     setLetter(data)
@@ -226,6 +229,23 @@ export default function LetterEditorPage() {
     if (res.ok) { withCharts((await res.json()).charts); setChartCaption('') } else await fail(res, 'Adding the chart failed.')
     setChartUploading(false)
   }
+
+  const drawChart = async (save: boolean, next = fc) => {
+    setFcBusy(save ? 'save' : 'preview'); setError(null)
+    const res = await fetch(`/api/lp-letters/${letterId}/charts/generate`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        kind: next.kind, save, section_id: chartSection || null, caption: save ? (chartCaption.trim() || fcPreview?.caption) : undefined,
+        options: { color: next.color, limit: Number(next.limit), active_only: next.active_only, sort: next.sort },
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok) { setFcPreview(null); setError(data?.error ?? 'Drawing the chart failed.') }
+    else if (save) { withCharts(data.charts); setFcPreview(null); setChartCaption('') }
+    else setFcPreview({ svg: data.svg, caption: data.caption })
+    setFcBusy(null)
+  }
+  const setFcOption = (change: Partial<typeof fc>) => { const next = { ...fc, ...change }; setFc(next); drawChart(false, next) }
 
   const changeChart = async (id: string, change: { caption?: string; section_id?: string | null }) => {
     const res = await fetch(`/api/lp-letters/${letterId}/charts`, patch({ chart_id: id, ...change }))
@@ -524,6 +544,65 @@ export default function LetterEditorPage() {
                 </div>
               ) : (
                 <p className="text-[11px] text-muted-foreground">This letter is final. Put it back to draft to change its charts.</p>
+              )}
+              {isDraft && (
+                <div className="rounded-lg border p-3 space-y-2">
+                  <p className="text-sm font-medium">Draw a chart from the letter&apos;s figures</p>
+                  <p className="text-[11px] text-muted-foreground">
+                    From this entity&apos;s portfolio as of the quarter, the same figures the letter is written from. Each chart says gross or
+                    net, and its caption gives the date. Once added it is an image: it does not change if the books do.
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2">
+                    <select value={fc.kind} onChange={e => setFcOption({ kind: e.target.value })} aria-label="Chart"
+                      className="h-8 rounded-lg border bg-background px-2 text-sm">
+                      <option value="value_by_company">Value and cost by company (gross)</option>
+                      <option value="multiple_by_company">Gross multiple by company</option>
+                      <option value="value_bridge">Invested, realized and remaining value (gross)</option>
+                      <option value="capital_net">Paid-in, distributed and remaining value (net)</option>
+                    </select>
+                    <select value={fc.color} onChange={e => setFcOption({ color: e.target.value })} aria-label="Colour"
+                      className="h-8 rounded-lg border bg-background px-2 text-sm">
+                      <option value="series">Blue</option>
+                      <option value="accent">The fund&apos;s accent</option>
+                      <option value="ink">Grey, for print</option>
+                    </select>
+                    {(fc.kind === 'value_by_company' || fc.kind === 'multiple_by_company') && (
+                      <>
+                        <select value={fc.limit} onChange={e => setFcOption({ limit: e.target.value })} aria-label="Companies"
+                          className="h-8 rounded-lg border bg-background px-2 text-sm">
+                          <option value="0">Every company</option>
+                          <option value="5">Top 5</option>
+                          <option value="10">Top 10</option>
+                        </select>
+                        <select value={fc.sort} onChange={e => setFcOption({ sort: e.target.value })} aria-label="Order"
+                          className="h-8 rounded-lg border bg-background px-2 text-sm">
+                          <option value="value">Largest first</option>
+                          <option value="name">A to Z</option>
+                        </select>
+                        <label className="inline-flex items-center gap-1.5 text-sm">
+                          <input type="checkbox" checked={fc.active_only} onChange={e => setFcOption({ active_only: e.target.checked })} />
+                          Active only
+                        </label>
+                      </>
+                    )}
+                    <Button size="sm" variant="outline" className="h-8" onClick={() => drawChart(false)} disabled={!!fcBusy}>
+                      {fcBusy === 'preview' ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : null}Preview
+                    </Button>
+                  </div>
+                  {fcPreview && (
+                    <div className="space-y-2">
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src={`data:image/svg+xml;charset=utf-8,${encodeURIComponent(fcPreview.svg)}`} alt={fcPreview.caption}
+                        className="w-full max-w-2xl rounded-sm border bg-background" />
+                      <p className="text-xs text-muted-foreground italic">{chartCaption.trim() || fcPreview.caption}</p>
+                      <Button size="sm" variant="outline" onClick={() => drawChart(true)} disabled={!!fcBusy}>
+                        {fcBusy === 'save' ? <Loader2 className="h-3.5 w-3.5 animate-spin mr-1.5" /> : <ImageIcon className="h-3.5 w-3.5 mr-1.5" />}
+                        Add to the letter
+                      </Button>
+                      <span className="text-[11px] text-muted-foreground ml-2">Placed and captioned with the choices above.</span>
+                    </div>
+                  )}
+                </div>
               )}
               {charts.length > 0 && (
                 <ul className="space-y-2">

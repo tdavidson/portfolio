@@ -424,6 +424,34 @@ export async function renderHtmlToPdf(html: string, opts: RenderPdfOptions = {})
 }
 
 /**
+ * An SVG drawn on the server (a letter's fund chart) as a PNG at twice its size, for Word and
+ * the PDF. Offline and without JavaScript, like every render here.
+ */
+export async function renderSvgToPng(svg: string, size: { width: number; height: number }): Promise<Buffer> {
+  const chrome = await getChromeConfig()
+  const browser = await puppeteer.launch({
+    args: chrome.args,
+    defaultViewport: { width: size.width, height: size.height, deviceScaleFactor: 2 },
+    executablePath: chrome.executablePath,
+    headless: true,
+  })
+  try {
+    const page = await browser.newPage()
+    await page.setJavaScriptEnabled(false)
+    await page.setRequestInterception(true)
+    page.on('request', request => {
+      if (request.url().startsWith('data:') || request.url() === 'about:blank') request.continue()
+      else request.abort()
+    })
+    await page.setContent(`<!DOCTYPE html><html><head><meta charset="utf-8"><style>${pdfFontCss()} html,body{margin:0;padding:0;background:#fff}</style></head><body>${svg}</body></html>`, { waitUntil: 'load' })
+    const png = await page.screenshot({ type: 'png', clip: { x: 0, y: 0, width: size.width, height: size.height } })
+    return Buffer.from(png)
+  } finally {
+    await browser.close()
+  }
+}
+
+/**
  * Fetch one investor's report data (scoped to the given investorIds within a
  * fund + snapshot) and render it to a single PDF. The CALLER is responsible for
  * authorization (LP via resolveLpAccess, or admin via fund membership).

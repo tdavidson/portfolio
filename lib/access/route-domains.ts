@@ -297,6 +297,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/lp-letters/[id]': { domain: 'lp_relations', feature: 'lp_letters' },
   'api/lp-letters/[id]/charts': { domain: 'lp_relations', feature: 'lp_letters' },
   'api/lp-letters/[id]/charts/[chartId]': { domain: 'lp_relations', feature: 'lp_letters' },
+  'api/lp-letters/[id]/charts/generate': { domain: 'lp_relations', feature: 'lp_letters' },
   'api/lp-letters/[id]/export': { domain: 'lp_relations', feature: 'lp_letters' },
   'api/lp-letters/[id]/generate': { domain: 'lp_relations', feature: 'lp_letters' },
   'api/lp-letters/[id]/pull-google-doc': { domain: 'lp_relations', feature: 'lp_letters' },

@@ -39,6 +39,18 @@ vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => admin }))
 vi.mock('@/lib/api-helpers', async orig => ({ ...(await orig<any>()), assertWriteAccess: async () => ({ fundId: 'fund-1', userId: 'u1', role: 'admin' }) }))
 vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScopeForUser: async () => scope }))
 vi.mock('@/lib/rate-limit', () => ({ rateLimit: async () => null }))
+vi.mock('@/lib/lp-letters/service', async orig => ({
+  ...(await orig<any>()),
+  letterData: async () => ({
+    asOf: '2026-09-30', fundName: 'Example Fund', fundCurrency: 'USD', periodLabel: 'Q3 2026', portfolioGroup: 'Fund I', fundMetrics: null,
+    companies: [{ investment: { companyId: 'c1', companyName: 'Acme', status: 'active', totalInvested: 100_000, totalRealized: 0, unrealizedValue: 300_000, fmv: 300_000, moic: 3 } }],
+    totals: { totalInvested: 100_000, totalFmv: 300_000, totalRealized: 0, portfolioMoic: 3, activeCount: 1, exitedCount: 0, writtenOffCount: 0 },
+  }),
+}))
+vi.mock('@/lib/lp-report-pdf', async orig => ({
+  ...(await orig<any>()),
+  renderSvgToPng: async () => Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0, 0, 0, 13, 0x49, 0x48, 0x44, 0x52, 0, 0, 2, 208, 0, 0, 0, 80, 8, 6, 0, 0, 0, 0, 0, 0, 0]),
+}))
 vi.mock('@/lib/vehicle-letterhead', async orig => ({
   ...(await orig<any>()),
   documentLetterhead: async () => ({ name: 'Example Fund', logo: null, address: null, email: null }),
@@ -47,6 +59,7 @@ vi.mock('@/lib/vehicle-letterhead', async orig => ({
 import { POST as post, PATCH as patchRoute, DELETE as del } from '@/app/api/lp-letters/[id]/charts/route'
 import { GET as image } from '@/app/api/lp-letters/[id]/charts/[chartId]/route'
 import { POST as exportRoute } from '@/app/api/lp-letters/[id]/export/route'
+import { POST as generateChart } from '@/app/api/lp-letters/[id]/charts/generate/route'
 import { POST as pullWord } from '@/app/api/lp-letters/[id]/pull-word/route'
 import { buildLetterDocx } from '@/lib/lp-letters/docx-letter'
 import { letterDocument } from '@/lib/lp-letters/document'
@@ -186,5 +199,30 @@ describe('bringing a draft back from Word', () => {
     store.tables.lp_letters[0].status = 'final'
     const buf = await buildLetterDocx(letterDocument(store.tables.lp_letters[0]), { fundName: 'F', logo: null, address: null, chartBytes: new Map() })
     expect((await send(buf, true)).status).toBe(409)
+  })
+})
+
+describe('charts drawn from the letter\'s figures', () => {
+  const gen = async (body: unknown) => (await generateChart(new NextRequest('http://localhost/x', { method: 'POST', body: JSON.stringify(body) }), params()))!
+
+  it('previews without saving, then adds the image with its caption and what drew it', async () => {
+    const preview = await gen({ kind: 'value_by_company' })
+    expect(preview.status).toBe(200)
+    const p = await preview.json()
+    expect(p.svg).toContain('<svg')
+    expect(p.caption).toMatch(/gross/)
+    expect(store.tables.lp_letters[0].charts).toHaveLength(0)
+    const saved = await gen({ kind: 'value_by_company', save: true, section_id: 'company:c1', options: { color: 'ink', limit: 5 } })
+    expect(saved.status).toBe(200)
+    const [c] = store.tables.lp_letters[0].charts
+    expect(c).toMatchObject({ section_id: 'company:c1', caption: p.caption, generated: { kind: 'value_by_company', as_of: '2026-09-30', options: { color: 'ink', limit: 5 } } })
+    expect(objects.has(`lp-letter-charts/${c.path}`)).toBe(true)
+  })
+
+  it('refuses an unknown chart, one with nothing to draw, and a final letter', async () => {
+    expect((await gen({ kind: 'pie' })).status).toBe(400)
+    expect((await gen({ kind: 'capital_net' })).status).toBe(400)
+    store.tables.lp_letters[0].status = 'final'
+    expect((await gen({ kind: 'value_by_company', save: true })).status).toBe(409)
   })
 })
