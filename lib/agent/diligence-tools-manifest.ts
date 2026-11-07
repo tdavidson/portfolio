@@ -127,10 +127,52 @@ export const DILIGENCE_TOOL_MANIFEST: AgentToolMeta[] = [
     name: 'diligence_memo',
     description:
       "The investment memo draft: its prose by section, the rubric scores, and the partner-attention queue (what must still be " +
-      'addressed before it can be finalized).',
+      'addressed before it can be finalized). Each diligence round has its own memo and scoring table; pass round for an ' +
+      "earlier round's, as it was when that round closed (default: the current round).",
     scope: 'read',
     domain: 'diligence',
-    inputSchema: { type: 'object', properties: { deal: DEAL }, required: ['deal'] },
+    inputSchema: {
+      type: 'object',
+      properties: { deal: DEAL, round: { type: 'string', description: 'Optional: the round number (e.g. "1") or "current".' } },
+      required: ['deal'],
+    },
+  },
+  {
+    name: 'diligence_rounds',
+    description:
+      'A deal\'s diligence rounds (the first data room, a follow-up request, continued diligence): each round\'s name, status, ' +
+      'outcome, notes and what arrived in it. With round: that round in full: what is new, changed or resolved in the evidence ' +
+      'since the previous round (claims, findings, contradictions, gaps, Q&A, each with its ref), what the previous round asked ' +
+      'the company for, the request list it leaves, and the documents added in it.',
+    scope: 'read',
+    domain: 'diligence',
+    inputSchema: {
+      type: 'object',
+      properties: { deal: DEAL, round: { type: 'string', description: 'Optional: the round number (e.g. "2") or "current".' } },
+      required: ['deal'],
+    },
+  },
+  {
+    name: 'diligence_round_save',
+    description:
+      'Move a deal through its diligence rounds. action "start_next" closes the current round (keeping its memo, findings and ' +
+      'scoring table as they are, and building its follow-up request list) and opens the next, which starts from everything ' +
+      'known so far. "close" closes the current round without opening another (the last round). "reopen" reopens the latest ' +
+      'round when it was closed by mistake. "update" renames a round or edits its notes or outcome.',
+    scope: 'write',
+    domain: 'diligence',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        deal: DEAL,
+        action: { type: 'string', enum: ['start_next', 'close', 'reopen', 'update'] },
+        round: { type: 'string', description: 'For update: the round number (default: the current round).' },
+        label: { type: 'string', description: 'start_next: the new round\'s name. update: the round\'s new name.' },
+        outcome: { type: 'string', enum: ['advance', 'hold', 'pass', 'invest'], description: 'The partners\' call on the round being closed or updated.' },
+        summary: { type: 'string', description: 'Notes on the round being closed or updated.' },
+      },
+      required: ['deal', 'action'],
+    },
   },
   {
     name: 'diligence_create_deal',

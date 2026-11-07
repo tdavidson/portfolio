@@ -23,6 +23,7 @@ import { uploadDiligenceDocument } from '@/lib/diligence/upload-document'
 import { MemoEditor } from './drafts/[draftId]/memo-editor'
 import { MemoConfigPanel } from '@/components/diligence/memo-config-panel'
 import { EntityPicker } from '@/components/entity-picker'
+import { RoundBar, RoundSwitch, RoundTag, useRounds, type RoundSummary } from '@/components/diligence/rounds'
 
 interface Deal {
   id: string
@@ -51,6 +52,8 @@ interface DiligenceDocument {
   parse_notes: string | null
   drive_source_url: string | null
   uploaded_at: string
+  /** The diligence round the document arrived in. */
+  round_id?: string | null
 }
 
 type LatestDraft = {
@@ -102,6 +105,10 @@ export function DealDetail({ deal: initial, initialDocuments, latestDraft, isAdm
   // switches to Data Room, and the room scrolls/highlights the matching row.
   const [focusDocId, setFocusDocId] = useState<string | null>(null)
   const jumpToDoc = (docId: string) => { setActiveTab('Data Room'); setFocusDocId(docId) }
+
+  // Diligence rounds: which round the Scoring and Memo tabs show (the current one unless picked).
+  const rounds = useRounds(deal.id)
+  const roundNumberById: Record<string, number> = Object.fromEntries(rounds.rounds.map(r => [r.id, r.round_number]))
 
   // Refresh the doc list whenever the Checklist or Data Room tab is shown, so a
   // Drive import / upload made on one tab is reflected on the other without a
@@ -259,6 +266,8 @@ export function DealDetail({ deal: initial, initialDocuments, latestDraft, isAdm
 
       {/* Where the deal is in the pipeline, and what's left. Clicking a stage jumps
           to the tab that runs it. */}
+      <RoundBar dealId={deal.id} state={rounds} onChanged={() => router.refresh()} />
+
       <DiligenceStageBar dealId={deal.id} onJump={tab => setActiveTab(tab as Tab)} />
 
       <div className="border-b mb-4">
@@ -281,12 +290,12 @@ export function DealDetail({ deal: initial, initialDocuments, latestDraft, isAdm
             <ChecklistTab deal={deal} documentCount={documents.length} latestDraft={latestDraft} isAdmin={isAdmin} onJumpToTab={setActiveTab} onJumpToDoc={jumpToDoc} />
           )}
           {activeTab === 'Data Room' && (
-            <DealRoomTab dealId={deal.id} dealName={deal.name} documents={documents} setDocuments={setDocuments} initialDriveFolderUrl={deal.drive_folder_url} focusDocId={focusDocId} onFocusConsumed={() => setFocusDocId(null)} />
+            <DealRoomTab dealId={deal.id} dealName={deal.name} documents={documents} setDocuments={setDocuments} initialDriveFolderUrl={deal.drive_folder_url} focusDocId={focusDocId} onFocusConsumed={() => setFocusDocId(null)} roundNumberById={rounds.rounds.length > 1 ? roundNumberById : undefined} />
           )}
           {activeTab === 'Research' && <ResearchTab dealId={deal.id} userId={currentUserId} isAdmin={isAdmin} />}
           {activeTab === 'Founders' && <FoundersTab dealId={deal.id} />}
-          {activeTab === 'Scoring' && <ScoringTab dealId={deal.id} />}
-          {activeTab === 'Memo' && <MemoTab dealId={deal.id} dealName={deal.name} isAdmin={isAdmin} />}
+          {activeTab === 'Scoring' && <ScoringTab dealId={deal.id} rounds={rounds.rounds} round={rounds.selected} onSelectRound={rounds.select} />}
+          {activeTab === 'Memo' && <MemoTab dealId={deal.id} dealName={deal.name} isAdmin={isAdmin} rounds={rounds.rounds} round={rounds.selected} onSelectRound={rounds.select} />}
           {activeTab === 'Settings' && <SettingsTab dealId={deal.id} dealName={deal.name} isAdmin={isAdmin} />}
         </div>
       </div>
@@ -1270,6 +1279,7 @@ const DOC_TYPE_OPTIONS = [
   { value: 'legal', label: 'Legal' },
   { value: 'market_research', label: 'Market research' },
   { value: 'team_bio', label: 'Team bio' },
+  { value: 'org_chart', label: 'Organization chart' },
   { value: 'press', label: 'Press' },
   { value: 'industry_expert', label: 'Industry expert' },
   { value: 'sales', label: 'Sales' },
@@ -1278,7 +1288,13 @@ const DOC_TYPE_OPTIONS = [
   { value: 'other', label: 'Other' },
 ]
 
-function DealRoomTab({ dealId, dealName, documents, setDocuments, initialDriveFolderUrl, focusDocId, onFocusConsumed }: { dealId: string; dealName: string; documents: DiligenceDocument[]; setDocuments: React.Dispatch<React.SetStateAction<DiligenceDocument[]>>; initialDriveFolderUrl: string | null; focusDocId: string | null; onFocusConsumed: () => void }) {
+function DealRoomTab({ dealId, dealName, documents: allDocuments, setDocuments, initialDriveFolderUrl, focusDocId, onFocusConsumed, roundNumberById }: { dealId: string; dealName: string; documents: DiligenceDocument[]; setDocuments: React.Dispatch<React.SetStateAction<DiligenceDocument[]>>; initialDriveFolderUrl: string | null; focusDocId: string | null; onFocusConsumed: () => void; roundNumberById?: Record<string, number> }) {
+  // With more than one diligence round, each document shows the round it arrived in, and the list
+  // can be narrowed to one round.
+  const [roundFilter, setRoundFilter] = useState<number | null>(null)
+  const roundOf = (d: DiligenceDocument) => (roundNumberById && d.round_id ? roundNumberById[d.round_id] ?? null : null)
+  const documents = roundFilter === null ? allDocuments : allDocuments.filter(d => roundOf(d) === roundFilter)
+  const roundNumbers = roundNumberById ? Array.from(new Set(Object.values(roundNumberById))).sort((a, b) => a - b) : []
   const confirm = useConfirm()
   // When the partner jumps from a checklist evidence row, scroll to and
   // briefly highlight the target document so the connection is obvious.
@@ -1379,7 +1395,7 @@ function DealRoomTab({ dealId, dealName, documents, setDocuments, initialDriveFo
     try {
       // A skipped doc is filtered out by loadDealDocuments, so it must be
       // un-skipped (back to pending) before the ingest will pick it up.
-      const current = documents.find(d => d.id === id)
+      const current = allDocuments.find(d => d.id === id)
       if (current?.parse_status === 'skipped') {
         const unskipRes = await fetch(`/api/diligence/${dealId}/documents/${id}`, {
           method: 'PATCH',
@@ -1458,7 +1474,7 @@ function DealRoomTab({ dealId, dealName, documents, setDocuments, initialDriveFo
 
       {/* Analyze-the-data-room used to live on the CHECKLIST tab — which is why it was
           so hard to find. It belongs here, with the documents it reads. */}
-      <IngestionPanel dealId={dealId} documents={documents} />
+      <IngestionPanel dealId={dealId} documents={allDocuments} />
 
       <div>
       {/* Affinity link + import. Its own block rather than a toolbar button:
@@ -1510,9 +1526,24 @@ function DealRoomTab({ dealId, dealName, documents, setDocuments, initialDriveFo
         </div>
       )}
 
+      {roundNumbers.length > 1 && allDocuments.length > 0 && (
+        <div className="mb-2 flex items-center gap-2 text-xs text-muted-foreground">
+          <span>Show</span>
+          <select
+            value={roundFilter ?? ''}
+            onChange={e => setRoundFilter(e.target.value === '' ? null : Number(e.target.value))}
+            className="h-7 rounded-md border border-input bg-background px-2 text-xs"
+            aria-label="Filter documents by diligence round"
+          >
+            <option value="">All rounds</option>
+            {roundNumbers.map(n => <option key={n} value={n}>Added in round {n}</option>)}
+          </select>
+        </div>
+      )}
+
       {documents.length === 0 ? (
         <div className="rounded-card border bg-card p-12 text-center text-sm text-muted-foreground">
-          No documents yet. Upload files or import a Drive folder to populate the deal room.
+          {allDocuments.length > 0 ? 'No documents were added in this round yet.' : 'No documents yet. Upload files or import a Drive folder to populate the deal room.'}
         </div>
       ) : (
         <div className="rounded-md border bg-card overflow-hidden">
@@ -1534,7 +1565,10 @@ function DealRoomTab({ dealId, dealName, documents, setDocuments, initialDriveFo
                   className={`border-t transition-colors ${highlightedDocId === d.id ? 'bg-warning-subtle dark:bg-warning-subtle/30' : ''}`}
                 >
                   <td className="px-3 py-2">
-                    <div className="font-medium truncate max-w-[280px]">{d.file_name}</div>
+                    <div className="flex items-center gap-1.5 min-w-0">
+                      <span className="font-medium truncate max-w-[280px]">{d.file_name}</span>
+                      {roundNumbers.length > 1 && <RoundTag roundNumber={roundOf(d)} />}
+                    </div>
                     {d.drive_source_url && (
                       <a href={d.drive_source_url} target="_blank" rel="noreferrer" className="text-[10px] text-muted-foreground hover:underline">Drive source ↗</a>
                     )}
@@ -3422,15 +3456,46 @@ function SettingsTab({ dealId, dealName, isAdmin }: { dealId: string; dealName: 
 // Scoring tab — surfaces rubric scoring derived from the latest memo draft.
 // Run-scoring button stays in the Memo tab; this tab is the read-out.
 // ---------------------------------------------------------------------------
-function ScoringTab({ dealId }: { dealId: string }) {
+/** The latest draft in a diligence round (drafts come newest first). Before rounds exist, the latest draft. */
+function draftForRound(rows: any[] | null | undefined, round: RoundSummary | null): any | null {
+  const list = Array.isArray(rows) ? rows : []
+  if (!round || !list.some(d => d.round_id)) return list[0] ?? null
+  return list.find(d => d.round_id === round.id) ?? null
+}
+
+/** The round switch and, for a round other than the current one, that it is read only. */
+function RoundScope({ rounds, round, onSelectRound, what }: {
+  rounds: RoundSummary[]; round: RoundSummary | null; onSelectRound: (id: string | null) => void; what: string
+}) {
+  if (rounds.length < 2 || !round) return null
+  const current = rounds[rounds.length - 1]
+  return (
+    <div className="flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
+      <RoundSwitch rounds={rounds} selectedId={round.id} onSelect={onSelectRound} compact />
+      {round.status === 'closed' && (
+        <span><Lock className="h-3 w-3 inline -mt-0.5 mr-0.5" />Round {round.round_number}&apos;s {what} as it closed{round.id !== current.id ? `; round ${current.round_number} is the current one` : ''}.</span>
+      )}
+    </div>
+  )
+}
+
+function ScoringTab({ dealId, rounds = [], round = null, onSelectRound = () => {} }: {
+  dealId: string
+  rounds?: RoundSummary[]
+  round?: RoundSummary | null
+  onSelectRound?: (id: string | null) => void
+}) {
   const { status } = useAgentStatus(dealId)
   const [draft, setDraft] = useState<any>(null)
+  // Each round has its own scoring table; a closed round's is kept as it was.
+  const readOnly = round?.status === 'closed'
+  const isCurrent = !round || rounds.length === 0 || round.id === rounds[rounds.length - 1].id
 
   useEffect(() => {
     fetch(`/api/diligence/${dealId}/drafts`).then(r => r.ok ? r.json() : []).then(rows => {
-      setDraft((rows ?? [])[0] ?? null)
+      setDraft(draftForRound(rows, round))
     }).catch(() => {})
-  }, [dealId, status?.latest_draft?.id, status?.latest_job?.status])
+  }, [dealId, round, status?.latest_draft?.id, status?.latest_job?.status])
 
   const memoOutput = draft?.memo_draft_output as { scores?: Array<{ dimension_id: string; mode: string; score: number | null; confidence: 'low' | 'medium' | 'high' | null; rationale: string | null }> } | null
   const scores = memoOutput?.scores ?? []
@@ -3463,22 +3528,25 @@ function ScoringTab({ dealId }: { dealId: string }) {
 
   return (
     <div className="space-y-6 max-w-page">
+      <RoundScope rounds={rounds} round={round} onSelectRound={onSelectRound} what="scoring table" />
+
       {/* The only run button on this tab. It knows if it's blocked, says why, and
-          reports the last run — so the section below carries no second button. */}
-      <StageHeader dealId={dealId} stageKey="scoring" />
+          reports the last run — so the section below carries no second button.
+          It runs on the current round only. */}
+      {isCurrent && !readOnly && <StageHeader dealId={dealId} stageKey="scoring" />}
 
       <Section
-        title="Scoring"
+        title={rounds.length > 1 && round ? `Scoring · Round ${round.round_number}` : 'Scoring'}
         help="Scores are judged from the evidence — the data room, research and Q&A. A memo isn't required; run scoring as soon as the data room is analyzed. Edit any score, rating, or rationale; changes save to the deal."
       >
         {scores.length === 0 ? (
           <p className="text-sm text-muted-foreground text-center py-8">
-            Not scored yet. Run scoring from the header above.
+            {readOnly ? `Round ${round?.round_number} was not scored before it closed.` : 'Not scored yet. Run scoring from the header above.'}
           </p>
         ) : (
           <div className="divide-y mt-2 -mx-1">
             {scores.map((s, i) => (
-              <ScoreEditRow key={`${s.dimension_id}-${i}`} score={s} onSave={(patch) => patchScore(s.dimension_id, patch)} />
+              <ScoreEditRow key={`${draft?.id}-${s.dimension_id}-${i}`} score={s} readOnly={readOnly} onSave={(patch) => patchScore(s.dimension_id, patch)} />
             ))}
           </div>
         )}
@@ -3499,9 +3567,10 @@ function ScoringTab({ dealId }: { dealId: string }) {
 // One editable rubric-score row. A read-only summary by default; clicking Edit
 // reveals the score (1–5 / —) and confidence dropdowns side-by-side plus a
 // roomy rationale field. Nothing persists until Save is clicked.
-function ScoreEditRow({ score, onSave }: {
+function ScoreEditRow({ score, onSave, readOnly }: {
   score: { dimension_id: string; score: number | null; confidence: 'low' | 'medium' | 'high' | null; rationale: string | null }
   onSave: (patch: { score?: number | null; confidence?: string | null; rationale?: string }) => void
+  readOnly?: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [scoreVal, setScoreVal] = useState<number | null>(score.score)
@@ -3541,7 +3610,7 @@ function ScoreEditRow({ score, onSave }: {
           </div>
           <p className="text-xs text-muted-foreground mt-1 whitespace-pre-wrap">{score.rationale || 'No rationale yet.'}</p>
         </div>
-        <Button variant="ghost" size="sm" className="shrink-0 h-7" onClick={() => setEditing(true)}>Edit</Button>
+        {!readOnly && <Button variant="ghost" size="sm" className="shrink-0 h-7" onClick={() => setEditing(true)}>Edit</Button>}
       </div>
     )
   }
@@ -3592,7 +3661,17 @@ function ScoreEditRow({ score, onSave }: {
 // memo exists yet, shows the Run draft action.
 // ---------------------------------------------------------------------------
 
-function MemoTab({ dealId, dealName, isAdmin }: { dealId: string; dealName: string; isAdmin: boolean }) {
+function MemoTab({ dealId, dealName, isAdmin, rounds = [], round = null, onSelectRound = () => {} }: {
+  dealId: string
+  dealName: string
+  isAdmin: boolean
+  rounds?: RoundSummary[]
+  round?: RoundSummary | null
+  onSelectRound?: (id: string | null) => void
+}) {
+  // One memo, revised each round; each round's version is kept, and a closed round's is read only.
+  const readOnlyRound = round?.status === 'closed'
+  const isCurrentRound = !round || rounds.length === 0 || round.id === rounds[rounds.length - 1].id
   const { status } = useAgentStatus(dealId)
   const [draft, setDraft] = useState<any | null>(null)
   const [attention, setAttention] = useState<any[]>([])
@@ -3608,14 +3687,13 @@ function MemoTab({ dealId, dealName, isAdmin }: { dealId: string; dealName: stri
       fetch(`/api/diligence/${dealId}/attention?status=all`).then(r => r.ok ? r.json() : []),
     ]).then(([drafts, atts]) => {
       if (cancelled) return
-      const latest = Array.isArray(drafts) ? drafts[0] ?? null : null
-      setDraft(latest)
+      setDraft(draftForRound(drafts, round))
       setAttention(Array.isArray(atts) ? atts : [])
     }).catch(() => {}).finally(() => {
       if (!cancelled) setLoading(false)
     })
     return () => { cancelled = true }
-  }, [dealId, status?.latest_draft?.id, status?.latest_job?.status, status?.latest_job?.id])
+  }, [dealId, round, status?.latest_draft?.id, status?.latest_job?.status, status?.latest_job?.id])
 
   const job = status?.latest_job
   const isDraftWorkflowJob = job?.kind === 'draft' || job?.kind === 'draft_review' || job?.kind === 'score'
@@ -3627,15 +3705,23 @@ function MemoTab({ dealId, dealName, isAdmin }: { dealId: string; dealName: stri
 
   return (
     <div className="space-y-6 max-w-page">
-      {/* The only run button on this tab, and the only place the last run is reported. */}
-      <StageHeader dealId={dealId} stageKey="memo" />
+      <RoundScope rounds={rounds} round={round} onSelectRound={onSelectRound} what="memo" />
+
+      {/* The only run button on this tab, and the only place the last run is reported. It runs on the current round. */}
+      {isCurrentRound && !readOnlyRound && <StageHeader dealId={dealId} stageKey="memo" />}
 
       <Section
         title="Memo draft"
         help="Assemble a structured memo from ingestion, research, and Q&A. Run it from the header above. Scoring is separate and does not wait for the memo — see the Scoring tab."
       />
 
-      {status?.memo_stale && !isInFlight && (
+      {isCurrentRound && !readOnlyRound && round && round.round_number > 1 && hasMemo && !(draft?.memo_draft_output?.revision) && (
+        <div className="rounded-card border bg-card p-3 text-sm text-muted-foreground">
+          This is the round {round.round_number - 1} memo, carried into round {round.round_number}. Re-run the draft once the new documents are analyzed: paragraphs whose evidence did not change stay as they are, the rest are revised, and a &ldquo;What changed since Round {round.round_number - 1}&rdquo; section opens the memo.
+        </div>
+      )}
+
+      {isCurrentRound && status?.memo_stale && !isInFlight && (
         <div className="rounded-card border border-warning/40 bg-warning-subtle dark:bg-warning-subtle/30 p-3 text-sm text-warning">
           <span className="font-medium">Memo is out of date with the data room.</span>{' '}
           {status.documents_added_since_draft && status.documents_added_since_draft > 0
@@ -3651,20 +3737,22 @@ function MemoTab({ dealId, dealName, isAdmin }: { dealId: string; dealName: stri
         </div>
       ) : !hasMemo ? (
         <div className="rounded-card border bg-card p-12 text-center text-sm text-muted-foreground">
-          No memo yet. Run the draft from the header above once the data room and research are ready.
+          {readOnlyRound ? `Round ${round?.round_number} closed without a memo.` : 'No memo yet. Run the draft from the header above once the data room and research are ready.'}
         </div>
       ) : (
         <MemoEditor
+          key={draft?.id}
           dealId={dealId}
           dealName={dealName}
           draft={draft}
           initialAttention={attention}
           isAdmin={isAdmin}
           embedded
+          round={round && (rounds.length > 1 || readOnlyRound) ? { round_number: round.round_number, label: round.label, status: round.status } : null}
         />
       )}
 
-      <MemoConfigPanel dealId={dealId} defaultOpen={!hasMemo} />
+      {!readOnlyRound && <MemoConfigPanel dealId={dealId} defaultOpen={!hasMemo} />}
     </div>
   )
 }

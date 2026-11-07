@@ -7,6 +7,7 @@ import { ArrowLeft, Loader2, FileDown, FileText, ExternalLink, Lock, AlertTriang
 import { Button } from '@/components/ui/button'
 import { useConfirm } from '@/components/confirm-dialog'
 import { formatSource, type SourceLabel } from '@/lib/memo-agent/render/source-labels'
+import { memoRevisionTitle, ROUND_CHANGES_SECTION_ID, withRoundChangesFirst } from '@/lib/diligence/rounds'
 
 interface Paragraph {
   id: string
@@ -20,6 +21,8 @@ interface Paragraph {
   contains_unverified_claim: boolean
   contains_contradiction: boolean
   hidden?: boolean
+  /** In a later diligence round: kept from the prior round's memo, revised, or new. */
+  round_status?: 'kept' | 'revised' | 'new'
 }
 
 interface DimensionScore {
@@ -35,6 +38,7 @@ interface MemoOutput {
   paragraphs: Paragraph[]
   partner_attention?: any[]
   scores?: DimensionScore[]
+  revision?: { round_number: number; prior_round_number: number; title: string }
 }
 
 interface Draft {
@@ -92,7 +96,7 @@ function humanizeSectionId(id: string): string {
   return id.split('_').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' ')
 }
 
-export function MemoEditor({ dealId, dealName, draft: initial, initialAttention, sourceLabels, isAdmin, embedded }: {
+export function MemoEditor({ dealId, dealName, draft: initial, initialAttention, sourceLabels, isAdmin, embedded, round }: {
   dealId: string
   dealName: string
   draft: Draft
@@ -107,6 +111,8 @@ export function MemoEditor({ dealId, dealName, draft: initial, initialAttention,
   /** When true, drop the page wrapper + back link so this can render inside the
    *  deal-detail Memo tab without extra chrome. */
   embedded?: boolean
+  /** The diligence round this draft belongs to. A closed round's memo is read only (it can still be finalized). */
+  round?: { round_number: number; label: string; status: 'open' | 'closed' } | null
 }) {
   const router = useRouter()
   const confirm = useConfirm()
@@ -133,7 +139,8 @@ export function MemoEditor({ dealId, dealName, draft: initial, initialAttention,
   const [sectionCfg, setSectionCfg] = useState<Array<{ id: string; title: string; included?: boolean }> | null>(null)
 
   const memo = draft.memo_draft_output ?? { paragraphs: [], scores: [] }
-  const isReadOnly = !draft.is_draft
+  const roundClosed = round?.status === 'closed'
+  const isReadOnly = !draft.is_draft || roundClosed
 
   useEffect(() => {
     let cancelled = false
@@ -169,9 +176,10 @@ export function MemoEditor({ dealId, dealName, draft: initial, initialAttention,
     const known = new Set(base.map(s => s.id))
     const extras = Array.from(new Set((memo.paragraphs ?? []).map(p => p.section_id)))
       .filter(id => !known.has(id))
-      .map(id => ({ id, title: humanizeSectionId(id) }))
-    return [...base, ...extras]
-  }, [usingConfig, sectionCfg, memo.paragraphs])
+      .map(id => ({ id, title: id === ROUND_CHANGES_SECTION_ID ? (memoRevisionTitle(memo) ?? humanizeSectionId(id)) : humanizeSectionId(id) }))
+    // A later round's "What changed since Round N" opens the memo.
+    return withRoundChangesFirst([...base, ...extras])
+  }, [usingConfig, sectionCfg, memo])
 
   const selectedPara = useMemo(() => (memo.paragraphs ?? []).find(p => p.id === selected) ?? null, [memo.paragraphs, selected])
 
@@ -400,6 +408,13 @@ export function MemoEditor({ dealId, dealName, draft: initial, initialAttention,
             )}
           </h1>
           <div className="text-xs text-muted-foreground mt-0.5">
+            {round && (
+              <span className="mr-1">
+                Diligence round {round.round_number}{round.label ? ` · ${round.label}` : ''}
+                {roundClosed && <span> · <Lock className="h-3 w-3 inline -mt-0.5" /> closed, read only</span>}
+                {' · '}
+              </span>
+            )}
             <span className="font-mono">{draft.draft_version} · {draft.agent_version}</span>
             {draft.written_by && WRITTEN_BY[draft.written_by] && <span> · {WRITTEN_BY[draft.written_by]}</span>}
           </div>
@@ -426,7 +441,7 @@ export function MemoEditor({ dealId, dealName, draft: initial, initialAttention,
             {exporting === 'markdown' ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <FileText className="h-3.5 w-3.5 mr-1" />}
             Markdown
           </Button>
-          {draft.is_draft && (
+          {!isReadOnly && (
             <label className={`inline-flex items-center h-8 px-3 rounded-md border border-input text-sm cursor-pointer hover:bg-muted ${importing ? 'opacity-50 pointer-events-none' : ''}`}>
               {importing ? <Loader2 className="h-3.5 w-3.5 mr-1 animate-spin" /> : <Upload className="h-3.5 w-3.5 mr-1" />}
               Import Word
@@ -543,6 +558,7 @@ export function MemoEditor({ dealId, dealName, draft: initial, initialAttention,
                     >
                       <ParagraphView
                         paragraph={p}
+                        roundNumber={memo.revision?.round_number ?? null}
                         sourceLabels={labels}
                         isSelected={selected === p.id}
                         onSelect={() => setSelected(p.id)}
@@ -596,7 +612,7 @@ export function MemoEditor({ dealId, dealName, draft: initial, initialAttention,
 }
 
 function ParagraphView({
-  paragraph, editing, proseDraft, onProseChange, onSave, onCancel, saving, onSelect, readOnly, canMoveUp, canMoveDown, onMoveUp, onMoveDown, onToggleHidden, dragHandle, sourceLabels,
+  paragraph, editing, proseDraft, onProseChange, onSave, onCancel, saving, onSelect, readOnly, canMoveUp, canMoveDown, onMoveUp, onMoveDown, onToggleHidden, dragHandle, sourceLabels, roundNumber,
 }: {
   paragraph: Paragraph
   sourceLabels: Map<string, SourceLabel>
@@ -609,6 +625,7 @@ function ParagraphView({
   isSelected: boolean
   onSelect: () => void
   readOnly: boolean
+  roundNumber?: number | null
   canMoveUp: boolean
   canMoveDown: boolean
   onMoveUp: () => void
@@ -651,6 +668,7 @@ function ParagraphView({
           <Button variant="ghost" size="sm" onClick={onCancel}>Done</Button>
           <span className="ml-auto flex flex-wrap items-center gap-1.5">
             <Badge tone="muted">{paragraph.origin.replace(/_/g, ' ')}</Badge>
+            <RoundBadge status={paragraph.round_status} roundNumber={roundNumber} />
             {paragraph.contains_projection && <Badge tone="amber">projection</Badge>}
             {paragraph.contains_unverified_claim && <Badge tone="amber">⚠ unverified</Badge>}
             {paragraph.contains_contradiction && <Badge tone="red">contradiction</Badge>}
@@ -686,6 +704,7 @@ function ParagraphView({
           <button onClick={e => stop(e, onSelect)} className="text-[11px] text-muted-foreground hover:text-foreground">Edit</button>
         )}
         <Badge tone="muted">{paragraph.origin.replace(/_/g, ' ')}</Badge>
+        <RoundBadge status={paragraph.round_status} roundNumber={roundNumber} />
         {paragraph.hidden && <Badge tone="amber">hidden · excluded from export</Badge>}
         {paragraph.contains_projection && <Badge tone="amber">projection</Badge>}
         {paragraph.contains_unverified_claim && <Badge tone="amber">⚠ unverified</Badge>}
@@ -747,6 +766,13 @@ function SourceList({ sources, labels }: { sources: Array<{ source_type: string;
       {sources.length > 8 && <span className="text-muted-foreground/60">+{sources.length - 8} more</span>}
     </div>
   )
+}
+
+/** Whether a later round kept, revised or added the paragraph. Kept paragraphs need no mark. */
+function RoundBadge({ status, roundNumber }: { status?: Paragraph['round_status']; roundNumber?: number | null }) {
+  if (!status || status === 'kept') return null
+  const r = roundNumber ? ` in R${roundNumber}` : ''
+  return <Badge tone={status === 'revised' ? 'amber' : 'muted'}>{status === 'revised' ? `revised${r}` : `new${r}`}</Badge>
 }
 
 function Badge({ tone = 'muted', children }: { tone?: 'muted' | 'amber' | 'red'; children: React.ReactNode }) {

@@ -1,6 +1,8 @@
 import yaml from 'js-yaml'
+import { memoRevisionTitle, ROUND_CHANGES_SECTION_ID, withRoundChangesFirst } from '@/lib/diligence/rounds'
 import type { MemoDraftOutput } from '@/lib/memo-agent/stages/draft'
 import type { DimensionScore } from '@/lib/memo-agent/stages/score'
+import { SCORE_TABLE_HEADERS, confidenceLabel, dimensionLabel, scoreLabel } from './scores-table'
 import { buildSourceLabels, type SourceLabel, type SourceLabelInput } from './source-labels'
 
 export interface RenderInput {
@@ -73,7 +75,12 @@ export function renderMarkdown(input: RenderInput): string {
   // Append section_ids from paragraphs that aren't in baseOrder so no content is hidden.
   const paragraphSectionIds = Array.from(new Set(input.memo.paragraphs.map(p => p.section_id)))
   const extras = paragraphSectionIds.filter(id => !baseOrder.includes(id))
-  const sectionOrder = [...baseOrder, ...extras]
+  // A later diligence round's "What changed since Round N" opens the memo.
+  const sectionOrder = withRoundChangesFirst([...baseOrder, ...extras])
+  const revisionTitle = memoRevisionTitle(input.memo)
+  if (revisionTitle && sectionOrder.includes(ROUND_CHANGES_SECTION_ID)) {
+    sectionMeta.set(ROUND_CHANGES_SECTION_ID, { id: ROUND_CHANGES_SECTION_ID, title: revisionTitle, kind: 'prose' })
+  }
   // Fill in fallback meta for any section id in the order that the parsed
   // YAML didn't define — keeps render output non-empty when the schema is
   // missing or stale.
@@ -181,13 +188,11 @@ export function renderMarkdown(input: RenderInput): string {
 function renderScoresMarkdown(scores: DimensionScore[]): string[] {
   if (scores.length === 0) return ['*No scores yet.*']
   const lines: string[] = []
-  lines.push('| Dimension | Mode | Score | Confidence | Rationale |')
-  lines.push('|---|---|---|---|---|')
+  lines.push(`| ${SCORE_TABLE_HEADERS.join(' | ')} |`)
+  lines.push('|---|:-:|---|---|')
+  const cell = (v: string) => v.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ').trim()
   for (const s of scores) {
-    const score = s.score === null ? (s.mode === 'partner_only' ? '*[partner]*' : '—') : String(s.score)
-    const conf = s.confidence ?? '—'
-    const rationale = (s.rationale ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ')
-    lines.push(`| ${s.dimension_id} | ${s.mode} | ${score} | ${conf} | ${rationale} |`)
+    lines.push(`| ${cell(dimensionLabel(s.dimension_id))} | ${scoreLabel(s)} | ${confidenceLabel(s.confidence)} | ${cell(s.rationale ?? '')} |`)
   }
   return lines
 }

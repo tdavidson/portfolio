@@ -36,6 +36,8 @@ import { jobHandle, jobRecordId } from './jobs'
 import { unwrap, type Outcome } from '@/lib/service-outcome'
 import { contentTypeFor } from '@/lib/uploads/signed-upload'
 import { requireUser } from './deals-tools'
+import { closeRound, listRounds, loadRounds, resolveRound, roundDetail, roundDraft, startNextRound, updateRound } from '@/lib/diligence/rounds-service'
+import { notableChanges, requestListText } from '@/lib/diligence/rounds'
 import { fundMemberId, visibleVehicleId } from './refs'
 
 /**
@@ -378,9 +380,13 @@ export const DILIGENCE_HANDLERS: Record<string, AgentToolHandler> = {
 
   diligence_memo: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     const deal = await resolveDeal(admin, fundId, String(input?.deal ?? ''), access)
-    const draft = await latestDraft(admin, fundId, deal.id)
+    // Each round has its own memo and scoring table; the current round's by default.
+    const rounds = await loadRounds(admin, fundId, deal.id)
+    const round = input?.round ? resolveRound(rounds, String(input.round)) : rounds[rounds.length - 1] ?? null
+    if (input?.round && !round) throw new Error(`No diligence round "${input.round}" on ${deal.name}. It has ${rounds.length} round(s).`)
+    const draft = round ? (await roundDraft(admin, fundId, round.id)) ?? (rounds.length <= 1 ? await latestDraft(admin, fundId, deal.id) : null) : await latestDraft(admin, fundId, deal.id)
     if (!draft || !draft.memo_draft_output) {
-      return { deal: deal.name, memo: null, note: 'No memo has been drafted for this deal yet.' }
+      return { deal: deal.name, round: round?.round_number ?? null, memo: null, note: round && rounds.length > 1 ? `No memo was drafted in round ${round.round_number}.` : 'No memo has been drafted for this deal yet.' }
     }
 
     const { data: attn } = await (admin as any)
@@ -392,6 +398,8 @@ export const DILIGENCE_HANDLERS: Record<string, AgentToolHandler> = {
     const memo = draft.memo_draft_output
     return {
       deal: deal.name,
+      ...(round ? { round: { number: round.round_number, label: round.label, status: round.status } } : {}),
+      ...(memo.revision ? { revision_of_round: memo.revision.prior_round_number } : {}),
       draft_version: draft.draft_version,
       finalized: !draft.is_draft,
       finalized_at: draft.finalized_at,
@@ -402,6 +410,7 @@ export const DILIGENCE_HANDLERS: Record<string, AgentToolHandler> = {
           section: p.section_id,
           prose: p.prose,
           origin: p.origin,
+          ...(p.round_status ? { round_status: p.round_status } : {}),
           confidence: p.confidence,
           flags: [
             p.contains_projection && 'projection',
@@ -415,6 +424,60 @@ export const DILIGENCE_HANDLERS: Record<string, AgentToolHandler> = {
         .filter(a => a.status === 'open')
         .map(a => ({ id: a.id, kind: a.kind, urgency: a.urgency, body: a.body })),
     }
+  },
+
+  diligence_rounds: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
+    const deal = await resolveDeal(admin, fundId, str(input?.deal), access)
+    if (!input?.round) {
+      const rounds = await listRounds(admin, fundId, deal.id)
+      return {
+        deal: deal.name,
+        rounds: rounds.map(r => ({
+          round: r.round_number, label: r.label, status: r.status, outcome: r.outcome, summary: r.summary,
+          opened_at: r.opened_at, closed_at: r.closed_at, documents_added: r.documents, notes_added: r.notes,
+          has_memo: r.draft?.has_memo ?? false, has_scores: r.draft?.has_scores ?? false, memo_final: r.draft ? !r.draft.is_draft : false,
+          request_list: r.status === 'closed' ? r.request_list : undefined,
+        })),
+      }
+    }
+    const d = unwrap(await roundDetail(admin, fundId, deal.id, String(input.round)))
+    return {
+      deal: deal.name,
+      round: { number: d.round.round_number, label: d.round.label, status: d.round.status, outcome: d.round.outcome, summary: d.round.summary },
+      previous_round: d.previous?.round_number ?? null,
+      changes: d.previous ? notableChanges(d.changes) : [],
+      unchanged: d.previous ? d.changes.items.filter(i => i.status === 'confirmed').length : 0,
+      requested_by_previous_round: d.requested,
+      request_list: d.request_list,
+      request_list_text: requestListText(d.request_list),
+      documents_added: d.documents.map(x => ({ id: x.id, name: x.file_name, type: x.detected_type, uploaded_at: x.uploaded_at })),
+    }
+  },
+
+  diligence_round_save: async ({ admin, fundId, access, userId }: AgentToolContext, input: any) => {
+    const deal = await resolveDeal(admin, fundId, str(input?.deal), access)
+    const ctx = { fundId, userId: userId ?? null }
+    const action = str(input?.action)
+    if (action === 'start_next') {
+      const out = unwrap(await startNextRound(admin, ctx, deal.id, { label: input?.label, outcome: input?.outcome, summary: input?.summary }))
+      return {
+        deal: deal.name, closed_round: out.closed.round_number, request_list: out.closed.request_list,
+        round: { number: out.round.round_number, label: out.round.label, status: out.round.status },
+        note: out.draft_id ? `Round ${out.round.round_number} starts from round ${out.closed.round_number}'s evidence, memo and scores.` : `Round ${out.closed.round_number} had no evidence to carry over.`,
+      }
+    }
+    if (action === 'close') {
+      const r = unwrap(await closeRound(admin, ctx, deal.id, { outcome: input?.outcome, summary: input?.summary }))
+      return { deal: deal.name, round: r.round_number, status: r.status, outcome: r.outcome, request_list: r.request_list }
+    }
+    if (action === 'reopen' || action === 'update') {
+      const r = unwrap(await updateRound(admin, ctx, deal.id, str(input?.round) || 'current', {
+        ...(action === 'reopen' ? { status: 'open' } : {}),
+        label: input?.label, summary: input?.summary, outcome: input?.outcome,
+      }))
+      return { deal: deal.name, round: r.round_number, label: r.label, status: r.status, outcome: r.outcome, summary: r.summary }
+    }
+    throw new Error('action must be start_next, close, reopen or update.')
   },
 
   diligence_create_deal: async ({ admin, fundId, access, userId }: AgentToolContext, input: any) => {

@@ -20,12 +20,16 @@ export async function GET(_req: NextRequest, props: { params: Promise<{ id: stri
     .maybeSingle()
   if (!deal) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
-  const { data, error } = await admin
+  // round_id arrives with the diligence rounds migration; before it is applied, list without it.
+  const COLS = 'id, deal_id, fund_id, storage_path, file_name, file_format, file_size_bytes, detected_type, type_confidence, parse_status, parse_notes, drive_file_id, drive_source_url, uploaded_by, uploaded_at'
+  const list = (cols: string) => admin
     .from('diligence_documents')
-    .select('id, deal_id, fund_id, storage_path, file_name, file_format, file_size_bytes, detected_type, type_confidence, parse_status, parse_notes, drive_file_id, drive_source_url, uploaded_by, uploaded_at')
+    .select(cols)
     .eq('deal_id', params.id)
     .eq('fund_id', fundId)
     .order('uploaded_at', { ascending: false })
+  let { data, error } = await list(`${COLS}, round_id`)
+  if (error && /round_id/.test(error.message ?? '')) ({ data, error } = await list(COLS))
 
   if (error) return dbError(error, 'diligence-documents-list')
   return NextResponse.json(data ?? [])

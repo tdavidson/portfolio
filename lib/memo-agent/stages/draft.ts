@@ -17,6 +17,9 @@ import { effectiveSections } from '@/lib/memo-agent/design-sections'
 import { loadMemoBrief } from '@/lib/memo-agent/brief'
 import { reviewParagraphs } from '@/lib/memo-agent/assistant-memo'
 import { MEMO_SKILL_VERSION } from '@/lib/memo-agent/skill'
+import {
+  applyRevision, loadRevisionContext, revisionFillBlock, revisionMarker, revisionOutlineBlock, roundChangesParagraphs, roundChangesPrompt,
+} from '@/lib/memo-agent/revision'
 import type { IngestionOutput } from './ingest'
 import type { ResearchOutput } from './research'
 
@@ -35,6 +38,8 @@ export interface MemoParagraph {
   contains_contradiction: boolean
   /** Partner-hidden paragraphs are kept in the draft but excluded from renders. */
   hidden?: boolean
+  /** In a later diligence round: whether the paragraph was kept from the prior round's memo, revised, or is new. */
+  round_status?: 'kept' | 'revised' | 'new'
 }
 
 export interface PartnerAttentionItem {
@@ -48,6 +53,8 @@ export interface MemoDraftOutput {
   header: Record<string, any>
   paragraphs: MemoParagraph[]
   partner_attention: PartnerAttentionItem[]
+  /** Set when a later diligence round revised the memo (lib/diligence/rounds.ts). */
+  revision?: { round_number: number; prior_round_number: number; title: string }
 }
 
 export interface DraftResult {
@@ -125,6 +132,10 @@ export async function runDraft(params: {
   // Partner-excluded Q&A entries are dropped from evaluation entirely.
   const qa_answers = (Array.isArray(draft.qa_answers) ? draft.qa_answers as QARecord[] : []).filter(r => !r.excluded)
 
+  // A later diligence round revises the prior round's memo instead of writing a new one.
+  const revision = await loadRevisionContext(admin as any, fundId, dealId, draft)
+  if (revision) await note(`Revising the round ${revision.priorRoundNumber} memo for round ${revision.roundNumber}…`)
+
   const docCount = ingestion.documents?.length ?? 0
   const claimCount = ingestion.documents?.reduce((acc, d) => acc + (d.claims?.length ?? 0), 0) ?? 0
 
@@ -176,6 +187,7 @@ export async function runDraft(params: {
     ingestion,
     research,
     qa_answers,
+    revisionBlock: revision ? revisionOutlineBlock(revision) : undefined,
   })
   const outlineRes = await provider.createMessage({
     model,
@@ -221,6 +233,7 @@ export async function runDraft(params: {
           ingestion,
           research,
           qa_answers,
+          revisionBlock: revision ? revisionFillBlock(revision, batch.map(s => s.section_id)) : undefined,
         }),
       })
       logAIUsage(admin, { fundId, dealId, provider: providerType, model, feature: 'memo_agent_draft_fill', usage: res.usage })
@@ -249,10 +262,37 @@ export async function runDraft(params: {
   // Force the recommendation section to a partner-only placeholder.
   paragraphs = enforceRecommendationPlaceholder(paragraphs)
 
-  const parsed: MemoDraftOutput = {
+  // A revision keeps unchanged and partner-written paragraphs word for word, and opens with what changed.
+  const revisionAttention: PartnerAttentionItem[] = []
+  if (revision) {
+    const applied = applyRevision(paragraphs, revision)
+    paragraphs = applied.paragraphs
+    revisionAttention.push(...applied.attention)
+    await note(`Writing "What changed since Round ${revision.priorRoundNumber}"…`)
+    try {
+      const res = await provider.createMessage({
+        model, maxTokens: 4096, system,
+        content: [{ type: 'text', text: roundChangesPrompt({ dealName: deal.name, ctx: revision }) }],
+      })
+      logAIUsage(admin, { fundId, dealId, provider: providerType, model, feature: 'memo_agent_draft_round_changes', usage: res.usage })
+      const changeParas = roundChangesParagraphs(extractJsonObject(res.text)).map(p => ({ ...p, round_status: 'new' as const }))
+      if (changeParas.length === 0) warnings.push('The "What changed" section came back empty.')
+      paragraphs = [...changeParas, ...paragraphs]
+    } catch (err) {
+      warnings.push(`The "What changed" section failed: ${err instanceof Error ? err.message : String(err)}`)
+    }
+  }
+
+  // Scores live in the same column and are written by their own stage; a re-draft keeps them.
+  const { data: existing } = await admin.from('diligence_memo_drafts').select('memo_draft_output').eq('id', draft.id).maybeSingle()
+  const prev = ((existing as any)?.memo_draft_output ?? null) as Record<string, unknown> | null
+  const parsed: MemoDraftOutput & Record<string, unknown> = {
     header: outline.header,
     paragraphs,
-    partner_attention: outline.partner_attention,
+    partner_attention: [...outline.partner_attention, ...revisionAttention],
+    ...(Array.isArray(prev?.scores) ? { scores: prev!.scores } : {}),
+    ...(Array.isArray(prev?.low_confidence_attention) ? { low_confidence_attention: prev!.low_confidence_attention } : {}),
+    ...(revision ? { revision: revisionMarker(revision) } : {}),
   }
 
   // Quality checks — warnings, not failures.
@@ -354,7 +394,8 @@ export async function runDraftReview(params: {
   const research = (row.research_output as ResearchOutput | null) ?? null
   const qa_answers = (Array.isArray(row.qa_answers) ? row.qa_answers as QARecord[] : []).filter(r => !r.excluded)
 
-  const reviewable = memo.paragraphs.filter(p => p.origin !== 'partner_only_placeholder')
+  // A paragraph a later round kept from the prior memo stays as it was; the review edits the rest.
+  const reviewable = memo.paragraphs.filter(p => p.origin !== 'partner_only_placeholder' && p.round_status !== 'kept')
   if (reviewable.length === 0) {
     warnings.push('No reviewable paragraphs (draft is empty or all placeholders). Skipping review.')
     return { draft_id: row.id, edits_applied: 0, warnings }
@@ -590,7 +631,8 @@ function coerceParagraph(raw: unknown): MemoParagraph | null {
     contains_projection: !!r.contains_projection,
     contains_unverified_claim: !!r.contains_unverified_claim,
     contains_contradiction: !!r.contains_contradiction,
-  }
+    ...(['kept', 'revised', 'new'].includes(r.revision) ? { revision: r.revision } : {}),
+  } as MemoParagraph
 }
 
 function enforceRecommendationPlaceholder(paragraphs: MemoParagraph[]): MemoParagraph[] {

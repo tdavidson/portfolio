@@ -452,6 +452,8 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/diligence/[id]/agent/research': { domain: 'diligence' },
   'api/diligence/[id]/agent/score': { domain: 'diligence' },
   'api/diligence/[id]/agent/status': { domain: 'diligence' },
+  'api/diligence/[id]/rounds': { domain: 'diligence' },
+  'api/diligence/[id]/rounds/[roundId]': { domain: 'diligence' },
   'api/diligence/[id]/agent/transcribe': { domain: 'diligence' },
   'api/diligence/[id]/attention': { domain: 'diligence' },
   'api/diligence/[id]/attention/[itemId]': { domain: 'diligence' },

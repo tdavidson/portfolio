@@ -10,7 +10,7 @@ export interface ReviewFlag {
   kind:
     | 'uncited' | 'unknown_source' | 'number_not_in_sources' | 'number_not_cited'
     | 'recommendation_outside_section' | 'team_judgment' | 'unlabeled_projection'
-    | 'empty_section' | 'unknown_section'
+    | 'empty_section' | 'unknown_section' | 'partner_paragraph_changed'
   severity: ReviewSeverity
   message: string
   paragraph_id?: string
