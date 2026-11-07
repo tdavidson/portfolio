@@ -19,6 +19,7 @@ export type DocumentType =
   | 'legal'
   | 'market_research'
   | 'team_bio'
+  | 'org_chart'
   | 'press'
   | 'industry_expert'
   | 'call_recording'
@@ -38,6 +39,11 @@ const CAP_TABLE_KEYWORDS = ['cap table', 'cap_table', 'captable', 'ownership', '
 const MEMO_KEYWORDS = ['memo', 'investment memo', 'board memo']
 const LEGAL_KEYWORDS = ['saf', 'safe', 'note', 'term sheet', 'termsheet', 'shareholder', 'incorporation', 'articles', 'bylaws']
 const MARKET_KEYWORDS = ['market', 'tam', 'industry', 'analyst report', 'gartner']
+// Org chart: reporting lines and headcount by function. Checked before deck,
+// model and team keywords so "org chart.pptx" or "team org chart.pdf" is not
+// filed as a pitch deck, financial model or team bio.
+// Matches org chart, org_chart, orgchart, organization chart, organisational-chart, etc.
+const ORG_CHART_PATTERN = /(?:^|[^a-z])org(?:ani[sz]ation(?:al)?)?[\s_-]?chart/
 const TEAM_KEYWORDS = ['bio', 'biography', 'resume', 'cv', 'team', 'founder']
 const PRESS_KEYWORDS = ['press', 'announcement', 'launch', 'feature', 'article']
 const PRODUCT_KEYWORDS = ['product', 'overview', 'spec', 'roadmap']
@@ -80,6 +86,10 @@ export function classifyDocumentHeuristic(filename: string, contentType?: string
   if (TRANSCRIPT_EXTS.has(e) || contentType === 'text/vtt' || contentType === 'application/x-subrip') {
     return { detected_type: 'call_transcript', confidence: 'high' }
   }
+
+  // An org chart can arrive as a sheet, slide, PDF or image, so match it by
+  // name before the format-based guesses below.
+  if (ORG_CHART_PATTERN.test(lower)) return { detected_type: 'org_chart', confidence: 'medium' }
 
   // Excel / sheets — almost always financial model or cap table.
   if (e === 'xlsx' || e === 'xls' || e === 'csv' || contentType?.includes('spreadsheetml')) {

@@ -1270,6 +1270,7 @@ const DOC_TYPE_OPTIONS = [
   { value: 'legal', label: 'Legal' },
   { value: 'market_research', label: 'Market research' },
   { value: 'team_bio', label: 'Team bio' },
+  { value: 'org_chart', label: 'Organization chart' },
   { value: 'press', label: 'Press' },
   { value: 'industry_expert', label: 'Industry expert' },
   { value: 'sales', label: 'Sales' },
