@@ -24,7 +24,7 @@ import { loadFofRaw, computeFofFromRaw, type FofRawData } from '@/lib/portfolio/
 import { commitmentSchedule, performanceTable, type CommitmentSchedule, type PerformanceTable } from '@/lib/portfolio/fof-exhibits'
 import { valuationBasisNote, type ValuationBasisRow } from '@/lib/portfolio/fof-valuation'
 import { computeCapitalAccounts, totalNav } from './capital-account'
-import { resolvePeriod, customPeriod, comparisonPeriods, type PeriodPreset, type StatementPeriod } from './statement-period'
+import { resolvePeriod, customPeriod, comparisonPeriods, monthlyPeriods, type PeriodPreset, type StatementPeriod } from './statement-period'
 import { accountBalances, normalBalance } from './ledger'
 import type { Account } from './types'
 import { booksForBasis, basisFromParam, type StatementBasis } from './books'
@@ -71,6 +71,11 @@ export interface StatementPackage {
   allSourced?: SourcedPosting[]
   /** Prior-period payloads, most-recent-first, present only when ?compare= was passed. */
   comparisons?: StatementPayload[]
+  /**
+   * One payload per calendar month inside the period, oldest first, present only when ?monthly=1
+   * was passed (the tax package's workpapers). The workbook adds them as columns after the annual ones.
+   */
+  months?: StatementPayload[]
   /**
    * 'book' (the actual ledger — the default and every existing caller) or 'tax' (actual plus the
    * book-to-tax overlay, read together). Stated on the workbook cover and the PDF header so a
@@ -346,7 +351,13 @@ export function buildStatementPackageFromData(data: LedgerData, sp: URLSearchPar
     comparisons = comparisonPeriods(period, count, data.earliest).map(p => computePayload(data, p))
   }
 
-  return { payload, accounts: data.accounts, inPeriodSourced, allSourced: data.sourcedPostings, comparisons, basis: basisFromParam(sp.get('basis')) }
+  const months = sp.get('monthly') === '1' ? monthlyPeriods(period).map(p => computePayload(data, p)) : undefined
+
+  return {
+    payload, accounts: data.accounts, inPeriodSourced, allSourced: data.sourcedPostings, comparisons,
+    ...(months ? { months } : {}),
+    basis: basisFromParam(sp.get('basis')),
+  }
 }
 
 /**

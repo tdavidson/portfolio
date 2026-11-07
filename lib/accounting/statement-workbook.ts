@@ -87,6 +87,11 @@ function coverSheet(pkg: StatementPackage, meta: WorkbookMeta): XLSX.WorkSheet {
     ['Balance-sheet basis is cumulative to the period end; the income statement and cash flows'],
     ['cover activity within the period. The GL detail opens each account at the balance carried'],
     ['in at the period start, lists the period’s postings, and closes to the trial balance.'],
+    ...(pkg.months?.length ? [
+      [],
+      ['The trial balance, balance sheet, income statement and cash flows carry a column for each month'],
+      ['after the annual columns: month-end balances on the balance-sheet side, the month’s activity on the other.'],
+    ] : []),
     [],
     [warnings.length ? 'Tie-out warnings' : 'No tie-out warnings — statements balance.'],
     ...warnings.map(w => [w]),
@@ -328,14 +333,18 @@ export function buildStatementWorkbook(pkg: StatementPackage, meta: WorkbookMeta
   // [primary, ...comparisons] — the columnized sheets get one money column per payload.
   // With no ?compare= this is a single-element array and every sheet keeps today's shape.
   const payloads: StatementPayload[] = [pkg.payload, ...(pkg.comparisons ?? [])]
+  // The month columns (?monthly=1) follow the annual ones on the trial balance and the three
+  // statements, so the annual columns keep their positions. Partners' capital and the schedule of
+  // investments stay annual: a roll-forward and a schedule struck at a date don't widen by month.
+  const withMonths: StatementPayload[] = [...payloads, ...(pkg.months ?? [])]
   const wb = XLSX.utils.book_new()
   append(wb, 'Cover', coverSheet(pkg, meta))
-  append(wb, 'Trial Balance', trialBalanceSheet(payloads))
-  append(wb, 'Balance Sheet', balanceSheetSheet(payloads))
-  append(wb, 'Income Statement', incomeStatementSheet(payloads))
+  append(wb, 'Trial Balance', trialBalanceSheet(withMonths))
+  append(wb, 'Balance Sheet', balanceSheetSheet(withMonths))
+  append(wb, 'Income Statement', incomeStatementSheet(withMonths))
   append(wb, 'Partners Capital', capitalSheet(payloads))
   append(wb, 'Schedule of Investments', soiSheet(payloads))
-  append(wb, 'Cash Flows', cashFlowSheet(payloads))
+  append(wb, 'Cash Flows', cashFlowSheet(withMonths))
   append(wb, 'GL Detail', glDetailSheet(pkg))
   return wb
 }
