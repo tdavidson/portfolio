@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Diligence in rounds
+- **Rounds.** A deal's diligence now runs in rounds: the first data room, a follow-up request, continued diligence. Each round has a name, an open or closed status, the partners' decision (advance, hold, pass, invest) and notes. Every existing deal starts as round 1 with everything it has.
+- **Start the next round.** Closes the current round and opens the next, which starts from the evidence, memo and scores so far. A closed round's memo, findings and scoring table are kept as they were and are read only (its memo can still be finalized). The latest round can be reopened if it was closed by mistake.
+- **Findings by round.** Documents, notes and attention items record the round they arrived in. Each round shows what is new, changed or resolved in its evidence since the previous one (claims matched on their document and field, findings and contradictions on their topic, gaps on what is missing), and the Data Room tags and filters documents by round.
+- **Request list.** Closing a round builds the follow-up list for the company from the checklist items still missing or partial, open must- and should-address items and the data room's and research's gaps, with a copy-as-text button. The next round shows what it was asked to bring.
+- **One memo, revised each round.** In a later round the memo agent revises the prior round's memo: paragraphs whose evidence did not change stay word for word, those whose evidence changed are rewritten, new material gets new paragraphs, and "What changed since Round N" opens the memo (in the editor and every export). A partner's own paragraphs are never rewritten; when the evidence under one changes, the partner gets an attention item. Re-drafting no longer drops the scores.
+- **Scoring per round.** The Scoring tab shows one round's scoring table at a time, with a round switch; the Memo tab does the same for the memo.
+- **MCP.** `diligence_rounds` reads the rounds and a round's changes and request list; `diligence_round_save` starts, closes, reopens or renames a round (staged like every write). `diligence_memo` takes a round, and the memo brief carries the round, its changes and the prior round's memo so a chat revises it the same way.
+- Migration, additive: `20261107150000_diligence_rounds.sql` (the table, `round_id` on drafts, documents, notes and attention items, triggers that fill it and freeze a closed round's drafts).
+
 ### LP letters: fund figures from their sources, never computed by the brief
 - **Gross figures from the performance report.** The brief's gross IRR and gross MOIC are the performance report's total-portfolio figures (the same holdings and calculation), not a calculation of the brief's own. Each fund figure now carries its `source` and `as_of`.
 - **Net figures as the administrator reports them.** Net TVPI, DPI and IRR are recorded as the fund administrator states them, as of a date and with the source named (`vehicle_reported_figures`, MCP `record_fund_figures`, staged like every write). The brief takes the ones dated the quarter end, closed or not; a missing one goes to the missing-information list and is never worked out from the ledger. Capital called, RVPI and portfolio fair value are no longer fund figures.

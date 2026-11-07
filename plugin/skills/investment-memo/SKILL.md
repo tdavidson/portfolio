@@ -2,7 +2,7 @@
 name: investment-memo
 description: Draft an investment committee memo for a deal in diligence, in the fund's own structure, voice and design, from the deal's data room, research and partner notes in Hemrock Portfolio over MCP, and save it as an open draft with every paragraph cited.
 metadata:
-  version: "1.0.0"
+  version: "1.1.0"
 ---
 
 # Investment memo
@@ -39,6 +39,18 @@ The connector may be installed under another name, often the firm's. The tools a
 6. **Write the memo.** One section at a time, in the fund's order. Size each section by how much the evidence supports, within the section's depth setting. Cite ids on every paragraph.
 7. **Save it.** Call `diligence_draft_memo` with your paragraphs. It saves a new open draft and returns review flags. Fix every flag you can and save again; tell the person about the rest.
 8. **Export when asked.** `diligence_memo_export` returns a Word file or Google Doc in the fund's design template, or Markdown or a PDF.
+
+## Later rounds of diligence
+
+Diligence runs in rounds: the first data room, then more information, then continued diligence. `diligence_rounds` lists a deal's rounds and, for one round, what is new, changed or resolved since the previous round and what the company was asked for. When the brief's `round.revising` is true, the memo already exists from the previous round, so revise it instead of writing a new one:
+
+- Keep each paragraph in `round.prior_memo` whose `evidence_changed` is false, word for word, with its refs updated to this round's.
+- Rewrite the paragraphs whose evidence changed so they are true to the current evidence.
+- Never change a paragraph whose `partner_written` is true. If the evidence under it changed, say so in the attention list instead.
+- Add new paragraphs only for material the prior memo does not cover.
+- Write the first section, "What changed since Round N", from `round.changes`: what is new, what changed and in which direction, which questions were answered and concerns resolved, which new ones appeared, and what it means for the case. Cite the refs given there.
+
+Each round keeps its own memo and scoring table. Starting the next round (`diligence_round_save`) is the partners' call; don't start or close a round unless they ask.
 
 ## Structure
 

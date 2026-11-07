@@ -7,6 +7,7 @@
 // the deal's evidence so a memo can cite them.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { roundChangesTitle } from '@/lib/diligence/rounds'
 import { done, dbFail, fail, type Outcome } from '@/lib/service-outcome'
 import { briefSources, latestDraftRow, loadMemoBrief, type BriefSection, type MemoBrief } from './brief'
 import { refToSource, reviewMemo, sourceToRef, type ReviewFlag } from './review'
@@ -119,6 +120,18 @@ export async function saveMemoDraft(
   const origin: MemoParagraph['origin'] = writtenBy === 'assistant' ? 'agent_drafted' : 'partner_edited'
   const { paragraphs, problems } = buildParagraphs(brief.sections, input.paragraphs, origin, writtenBy !== 'assistant')
   const flags = [...problems, ...reviewParagraphs(brief, paragraphs)]
+  // In a later diligence round a partner's own paragraphs carry over word for word.
+  if (brief.round?.revising) {
+    const written = new Set(paragraphs.map(p => p.prose.replace(/\s+/g, ' ').trim()))
+    for (const was of brief.round.prior_memo.filter(p => p.partner_written)) {
+      if (!written.has(was.text.replace(/\s+/g, ' ').trim())) {
+        flags.push({
+          kind: 'partner_paragraph_changed', severity: 'check', section: was.section,
+          message: `A partner's paragraph in "${was.section}" from round ${brief.round.prior_round_number} was changed or left out. Keep the partners' words unless they ask otherwise.`,
+        })
+      }
+    }
+  }
 
   const priorHeader = (prior.memo_draft_output?.header ?? {}) as Record<string, unknown>
   const header = {
@@ -139,9 +152,16 @@ export async function saveMemoDraft(
     body: a.body.trim().slice(0, 2000),
     links: (a.sources ?? []).map(r => refToSource(String(r))).filter(Boolean) as Array<{ source_type: string; source_id: string }>,
   }))
-  const memo: MemoDraftOutput & { agent_notes?: string } = {
+  const priorMemo = (prior.memo_draft_output ?? {}) as Record<string, unknown>
+  const memo: MemoDraftOutput & { agent_notes?: string } & Record<string, unknown> = {
     header, paragraphs, partner_attention: attention,
     ...(input.notes?.trim() ? { agent_notes: input.notes.trim().slice(0, 8000) } : {}),
+    // The deal's scores are their own stage's; a new memo draft keeps them.
+    ...(Array.isArray(priorMemo.scores) ? { scores: priorMemo.scores } : {}),
+    ...(Array.isArray(priorMemo.low_confidence_attention) ? { low_confidence_attention: priorMemo.low_confidence_attention } : {}),
+    ...(brief.round?.revising && brief.round.prior_round_number
+      ? { revision: { round_number: brief.round.number, prior_round_number: brief.round.prior_round_number, title: roundChangesTitle(brief.round.prior_round_number) } }
+      : {}),
   }
   const cited = new Set(paragraphs.flatMap(p => p.sources.map(sourceToRef)))
   const sources = briefSources(brief)

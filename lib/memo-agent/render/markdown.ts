@@ -1,4 +1,5 @@
 import yaml from 'js-yaml'
+import { memoRevisionTitle, ROUND_CHANGES_SECTION_ID, withRoundChangesFirst } from '@/lib/diligence/rounds'
 import type { MemoDraftOutput } from '@/lib/memo-agent/stages/draft'
 import type { DimensionScore } from '@/lib/memo-agent/stages/score'
 import { SCORE_TABLE_HEADERS, confidenceLabel, dimensionLabel, scoreLabel } from './scores-table'
@@ -74,7 +75,12 @@ export function renderMarkdown(input: RenderInput): string {
   // Append section_ids from paragraphs that aren't in baseOrder so no content is hidden.
   const paragraphSectionIds = Array.from(new Set(input.memo.paragraphs.map(p => p.section_id)))
   const extras = paragraphSectionIds.filter(id => !baseOrder.includes(id))
-  const sectionOrder = [...baseOrder, ...extras]
+  // A later diligence round's "What changed since Round N" opens the memo.
+  const sectionOrder = withRoundChangesFirst([...baseOrder, ...extras])
+  const revisionTitle = memoRevisionTitle(input.memo)
+  if (revisionTitle && sectionOrder.includes(ROUND_CHANGES_SECTION_ID)) {
+    sectionMeta.set(ROUND_CHANGES_SECTION_ID, { id: ROUND_CHANGES_SECTION_ID, title: revisionTitle, kind: 'prose' })
+  }
   // Fill in fallback meta for any section id in the order that the parsed
   // YAML didn't define — keeps render output non-empty when the schema is
   // missing or stale.

@@ -76,6 +76,9 @@ interface Pair {
 
 const PAIRS: Pair[] = [
   { what: 'read the journal', route: 'api/accounting/journal', method: 'GET', tool: 'list_journal' },
+  { what: "read a deal's diligence rounds", route: 'api/diligence/[id]/rounds', method: 'GET', tool: 'diligence_rounds' },
+  { what: 'start the next diligence round', route: 'api/diligence/[id]/rounds', method: 'POST', tool: 'diligence_round_save' },
+  { what: 'close or rename a diligence round', route: 'api/diligence/[id]/rounds/[roundId]', method: 'PATCH', tool: 'diligence_round_save' },
   { what: 'make a journal entry (a proposal for a proposer)', route: 'api/accounting/journal', method: 'POST', body: { status: 'draft' }, tool: 'post_entry', proposer: 'allowed' },
   { what: 'withdraw their own proposal', route: 'api/accounting/journal', method: 'PATCH', body: { action: 'void' }, tool: 'withdraw_proposal', proposer: 'allowed' },
   // A draft is discarded (discard_drafts); voiding a POSTED entry is admin-only, which the handler

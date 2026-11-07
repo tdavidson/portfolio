@@ -26,6 +26,10 @@ const PARITY: Array<{ action: string; route: string; method: string; tool: strin
   { action: 'Export Word, Google Doc, PDF or Markdown', route: 'api/diligence/[id]/agent/render', method: 'POST', tool: 'diligence_memo_export' },
   { action: 'Re-import an edited Word memo', route: 'api/diligence/[id]/drafts/import', method: 'POST', tool: 'diligence_import_memo' },
   { action: 'Resolve an attention item', route: 'api/diligence/[id]/attention/[itemId]', method: 'PATCH', tool: 'diligence_resolve_attention' },
+  { action: 'List the diligence rounds', route: 'api/diligence/[id]/rounds', method: 'GET', tool: 'diligence_rounds' },
+  { action: "Read a round: what changed, what was asked for, the request list", route: 'api/diligence/[id]/rounds/[roundId]', method: 'GET', tool: 'diligence_rounds' },
+  { action: 'Start the next diligence round', route: 'api/diligence/[id]/rounds', method: 'POST', tool: 'diligence_round_save' },
+  { action: 'Close, reopen or rename a round', route: 'api/diligence/[id]/rounds/[roundId]', method: 'PATCH', tool: 'diligence_round_save' },
 ]
 
 /**

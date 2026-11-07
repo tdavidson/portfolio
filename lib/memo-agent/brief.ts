@@ -15,6 +15,9 @@ import type { IngestionOutput } from './stages/ingest'
 import type { ResearchOutput } from './stages/research'
 import type { QARecord } from './prompts/draft'
 import type { MemoTemplateConfig } from './prompts/memo-config'
+import { notableChanges, ROUND_CHANGES_SECTION_ID, roundChangesTitle, sourceRef, type RequestItem, type RoundItemChange } from '@/lib/diligence/rounds'
+import { loadRounds } from '@/lib/diligence/rounds-service'
+import { loadRevisionContext, paragraphAffected } from './revision'
 
 type Admin = SupabaseClient
 
@@ -43,6 +46,24 @@ export interface MemoBrief {
   checklist: { found: number; partial: number; missing: string[]; unknown: number }
   gaps: string[]
   design: { template: string | null; headings: string[] } | null
+  /**
+   * The diligence round the memo is for. In a later round the memo is a revision of the prior
+   * round's memo: keep paragraphs whose evidence did not change, revise those whose evidence changed,
+   * add new material, never rewrite a partner's words, and write the "What changed" section first.
+   */
+  round: {
+    number: number
+    label: string
+    status: 'open' | 'closed'
+    revising: boolean
+    prior_round_number: number | null
+    /** What is new, changed or resolved in the evidence since the prior round, with refs. */
+    changes: RoundItemChange[]
+    /** What the prior round asked the company for. */
+    requested: RequestItem[]
+    /** The prior round's memo, paragraph by paragraph. */
+    prior_memo: Array<{ id: string; section: string; text: string; sources: string[]; evidence_changed: boolean; partner_written: boolean }>
+  } | null
 }
 
 /** The deal's latest memo draft row, with the evidence on it. */
@@ -126,6 +147,15 @@ export async function loadMemoBrief(admin: Admin, fundId: string, deal: any): Pr
       if (f?.id && f?.text) facts.push({ ref: `fact:${i.id}/${f.id}`, item: i.label, fact: f.text })
     }
   }
+  const round = await briefRound(admin, fundId, deal.id, draft)
+  const sections = await memoSections(admin, fundId, config)
+  if (round?.revising && round.prior_round_number && !sections.some(s => s.id === ROUND_CHANGES_SECTION_ID)) {
+    sections.unshift({
+      id: ROUND_CHANGES_SECTION_ID, title: roundChangesTitle(round.prior_round_number), depth: 'brief', partner_only: false,
+      covers: `What the new information changed since round ${round.prior_round_number}: what is new, what changed and in which direction, which questions were answered and concerns resolved, which new ones appeared, and what it means for the case. Cite the refs in round.changes.`,
+    })
+  }
+
   const gaps = [
     ...(ingestion?.gap_analysis?.missing ?? []).filter(g => !g.dismissed).map(g => `Missing from the data room: ${g.expected_type ?? 'a document'} (${g.criticality}). ${g.rationale}`),
     ...(research?.research_gaps ?? []).filter(g => !g.dismissed).map(g => `Not found in research: ${g.topic} (${g.criticality}). ${g.rationale}`),
@@ -134,7 +164,7 @@ export async function loadMemoBrief(admin: Admin, fundId: string, deal: any): Pr
     deal: { id: deal.id, name: deal.name, sector: deal.sector ?? null, stage: deal.stage_at_consideration ?? null, status: deal.deal_status ?? null },
     draft_id: draft?.id ?? null,
     skill_version: MEMO_SKILL_VERSION,
-    sections: await memoSections(admin, fundId, config),
+    sections,
     settings: {
       partner_guidance: deal.partner_memo_guidance ?? null,
       analyst_persona: config?.analyst_persona || null,
@@ -156,6 +186,34 @@ export async function loadMemoBrief(admin: Admin, fundId: string, deal: any): Pr
     },
     gaps,
     design: design.status === 'ready' ? { template: design.anchor.title || design.anchor.file_name, headings: design.design.headings } : null,
+    round,
+  }
+}
+
+/** The brief's round: which round the deal is in and, in a later round, what to revise. Null before rounds exist. */
+async function briefRound(admin: Admin, fundId: string, dealId: string, draft: any | null): Promise<MemoBrief['round']> {
+  try {
+    const rounds = await loadRounds(admin, fundId, dealId)
+    const current = rounds[rounds.length - 1]
+    if (!current) return null
+    const previous = rounds.length > 1 ? rounds[rounds.length - 2] : null
+    const ctx = draft ? await loadRevisionContext(admin, fundId, dealId, draft) : null
+    return {
+      number: current.round_number,
+      label: current.label,
+      status: current.status,
+      revising: !!ctx,
+      prior_round_number: previous?.round_number ?? null,
+      changes: ctx ? notableChanges(ctx.changes) : [],
+      requested: previous?.request_list ?? [],
+      prior_memo: (ctx?.priorParagraphs ?? []).filter(p => !p.hidden).map(p => ({
+        id: p.id, section: p.section_id, text: p.prose, sources: (p.sources ?? []).map(sourceRef),
+        evidence_changed: paragraphAffected(p, ctx!.affected),
+        partner_written: p.origin === 'partner_edited' || p.origin === 'partner_drafted',
+      })),
+    }
+  } catch {
+    return null
   }
 }
 

@@ -41,6 +41,8 @@ export function buildDraftOutlineContent(params: {
   ingestion: IngestionOutput
   research: ResearchOutput | null
   qa_answers: QARecord[]
+  /** A later diligence round: what changed and the prior round's memo, to revise rather than replan. */
+  revisionBlock?: string
 }): ContentBlock[] {
   const text = [
     `Deal: ${params.dealName}`,
@@ -64,6 +66,7 @@ export function buildDraftOutlineContent(params: {
     `--- PARTNER Q&A ANSWERS ---`,
     summarizeQA(params.qa_answers),
     '',
+    ...(params.revisionBlock ? [params.revisionBlock, ''] : []),
     OUTLINE_INSTRUCTIONS,
   ].join('\n')
 
@@ -86,6 +89,8 @@ export function buildDraftSectionFillContent(params: {
   ingestion: IngestionOutput
   research: ResearchOutput | null
   qa_answers: QARecord[]
+  /** A later diligence round: the prior paragraphs of this batch's sections, and how to revise them. */
+  revisionBlock?: string
 }): ContentBlock[] {
   const planLines: string[] = []
   for (const sec of params.sectionsToWrite) {
@@ -131,6 +136,7 @@ export function buildDraftSectionFillContent(params: {
   ].join('\n')
 
   const variableText = [
+    ...(params.revisionBlock ? [params.revisionBlock, ''] : []),
     `--- SECTIONS TO WRITE IN THIS CALL ---`,
     planLines.join('\n'),
   ].join('\n')

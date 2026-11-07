@@ -1,4 +1,5 @@
 import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, BorderStyle, WidthType, TableLayoutType, VerticalAlign } from 'docx'
+import { memoRevisionTitle, ROUND_CHANGES_SECTION_ID, withRoundChangesFirst } from '@/lib/diligence/rounds'
 import yaml from 'js-yaml'
 import type { MemoDraftOutput } from '@/lib/memo-agent/stages/draft'
 import type { DimensionScore } from '@/lib/memo-agent/stages/score'
@@ -65,7 +66,12 @@ export function memoSectionOrder(input: Pick<RenderInput, 'memo' | 'memoOutputYa
   // (e.g. a section removed from the config that still has paragraphs).
   const paragraphSectionIds = Array.from(new Set(input.memo.paragraphs.map(p => p.section_id)))
   const extras = paragraphSectionIds.filter(id => !baseOrder.includes(id))
-  const order = [...baseOrder, ...extras]
+  // A later diligence round's "What changed since Round N" opens the memo.
+  const order = withRoundChangesFirst([...baseOrder, ...extras])
+  const revisionTitle = memoRevisionTitle(input.memo)
+  if (revisionTitle && order.includes(ROUND_CHANGES_SECTION_ID)) {
+    sectionMeta.set(ROUND_CHANGES_SECTION_ID, { id: ROUND_CHANGES_SECTION_ID, title: revisionTitle, kind: 'prose' })
+  }
   // Fill in fallback meta for any section id in the order that wasn't defined
   // above — keeps the doc non-empty when the schema is empty or stale.
   for (const id of order) {
