@@ -56,6 +56,13 @@ document_types:
     typical_content: [education, prior_roles, exits, publications]
     extraction_priority: high
 
+  - id: org_chart
+    name: "Organization chart"
+    typical_formats: [pdf, pptx, xlsx, png, jpg]
+    typical_content: [reporting_lines, headcount_by_function, open_roles, key_hires]
+    extraction_priority: medium
+    note: "Extract headcount by function, who reports to whom, and open roles. Cross-check against founder bios and the hiring plan."
+
   - id: customer_reference
     name: "Customer reference / case study"
     typical_formats: [pdf, docx, gdocs, video, audio]
@@ -158,6 +165,7 @@ expected_documents:
     - { id: product_demo,       criticality: expected }
     - { id: prior_round_terms,  criticality: expected }
     - { id: hiring_plan,        criticality: optional }
+    - { id: org_chart,          criticality: optional }
     - { id: roadmap,            criticality: optional }
 
 # ---------------------------------------------------------------------------
