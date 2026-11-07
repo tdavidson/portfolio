@@ -1,8 +1,9 @@
-import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, BorderStyle, WidthType } from 'docx'
+import { Document, Packer, Paragraph, TextRun, HeadingLevel, AlignmentType, Table, TableRow, TableCell, BorderStyle, WidthType, TableLayoutType, VerticalAlign } from 'docx'
 import yaml from 'js-yaml'
 import type { MemoDraftOutput } from '@/lib/memo-agent/stages/draft'
 import type { DimensionScore } from '@/lib/memo-agent/stages/score'
 import type { DesignMemoInput } from './design-template'
+import { SCORE_TABLE_HEADERS, confidenceLabel, dimensionLabel, scoreLabel } from './scores-table'
 
 interface RenderInput {
   memo: MemoDraftOutput & { scores?: DimensionScore[] }
@@ -118,6 +119,9 @@ export function designMemoInput(input: Pick<RenderInput, 'memo' | 'memoOutputYam
 export async function renderDocx(input: RenderInput): Promise<Buffer> {
   const { order, sectionMeta, paragraphsBySection } = memoSectionOrder(input)
 
+  const fontFamily = input.fontFamily?.trim() || DEFAULT_FONT_FAMILY
+  const fontSizePt = input.fontSize && input.fontSize > 0 ? input.fontSize : DEFAULT_FONT_SIZE
+
   const children: (Paragraph | Table)[] = []
 
   if (input.isDraft) {
@@ -160,7 +164,7 @@ export async function renderDocx(input: RenderInput): Promise<Buffer> {
 
     if (meta.kind === 'structured' && sectionId === 'scoring_summary') {
       children.push(headingPara(meta.title))
-      children.push(buildScoresTable(input.memo.scores ?? []))
+      children.push(buildScoresTable(input.memo.scores ?? [], fontSizePt))
       children.push(new Paragraph({ text: '' }))
       continue
     }
@@ -192,9 +196,6 @@ export async function renderDocx(input: RenderInput): Promise<Buffer> {
       })
   }
 
-  const fontFamily = input.fontFamily?.trim() || DEFAULT_FONT_FAMILY
-  const fontSizePt = input.fontSize && input.fontSize > 0 ? input.fontSize : DEFAULT_FONT_SIZE
-
   const doc = new Document({
     // Document-default run style. Body paragraphs inherit this; headings keep
     // their own sizes but inherit the font family. Size is in half-points.
@@ -217,32 +218,61 @@ function headingPara(title: string): Paragraph {
   })
 }
 
-function buildScoresTable(scores: DimensionScore[]): Table {
+// Column widths in twentieths of a point. The export uses the docx default page (A4, 1" margins), whose
+// text block is 9026 wide; these sum to just under it so the table fits Letter paper too. Explicit grid
+// widths and a fixed layout matter beyond Word: the PDF export and Google Doc are converted by Google
+// Drive, which sizes columns from the grid and ignores per-cell percentages.
+const SCORE_COLUMN_WIDTHS = [2050, 1000, 1450, 4500] as const
+const SCORE_TABLE_WIDTH = SCORE_COLUMN_WIDTHS.reduce((a, b) => a + b, 0)
+const CELL_MARGINS = { top: 60, bottom: 60, left: 100, right: 100 }
+
+export function buildScoresTable(scores: DimensionScore[], bodySizePt: number = DEFAULT_FONT_SIZE): Table {
+  // One point under the body text, as tables in a memo usually are.
+  const size = Math.max(8, bodySizePt - 1) * 2
+  const cell = (text: string, col: number, opts: { bold?: boolean; italics?: boolean; center?: boolean; shade?: boolean } = {}) =>
+    new TableCell({
+      width: { size: SCORE_COLUMN_WIDTHS[col], type: WidthType.DXA },
+      margins: CELL_MARGINS,
+      verticalAlign: VerticalAlign.TOP,
+      shading: opts.shade ? { fill: 'F3F3F3' } : undefined,
+      children: [new Paragraph({
+        alignment: opts.center ? AlignmentType.CENTER : AlignmentType.LEFT,
+        children: [new TextRun({ text: text, bold: opts.bold, italics: opts.italics, size })],
+      })],
+    })
+
   const headerRow = new TableRow({
-    children: ['Dimension', 'Mode', 'Score', 'Confidence', 'Rationale'].map(t => new TableCell({
-      children: [new Paragraph({ children: [new TextRun({ text: t, bold: true })] })],
-      width: { size: 20, type: WidthType.PERCENTAGE },
-    })),
+    tableHeader: true,
+    cantSplit: true,
+    children: SCORE_TABLE_HEADERS.map((t, i) => cell(t, i, { bold: true, center: i === 1, shade: true })),
   })
-  const rows = [headerRow, ...scores.map(s => new TableRow({
-    children: [
-      new TableCell({ children: [new Paragraph(s.dimension_id)] }),
-      new TableCell({ children: [new Paragraph(s.mode)] }),
-      new TableCell({ children: [new Paragraph(s.score === null ? (s.mode === 'partner_only' ? '[partner]' : '—') : String(s.score))] }),
-      new TableCell({ children: [new Paragraph(s.confidence ?? '—')] }),
-      new TableCell({ children: [new Paragraph(s.rationale ?? '')] }),
-    ],
-  }))]
+  const rows = scores.length === 0
+    ? [headerRow, new TableRow({ children: [new TableCell({
+        columnSpan: SCORE_COLUMN_WIDTHS.length,
+        width: { size: SCORE_TABLE_WIDTH, type: WidthType.DXA },
+        margins: CELL_MARGINS,
+        children: [new Paragraph({ children: [new TextRun({ text: 'No scores yet.', italics: true, size })] })],
+      })] })]
+    : [headerRow, ...scores.map(s => new TableRow({
+        children: [
+          cell(dimensionLabel(s.dimension_id), 0),
+          cell(scoreLabel(s), 1, { center: true, bold: s.score !== null, italics: s.score === null }),
+          cell(confidenceLabel(s.confidence), 2),
+          cell((s.rationale ?? '').replace(/\s*\n\s*/g, ' ').trim(), 3),
+        ],
+      }))]
   return new Table({
     rows,
-    width: { size: 100, type: WidthType.PERCENTAGE },
+    width: { size: SCORE_TABLE_WIDTH, type: WidthType.DXA },
+    columnWidths: [...SCORE_COLUMN_WIDTHS],
+    layout: TableLayoutType.FIXED,
     borders: {
       top: { style: BorderStyle.SINGLE, size: 4, color: 'CCCCCC' },
       bottom: { style: BorderStyle.SINGLE, size: 4, color: 'CCCCCC' },
       left: { style: BorderStyle.SINGLE, size: 4, color: 'CCCCCC' },
       right: { style: BorderStyle.SINGLE, size: 4, color: 'CCCCCC' },
-      insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: 'EEEEEE' },
-      insideVertical: { style: BorderStyle.SINGLE, size: 2, color: 'EEEEEE' },
+      insideHorizontal: { style: BorderStyle.SINGLE, size: 2, color: 'DDDDDD' },
+      insideVertical: { style: BorderStyle.SINGLE, size: 2, color: 'DDDDDD' },
     },
   })
 }
