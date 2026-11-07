@@ -1,6 +1,7 @@
 import yaml from 'js-yaml'
 import type { MemoDraftOutput } from '@/lib/memo-agent/stages/draft'
 import type { DimensionScore } from '@/lib/memo-agent/stages/score'
+import { SCORE_TABLE_HEADERS, confidenceLabel, dimensionLabel, scoreLabel } from './scores-table'
 import { buildSourceLabels, type SourceLabel, type SourceLabelInput } from './source-labels'
 
 export interface RenderInput {
@@ -181,13 +182,11 @@ export function renderMarkdown(input: RenderInput): string {
 function renderScoresMarkdown(scores: DimensionScore[]): string[] {
   if (scores.length === 0) return ['*No scores yet.*']
   const lines: string[] = []
-  lines.push('| Dimension | Mode | Score | Confidence | Rationale |')
-  lines.push('|---|---|---|---|---|')
+  lines.push(`| ${SCORE_TABLE_HEADERS.join(' | ')} |`)
+  lines.push('|---|:-:|---|---|')
+  const cell = (v: string) => v.replace(/\|/g, '\\|').replace(/\s*\n\s*/g, ' ').trim()
   for (const s of scores) {
-    const score = s.score === null ? (s.mode === 'partner_only' ? '*[partner]*' : '—') : String(s.score)
-    const conf = s.confidence ?? '—'
-    const rationale = (s.rationale ?? '').replace(/\|/g, '\\|').replace(/\n/g, ' ')
-    lines.push(`| ${s.dimension_id} | ${s.mode} | ${score} | ${conf} | ${rationale} |`)
+    lines.push(`| ${cell(dimensionLabel(s.dimension_id))} | ${scoreLabel(s)} | ${confidenceLabel(s.confidence)} | ${cell(s.rationale ?? '')} |`)
   }
   return lines
 }
