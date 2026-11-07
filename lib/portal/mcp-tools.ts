@@ -17,7 +17,7 @@ import {
   acknowledgeCapitalCall, portalDocumentUrl, portalLetterShare, portalDocuments, portalLetter, portalLetters, portalMessages,
   portalNotices, portalOnboarding, portalOverview, portalStatementFunds, PortalError, sendPortalMessage, type LpPrincipal,
 } from './service'
-import { reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
+import { linkNote, reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
 import {
   myChangeRequests, portalRecord, requestAuthorizedUser, requestProfileChange, withdrawChangeRequest,
 } from '@/lib/lps/change-requests'
@@ -152,7 +152,7 @@ export const PORTAL_TOOLS: PortalTool[] = [
       const funds = await portalStatementFunds(ctx.admin, ctx.principal)
       if (!funds.includes(ctx.fundId)) return { available: false, reason: 'The fund has not published a capital statement to you yet.' }
       const { token, expiresAt } = signReportLink({ fundId: ctx.fundId, userId: ctx.principal.userId, kind: 'portal_statement', args: {} })
-      return { available: true, url: reportLinkUrl(ctx.origin, token), expiresAt }
+      return { available: true, url: reportLinkUrl(ctx.origin, token), expiresAt, note: linkNote('The link works for one hour.') }
     },
   },
   {
@@ -192,7 +192,7 @@ export const PORTAL_TOOLS: PortalTool[] = [
       const share = await portalLetterShare(ctx.admin, ctx.principal, letterId)
       if (share.fundId !== ctx.fundId) throw new PortalError(404, 'Not found')
       const { token, expiresAt } = signReportLink({ fundId: ctx.fundId, userId: ctx.principal.userId, kind: 'portal_letter', args: { letter: letterId } })
-      return { url: reportLinkUrl(ctx.origin, token), expiresAt }
+      return { url: reportLinkUrl(ctx.origin, token), expiresAt, note: linkNote('The link works for one hour. For the letter as text, use read_letter.') }
     },
   },
   {

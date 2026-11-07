@@ -6,7 +6,7 @@ import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-
 import { entityScopeFor } from '@/lib/access/entity-scope'
 import { resolveVehicle } from '@/lib/accounting/vehicle-resolver'
 import { unwrap } from '@/lib/service-outcome'
-import { reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
+import { linkNote, reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
 import { siteOrigin } from '@/lib/site-links'
 import { createLetter, getLetter, importLetter, letterData, listLetters, shareLetter, updateLetter, updateSection, writeLetterSections } from '@/lib/lp-letters/service'
 import { briefForLetter, loadLetterBrief, proposeProfile, resolveTemplate, saveDraftLetter, writeWithFundAI, type LetterPeriod } from '@/lib/lp-letters/draft-from-brief'
@@ -60,6 +60,11 @@ const summary = (l: any) => ({
   // null for a letter from before this was recorded.
   source: l.source ?? null, generated_by: l.generated_by ?? null, skill_version: l.skill_version ?? null,
 })
+
+/** Said with a Word or PDF letter link: the file is the person's to open, and the text form is what a text store keeps. */
+const LETTER_LINK_NOTE = linkNote(
+  'The link works for an hour, and only for this member. For the letter as text, call lp_letter_export with format "markdown".',
+)
 
 export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
   lp_letters: async (ctx: AgentToolContext, input: any) => {
@@ -150,7 +155,7 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
     const l = await letterOf(ctx, input?.letter_id)
     if (l.status === 'generating') throw new Error('This letter is being generated. Ask again when it finishes.')
     const { token, expiresAt } = signReportLink({ fundId: ctx.fundId, userId, kind: 'lp_letter', args: { letter: l.id } })
-    return { document: `${l.period_label} letter (PDF)`, url: reportLinkUrl(ctx.origin ?? siteOrigin(), token), expires_at: expiresAt }
+    return { document: `${l.period_label} letter (PDF)`, url: reportLinkUrl(ctx.origin ?? siteOrigin(), token), expires_at: expiresAt, note: LETTER_LINK_NOTE }
   },
 
   lp_letter_export: async (ctx: AgentToolContext, input: any) => {
@@ -167,7 +172,7 @@ export const LETTER_HANDLERS: Record<string, AgentToolHandler> = {
       if (format === 'json') return { ...link, letter: { letter_id: l.id, ...(documentJson(doc) as object) } }
       return { ...link, text: hasStructuredContent(l) ? documentMarkdown(doc) : investorText(l.full_draft) }
     }
-    return link
+    return { ...link, note: LETTER_LINK_NOTE }
   },
 
   lp_letter_chart: async (ctx: AgentToolContext, input: any) => {
