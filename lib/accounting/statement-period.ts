@@ -206,3 +206,24 @@ export function comparisonPeriods(
   }
   return out
 }
+
+const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
+
+/**
+ * The calendar months inside `base`, oldest first, each clipped to the window ("Jan 2026", ...).
+ * Empty for an open-ended window: a month breakdown needs both ends. Capped at 120 months so a
+ * long custom window can't fan out into thousands of payloads.
+ */
+export function monthlyPeriods(base: StatementPeriod): StatementPeriod[] {
+  if (!base.start || !base.end || base.end < base.start) return []
+  const out: StatementPeriod[] = []
+  let monthStart = `${base.start.slice(0, 7)}-01`
+  while (monthStart <= base.end && out.length < 120) {
+    const monthEnd = addDaysUTC(addMonthsUTC(monthStart, 1), -1)
+    const start = monthStart < base.start ? base.start : monthStart
+    const end = monthEnd > base.end ? base.end : monthEnd
+    out.push({ preset: 'custom', start, end, label: `${MONTH_NAMES[Number(monthStart.slice(5, 7)) - 1]} ${yearOf(monthStart)}` })
+    monthStart = addMonthsUTC(monthStart, 1)
+  }
+  return out
+}

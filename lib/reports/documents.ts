@@ -190,9 +190,9 @@ export async function taxPackageDocument(
     loadVendorPayments(admin, fundId, group, year),
   ])
 
-  // The year with the prior year beside it, from ONE ledger load — the same package the
-  // statements page and the workbook export compute.
-  const pkg = buildStatementPackageFromData(data, new URLSearchParams({ start, end, compare: '1' }))
+  // The year with the prior year beside it, then a column per month of the year, from ONE ledger
+  // load — the same package the statements page and the workbook export compute.
+  const pkg = buildStatementPackageFromData(data, new URLSearchParams({ start, end, compare: '1', monthly: '1' }))
   const meta = { fundName: name, vehicle: group, generatedAt }
   const workbook = XLSX.write(buildStatementWorkbook(pkg, meta), { type: 'buffer', bookType: 'xlsx' }) as Buffer
 

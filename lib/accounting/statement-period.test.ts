@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { resolvePeriod, customPeriod, comparisonPeriods, periodTriggerLabel } from './statement-period'
+import { resolvePeriod, customPeriod, comparisonPeriods, periodTriggerLabel, monthlyPeriods } from './statement-period'
 
 describe('periodTriggerLabel', () => {
   it('uses the preset label and ignores stale custom dates', () => {
@@ -93,3 +93,25 @@ describe('customPeriod labels', () => {
   })
 })
 
+
+describe('monthlyPeriods', () => {
+  it('splits a calendar year into twelve months, oldest first', () => {
+    const months = monthlyPeriods(customPeriod('2026-01-01', '2026-12-31'))
+    expect(months).toHaveLength(12)
+    expect(months[0]).toMatchObject({ start: '2026-01-01', end: '2026-01-31', label: 'Jan 2026' })
+    expect(months[1]).toMatchObject({ start: '2026-02-01', end: '2026-02-28', label: 'Feb 2026' })
+    expect(months[11]).toMatchObject({ start: '2026-12-01', end: '2026-12-31', label: 'Dec 2026' })
+  })
+
+  it('clips the first and last month to the window', () => {
+    const months = monthlyPeriods(customPeriod('2026-01-15', '2026-03-10'))
+    expect(months.map(m => [m.start, m.end])).toEqual([
+      ['2026-01-15', '2026-01-31'], ['2026-02-01', '2026-02-28'], ['2026-03-01', '2026-03-10'],
+    ])
+  })
+
+  it('is empty for an open-ended window', () => {
+    expect(monthlyPeriods(customPeriod(null, '2026-12-31'))).toEqual([])
+    expect(monthlyPeriods(resolvePeriod('itd'))).toEqual([])
+  })
+})

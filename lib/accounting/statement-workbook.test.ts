@@ -136,4 +136,30 @@ describe('buildStatementWorkbook', () => {
     // label col + 2 period cols = at least 3 columns (index 3 required for second value column)
     expect(ref.e.c).toBeGreaterThanOrEqual(3)
   })
+
+  it('adds month columns after the annual ones on the trial balance and statements, not on capital or the SOI', () => {
+    const pkg = fixture()
+    pkg.comparisons = [{ ...pkg.payload, period: { ...pkg.payload.period, label: 'FY 2025' } }]
+    pkg.months = ['Jan 2026', 'Feb 2026', 'Mar 2026'].map(label => ({ ...pkg.payload, period: { ...pkg.payload.period, label } }))
+    const wb = buildStatementWorkbook(pkg, { fundName: 'F', vehicle: 'V', generatedAt: '2026-07-20T00:00:00Z' })
+    const rowsOf = (name: string) => XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets[name], { header: 1 })
+
+    const tb = rowsOf('Trial Balance')
+    expect(tb[0]).toEqual([
+      'Code', 'Account', 'Type', 'Debit YTD 2026', 'Credit YTD 2026', 'Debit FY 2025', 'Credit FY 2025',
+      'Debit Jan 2026', 'Credit Jan 2026', 'Debit Feb 2026', 'Credit Feb 2026', 'Debit Mar 2026', 'Credit Mar 2026',
+    ])
+
+    const is = rowsOf('Income Statement')
+    expect(is[2]).toEqual(['', '', 'YTD 2026', 'FY 2025', 'Jan 2026', 'Feb 2026', 'Mar 2026'])
+    expect(is.find(r => r[0] === 'Net income')).toEqual(['Net income', '', -250, -250, -250, -250, -250])
+    expect(rowsOf('Balance Sheet')[2]).toEqual(['', '', 'YTD 2026', 'FY 2025', 'Jan 2026', 'Feb 2026', 'Mar 2026'])
+    expect(rowsOf('Cash Flows')[2]).toEqual(['', '', 'YTD 2026', 'FY 2025', 'Jan 2026', 'Feb 2026', 'Mar 2026'])
+
+    // Partners' capital keeps the annual matrix (two periods), the SOI its annual cost/value pairs.
+    expect(rowsOf('Partners Capital')[2]).toEqual(['Partner', 'YTD 2026', 'FY 2025'])
+    expect(rowsOf('Schedule of Investments')[2]).toEqual(['Investment', 'Industry', 'Country', 'Cost YTD 2026', 'Fair value YTD 2026', 'Cost FY 2025', 'Fair value FY 2025', '% of net assets'])
+
+    expect(rowsOf('Cover').flat().join(' ')).toContain('a column for each month')
+  })
 })

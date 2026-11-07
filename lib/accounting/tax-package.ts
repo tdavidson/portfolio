@@ -50,7 +50,7 @@ export interface TaxPackageFile {
 export function taxPackageFiles(i: TaxPackageInputs): TaxPackageFile[] {
   const y = i.year
   const files: TaxPackageFile[] = [
-    { name: `workpapers-${y}.xlsx`, note: 'Trial balance with prior year, balance sheet, statement of operations, partners’ capital, schedule of investments, cash flows, and general ledger detail. Numeric cells.', content: i.workbook },
+    { name: `workpapers-${y}.xlsx`, note: 'Trial balance, balance sheet, statement of operations and cash flows with the year, the prior year and a column for each month; partners’ capital, schedule of investments, and general ledger detail. Numeric cells.', content: i.workbook },
   ]
   if (i.statementsPdf) {
     files.push({ name: `statements-${y}.pdf`, note: 'The financial statements as a document, current and prior year side by side.', content: i.statementsPdf })

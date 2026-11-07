@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest'
 import { memoryAdmin } from '@/tests/helpers/memory-admin'
-import { earliestPostingDate, computePayload, loadLedgerData, entityWalletsAsOf } from './statement-package'
+import { earliestPostingDate, computePayload, loadLedgerData, entityWalletsAsOf, buildStatementPackageFromData } from './statement-package'
 import { loadWalletCloseInputs } from './close'
 
 describe('earliestPostingDate', () => {
@@ -225,5 +225,24 @@ describe('loadLedgerData — quotes', () => {
     spy.mockRestore()
     expect(data.feeds).toEqual([])
     expect(data.levelWarning).toMatch(/could not be read/)
+  })
+})
+
+describe('buildStatementPackageFromData — monthly columns', () => {
+  const empty = {
+    accounts: [], postings: [], capitalPostings: [], sourcedPostings: [],
+    names: new Map(), txns: [], companies: [], group: 'Fund I',
+    cashAccount: undefined, gpAccount: undefined, earliest: null, fofRaw: null,
+  } as any
+
+  it('adds a payload per month of the year only when monthly=1 is passed', () => {
+    const without = buildStatementPackageFromData(empty, new URLSearchParams({ start: '2026-01-01', end: '2026-12-31' }))
+    expect(without.months).toBeUndefined()
+    const pkg = buildStatementPackageFromData(empty, new URLSearchParams({ start: '2026-01-01', end: '2026-12-31', monthly: '1' }))
+    expect(pkg.months!.map(m => m.period.label)).toEqual([
+      'Jan 2026', 'Feb 2026', 'Mar 2026', 'Apr 2026', 'May 2026', 'Jun 2026',
+      'Jul 2026', 'Aug 2026', 'Sep 2026', 'Oct 2026', 'Nov 2026', 'Dec 2026',
+    ])
+    expect(pkg.months![1].period).toMatchObject({ start: '2026-02-01', end: '2026-02-28' })
   })
 })
