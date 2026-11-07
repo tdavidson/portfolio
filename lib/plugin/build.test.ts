@@ -127,7 +127,7 @@ describe('the skills name only tools that exist', () => {
     'this_quarter', 'last_quarter', 'prior_year', 'as_of',
     'year_end', 'full_draft', 'mark_final', 'stored_business_update',
     'last_final_letter', 'partner_notes', 'propose_from_last_letter', 'after_quarter_end', 'section_id', 'new_investments',
-    'fund_figures', 'external_ids',
+    'fund_figures', 'external_ids', 'evidence_changed', 'partner_written',
   ])
 
   it.each(Object.keys(PLUGIN_FILES).filter(p => p.endsWith('SKILL.md')))('%s', path => {
