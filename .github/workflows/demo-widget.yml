@@ -51,6 +51,25 @@ jobs:
         run: |
           git tag -f demo-widget-latest
           git push -f origin demo-widget-latest
+      # Chunk names carry a content hash, so every build uploads new names and the publish step
+      # only replaces assets whose name it uploads again. Without this the old chunks pile up
+      # until the release hits GitHub's 1,000-asset cap and every publish fails. Anything not in
+      # this build's dist/ is no longer referenced by the widget.js being published.
+      - name: Remove assets from earlier builds
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/demo-widget-latest" --jq .id 2>/dev/null || true)
+          if [ -z "$release_id" ]; then echo "No release yet"; exit 0; fi
+          ls demo-widget/dist > /tmp/keep.txt
+          gh api --paginate "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?per_page=100" \
+            --jq '.[] | "\(.id) \(.name)"' |
+          while read -r id name; do
+            if ! grep -qxF "$name" /tmp/keep.txt; then
+              echo "Deleting stale asset $name"
+              gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${id}"
+            fi
+          done
       - name: Publish the assets
         uses: softprops/action-gh-release@v2
         with:
