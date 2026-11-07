@@ -52,20 +52,26 @@ jobs:
           git tag -f demo-widget-latest
           git push -f origin demo-widget-latest
       # Chunk names carry a content hash, so every build uploads new names and the publish step
-      # only replaces assets whose name it uploads again. Without this the old chunks pile up
-      # until the release hits GitHub's 1,000-asset cap and every publish fails. Anything not in
-      # this build's dist/ is no longer referenced by the widget.js being published.
-      - name: Remove assets from earlier builds
+      # only replaces assets whose name it uploads again. Without pruning, old chunks pile up
+      # until the release hits GitHub's 1,000-asset cap and every publish fails. This keeps this
+      # build's files and the previous build's (named by the manifest still on the release), so
+      # a site build that started downloading the previous build can still finish it. The site
+      # checks every file against the manifest's SHA-256s and retries a download that straddled
+      # two publishes, so it never ships a mix of builds.
+      - name: Remove assets older than the previous build
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           release_id=$(gh api "repos/${GITHUB_REPOSITORY}/releases/tags/demo-widget-latest" --jq .id 2>/dev/null || true)
           if [ -z "$release_id" ]; then echo "No release yet"; exit 0; fi
-          ls demo-widget/dist > /tmp/keep.txt
+          keep=$(mktemp)
+          ls demo-widget/dist > "$keep"
+          curl -fsSL "https://github.com/${GITHUB_REPOSITORY}/releases/download/demo-widget-latest/manifest.json" |
+            jq -r '.files[]?' >> "$keep" || echo "No readable manifest on the release; keeping this build's files only"
           gh api --paginate "repos/${GITHUB_REPOSITORY}/releases/${release_id}/assets?per_page=100" \
             --jq '.[] | "\(.id) \(.name)"' |
           while read -r id name; do
-            if ! grep -qxF "$name" /tmp/keep.txt; then
+            if ! grep -qxF "$name" "$keep"; then
               echo "Deleting stale asset $name"
               gh api -X DELETE "repos/${GITHUB_REPOSITORY}/releases/assets/${id}"
             fi

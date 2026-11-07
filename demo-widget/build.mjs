@@ -17,6 +17,7 @@
  */
 import { build } from 'esbuild'
 import { execFileSync } from 'node:child_process'
+import crypto from 'node:crypto'
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -110,6 +111,11 @@ const manifest = {
   global: 'PortfolioDemo',
   files: ['widget.js', ...chunks, 'widget.css', 'snapshot.json', 'answers.json', 'pages.json', 'api.json', 'routes.json'],
 }
+// The SHA-256 of every file, so the site's build can tell a download that straddled two
+// publishes (the release's files are replaced one at a time) from a whole build, and retry.
+manifest.sha256 = Object.fromEntries(manifest.files.map(f => [
+  f, crypto.createHash('sha256').update(fs.readFileSync(path.join(dist, f))).digest('hex'),
+]))
 fs.writeFileSync(path.join(dist, 'manifest.json'), JSON.stringify(manifest, null, 2))
 fs.rmSync(path.join(dist, 'content-files.json'))
 

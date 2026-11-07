@@ -52,7 +52,7 @@ The build writes:
 | `dist/pages.json` | every server page's loaded data, keyed by URL |
 | `dist/api.json` | every recorded API response, keyed by method, path and query |
 | `dist/answers.json` | stored Analyst replies, suggestions per scope, and the fallback text |
-| `dist/manifest.json` | version, build time, schema versions, `generatedBy` of the answers |
+| `dist/manifest.json` | version, build time, schema versions, `generatedBy` of the answers, and the SHA-256 of every file |
 
 ```bash
 npm run demo:widget          # builds dist/; dist/ is gitignored
@@ -75,7 +75,13 @@ computed style. It renders each page twice, so it is not in the publish workflow
 `app/`, `components/`, `lib/`, `demo-widget/`, the tokens or the Tailwind config, runs the
 check, and uploads `dist/*` as the assets of the rolling GitHub release `demo-widget-latest`.
 The marketing site's build downloads them from there and checks the manifest, so a change to
-any page reaches the demo on the site's next deploy. The workflow does not trigger that
+any page reaches the demo on the site's next deploy.
+
+The release's files are replaced one at a time, so a site build that downloads during a publish
+can get some files from each build. Two things stop that from shipping: the site checks every
+file against the manifest's SHA-256s and retries until they agree, and the workflow deletes only
+assets older than the previous build (chunk names are content hashes, so without that they pile
+up to GitHub's 1,000-asset limit), so a download of the previous build can still finish. The workflow does not trigger that
 deploy: a deploy hook here rebuilt production on every push to this repo, so the demo waits
 for the site's own next deploy (or a manual redeploy in Vercel).
 
