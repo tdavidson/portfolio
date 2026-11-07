@@ -91,6 +91,22 @@ export function isExpiredReportLink(token: string, now = Date.now()): boolean {
   return !!claims && claims.exp * 1000 <= now
 }
 
+/**
+ * Said with every download link a tool returns. The file behind the link is binary (PDF, Word, Excel
+ * or ZIP). Hosts that keep a project's files as text (project docs, notes, memory) refuse it with a
+ * "NUL bytes" error, and an assistant that fetches the link to save it there shows the person a
+ * failed write instead of the document. So the link goes to the person, and text goes to text stores.
+ */
+export const DOWNLOAD_LINK_HANDOFF =
+  'Give the person this link to open or download; don\'t fetch the file yourself to save it. It is a binary file, ' +
+  'and a text-only store (a project\'s docs or notes, or memory) refuses it. If they want the content kept there, ' +
+  'save the text form instead: a markdown or JSON export where the tool offers one, or the matching data tool\'s result.'
+
+/** A link's note followed by the hand-off rule above. */
+export function linkNote(note: string): string {
+  return `${note.trim()} ${DOWNLOAD_LINK_HANDOFF}`
+}
+
 export function reportLinkUrl(origin: string, token: string): string {
   return `${origin.replace(/\/$/, '')}/api/agent/reports/${token}`
 }

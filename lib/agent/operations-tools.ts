@@ -24,7 +24,7 @@ import { PROFILE_COLUMNS, parseProfilePatch, profileFromRow } from '@/lib/vehicl
 import { BUNDLE_FILES, verifyAuditChain, type AuditEventRow } from '@portfolio/fund-engine'
 import { isMissingSchema, loadCloseBundle, verifyStoredBundle } from '@/lib/accounting/close-bundle'
 import { fetchAllRows } from '@/lib/accounting/load'
-import { reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
+import { linkNote, reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
 import { siteOrigin } from '@/lib/site-links'
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/
@@ -106,7 +106,7 @@ export const OPERATIONS_HANDLERS: Record<string, AgentToolHandler> = {
     let download: { url: string; expires_at: string; note: string } | null = null
     if (ctx.userId) {
       const { token, expiresAt } = signReportLink({ fundId: ctx.fundId, userId: ctx.userId, kind: 'close_bundle', args: { vehicle: ctx.portfolioGroup, period: bundle.fiscalPeriodId } })
-      download = { url: reportLinkUrl(ctx.origin ?? siteOrigin(), token), expires_at: expiresAt, note: 'A ZIP of the bundle directory. The link works for an hour, and only for this member.' }
+      download = { url: reportLinkUrl(ctx.origin ?? siteOrigin(), token), expires_at: expiresAt, note: linkNote('A ZIP of the bundle directory. The link works for an hour, and only for this member.') }
     }
     return {
       vehicle: ctx.portfolioGroup,

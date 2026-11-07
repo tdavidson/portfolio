@@ -10,7 +10,7 @@ import { resolveVehicle } from '@/lib/accounting/vehicle-resolver'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { lastQuarterEnd, PERFORMANCE_GROUPINGS, type PerformanceGrouping } from '@/lib/accounting/fund-performance'
 import { customPeriod, resolvePeriod, type PeriodPreset } from '@/lib/accounting/statement-period'
-import { reportLinkUrl, signReportLink, type ReportKind } from '@/lib/agent/report-links'
+import { linkNote, reportLinkUrl, signReportLink, type ReportKind } from '@/lib/agent/report-links'
 import { loadIdentities, lpToolScope, resolveLp, resolveSnapshot } from '@/lib/agent/lp-tools'
 import { siteOrigin } from '@/lib/site-links'
 import { listPlans } from '@/lib/forecast/service'
@@ -19,7 +19,7 @@ import { monthDiff } from '@/lib/forecast/months'
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
 const STATEMENT_PRESETS: PeriodPreset[] = ['this_quarter', 'last_quarter', 'ytd', 'prior_year', 'itd']
-const NOTE = 'Give the user this link. It opens the document for an hour, and only for this member. If they ask again later, call this tool again rather than re-sharing this link.'
+const NOTE = linkNote('It opens the document for an hour, and only for this member. If they ask again later, call this tool again rather than re-sharing this link.')
 
 function isoDate(v: unknown, label: string): string | null {
   if (v === undefined || v === null || v === '') return null

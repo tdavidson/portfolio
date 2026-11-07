@@ -3,6 +3,7 @@
 // a chat is the same as one done in the app. Writes from a connected chat are staged for approval,
 // except saving a memo or research into the deal's open draft (lib/agent/dispatch.ts DRAFT_ONLY).
 
+import { linkNote } from '@/lib/agent/report-links'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-tools'
 import { unwrap } from '@/lib/service-outcome'
@@ -266,7 +267,11 @@ export const MEMO_HANDLERS: Record<string, AgentToolHandler> = {
       draftId = latest.id
     }
     const result = await runRenderJob(admin as any, { id: 'sync', fund_id: fundId, deal_id: deal.id, draft_id: draftId, payload: { format } } as any)
-    return { deal: deal.name, draft_id: draftId, ...(result as object) }
+    const out = { deal: deal.name, draft_id: draftId, ...(result as object) }
+    // A Word or PDF render is a download link; markdown comes back as text, and a Google Doc is a view link.
+    return format === 'docx' || format === 'pdf'
+      ? { ...out, note: linkNote('The link works for 24 hours. For the memo as text, call this tool again with format "markdown".') }
+      : out
   },
 
   diligence_import_memo: async ({ admin, fundId, access, userId }: AgentToolContext, input: any) => {

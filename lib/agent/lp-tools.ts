@@ -23,7 +23,7 @@ import { generateLiveReport, type LiveInvestmentRow } from '@/lib/accounting/liv
 import { lpCapitalSummary, lpStatement, listCapitalCalls } from '@/lib/accounting/capital-calls'
 import { resolvePeriod, customPeriod, type PeriodPreset } from '@/lib/accounting/statement-period'
 import { statementColumns } from '@/lib/accounting/capital-statement-layout'
-import { reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
+import { linkNote, reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
 import { CarryRecipientStatementError, carryRecipientIds, seesIndividualCarry } from '@/lib/access/carry-visibility'
 import { siteOrigin } from '@/lib/site-links'
 import { reviewCallNotices } from '@/lib/accounting/call-notice-review'
@@ -521,7 +521,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
       vehicle, investor: lp.investorName, entity: lp.entityName, period: period.label,
       url: reportLinkUrl(origin ?? siteOrigin(), token),
       expires_at: expiresAt,
-      note: 'Give the user this link. It opens the PDF for an hour, and only for this member. If they ask again later, call this tool again rather than re-sharing this link.',
+      note: linkNote('It opens the PDF for an hour, and only for this member. If they ask again later, call this tool again rather than re-sharing this link.'),
     }
   },
 
@@ -545,7 +545,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
       vehicles: lpScope.names ?? 'all',
       url: reportLinkUrl(origin ?? siteOrigin(), token),
       expires_at: expiresAt,
-      note: 'Give the user this link. It opens the PDF for an hour, and only for this member. If they ask again later, call this tool again rather than re-sharing this link.',
+      note: linkNote('It opens the PDF for an hour, and only for this member. If they ask again later, call this tool again rather than re-sharing this link.'),
     }
   },
 }

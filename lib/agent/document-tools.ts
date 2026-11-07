@@ -5,7 +5,7 @@
 // (app/api/agent/reports/[token]/route.ts).
 
 import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-tools'
-import { reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
+import { linkNote, reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
 import { siteOrigin } from '@/lib/site-links'
 import { findTemplate, generateDocument, latestRender, listTemplates, saveTemplate } from '@/lib/document-templates/service'
 
@@ -39,9 +39,9 @@ export const DOCUMENT_HANDLERS: Record<string, AgentToolHandler> = {
       url: reportLinkUrl(origin ?? siteOrigin(), token),
       expires_at: expiresAt,
       checks_failed: doc.warnings,
-      note: 'Give the user this link; it opens the PDF for an hour, for this member only. ' +
+      note: linkNote('It opens the PDF for an hour, for this member only. ' +
         (doc.warnings.length ? 'Tell them about every failed check before they send it. ' : '') +
-        'To fetch it again later, generate it again rather than re-sharing this link.',
+        'To fetch it again later, generate it again rather than re-sharing this link.'),
     }
   },
 }
