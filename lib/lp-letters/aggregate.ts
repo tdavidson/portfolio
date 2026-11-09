@@ -334,6 +334,18 @@ export async function aggregatePortfolioData(
           })
         }
       }
+      // A cost transfer (signed investment_cost) moves basis between holdings: invested capital and
+      // the round's cost change, nothing is realized, and the fund-level flows leave it out (the
+      // pair nets to zero across the entity). Same rules as computeSummary.
+      if (t.transaction_type === 'cost_transfer') {
+        const amount = Number(t.investment_cost ?? 0)
+        totalInvested += amount
+        const roundName = t.round_name
+          ?? (amount > 0 || roundMap.has('Unknown') ? 'Unknown' : roundMap.size === 1 ? Array.from(roundMap.keys())[0] : 'Unknown')
+        const existing = roundMap.get(roundName)
+        if (existing) existing.investmentCost += amount
+        else if (amount > 0) roundMap.set(roundName, { investmentCost: amount, sharesAcquired: Number(t.shares_acquired ?? 0), unrealizedValueChange: 0, costBasisExited: 0 })
+      }
       if (t.transaction_type === 'proceeds') {
         // Gross, escrow included — proceeds_escrow is a part of it, not an addition (lib/portfolio/proceeds.ts).
         totalRealized += grossProceeds(t)

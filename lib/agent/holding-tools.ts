@@ -10,6 +10,7 @@ import { saveNavStatement } from '@/lib/portfolio/fof-nav'
 import { resolveHoldingVehicle } from '@/lib/portfolio/fof-register'
 import { noticeChangesFrom, recalculateFundDistributions, recordFundNotice, setFundTerms, TERM_FIELDS, updateFundNotice } from '@/lib/portfolio/fund-register-write'
 import { moveInvestmentTransaction } from '@/lib/portfolio/transaction-edit'
+import { convertToCostTransfer, recordCostTransfer } from '@/lib/portfolio/cost-transfer'
 import { unwrap } from '@/lib/service-outcome'
 import { resolveCompany } from './portfolio-tools'
 
@@ -52,6 +53,22 @@ export const HOLDING_HANDLERS: Record<string, AgentToolHandler> = {
     const vehicleNames = (await entityScopeFor(ctx.admin, ctx.access)).writableNames
     const out = unwrap(await moveInvestmentTransaction(ctx.admin, { fundId: ctx.fundId, userId: ctx.userId ?? null, vehicleNames }, from.id, String(input.transaction_id), to.id))
     return { moved: input.transaction_id, from: out.from, to: out.to, transaction: out.transaction, ledger: out.ledger }
+  },
+
+  transfer_cost: async (ctx: AgentToolContext, input: any) => {
+    const from = await resolveCompany(ctx.admin, ctx.fundId, String(input?.company ?? ''), ctx.access)
+    const to = await resolveCompany(ctx.admin, ctx.fundId, String(input?.to_company ?? ''), ctx.access)
+    const vehicleNames = (await entityScopeFor(ctx.admin, ctx.access)).writableNames
+    return unwrap(await recordCostTransfer(ctx.admin, { fundId: ctx.fundId, userId: ctx.userId ?? null, vehicleNames }, {
+      fromCompanyId: from.id, toCompanyId: to.id, amount: Number(input?.amount), date: String(input?.date ?? ''),
+      vehicle: String(input?.vehicle ?? ''), memo: typeof input?.memo === 'string' ? input.memo : null,
+    }))
+  },
+
+  convert_to_cost_transfer: async (ctx: AgentToolContext, input: any) => {
+    const vehicleNames = (await entityScopeFor(ctx.admin, ctx.access)).writableNames
+    return unwrap(await convertToCostTransfer(ctx.admin, { fundId: ctx.fundId, userId: ctx.userId ?? null, vehicleNames },
+      String(input?.entry_id ?? ''), { dryRun: input?.dry_run === true }))
   },
 
   set_fund_terms: async (ctx: AgentToolContext, input: any) => {

@@ -51,7 +51,8 @@ export async function remainingCostAt(
   let cost = 0
   for (const t of (data as any[]) ?? []) {
     if (excludeTxnId && t.id === excludeTxnId) continue
-    if (t.transaction_type === 'investment') cost += Number(t.investment_cost ?? 0)
+    // A cost transfer's investment_cost is signed: out of the holding lowers its cost.
+    if (t.transaction_type === 'investment' || t.transaction_type === 'cost_transfer') cost += Number(t.investment_cost ?? 0)
     else if (t.transaction_type === 'proceeds') cost -= Number(t.cost_basis_exited ?? 0)
   }
   return cost > CENT ? cents(cost) : 0

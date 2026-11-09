@@ -488,6 +488,8 @@ describe('the same access rules as the web', () => {
     ['update_company', 'api/companies/[id]'],
     ['set_holding_type', 'api/companies/[id]'],
     ['move_investment', 'api/companies/[id]/investments/[txnId]'],
+    ['transfer_cost', 'api/portfolio/cost-transfers'],
+    ['convert_to_cost_transfer', 'api/portfolio/cost-transfers'],
     ['set_fund_terms', 'api/portfolio/fund-holdings/[id]'],
     ['record_fund_notice', 'api/portfolio/fund-holdings/[id]/events'],
     ['update_fund_notice', 'api/portfolio/fund-holdings/[id]/events/[eventId]'],

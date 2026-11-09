@@ -95,6 +95,11 @@ async function loadTransaction(admin: SupabaseClient, fundId: string, companyId:
   return existing
 }
 
+/** A cost transfer is its journal entry's two rows; it is changed through that entry, never one row alone. */
+export const COST_TRANSFER_LOCKED =
+  'This is one side of a cost transfer, which its journal entry owns together with the other holding\'s side. ' +
+  'To change it, void or reverse that journal entry (both sides go with it) and record the transfer again.'
+
 async function dependentConversions(admin: SupabaseClient, txnId: string): Promise<number> {
   const { data } = await (admin as any)
     .from('investment_transactions')
@@ -118,6 +123,7 @@ export async function updateInvestmentTransaction(
 ): Promise<Outcome<{ transaction: any; ledger: any }>> {
   const existing = await loadTransaction(admin, who.fundId, companyId, txnId)
   if (!existing) return fail(404, 'Transaction not found')
+  if (existing.transaction_type === 'cost_transfer') return fail(409, COST_TRANSFER_LOCKED)
 
   // Only the caller's entities' rows, and only into one of their entities.
   const deniedHere = groupWriteDenial(who.vehicleNames, existing.portfolio_group)
@@ -262,6 +268,7 @@ export async function moveInvestmentTransaction(
   if (toCompanyId === companyId) return fail(400, 'The transaction is already on that company.')
   const existing = await loadTransaction(admin, who.fundId, companyId, txnId)
   if (!existing) return fail(404, 'Transaction not found')
+  if (existing.transaction_type === 'cost_transfer') return fail(409, COST_TRANSFER_LOCKED)
 
   const denied = groupWriteDenial(who.vehicleNames, existing.portfolio_group)
   if (denied) return fail(403, denied)
@@ -330,6 +337,7 @@ export async function deleteInvestmentTransaction(
 ): Promise<Outcome<{ ledger: any }>> {
   const existing = await loadTransaction(admin, who.fundId, companyId, txnId)
   if (!existing) return fail(404, 'Transaction not found')
+  if (existing.transaction_type === 'cost_transfer') return fail(409, COST_TRANSFER_LOCKED)
 
   const deniedDelete = groupWriteDenial(who.vehicleNames, existing.portfolio_group)
   if (deniedDelete) return fail(403, deniedDelete)

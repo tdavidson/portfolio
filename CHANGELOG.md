@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Cost transfers between holdings
+- **A new transaction kind, `cost_transfer`.** Moving cost from one holding to another inside an entity, with no cash and no gain, is one journal entry (Dr Investment — target / Cr Investment — source) owning two rows: the source's invested capital and cost go down with nothing realized, and the target's cost starts on the transfer date. Before, the reader took that entry as proceeds on the source and an investment in the target, which reported proceeds never received and lifted the source's MOIC and IRR.
+- **Read from the journal.** An entry whose only lines are a credit to one holding's investment account and an equal debit to another's becomes a cost transfer when it is posted, adopted or imported. A cash line, a gain or loss, a mark or a third holding keeps the old reading, so a real exit is still proceeds.
+- **Recording one.** "Transfer cost" on a holding's Investment Details, `POST /api/portfolio/cost-transfers` (`action: 'record'`) and the MCP tool `transfer_cost` (staged like every write) post the entry. Refused when the source carries less cost than the amount on that date.
+- **Converting an existing pair.** `convert_to_cost_transfer` (and `action: 'convert'`) takes an adopted journal entry id and replaces its proceeds and investment rows with the cost transfer. The journal entry and the trial balance are not changed. `dry_run` describes it first.
+- **Reports.** Positions, the Schedule of Investments, MOIC and IRR, the performance report and the deal-by-deal capital base never count a transfer as proceeds. On the source a transfer reduces invested capital, and for its IRR its earlier outflows shrink pro rata; entity- and portfolio-level cash flows leave the pair out, since it nets to zero. A cost transfer row is changed by voiding or reversing its journal entry, not edited on its own.
+- Migration, additive: `20261109210000_cost_transfer.sql` (the transaction type, `transfer_company_id`, and a check that a transfer carries a non-zero cost and a date).
+
 ### Diligence in rounds
 - **Rounds.** A deal's diligence now runs in rounds: the first data room, a follow-up request, continued diligence. Each round has a name, an open or closed status, the partners' decision (advance, hold, pass, invest) and notes. Every existing deal starts as round 1 with everything it has.
 - **Start the next round.** Closes the current round and opens the next, which starts from the evidence, memo and scores so far. A closed round's memo, findings and scoring table are kept as they were and are read only (its memo can still be finalized). The latest round can be reopened if it was closed by mistake.

@@ -35,6 +35,7 @@ import { ACTUAL_BOOK } from './books'
 import { computeSummary, sortForRollup } from '@/lib/investments'
 import { txnsForVehicle } from './soi'
 import { proceedsSplit, escrowExceedsGross } from '@/lib/portfolio/proceeds'
+import { acquiresHolding } from '@/lib/portfolio/cost-transfer-math'
 
 const CASH = '1000'
 const ESCROW_RECEIVABLE = '1350'
@@ -400,7 +401,7 @@ async function gapOrThrow(
   const ordered = sortForRollup(txnsForVehicle([...rows, txn], group))
   const at = ordered.indexOf(txn)
   const prefix = ordered.slice(0, at + 1)
-  if (!prefix.some(t => t.transaction_type === 'investment' && t.portfolio_group === group)) return null
+  if (!prefix.some(t => acquiresHolding(t) && t.portfolio_group === group)) return null
   const records = computeSummary(prefix, 'active', new Date(`${date}T23:59:59Z`)).unrealizedValue
 
   // A purchase's own new shares are worth what was paid for them; share × price differs from the
@@ -478,6 +479,11 @@ export async function buildEntryForTransaction(
   }
   if (txn.transaction_type === 'round_info') {
     return { skip: skip('A round is a price signal, not a fund transaction — no entry to book.') }
+  }
+  // A cost transfer is booked by the one journal entry it was read from (both its rows are adopted
+  // from it); nothing is ever derived from either row.
+  if (txn.transaction_type === 'cost_transfer') {
+    return { skip: skip('A cost transfer is booked by its own journal entry — nothing is derived from it.') }
   }
 
   // EVERY ENTITY HAS A LEDGER (spec §3). A name the registry has never seen is created — every

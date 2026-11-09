@@ -155,7 +155,7 @@ export async function GET(req: NextRequest) {
     // Second pass: group investment and proceeds transactions by portfolio_group
     const groupTxns = new Map<string, InvestmentTransaction[]>()
     for (const txn of txns) {
-      if (txn.transaction_type === 'investment' || txn.transaction_type === 'proceeds') {
+      if (txn.transaction_type === 'investment' || txn.transaction_type === 'proceeds' || txn.transaction_type === 'cost_transfer') {
         const group = txn.portfolio_group ?? companyDefaultGroup
         const list = groupTxns.get(group) ?? []
         list.push(txn)
@@ -195,6 +195,9 @@ export async function GET(req: NextRequest) {
       let navMarks = 0
 
       const groupCashFlows: CashFlow[] = []
+      // The same flows without cost transfers, for the entity and portfolio IRRs: a transfer moves
+      // basis between two holdings of one entity, so across it the pair nets to zero.
+      const entityCashFlows: CashFlow[] = []
       const valueMarks: { date: string; amount: number; round: string | null }[] = []
       const roundMap = new Map<string, { investmentCost: number; sharesAcquired: number; unrealizedValueChange: number; costBasisExited: number }>()
 
@@ -206,6 +209,7 @@ export async function GET(req: NextRequest) {
           if (txn.transaction_date && txn.investment_cost) {
             const cf: CashFlow = { date: new Date(txn.transaction_date), amount: -(txn.investment_cost) }
             groupCashFlows.push(cf)
+            entityCashFlows.push(cf)
             allCashFlows.push(cf)
           }
 
@@ -243,7 +247,30 @@ export async function GET(req: NextRequest) {
           if (txn.transaction_date && proceedsAmount > 0) {
             const cf: CashFlow = { date: new Date(txn.transaction_date), amount: proceedsAmount }
             groupCashFlows.push(cf)
+            entityCashFlows.push(cf)
             allCashFlows.push(cf)
+          }
+        }
+        // A cost transfer: basis moved between two holdings, no cash, no gain (computeSummary, the
+        // same rules). investment_cost is signed. In: invested capital and cost from its date. Out:
+        // invested capital and cost go down, nothing is realized, and this holding's earlier outflows
+        // shrink pro rata for its IRR (copies — the entity's flows keep the cash as it was paid).
+        if (txn.transaction_type === 'cost_transfer') {
+          const amount = Number(txn.investment_cost ?? 0)
+          totalInvested += amount
+          const roundName = txn.round_name
+            ?? (amount > 0 || roundMap.has('Unknown') ? 'Unknown' : roundMap.size === 1 ? Array.from(roundMap.keys())[0] : 'Unknown')
+          const existing = roundMap.get(roundName)
+          if (existing) existing.investmentCost += amount
+          else if (amount > 0) roundMap.set(roundName, { investmentCost: amount, sharesAcquired: 0, unrealizedValueChange: 0, costBasisExited: 0 })
+          if (amount > 0 && txn.transaction_date) {
+            groupCashFlows.push({ date: new Date(txn.transaction_date), amount: -amount })
+          } else if (amount < 0) {
+            const invested = -groupCashFlows.reduce((sum, cf) => sum + (cf.amount < 0 ? cf.amount : 0), 0)
+            const factor = invested > 0 ? Math.max(0, 1 + amount / invested) : 1
+            for (let i = 0; i < groupCashFlows.length; i++) {
+              if (groupCashFlows[i].amount < 0) groupCashFlows[i] = { ...groupCashFlows[i], amount: groupCashFlows[i].amount * factor }
+            }
           }
         }
         if (txn.transaction_type === 'unrealized_gain_change') {
@@ -301,7 +328,7 @@ export async function GET(req: NextRequest) {
       // Track cash flows per portfolio group for group-level IRR
       // Must happen BEFORE per-company terminal value is pushed into groupCashFlows
       const pgFlows = portfolioGroupCashFlows.get(group) ?? []
-      for (const cf of groupCashFlows) pgFlows.push(cf)
+      for (const cf of entityCashFlows) pgFlows.push(cf)
       portfolioGroupCashFlows.set(group, pgFlows)
 
       // Compute per-company IRR (pushes terminal value into groupCashFlows)
