@@ -37,6 +37,7 @@ import { allocateAmount } from './allocation'
 import { vehicleIdByName } from './vehicle-id'
 import { roundCents } from './ledger'
 import { ytdWindow } from './statement-period'
+import { BASIS_EXCLUDED_LINES, DEFAULT_STATEMENT_BASIS, partnerTakesBases, postingsForBasis, type StatementBasis } from './statement-basis'
 import { RECEIVABLE_CODE, DISTRIBUTION_PAYABLE_CODE } from './chart'
 import { ACTUAL_BOOK } from './books'
 import { callExtras } from './call-extras'
@@ -505,7 +506,21 @@ export interface LpStatement {
   /** The partner's first capital movement in this vehicle, or null when there is none. */
   inception: string | null
   transactions: LpStatementTxn[]
+  /** The basis the roll-forwards and transactions are presented on (statement-basis.ts). */
+  basis: StatementBasis
+  /** How the basis ties to the books, inception to date through the period end: fair-value ending
+   *  less what the basis leaves out is this statement's ending. All zero exclusions on fair value. */
+  basisFooting: { fairValueEnding: number; excluded: Partial<Record<keyof CapitalAccount, number>>; ending: number }
+  /** Whether this partner can be presented off fair value. False when their capital is built from the
+   *  administrator's snapshots (called, distributions, NAV), whose leftover lumps fees, income, realized
+   *  and unrealized together, so no line-by-line basis is possible. */
+  basesAvailable: boolean
 }
+
+/** The refusal for a cost or contributions-only statement of a partner on administrator snapshots. */
+export const BASIS_UNAVAILABLE_ERROR =
+  "This partner's capital comes from the administrator's statements (called capital, distributions and NAV only), " +
+  'so it can only be presented on fair value: the statements do not split fees, income and gains from the marks.'
 
 /** One movement in an LP's capital, before it is windowed into a statement.
  *  `delta` is credit-positive: what the movement did to the LP's capital. */
@@ -567,8 +582,9 @@ export async function lpStatement(
   fundId: string,
   group: string,
   lpEntityId: string,
-  period?: CapitalPeriod
-): Promise<LpStatement | { error: string }> {
+  period?: CapitalPeriod,
+  basis: StatementBasis = DEFAULT_STATEMENT_BASIS,
+): Promise<LpStatement | { error: string; code?: 'basis_unavailable' }> {
   const summary = await lpCapitalSummary(admin, fundId, group, period?.end ?? undefined)
   const row = summary.find(r => r.lpEntityId === lpEntityId)
   if (!row) return { error: 'LP not found in this vehicle' }
@@ -577,9 +593,19 @@ export async function lpStatement(
   const totalCommitment = summary.reduce((s, r) => s + r.commitment, 0)
   const ownership = totalCommitment > 0 ? row.commitment / totalCommitment : 0
 
-  const { source, postings: capitalPostings } = await loadCapitalPostings(admin, fundId, group)
-  const rollForward = computeCapitalAccounts(capitalPostings, { end: period?.end })
-    .get(lpEntityId) ?? emptyAccount()
+  const { source, postings: allPostings, evidenceByLp } = await loadCapitalPostings(admin, fundId, group)
+  // Off fair value only when the partner's capital is the ledger's, line by line. A partner built
+  // from administrator snapshots has every non-cash line filed as one unrealized leftover, so a cost
+  // statement would quietly read as called less distributed.
+  const basesAvailable = partnerTakesBases(evidenceByLp.get(lpEntityId))
+  if (basis !== 'fair_value' && !basesAvailable) return { error: BASIS_UNAVAILABLE_ERROR, code: 'basis_unavailable' }
+  // The basis is a filter on the postings, applied before any roll-forward is built, so every
+  // column (and each period's beginning balance) is on the same basis. The ledger is untouched.
+  const capitalPostings = postingsForBasis(allPostings, basis)
+  const fairValueItd = computeCapitalAccounts(allPostings, { end: period?.end }).get(lpEntityId) ?? emptyAccount()
+  const rollForward = basis === 'fair_value'
+    ? fairValueItd
+    : computeCapitalAccounts(capitalPostings, { end: period?.end }).get(lpEntityId) ?? emptyAccount()
   const periodRollForward = computeCapitalAccounts(capitalPostings, period)
     .get(lpEntityId) ?? emptyAccount()
   // The middle column. Same postings, so no second pass over the ledger.
@@ -616,5 +642,14 @@ export async function lpStatement(
     transactions.push({ date: m.date, memo: m.memo, sourceType: m.sourceType, amount: m.delta, balance })
   }
 
-  return { row, rollForward, periodRollForward, ytdRollForward, ytdPeriod, ownership, inception: movements[0]?.date ?? null, transactions }
+  const basisFooting = {
+    fairValueEnding: fairValueItd.ending,
+    excluded: Object.fromEntries(BASIS_EXCLUDED_LINES[basis].map(f => [f, fairValueItd[f]])),
+    ending: rollForward.ending,
+  }
+  // The commitment summary's ending capital is the statement's own ending, so the summary and the
+  // roll-forward agree on whichever basis the statement is presented on.
+  const basisRow = basis === 'fair_value' ? row : { ...row, ending: rollForward.ending }
+
+  return { row: basisRow, rollForward, periodRollForward, ytdRollForward, ytdPeriod, ownership, inception: movements[0]?.date ?? null, transactions, basis, basisFooting, basesAvailable }
 }

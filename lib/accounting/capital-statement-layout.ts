@@ -9,6 +9,7 @@
 
 import { ACTIVITY_FIELDS, CAPITAL_ACCOUNT_LABELS, type CapitalAccount } from './capital-account'
 import { ytdWindow } from './statement-period'
+import type { StatementBasis } from './statement-basis'
 
 export const STATEMENT_COLUMNS = ['Statement period', 'Year to date', 'Inception to date'] as const
 
@@ -71,6 +72,13 @@ export function rollForwardRows(accounts: CapitalAccount[]): StatementRow[] {
   ]
 }
 
+/** The commitment summary's last line names the basis: off fair value it is not the NAV. */
+const ENDING_LABELS: Record<StatementBasis, string> = {
+  fair_value: 'Ending capital (NAV)',
+  cost: 'Ending capital (cost basis)',
+  cash_only: 'Ending capital (contributions and income)',
+}
+
 export interface SummaryRow {
   label: string
   /** One per column; null is a blank cell. */
@@ -90,6 +98,7 @@ export function commitmentSummaryRows(
   accounts: CapitalAccount[],
   row: { commitment: number; called: number | null; outstanding: number | null; receivable: number | null; ending: number | null },
   ownership: number,
+  basis: StatementBasis = 'fair_value',
 ): SummaryRow[] {
   const last = (v: number | null): (number | null)[] => [...accounts.slice(1).map(() => null), v]
   return [
@@ -100,6 +109,6 @@ export function commitmentSummaryRows(
       : []),
     { label: 'Remaining to be called', values: last(row.outstanding), format: 'money' },
     { label: 'Ownership', values: last(ownership), format: 'percent' },
-    { label: 'Ending capital (NAV)', values: last(row.ending), format: 'money' },
+    { label: ENDING_LABELS[basis], values: last(row.ending), format: 'money' },
   ]
 }

@@ -24,6 +24,7 @@ import type { CapitalPeriod } from './capital-account'
 import type { StatementPeriod } from './statement-period'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { documentLetterhead, contactBlock } from '@/lib/vehicle-letterhead'
+import { BASIS_NOTES, DEFAULT_STATEMENT_BASIS, type StatementBasis } from './statement-basis'
 
 function esc(s: string): string {
   return String(s ?? '')
@@ -65,6 +66,8 @@ export interface StatementPdfData {
   /** When this vehicle's underlying data was last updated (footnote). Vehicles report on
    *  irregular cadences, so the reporting PERIOD and the last-updated date are not the same. */
   dataAsOf?: string | null
+  /** The basis the figures are presented on (statement-basis.ts). Absent = fair value. */
+  basis?: StatementBasis
 }
 
 export function buildStatementHtml(d: StatementPdfData): string {
@@ -86,10 +89,12 @@ export function buildStatementHtml(d: StatementPdfData): string {
     </tr>`).join('')
 
   const lastCol = accounts.length - 1
-  const summary: [string, string[]][] = commitmentSummaryRows(accounts, d.row, d.ownership).map(r => [
+  const summary: [string, string[]][] = commitmentSummaryRows(accounts, d.row, d.ownership, d.basis ?? DEFAULT_STATEMENT_BASIS).map(r => [
     r.label,
     r.values.map((v, i) => v === null && i < lastCol ? '' : r.format === 'percent' ? pct(v ?? 0) : m(v)),
   ])
+
+  const basisNote = BASIS_NOTES[d.basis ?? DEFAULT_STATEMENT_BASIS]
 
   const periodLabel = d.period.start && d.period.end
     ? `${d.period.label} (${d.period.start} to ${d.period.end})`
@@ -116,7 +121,8 @@ export function buildStatementHtml(d: StatementPdfData): string {
 
     <h1 style="font-family:${PDF_DISPLAY};font-size:22px;font-weight:400;letter-spacing:-0.01em;margin-bottom:3px;">Capital Account Statement</h1>
     <p style="font-size:14px;font-weight:600;color:#111;">${esc(d.partnerName)}</p>
-    <p style="font-size:11px;color:#888;margin-bottom:22px;">${esc(d.vehicle)} &middot; ${esc(periodLabel)}</p>
+    <p style="font-size:11px;color:#888;margin-bottom:${basisNote ? '4' : '22'}px;">${esc(d.vehicle)} &middot; ${esc(periodLabel)}</p>
+    ${basisNote ? `<p style="font-size:11px;color:#555;margin-bottom:22px;">${esc(basisNote)}</p>` : ''}
 
     <!-- Roll-forward -->
     <table>
@@ -145,7 +151,7 @@ export function buildStatementHtml(d: StatementPdfData): string {
 
   <div style="position:fixed;bottom:0;left:0;right:0;padding:8px 0;border-top:1px solid #e5e5e5;background:white;font-size:9px;color:#888;">
     Capital account statement for ${esc(d.partnerName)} in ${esc(d.vehicle)}. Prepared from the fund's books of account.
-    Figures are stated in ${esc(currency)} and reflect the period shown.${d.dataAsOf ? ` Underlying data for ${esc(d.vehicle)} was last updated ${esc(d.dataAsOf)}.` : ''} This statement is unaudited and may be subject to further adjustment; it should not be used for tax purposes. It is provided to limited partners for informational purposes.
+    Figures are stated in ${esc(currency)} and reflect the period shown.${basisNote ? ` ${esc(basisNote)}` : ''}${d.dataAsOf ? ` Underlying data for ${esc(d.vehicle)} was last updated ${esc(d.dataAsOf)}.` : ''} This statement is unaudited and may be subject to further adjustment; it should not be used for tax purposes. It is provided to limited partners for informational purposes.
   </div>
 </body></html>`
 }
@@ -156,18 +162,20 @@ export function buildStatementHtml(d: StatementPdfData): string {
  */
 export async function generateLpStatementPdf(
   admin: SupabaseClient,
-  opts: { fundId: string; group: string; lpEntityId: string; period: StatementPeriod },
-): Promise<{ pdf: Buffer; fileName: string; partnerName: string } | null> {
+  opts: { fundId: string; group: string; lpEntityId: string; period: StatementPeriod; basis?: StatementBasis },
+): Promise<{ pdf: Buffer; fileName: string; partnerName: string } | { error: string } | null> {
   const { fundId, group, lpEntityId, period } = opts
+  const basis = opts.basis ?? DEFAULT_STATEMENT_BASIS
 
   const capitalPeriod: CapitalPeriod = { start: period.start, end: period.end }
   const [statement, fundRes, settingsRes] = await Promise.all([
-    lpStatement(admin, fundId, group, lpEntityId, capitalPeriod),
+    lpStatement(admin, fundId, group, lpEntityId, capitalPeriod, basis),
     admin.from('funds' as any).select('name, logo_url, address').eq('id', fundId).maybeSingle(),
     admin.from('fund_settings' as any).select('currency, theme').eq('fund_id', fundId).maybeSingle(),
   ])
 
-  if ('error' in statement) return null
+  // A basis this partner can't be presented on is said, not turned into a missing statement.
+  if ('error' in statement) return statement.code === 'basis_unavailable' ? { error: statement.error } : null
 
   const fund = (fundRes as any).data
   // The vehicle's own letterhead where it has one (a separately branded vehicle's LPs know it by
@@ -192,11 +200,15 @@ export async function generateLpStatementPdf(
     rollForward: statement.rollForward,
     ownership: statement.ownership,
     dataAsOf,
+    basis,
   })
 
   const pdf = await renderHtmlToPdf(html)
   const safe = (s: string) => String(s || '').replace(/[^a-zA-Z0-9 _-]/g, '').trim()
-  const fileName = `${safe(statement.row.name) || 'Partner'} - Capital Account Statement - ${safe(period.label) || 'Period'}.pdf`
+  const basisSuffix = basis === 'cost' ? ' - Cost Basis' : basis === 'cash_only' ? ' - Contributions and Income' : ''
+  // The partner's entity, then the vehicle, so a folder of statements sorts by partner and still
+  // says which vehicle each one is for.
+  const fileName = `${safe(statement.row.name) || 'Partner'} - ${safe(group) || 'Vehicle'} - Capital Account Statement - ${safe(period.label) || 'Period'}${basisSuffix}.pdf`
 
   return { pdf, fileName, partnerName: statement.row.name }
 }

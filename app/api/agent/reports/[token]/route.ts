@@ -8,6 +8,7 @@ import { visibleLpEntityIds } from '@/lib/access/lp-scope'
 import { resolveVehicle, VehicleResolutionError } from '@/lib/accounting/vehicle-resolver'
 import { customPeriod } from '@/lib/accounting/statement-period'
 import { generateLpStatementPdf } from '@/lib/accounting/lp-statement-pdf'
+import { isStatementBasis } from '@/lib/accounting/statement-basis'
 import { generateInvestorReportPdf, generateLetterPdf, generateLiveInvestorReportPdf } from '@/lib/lp-report-pdf'
 import { isExpiredReportLink, verifyReportLink, type ReportLinkClaims } from '@/lib/agent/report-links'
 import { SEND_ATTACHMENT_PURPOSE } from '@/lib/agent/remote-pdf'
@@ -92,7 +93,12 @@ export async function GET(req: NextRequest, props: { params: Promise<{ token: st
       // The dates and label as resolved when the link was made, so "last quarter" cannot become a
       // different quarter between the conversation and the click.
       const period = { ...customPeriod(a.start, a.end), ...(a.label ? { label: a.label } : {}) }
-      result = await generateLpStatementPdf(admin, { fundId: claims.fundId, group, lpEntityId: a.lp, period })
+      // The basis resolved when the link was made; a link from before bases existed is fair value.
+      const pdf = await generateLpStatementPdf(admin, { fundId: claims.fundId, group, lpEntityId: a.lp, period, basis: isStatementBasis(a.basis) ? a.basis : 'fair_value' })
+      // lp_statement_pdf refuses an unavailable basis before issuing a link; should the partner's
+      // evidence change before the click, say why rather than a bare not-found.
+      if (pdf && 'error' in pdf) return NextResponse.json({ error: pdf.error }, { status: 400 })
+      result = pdf
     } else {
       const investor = claims.args.investor
       if (typeof investor !== 'string') return notFound()

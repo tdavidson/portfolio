@@ -11,6 +11,7 @@ import { useCanWrite } from '@/components/access-context'
 import { VehicleLetterheadDialog } from '@/components/vehicle-letterhead'
 import type { CapitalAccount } from '@/lib/accounting/capital-account'
 import { rollForwardRows, commitmentSummaryRows, statementColumns } from '@/lib/accounting/capital-statement-layout'
+import { BASIS_LABELS, BASIS_NOTES, STATEMENT_BASES, type StatementBasis } from '@/lib/accounting/statement-basis'
 
 interface Row { lpEntityId: string; name: string; partnerClass: string; commitment: number; called: number; funded: number; outstanding: number; receivable: number; ending: number }
 interface Period { preset: PeriodPreset; start: string | null; end: string | null; label: string }
@@ -27,6 +28,11 @@ interface Statement {
   period: Period
   /** What the PDF prints, the fund's default, and this vehicle's overrides. */
   letterhead: { letterhead: LetterheadParts; fund: LetterheadParts; vehicle: LetterheadParts }
+  /** The basis these figures are on, and the vehicle's default (what an unspecified request gets). */
+  basis: StatementBasis
+  defaultBasis: StatementBasis
+  /** False for a partner on administrator snapshots: fair value only, so no toggle. */
+  basesAvailable: boolean
 }
 
 // The period picker: a year (or inception to date, or custom dates), then within a year the whole
@@ -62,7 +68,9 @@ export function LpStatementView({ lpEntityId, vehicleId }: { lpEntityId: string;
   const [part, setPart] = useState<Part>('year')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
-  const request = periodRequest(scope, part, start, end)
+  // Null until the person picks one: the statement then opens on the vehicle's default basis.
+  const [basis, setBasis] = useState<StatementBasis | null>(null)
+  const request = { ...periodRequest(scope, part, start, end), ...(basis ? { basis } : {}) }
   const requestKey = JSON.stringify(request)
   const [editingLetterhead, setEditingLetterhead] = useState(false)
   const [reload, setReload] = useState(0)
@@ -87,9 +95,11 @@ export function LpStatementView({ lpEntityId, vehicleId }: { lpEntityId: string;
   })
   const accounts = columns.map(c => c.value.account)
   const rows = rollForwardRows(accounts)
-  const summary = commitmentSummaryRows(accounts, row, ownership)
+  const summary = commitmentSummaryRows(accounts, row, ownership, data.basis)
   const lastCol = accounts.length - 1
-  const pdfQs = new URLSearchParams({ lp: lpEntityId, ...request })
+  // The PDF names the basis on screen explicitly, so it can't come out on a different one.
+  const pdfQs = new URLSearchParams({ lp: lpEntityId, ...request, basis: data.basis })
+  const basisNote = BASIS_NOTES[data.basis]
   if (group) pdfQs.set('group', group)
   const firstYear = Math.min(THIS_YEAR, Number(data.inception?.slice(0, 4)) || THIS_YEAR)
   const years = Array.from({ length: THIS_YEAR - firstYear + 1 }, (_, i) => THIS_YEAR - i)
@@ -144,6 +154,18 @@ export function LpStatementView({ lpEntityId, vehicleId }: { lpEntityId: string;
               <Input type="date" value={end} onChange={e => setEnd(e.target.value)} className="h-8 w-36 text-xs" />
             </>
           )}
+          {/* The basis: fair value (the books as they stand), cost (no unrealized marks) or
+              contributions and income only (no gains or losses at all). A reporting filter only. */}
+          {data.basesAvailable && <select
+            value={basis ?? data.basis}
+            onChange={e => setBasis(e.target.value as StatementBasis)}
+            aria-label="Statement basis"
+            className="h-8 px-2 rounded-md border border-input bg-background text-xs"
+          >
+            {STATEMENT_BASES.map(b => (
+              <option key={b} value={b}>{BASIS_LABELS[b]}{b === data.defaultBasis && data.defaultBasis !== 'fair_value' ? ' (default)' : ''}</option>
+            ))}
+          </select>}
           {/* The vehicle's letterhead (logo, name, address, email), each part falling back to the fund's. */}
           {vehicleId && canEditLetterhead && (
             <button
@@ -189,6 +211,7 @@ export function LpStatementView({ lpEntityId, vehicleId }: { lpEntityId: string;
           <p className="text-heading font-display font-normal">Capital Account Statement</p>
           <p className="text-sm font-semibold">{row.name}</p>
           <p className="text-xs text-muted-foreground">{vehicleName} · {period.label}</p>
+          {basisNote && <p className="text-xs mt-1">{basisNote}</p>}
         </div>
 
         <div className="overflow-x-auto">

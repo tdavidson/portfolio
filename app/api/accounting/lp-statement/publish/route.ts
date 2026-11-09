@@ -11,6 +11,8 @@ import { generateLpStatementPdf } from '@/lib/accounting/lp-statement-pdf'
 import { resolvePeriod, customPeriod, type PeriodPreset } from '@/lib/accounting/statement-period'
 import { lpCapitalSummary } from '@/lib/accounting/capital-calls'
 import { runPool } from '@/lib/lp-report-pdf'
+import { resolveStatementBasis } from '@/lib/accounting/statement-basis-default'
+import { BASIS_LABELS } from '@/lib/accounting/statement-basis'
 
 export const runtime = 'nodejs'
 // Each statement launches headless Chrome; a vehicle with twenty LPs needs room.
@@ -20,7 +22,9 @@ export const maxDuration = 300
 // `lp-documents` bucket, and share it with that partner's LP investor so it appears
 // in their portal.
 //
-//   { group?, preset? | start?, end?, lpEntityIds?: string[] }
+//   { group?, preset? | start?, end?, lpEntityIds?: string[], basis?: 'fair_value' | 'cost' | 'cash_only' }
+//
+// Every statement in one publish is on the same basis: the one asked for, else the vehicle's default.
 //
 // The PDF is STORED, not re-rendered on demand: a capital statement is a
 // point-in-time record, and re-rendering it from the ledger would silently change a
@@ -41,6 +45,9 @@ export async function POST(req: NextRequest) {
   const period = preset && preset !== 'custom'
     ? resolvePeriod(preset)
     : customPeriod(body?.start ?? null, body?.end ?? null)
+
+  const basis = await resolveStatementBasis(admin, gate.fundId, group, body?.basis)
+  if (typeof basis !== 'string') return NextResponse.json({ error: basis.error }, { status: 400 })
 
   // REFUSE TO PUBLISH AN UNCLOSED PERIOD.
   //
@@ -115,9 +122,11 @@ export async function POST(req: NextRequest) {
   await runPool(targets, 3, async target => {
     try {
       const result = await generateLpStatementPdf(admin, {
-        fundId: gate.fundId, group, lpEntityId: target.lpEntityId, period,
+        fundId: gate.fundId, group, lpEntityId: target.lpEntityId, period, basis,
       })
       if (!result) { errors.push(`${target.name}: could not build the statement`); return }
+      // Left out of a cost or contributions-only publish: on administrator snapshots, fair value only.
+      if ('error' in result) { errors.push(`${target.name}: not published on this basis. ${result.error}`); return }
 
       const safeName = result.fileName.replace(/[^a-zA-Z0-9 ._-]/g, '_')
       const storagePath = `${gate.fundId}/${Date.now()}_${safeName}`
@@ -135,7 +144,8 @@ export async function POST(req: NextRequest) {
         .from('lp_documents' as any)
         .insert({
           fund_id: gate.fundId,
-          title: `Capital Account Statement — ${period.label}`,
+          // The basis is in the title so the portal and the GP can tell the versions apart.
+          title: `Capital Account Statement — ${period.label}${basis === 'fair_value' ? '' : ` (${BASIS_LABELS[basis]})`}`,
           file_name: result.fileName,
           storage_path: storagePath,
           mime_type: 'application/pdf',
@@ -174,5 +184,5 @@ export async function POST(req: NextRequest) {
     }
   })
 
-  return NextResponse.json({ period, published, errors, count: published.length })
+  return NextResponse.json({ period, basis, published, errors, count: published.length })
 }

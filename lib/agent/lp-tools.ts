@@ -22,6 +22,8 @@ import { scopeCompanyRows } from '@/lib/access/scope'
 import { generateLiveReport, type LiveInvestmentRow } from '@/lib/accounting/live-report'
 import { lpCapitalSummary, lpStatement, listCapitalCalls } from '@/lib/accounting/capital-calls'
 import { resolvePeriod, customPeriod, type PeriodPreset } from '@/lib/accounting/statement-period'
+import { BASIS_LABELS, BASIS_NOTES } from '@/lib/accounting/statement-basis'
+import { resolveStatementBasis } from '@/lib/accounting/statement-basis-default'
 import { statementColumns } from '@/lib/accounting/capital-statement-layout'
 import { linkNote, reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
 import { CarryRecipientStatementError, carryRecipientIds, seesIndividualCarry } from '@/lib/access/carry-visibility'
@@ -434,9 +436,13 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
       if (v && !ISO_DATE.test(v)) throw new Error(`${label} must be an ISO date (YYYY-MM-DD)`)
     }
 
+    const basis = await resolveStatementBasis(admin, fundId, vehicle, input?.basis)
+    if (typeof basis !== 'string') throw new Error(basis.error)
+
     const result = await lpStatement(
       admin, fundId, vehicle, lp.entityId,
-      start || end ? { start, end } : undefined
+      start || end ? { start, end } : undefined,
+      basis,
     )
     // Returns a union, not a throw.
     if ('error' in result) throw new Error(result.error)
@@ -447,6 +453,19 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
       investor: lp.investorName,
       entity: lp.entityName,
       period: start || end ? { start, end } : 'since inception',
+      // Every figure below is on this basis. Off fair value, basis_footing shows how it ties to the
+      // books: fair-value ending less the excluded lines (inception to date) is this ending.
+      basis,
+      // False for a partner on administrator snapshots: only fair_value can be asked for.
+      bases_available: result.basesAvailable,
+      ...(basis !== 'fair_value' ? {
+        basis_note: BASIS_NOTES[basis],
+        basis_footing: {
+          fair_value_ending: result.basisFooting.fairValueEnding,
+          excluded_itd: result.basisFooting.excluded,
+          ending: result.basisFooting.ending,
+        },
+      } : {}),
       position: {
         commitment: result.row.commitment,
         called: result.row.called,
@@ -508,17 +527,22 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     if (!start && !end && !STATEMENT_PRESETS.includes(preset)) throw new Error(`period must be one of ${STATEMENT_PRESETS.join(', ')}`)
     const period = start || end ? customPeriod(start, end) : resolvePeriod(preset)
 
+    const basis = await resolveStatementBasis(admin, fundId, vehicle, input?.basis)
+    if (typeof basis !== 'string') throw new Error(basis.error)
+
     // Fail here, in the conversation, rather than on a link that 404s later.
-    const check = await lpStatement(admin, fundId, vehicle, lp.entityId, { start: period.start, end: period.end })
+    const check = await lpStatement(admin, fundId, vehicle, lp.entityId, { start: period.start, end: period.end }, basis)
     if ('error' in check) throw new Error(check.error)
 
+    // The basis rides in the link, resolved now, so the document matches what was asked for even
+    // if the vehicle's default changes before the click.
     const { token, expiresAt } = signReportLink({
       fundId, userId, kind: 'lp_statement',
-      args: { vehicle, lp: lp.entityId, start: period.start, end: period.end, label: period.label },
+      args: { vehicle, lp: lp.entityId, start: period.start, end: period.end, label: period.label, basis },
     })
     return {
-      document: 'Capital account statement (PDF)',
-      vehicle, investor: lp.investorName, entity: lp.entityName, period: period.label,
+      document: basis === 'fair_value' ? 'Capital account statement (PDF)' : `Capital account statement, ${BASIS_LABELS[basis].toLowerCase()} (PDF)`,
+      vehicle, investor: lp.investorName, entity: lp.entityName, period: period.label, basis,
       url: reportLinkUrl(origin ?? siteOrigin(), token),
       expires_at: expiresAt,
       note: linkNote('It opens the PDF for an hour, and only for this member. If they ask again later, call this tool again rather than re-sharing this link.'),

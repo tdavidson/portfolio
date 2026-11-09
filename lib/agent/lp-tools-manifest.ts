@@ -88,7 +88,8 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
       'One LP\'s capital-account statement in a vehicle: the roll-forward (beginning, contributions, distributions, fees, expenses, ' +
       'gains, carry, ending) in three columns (the period, year to date, inception to date), the commitment summary ' +
       '(commitment, capital called per column, remaining to be called, ownership, ending capital), and the period\'s transactions ' +
-      'with a running balance.',
+      'with a running balance. Pass basis for a cost-basis or contributions-and-income statement; off fair value the result ' +
+      'includes basis_footing (fair-value ending, the excluded lines inception to date, and this ending).',
     scope: 'read',
     domain: 'lp',
     inputSchema: {
@@ -98,6 +99,7 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
         lp: LP,
         start: { type: 'string', description: 'Optional period start (YYYY-MM-DD). Omit for since-inception.' },
         end: { type: 'string', description: 'Optional period end (YYYY-MM-DD).' },
+        basis: { type: 'string', enum: ['fair_value', 'cost', 'cash_only'], description: 'The basis: fair_value (the books as they stand, marks included), cost (leaves out unrealized appreciation and its FX translation; realized gains stay) or cash_only (contributions, distributions, fees, expenses and operating income only; no realized or unrealized gains or losses). Default: the vehicle\'s default basis, which is fair_value unless set.' },
       },
       required: ['vehicle', 'lp'],
     },
@@ -120,6 +122,7 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
         period: { type: 'string', enum: ['this_quarter', 'last_quarter', 'ytd', 'prior_year', 'itd'], description: 'The statement period. Default last_quarter. Or pass start and end.' },
         start: { type: 'string', description: 'Custom period start (YYYY-MM-DD).' },
         end: { type: 'string', description: 'Custom period end (YYYY-MM-DD).' },
+        basis: { type: 'string', enum: ['fair_value', 'cost', 'cash_only'], description: 'The basis: fair_value (the books as they stand, marks included), cost (leaves out unrealized appreciation and its FX translation; realized gains stay) or cash_only (contributions, distributions, fees, expenses and operating income only; no realized or unrealized gains or losses). Default: the vehicle\'s default basis, which is fair_value unless set.' },
       },
       required: ['vehicle', 'lp'],
     },
