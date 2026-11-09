@@ -11,6 +11,7 @@ import { dbError } from '@/lib/api-error'
 import { ensureVehicleAccounts } from '@/lib/accounting/provision-accounts'
 import { VEHICLE_KINDS } from '@/lib/vehicle-kinds'
 import { isSafeLogoDataUri } from '@/lib/vehicle-letterhead'
+import { isStatementBasis, STATEMENT_BASES } from '@/lib/accounting/statement-basis'
 import { loadAccessContext } from '@/lib/access/effective'
 import { canSeeVehicle, entityIdentityChangeDenial } from '@/lib/access/scope'
 import { safeLogo, fundLetterhead, loadFundEmail } from '@/lib/vehicle-letterhead'
@@ -58,7 +59,14 @@ export async function GET(req: NextRequest) {
       loadFundEmail(admin, gate.fundId),
     ])
     const fund = fundLetterhead(fundRow)
+    // The default statement basis, read on its own so a database without the column
+    // (20261109230000_vehicle_statement_basis.sql) still edits the letterhead.
+    const basisRes = await (admin as any)
+      .from('fund_vehicles').select('statement_basis').eq('id', letterheadFor).eq('fund_id', gate.fundId).maybeSingle()
+    const statementBasis = !basisRes.error && isStatementBasis(basisRes.data?.statement_basis) ? basisRes.data.statement_basis : null
     return NextResponse.json({
+      statementBasis,
+      statementBasisAvailable: !basisRes.error,
       logo: safeLogo((data as any).logo_url),
       name: (data as any).letterhead_name ?? null,
       address: (data as any).letterhead_address ?? null,
@@ -148,7 +156,7 @@ export async function POST(req: NextRequest) {
   return NextResponse.json(data)
 }
 
-// PATCH — update a vehicle. { id, name?, kind?, active?, logo?, letterheadName?, letterheadAddress?, letterheadEmail? }
+// PATCH — update a vehicle. { id, name?, kind?, active?, logo?, letterheadName?, letterheadAddress?, letterheadEmail?, statementBasis? }
 // Renaming cascades the string across every vehicle-scoped table (pre-Phase-2);
 // the old name is kept as an alias so stray legacy rows still map back.
 export async function PATCH(req: NextRequest) {
@@ -221,6 +229,13 @@ export async function PATCH(req: NextRequest) {
     if (v && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(v)) return NextResponse.json({ error: 'Letterhead email is not a valid address' }, { status: 400 })
     if (v.length > 320) return NextResponse.json({ error: 'Letterhead email is too long' }, { status: 400 })
     update.letterhead_email = v || null
+  }
+  // The vehicle's default basis for partners' capital statements (lib/accounting/statement-basis.ts).
+  if (body.statementBasis !== undefined) {
+    if (!isStatementBasis(body.statementBasis)) {
+      return NextResponse.json({ error: `statementBasis must be one of ${STATEMENT_BASES.join(', ')}` }, { status: 400 })
+    }
+    update.statement_basis = body.statementBasis
   }
   if (body.kind !== undefined) {
     if (!KINDS.includes(body.kind)) return NextResponse.json({ error: 'invalid kind' }, { status: 400 })

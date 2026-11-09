@@ -14,6 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, Di
 import { useCurrency, formatCurrencyPrice } from '@/components/currency-context'
 import { useLedgerFetch, useFundSeg, useVehicle } from '@/components/accounting-vehicle'
 import { type PeriodPreset } from '@/lib/accounting/statement-period'
+import { BASIS_LABELS, STATEMENT_BASES, type StatementBasis } from '@/lib/accounting/statement-basis'
 import { PeriodPicker } from '@/components/accounting/period-picker'
 import { NoticeAction } from '@/components/accounting/notice-action'
 import { IlpaDownload } from '@/components/accounting/ilpa-download'
@@ -89,6 +90,8 @@ export function CapitalAccountsView() {
   // Which issued call is open in the capital-activity review (components/accounting/call-activity.tsx).
   const [reviewing, setReviewing] = useState<string | null>(null)
   const [shareSel, setShareSel] = useState<Set<string>>(new Set())
+  // The basis every statement in the publish is on; '' = the vehicle's default (fair value unless set).
+  const [shareBasis, setShareBasis] = useState<StatementBasis | ''>('')
 
   // Issue-a-call (folded in from the old Capital calls page). /start links here with
   // `?action=call|distribution` to arrive with the panel already open on that direction — a
@@ -189,7 +192,7 @@ export function CapitalAccountsView() {
     const periodBody = period.preset === 'custom' ? { start: period.start, end: period.end } : { preset: period.preset }
     const res = await lf('/api/accounting/lp-statement/publish', {
       method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ ...periodBody, lpEntityIds: Array.from(shareSel) }),
+      body: JSON.stringify({ ...periodBody, lpEntityIds: Array.from(shareSel), ...(shareBasis ? { basis: shareBasis } : {}) }),
     })
     const data = await res.json()
     setPublishing(false)
@@ -439,6 +442,20 @@ export function CapitalAccountsView() {
           </DialogHeader>
 
           <div className="space-y-3 min-w-0">
+            {/* Fair value is the books as they stand; cost leaves out unrealized marks; contributions
+                and income only leaves out every gain and loss. Each statement prints its basis. */}
+            <label className="flex items-center justify-between gap-2 text-xs text-muted-foreground">
+              Basis
+              <select
+                value={shareBasis}
+                onChange={e => setShareBasis(e.target.value as StatementBasis | '')}
+                aria-label="Statement basis"
+                className="h-8 px-2 rounded-md border border-input bg-background text-xs text-foreground"
+              >
+                <option value="">Vehicle default</option>
+                {STATEMENT_BASES.map(b => <option key={b} value={b}>{BASIS_LABELS[b]}</option>)}
+              </select>
+            </label>
             <div className="flex items-center justify-between">
               <span className="text-xs text-muted-foreground">{shareSel.size} of {rows.length} selected</span>
               <button

@@ -5,11 +5,12 @@ import { assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { generateLpStatementPdf } from '@/lib/accounting/lp-statement-pdf'
 import { resolvePeriod, customPeriod, type PeriodPreset } from '@/lib/accounting/statement-period'
+import { resolveStatementBasis } from '@/lib/accounting/statement-basis-default'
 
 export const runtime = 'nodejs'
 export const maxDuration = 120
 
-// GET ?lp=<lpEntityId>&preset=|start=&end= — render one partner's capital account
+// GET ?lp=<lpEntityId>&preset=|start=&end=[&basis=fair_value|cost|cash_only] — render one partner's capital account
 // statement and stream it back. GP-side PREVIEW only: nothing is stored and nothing
 // is shared. Publishing (which freezes and delivers it) is the POST /publish route.
 export async function GET(req: NextRequest) {
@@ -32,13 +33,17 @@ export async function GET(req: NextRequest) {
     ? resolvePeriod(preset)
     : customPeriod(sp.get('start'), sp.get('end'))
 
-  const result = await generateLpStatementPdf(admin, { fundId: gate.fundId, group, lpEntityId: lp, period })
+  const basis = await resolveStatementBasis(admin, gate.fundId, group, sp.get('basis'))
+  if (typeof basis !== 'string') return NextResponse.json({ error: basis.error }, { status: 400 })
+
+  const result = await generateLpStatementPdf(admin, { fundId: gate.fundId, group, lpEntityId: lp, period, basis })
   if (!result) return NextResponse.json({ error: 'Could not build the statement for that partner' }, { status: 404 })
 
   return new NextResponse(new Uint8Array(result.pdf), {
     headers: {
       'Content-Type': 'application/pdf',
-      'Content-Disposition': `inline; filename="${result.fileName}"`,
+      // filename* as well, so a name with non-ASCII characters survives; the plain one is the fallback.
+      'Content-Disposition': `inline; filename="${result.fileName.replace(/[^\x20-\x7e]/g, '_')}"; filename*=UTF-8''${encodeURIComponent(result.fileName)}`,
     },
   })
 }

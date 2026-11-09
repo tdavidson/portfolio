@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Textarea } from '@/components/ui/textarea'
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog'
+import { BASIS_LABELS, STATEMENT_BASES, type StatementBasis } from '@/lib/accounting/statement-basis'
 
 // A vehicle's own letterhead (logo, name, address, email) for its LP statements, notices, receipts
 // and letters (lib/vehicle-letterhead.ts). Each part falls back to the fund's on its own, so the
@@ -33,6 +34,9 @@ export interface VehicleLetterheadState {
   email: string
   setEmail: (v: string) => void
   fund: FundDefaults
+  /** The vehicle's default capital statement basis; null while loading or when not migrated. */
+  statementBasis: StatementBasis | null
+  setStatementBasis: (v: StatementBasis) => void
   /** The PATCH /api/vehicles fields for the text parts. Empty until loaded, so a slow fetch can't
    *  save blanks over a letterhead that exists. */
   payload: () => Record<string, string>
@@ -48,6 +52,7 @@ export function useVehicleLetterhead(vehicleId: string): VehicleLetterheadState 
   const [address, setAddress] = useState('')
   const [email, setEmail] = useState('')
   const [fund, setFund] = useState<FundDefaults>({ name: null, address: null, email: null })
+  const [statementBasis, setStatementBasis] = useState<StatementBasis | null>(null)
 
   useEffect(() => {
     let cancelled = false
@@ -60,6 +65,7 @@ export function useVehicleLetterhead(vehicleId: string): VehicleLetterheadState 
       setAddress(data?.address ?? '')
       setEmail(data?.email ?? '')
       if (data?.fund) setFund(data.fund)
+      setStatementBasis(data?.statementBasisAvailable ? (data.statementBasis ?? 'fair_value') : null)
     }).catch(() => { if (!cancelled) setLogo(null) })
     return () => { cancelled = true }
   }, [vehicleId])
@@ -90,10 +96,11 @@ export function useVehicleLetterhead(vehicleId: string): VehicleLetterheadState 
 
   return {
     available, emailAvailable, logo, logoBusy, logoErr, pickLogo, removeLogo: () => { void saveLogo(null) },
-    name, setName, address, setAddress, email, setEmail, fund,
+    name, setName, address, setAddress, email, setEmail, fund, statementBasis, setStatementBasis,
     payload: () => !available ? {} : {
       letterheadName: name, letterheadAddress: address,
       ...(emailAvailable ? { letterheadEmail: email } : {}),
+      ...(statementBasis ? { statementBasis } : {}),
     },
   }
 }
@@ -179,7 +186,26 @@ export function VehicleLetterheadDialog({ vehicleId, vehicleName, onClose, onSav
           ) : !lh.available ? (
             <p className="text-sm text-muted-foreground">Per-vehicle letterheads need the 20261012120000_vehicle_letterhead.sql migration.</p>
           ) : (
-            <VehicleLetterheadFields lh={lh} vehicleName={vehicleName} />
+            <>
+              <VehicleLetterheadFields lh={lh} vehicleName={vehicleName} />
+              {lh.statementBasis && (
+                <div className="space-y-1.5">
+                  <label htmlFor="statement-basis" className="text-xs text-muted-foreground">Default statement basis</label>
+                  <p className="text-[11px] text-muted-foreground">
+                    What this vehicle&rsquo;s capital account statements open on, and what the share dialog and the
+                    assistant use when no basis is picked. Each statement prints its basis.
+                  </p>
+                  <select
+                    id="statement-basis"
+                    value={lh.statementBasis}
+                    onChange={e => lh.setStatementBasis(e.target.value as StatementBasis)}
+                    className="h-8 w-full px-2 rounded-md border border-input bg-background text-sm"
+                  >
+                    {STATEMENT_BASES.map(b => <option key={b} value={b}>{BASIS_LABELS[b]}</option>)}
+                  </select>
+                </div>
+              )}
+            </>
           )}
           {err && <p className="text-sm text-destructive">{err}</p>}
           <div className="flex justify-end gap-2 pt-1">
