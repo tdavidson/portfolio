@@ -57,6 +57,14 @@ const result = await build({
     // The bank page's spreadsheet parser, half a megabyte the read-only demo never runs.
     'xlsx': path.join(here, 'stubs', 'xlsx.ts'),
   },
+  // `import text from '…/file.csv?raw'` (hrefs.ts's template downloads), as Vite does it in the tests.
+  plugins: [{
+    name: 'raw',
+    setup(b) {
+      b.onResolve({ filter: /\?raw$/ }, args => ({ path: path.resolve(args.resolveDir, args.path.replace(/\?raw$/, '')), namespace: 'raw' }))
+      b.onLoad({ filter: /.*/, namespace: 'raw' }, args => ({ contents: fs.readFileSync(args.path, 'utf8'), loader: 'text' }))
+    },
+  }],
   metafile: true,
   logLevel: 'warning',
   legalComments: 'none',

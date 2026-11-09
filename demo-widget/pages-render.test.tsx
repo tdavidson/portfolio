@@ -18,6 +18,7 @@ import { DemoLocationProvider } from './stubs/next-navigation'
 import { RouteScreen, type RouteContext } from './routes'
 import { allHrefs, matchRoute, type Section } from './route-table'
 import { fallbackPageData } from './fallbacks'
+import { isHiddenInDemo, pathOf } from './hrefs'
 import type { RouteRender } from './route-helpers'
 import { EMPTY_PAGES, type DemoPages, type DemoSnapshot } from './types'
 import snapshotJson from './data/snapshot.json'
@@ -106,8 +107,30 @@ describe('the demo widget renders every route', () => {
     expect(html).not.toContain('Not in the demo')
   })
 
+  // A link a page renders to a URL the widget does not build is a 404 on the site the moment a
+  // visitor opens it in a new tab, or the site prerenders it. Every in-app href is a URL in
+  // allHrefs (what the site prerenders), or one hrefs.ts hides in the demo.
+  const served = new Set(['/', ...allHrefs(snapshot, pages)])
+  it.each(hrefs)('%s links only to pages the widget serves', async href => {
+    const html = await renderHref(href, pages)
+    const dead = appHrefs(html).filter(h => !served.has(pathOf(h)) && !isHiddenInDemo(h))
+    expect(dead, `links on ${href} to URLs the widget does not build (add a route in route-table.ts, or hide it in hrefs.ts's HIDDEN_IN_DEMO)`).toEqual([])
+  })
+
   it.each(fallbackHrefs)('%s with the fallbacks.ts data', async href => {
     const html = await renderHref(href, EMPTY_PAGES)
     expect(html).not.toContain('Not in this snapshot')
   })
 })
+
+/** The app hrefs of the anchors in rendered markup: the stub's data-app-href, or a plain anchor's own href. */
+function appHrefs(html: string): string[] {
+  const out = new Set<string>()
+  for (const [tag] of html.matchAll(/<a\b[^>]*>/g)) {
+    const attr = (name: string) => tag.match(new RegExp(`\\s${name}="([^"]*)"`))?.[1]?.replace(/&amp;/g, '&')
+    const href = attr('data-app-href') ?? attr('href')
+    if (!href || !href.startsWith('/') || href.startsWith('//') || href.startsWith('/api/') || href.startsWith('/templates/')) continue
+    out.add(href)
+  }
+  return [...out]
+}

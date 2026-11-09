@@ -13,7 +13,7 @@ import type { AppFetch } from '@/components/app-runtime'
  * pulls each section of the app from its own chunk on first use, plus a stylesheet. The
  * marketing site mounts it:
  *
- *   const demo = PortfolioDemo.mount(el, { snapshot, answers, pages, api, chrome: 'page' })
+ *   const demo = PortfolioDemo.mount(el, { snapshot, answers, pages, api, chrome: 'page', basePath: '/demo' })
  *   demo.navigate('/deals')
  *   demo.unmount()
  *
@@ -31,9 +31,17 @@ export interface MountOptions {
   api?: DemoApi
   /** The page to open first. */
   initialPath?: string
-  /** Fires after each navigation; the host may mirror the path into its own URL (`replace`
-   *  when the app replaced its history entry rather than adding one). */
+  /** Fires after each navigation with the app's path (no basePath); the host may mirror it into
+   *  its own URL (`replace` when the app replaced its history entry rather than adding one). */
   onNavigate?: (href: string, opts: { replace: boolean }) => void
+  /**
+   * The host path the demo lives under (`/demo`). Every link the widget renders is written with
+   * it (`/demo/companies/<id>`), so a new tab, a middle-click, a copied link or a crawler reaches
+   * the demo page rather than the host's bare `/companies/<id>`. Without it hrefs are the app's paths.
+   */
+  basePath?: string
+  /** The host URL for an app href, when a prefix is not enough. Wins over basePath. */
+  hrefFor?: (appHref: string) => string
   /** Replaces the mock for `/api/*` (the recorder proxies to a live app through this). */
   fetch?: AppFetch
   /** A request nothing could answer; the check script collects these. */
@@ -77,6 +85,8 @@ export function mount(el: HTMLElement, opts: MountOptions): { unmount: () => voi
       chrome={opts.chrome}
       onReady={opts.onReady}
       exit={{ href: opts.exitHref ?? '/', label: 'Exit demo' }}
+      basePath={opts.basePath}
+      hrefFor={opts.hrefFor}
     />,
   )
   // The other sections, while the visitor reads the first page.

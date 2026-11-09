@@ -3,7 +3,7 @@ import { readdirSync, statSync, existsSync } from 'node:fs'
 import path from 'node:path'
 import { PAGE_LOADERS, matchPattern } from '@/lib/pages/registry'
 
-import { ROUTES } from './route-table'
+import { ROUTES, SECTION_SLUGS } from './route-table'
 
 /**
  * The demo's route table against the app. route-table.ts is data — no page component is
@@ -21,7 +21,6 @@ const NOT_IN_DEMO: Record<string, string> = {
   'lps/live': 'redirect to /lps',
   'lps/preview': 'admin only',
   'pending-actions': 'redirect to /dashboard',
-  'records': 'records are filed by signed-in people and their assistants; the demo dataset has none',
   'usage': 'admin only',
   'getting-started': 'the setup checklist for a new fund — the demo fund is already set up',
   'entities/[id]/documents': 'an entity\'s uploaded governing documents — the demo fund has none to show',
@@ -33,10 +32,6 @@ const NOT_IN_DEMO: Record<string, string> = {
   'settings/memo-agent/style-anchors': 'admin only',
   'settings/memo-agent/style-anchors/[id]': 'admin only',
   'manco/[[...rest]]': 'redirect into /funds',
-  'funds/[id]/text': 'redirect to the journal',
-  'funds/[id]/migrate': 'reached from Admin, not the nav; an import flow',
-  'funds/[id]/opening-balances': 'reached from Admin, not the nav; a setup flow',
-  'funds/[id]/tax': 'tax_reporting ships off',
 }
 
 function pages(dir = APP_DIR, prefix = ''): string[] {
@@ -62,8 +57,10 @@ describe('demo widget route table', () => {
     const missing = pages().filter(key => {
       if (NOT_IN_DEMO[key]) return false
       const pattern = toPattern(key)
-      // /funds/[id]/<slug> pages are one route with the slug as a param.
-      if (/^\/funds\/:id\/[a-z-]+$/.test(pattern)) return !patterns.includes('/funds/:id/:slug')
+      // /funds/[id]/<slug> pages are one route with the slug as a param, walked for each slug in
+      // SECTION_SLUGS: a slug missing there is a page the site never builds.
+      const slug = pattern.match(/^\/funds\/:id\/([a-z-]+)$/)?.[1]
+      if (slug) return !patterns.includes('/funds/:id/:slug') || !SECTION_SLUGS.includes(slug)
       // /funds/[id] is /funds/:x (section or entity).
       if (pattern === '/funds/:id') return !patterns.includes('/funds/:x')
       return !patterns.includes(pattern)

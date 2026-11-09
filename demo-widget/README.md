@@ -19,6 +19,14 @@ Two substitutions make the app's component tree run inside a static page:
   URL. `stubs/next-navigation.ts` answers `usePathname`, `useParams` and `useSearchParams` from
   it through React context, so a page never sees the URL of the page replacing it (as in Next),
   and `stubs/next-link.tsx` renders the app's links as anchors the frame intercepts.
+- **Hrefs.** The host mounts the widget under a path of its own (`basePath: '/demo'`, or
+  `hrefFor` for anything a prefix cannot express), and `hrefs.ts` writes every link with it
+  (`/demo/companies/<id>`), so a new tab, a middle-click, a copied link or a crawler lands on
+  the demo rather than the host's bare `/companies/<id>`. The app's path rides along as
+  `data-app-href` for the click handler; `onNavigate` and `navigate` still speak app paths.
+  Plain `<a href>` anchors the app renders outside `next/link` are rewritten the same way as
+  they appear. Links to pages the demo deliberately leaves out are hidden (`HIDDEN_IN_DEMO`),
+  and the import templates are inlined as `data:` downloads.
 - **No session.** The header's sign-out is "Exit demo", a link back to the host (`exitHref`),
   through the runtime's `exit`. Every refused change raises one "Read-only demo" notice.
 
@@ -30,7 +38,8 @@ and by the widget); the widget hands the view the loader's recorded output from
 `data/pages.json`, keyed by URL, or a thinner equivalent `fallbacks.ts` builds from the
 snapshot until that has been recorded. `lib/pages/registry.ts` lists the loaders and how to
 enumerate their URLs for a fund. `routes.test.ts` fails when a page exists in the app
-without a demo route or a reason.
+without a demo route or a reason, and `pages-render.test.tsx` fails when a page links to a
+URL the widget does not build (and does not hide).
 
 `build.mjs` bundles `index.tsx` with esbuild (React included; `next/*`, `next-themes`, `xlsx`
 and the browser Supabase client swapped for `stubs/`) as an ES module split by section. The
@@ -46,7 +55,7 @@ The build writes:
 
 | File | What |
 | --- | --- |
-| `dist/widget.js` | IIFE exposing `PortfolioDemo.mount(el, { snapshot, answers, pages, api, chrome: 'page' \| 'card', initialPath, onNavigate })` and `PortfolioDemo.routes(snapshot, pages)` |
+| `dist/widget.js` | IIFE exposing `PortfolioDemo.mount(el, { snapshot, answers, pages, api, chrome: 'page' \| 'card', initialPath, onNavigate, basePath, hrefFor })` and `PortfolioDemo.routes(snapshot, pages)` |
 | `dist/widget.css` | the app's stylesheet, scoped; `dark` on `<html>` switches the theme |
 | `dist/snapshot.json` | the sample fund (`types.ts` is the contract; `schemaVersion` guards it) |
 | `dist/pages.json` | every server page's loaded data, keyed by URL |

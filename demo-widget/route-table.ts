@@ -21,8 +21,20 @@ export interface DemoRoute {
 
 const recordedHrefs = (prefix: RegExp) => (_s: DemoSnapshot, pages: DemoPages) => Object.keys(pages.pages).filter(h => prefix.test(h))
 
-/** The `/funds/<slug>` sections and `/funds/<id>/<slug>` pages the widget walks. */
-const SECTION_SLUGS = ['status', 'bank', 'capital-accounts', 'journal', 'ledger', 'periods', 'schedule-of-investments', 'construction', 'forecast', 'statements']
+/**
+ * The `/funds/<id>/<slug>` pages the widget walks: every page under app/(app)/funds/[id]/ that the
+ * demo renders. The nav, Admin and the setup cards link to all of them, so one missing here is a
+ * link that 404s on the site.
+ */
+export const SECTION_SLUGS = [
+  'status', 'bank', 'receipts', 'partnership-expenses', 'capital-accounts', 'journal', 'text', 'ledger', 'periods',
+  'schedule-of-investments', 'performance', 'construction', 'forecast', 'statements', 'tax', 'migrate', 'opening-balances',
+]
+/**
+ * The firm-wide `/funds/<slug>` landings (pick an entity for this section). `text` has none: the
+ * app has no firm-wide plain-text page, only the journal's tab.
+ */
+const FIRM_SLUGS = SECTION_SLUGS.filter(slug => slug !== 'text')
 
 export const ROUTES: DemoRoute[] = [
   { pattern: '/' },
@@ -41,6 +53,7 @@ export const ROUTES: DemoRoute[] = [
   { pattern: '/notes', section: 'portfolio' },
   { pattern: '/compliance', section: 'portfolio' },
   { pattern: '/compliance/links', section: 'portfolio' },
+  { pattern: '/records', section: 'portfolio' },
   // Inbound, review, deals
   { pattern: '/emails', section: 'inbound' },
   { pattern: '/emails/:id', section: 'inbound', hrefs: recordedHrefs(/^\/emails\/[^/]+$/) },
@@ -62,7 +75,7 @@ export const ROUTES: DemoRoute[] = [
   { pattern: '/lp-activity', section: 'lps' },
   // Entities
   { pattern: '/funds', section: 'funds' },
-  { pattern: '/funds/:x', section: 'funds', hrefs: s => [...SECTION_SLUGS.map(slug => `/funds/${slug}`), ...s.vehicles.map(v => `/funds/${v.id}`)] },
+  { pattern: '/funds/:x', section: 'funds', hrefs: s => [...FIRM_SLUGS.map(slug => `/funds/${slug}`), ...s.vehicles.map(v => `/funds/${v.id}`)] },
   { pattern: '/funds/:id/:slug', section: 'funds', hrefs: s => s.vehicles.flatMap(v => SECTION_SLUGS.map(slug => `/funds/${v.id}/${slug}`)) },
   { pattern: '/funds/:id/capital-accounts/:lpEntityId', section: 'funds', hrefs: s => (s.lpPositions ?? []).map(p => `/funds/${p.vehicleId}/capital-accounts/${p.lpEntityId}`) },
   // Settings and support

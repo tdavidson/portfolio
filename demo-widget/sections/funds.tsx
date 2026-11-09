@@ -1,4 +1,4 @@
-import { Suspense, type ReactNode } from 'react'
+import { Suspense, useEffect, type ReactNode } from 'react'
 import Link from 'next/link'
 import { FundDetailView } from '@/app/(app)/funds/[id]/fund-detail-view'
 import { MancoDetailView } from '@/app/(app)/funds/[id]/manco-detail-view'
@@ -11,11 +11,15 @@ import { LedgerView } from '@/app/(app)/funds/ledger/view'
 import { MigrateView } from '@/app/(app)/funds/migrate/view'
 import { OpeningBalancesView } from '@/app/(app)/funds/opening-balances/view'
 import { SnapshotCutover } from '@/app/(app)/funds/opening-balances/snapshot-cutover'
+import { PartnershipExpensesView } from '@/app/(app)/funds/partnership-expenses/view'
+import { FundPerformanceView } from '@/app/(app)/funds/performance/view'
 import { PeriodsView } from '@/app/(app)/funds/periods/view'
+import { ReceiptsView } from '@/app/(app)/funds/receipts/view'
 import { ScheduleOfInvestmentsView } from '@/app/(app)/funds/schedule-of-investments/view'
 import { StatementsView } from '@/app/(app)/funds/statements/view'
 import { StatusView } from '@/app/(app)/funds/status/view'
 import { TaxView } from '@/app/(app)/funds/tax/view'
+import { useAppNavigate } from '@/components/app-runtime'
 import { AccountingPageHeader, AccountingBody } from '@/components/accounting-chrome'
 import { FundSubpageChrome, FundScopeSync } from '@/components/fund-subpage-chrome'
 import { FundSwitcher } from '@/components/accounting-vehicle'
@@ -38,6 +42,9 @@ const SUBPAGES: Record<string, { title: string; description: string; view: React
   'capital-accounts': { title: 'Capital accounts', description: 'Limited partner roll-forward per period', view: <Suspense fallback={null}><CapitalAccountsView /></Suspense> },
   'journal': { title: 'Journal', description: 'Every entry, to view, unpost or edit — or author entries as plain text and post them in one go.', view: <JournalPageView /> },
   'ledger': { title: 'General ledger', description: 'One account at a time: the balance carried in, every posting, and the running balance.', view: <Suspense fallback={null}><LedgerView /></Suspense> },
+  'receipts': { title: 'Receipts', description: 'Receipts behind the entries, emailed in or uploaded.', view: <ReceiptsView /> },
+  'partnership-expenses': { title: 'Partnership expenses', description: 'The quarterly invoices that bill the funds for the expenses this entity paid for them.', view: <PartnershipExpensesView /> },
+  'performance': { title: 'Fund performance', description: 'LP-only contributions, distributions and returns through a date, from the books', view: <FundPerformanceView /> },
   'migrate': { title: 'Migrate from QuickBooks', description: 'Import the general ledger, map the accounts, and tie every period out to QuickBooks', view: null },
   'opening-balances': { title: 'Opening balances', description: 'Take over at a cutover date: enter each LP’s capital balance from their latest statement. Books one opening entry — no history to reconstruct.', view: <><div className="mb-8"><SnapshotCutover /></div><OpeningBalancesView /></> },
   'periods': { title: 'Period close', description: 'Allocate income and expenses to each partner and close the period', view: <PeriodsView /> },
@@ -111,6 +118,8 @@ function EntitySubpage({ v, slug }: { v: Vehicle; slug: string }) {
   // Construction is the Forecast page's Investments tab now; the page renders the view bare, as the
   // app does (app/(app)/funds/[id]/forecast/page.tsx).
   if (slug === 'construction') return <ForecastView vehicle={v.vehicle} vehicleId={v.vehicleId} kind={v.kind} initialTab="investments" />
+  // The app redirects /text to the journal's plain-text tab (app/(app)/funds/[id]/text/page.tsx).
+  if (slug === 'text') return <Redirect href={`/funds/${v.vehicleId ?? v.vehicle}/journal?tab=text`} />
   if (slug === 'forecast') return <ForecastView vehicle={v.vehicle} vehicleId={v.vehicleId} kind={v.kind} />
   const page = SUBPAGES[slug]
   if (!page) return <NoData href={`/funds/${v.vehicleId ?? v.vehicle}/${slug}`} />
@@ -121,6 +130,13 @@ function EntitySubpage({ v, slug }: { v: Vehicle; slug: string }) {
       </FundSubpageChrome>
     </div>
   )
+}
+
+/** A server page's redirect(), as the widget does it: replace the history entry once mounted. */
+function Redirect({ href }: { href: string }) {
+  const navigate = useAppNavigate()
+  useEffect(() => { navigate(href, { replace: true }) }, [navigate, href])
+  return null
 }
 
 export const renders: Record<string, RouteRender> = {
