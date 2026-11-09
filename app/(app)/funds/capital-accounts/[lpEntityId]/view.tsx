@@ -31,6 +31,8 @@ interface Statement {
   /** The basis these figures are on, and the vehicle's default (what an unspecified request gets). */
   basis: StatementBasis
   defaultBasis: StatementBasis
+  /** False for a partner on administrator snapshots: fair value only, so no toggle. */
+  basesAvailable: boolean
 }
 
 // The period picker: a year (or inception to date, or custom dates), then within a year the whole
@@ -154,7 +156,7 @@ export function LpStatementView({ lpEntityId, vehicleId }: { lpEntityId: string;
           )}
           {/* The basis: fair value (the books as they stand), cost (no unrealized marks) or
               contributions and income only (no gains or losses at all). A reporting filter only. */}
-          <select
+          {data.basesAvailable && <select
             value={basis ?? data.basis}
             onChange={e => setBasis(e.target.value as StatementBasis)}
             aria-label="Statement basis"
@@ -163,7 +165,7 @@ export function LpStatementView({ lpEntityId, vehicleId }: { lpEntityId: string;
             {STATEMENT_BASES.map(b => (
               <option key={b} value={b}>{BASIS_LABELS[b]}{b === data.defaultBasis && data.defaultBasis !== 'fair_value' ? ' (default)' : ''}</option>
             ))}
-          </select>
+          </select>}
           {/* The vehicle's letterhead (logo, name, address, email), each part falling back to the fund's. */}
           {vehicleId && canEditLetterhead && (
             <button

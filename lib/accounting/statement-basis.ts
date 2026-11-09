@@ -77,3 +77,13 @@ export function basisExclusion(account: CapitalAccount, basis: StatementBasis): 
   const sum = BASIS_EXCLUDED_LINES[basis].reduce((s, f) => s + account[f], 0)
   return Math.round((sum + Number.EPSILON) * 100) / 100
 }
+
+/**
+ * Whether a partner can be presented off fair value: only when their capital is the ledger's, line by
+ * line. A partner built from the administrator's snapshots (capital-evidence.ts, basis 'reported')
+ * has called, distributions and NAV only, and everything else is one leftover filed as unrealized, so
+ * a cost statement would quietly read as called less distributed. No evidence row = ledger only.
+ */
+export function partnerTakesBases(evidence: { basis: string } | undefined): boolean {
+  return !evidence || evidence.basis === 'ledger'
+}

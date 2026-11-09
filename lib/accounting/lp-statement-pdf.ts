@@ -163,7 +163,7 @@ export function buildStatementHtml(d: StatementPdfData): string {
 export async function generateLpStatementPdf(
   admin: SupabaseClient,
   opts: { fundId: string; group: string; lpEntityId: string; period: StatementPeriod; basis?: StatementBasis },
-): Promise<{ pdf: Buffer; fileName: string; partnerName: string } | null> {
+): Promise<{ pdf: Buffer; fileName: string; partnerName: string } | { error: string } | null> {
   const { fundId, group, lpEntityId, period } = opts
   const basis = opts.basis ?? DEFAULT_STATEMENT_BASIS
 
@@ -174,7 +174,8 @@ export async function generateLpStatementPdf(
     admin.from('fund_settings' as any).select('currency, theme').eq('fund_id', fundId).maybeSingle(),
   ])
 
-  if ('error' in statement) return null
+  // A basis this partner can't be presented on is said, not turned into a missing statement.
+  if ('error' in statement) return statement.code === 'basis_unavailable' ? { error: statement.error } : null
 
   const fund = (fundRes as any).data
   // The vehicle's own letterhead where it has one (a separately branded vehicle's LPs know it by

@@ -38,6 +38,7 @@ export async function GET(req: NextRequest) {
 
   const result = await generateLpStatementPdf(admin, { fundId: gate.fundId, group, lpEntityId: lp, period, basis })
   if (!result) return NextResponse.json({ error: 'Could not build the statement for that partner' }, { status: 404 })
+  if ('error' in result) return NextResponse.json({ error: result.error }, { status: 400 })
 
   return new NextResponse(new Uint8Array(result.pdf), {
     headers: {

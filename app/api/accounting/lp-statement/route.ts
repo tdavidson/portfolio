@@ -37,10 +37,16 @@ export async function GET(req: NextRequest) {
   const basis = parseStatementBasis(sp.get('basis'), defaultBasis)
   if (typeof basis !== 'string') return NextResponse.json({ error: basis.error }, { status: 400 })
 
-  const [result, letterhead] = await Promise.all([
+  const [first, letterhead] = await Promise.all([
     lpStatement(admin, gate.fundId, group, lp, period, basis),
     vehicleLetterheadDetail(admin, gate.fundId, group),
   ])
-  if ('error' in result) return NextResponse.json({ error: result.error }, { status: 404 })
+  // A partner on administrator snapshots can only be shown on fair value. When that basis came from
+  // the vehicle's default rather than the request, show fair value (the page hides the toggle for
+  // them); a basis asked for by name is refused.
+  const result = 'error' in first && first.code === 'basis_unavailable' && !sp.get('basis')
+    ? await lpStatement(admin, gate.fundId, group, lp, period, 'fair_value')
+    : first
+  if ('error' in result) return NextResponse.json({ error: result.error }, { status: result.code === 'basis_unavailable' ? 400 : 404 })
   return NextResponse.json({ ...result, period, letterhead, defaultBasis })
 }

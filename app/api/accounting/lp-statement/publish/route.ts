@@ -125,6 +125,8 @@ export async function POST(req: NextRequest) {
         fundId: gate.fundId, group, lpEntityId: target.lpEntityId, period, basis,
       })
       if (!result) { errors.push(`${target.name}: could not build the statement`); return }
+      // Left out of a cost or contributions-only publish: on administrator snapshots, fair value only.
+      if ('error' in result) { errors.push(`${target.name}: not published on this basis. ${result.error}`); return }
 
       const safeName = result.fileName.replace(/[^a-zA-Z0-9 ._-]/g, '_')
       const storagePath = `${gate.fundId}/${Date.now()}_${safeName}`

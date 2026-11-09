@@ -94,7 +94,11 @@ export async function GET(req: NextRequest, props: { params: Promise<{ token: st
       // different quarter between the conversation and the click.
       const period = { ...customPeriod(a.start, a.end), ...(a.label ? { label: a.label } : {}) }
       // The basis resolved when the link was made; a link from before bases existed is fair value.
-      result = await generateLpStatementPdf(admin, { fundId: claims.fundId, group, lpEntityId: a.lp, period, basis: isStatementBasis(a.basis) ? a.basis : 'fair_value' })
+      const pdf = await generateLpStatementPdf(admin, { fundId: claims.fundId, group, lpEntityId: a.lp, period, basis: isStatementBasis(a.basis) ? a.basis : 'fair_value' })
+      // lp_statement_pdf refuses an unavailable basis before issuing a link; should the partner's
+      // evidence change before the click, say why rather than a bare not-found.
+      if (pdf && 'error' in pdf) return NextResponse.json({ error: pdf.error }, { status: 400 })
+      result = pdf
     } else {
       const investor = claims.args.investor
       if (typeof investor !== 'string') return notFound()

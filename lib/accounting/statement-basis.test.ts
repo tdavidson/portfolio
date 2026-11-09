@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { computeCapitalAccounts, rollForwardTies, type CapitalPosting } from './capital-account'
 import {
-  basisExclusion, parseStatementBasis, postingsForBasis, BASIS_NOTES, type StatementBasis,
+  basisExclusion, parseStatementBasis, partnerTakesBases, postingsForBasis, BASIS_NOTES, type StatementBasis,
 } from './statement-basis'
 import { commitmentSummaryRows } from './capital-statement-layout'
 import { buildStatementHtml, type StatementPdfData } from './lp-statement-pdf'
@@ -90,6 +90,14 @@ describe('statement basis', () => {
     expect(cash.ending).toBe(fvItd.ending - itdUnrealized - itdFx - itdRealized)
     expect(fvItd.ending - cash.ending).toBe(basisExclusion(fvItd, 'cash_only'))
     expect(account('cash_only', Q4).beginning).toBe(account('cash_only', Q3).ending)
+  })
+
+  it('offers cost and contributions-only only to partners whose capital is the ledger, line by line', () => {
+    expect(partnerTakesBases(undefined)).toBe(true)
+    expect(partnerTakesBases({ basis: 'ledger' })).toBe(true)
+    // Administrator snapshots lump fees, income and gains into one unrealized leftover.
+    expect(partnerTakesBases({ basis: 'reported' })).toBe(false)
+    expect(partnerTakesBases({ basis: 'missing' })).toBe(false)
   })
 
   it('refuses an unknown basis instead of falling back to fair value', () => {

@@ -456,6 +456,8 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
       // Every figure below is on this basis. Off fair value, basis_footing shows how it ties to the
       // books: fair-value ending less the excluded lines (inception to date) is this ending.
       basis,
+      // False for a partner on administrator snapshots: only fair_value can be asked for.
+      bases_available: result.basesAvailable,
       ...(basis !== 'fair_value' ? {
         basis_note: BASIS_NOTES[basis],
         basis_footing: {
