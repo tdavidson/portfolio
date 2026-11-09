@@ -173,6 +173,9 @@ function fromSnapshot(path: string, snapshot: DemoSnapshot): Response | null {
       return json({ models: [] })
     case '/api/analyst/conversations':
       return json({ conversations: [] })
+    case '/api/records':
+      // Records are filed by signed-in people from a working session; the demo fund has none.
+      return json({ records: [], areas: [], entityScoped: false, canFile: false })
     default:
       return null
   }

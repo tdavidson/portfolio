@@ -10,6 +10,7 @@ import NewLetterPage from '@/app/(app)/letters/new/page'
 import NotesPage from '@/app/(app)/notes/page'
 import CompliancePage from '@/app/(app)/compliance/page'
 import ComplianceLinksPage from '@/app/(app)/compliance/links/page'
+import RecordsPage from '@/app/(app)/records/page'
 import { withData, type RouteRender } from '../route-helpers'
 
 /** The Portfolio section's pages, beyond the dashboard itself (which ships in the core). */
@@ -26,4 +27,6 @@ export const renders: Record<string, RouteRender> = {
   '/notes': () => <NotesPage />,
   '/compliance': () => <CompliancePage />,
   '/compliance/links': () => <ComplianceLinksPage />,
+  // The demo fund has no records; the page shows its empty state (mock-api.ts answers the list).
+  '/records': () => <RecordsPage />,
 }

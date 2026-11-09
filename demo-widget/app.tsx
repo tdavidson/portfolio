@@ -8,6 +8,7 @@ import { DEFAULT_FEATURE_VISIBILITY, type FeatureVisibilityMap } from '@/lib/typ
 import type { AppExit, AppFetch } from '@/components/app-runtime'
 import { DemoLocationProvider } from './stubs/next-navigation'
 import { matchRoute, RouteScreen } from './routes'
+import { applyToAnchor, createLinker, LinkerProvider, type HrefOptions, type Linker } from './hrefs'
 import type { DemoData } from './types'
 
 /**
@@ -36,11 +37,11 @@ function parse(href: string): Location {
   return { pathname: u.pathname.replace(/\/+$/, '') || '/', search: u.search }
 }
 
-export interface DemoAppProps {
+export interface DemoAppProps extends HrefOptions {
   data: DemoData
   fetch: AppFetch
   initialPath?: string
-  /** Called after every navigation with the new path; the host may mirror it into its URL. */
+  /** Called after every navigation with the new path (the app's, without basePath); the host may mirror it into its URL. */
   onNavigate?: (href: string, opts: { replace: boolean }) => void
   /** Hands the host the widget's `navigate`, for `mount().navigate`. */
   exposeNavigate?: (navigate: (href: string, opts?: { replace?: boolean }) => void) => void
@@ -55,9 +56,10 @@ export interface DemoAppProps {
   chrome?: 'card' | 'page'
 }
 
-export function DemoApp({ data, fetch, initialPath = '/dashboard', onNavigate, exposeNavigate, onReady, exit, chrome = 'card' }: DemoAppProps) {
+export function DemoApp({ data, fetch, initialPath = '/dashboard', onNavigate, exposeNavigate, onReady, exit, chrome = 'card', basePath, hrefFor }: DemoAppProps) {
   const [loc, setLoc] = useState<Location>(() => parse(initialPath))
   const frame = useRef<HTMLDivElement>(null)
+  const linker = useMemo(() => createLinker({ basePath, hrefFor }), [basePath, hrefFor])
 
   // Where the widget is now, for the no-op check below; written when navigating, never in render.
   const current = useRef(loc)
@@ -95,12 +97,19 @@ export function DemoApp({ data, fetch, initialPath = '/dashboard', onNavigate, e
       const href = a.getAttribute('href') ?? ''
       if (href.startsWith('#') || href.startsWith('mailto:') || href.startsWith('tel:')) return
       if (/^https?:\/\//.test(href)) { if (!href.startsWith(window.location.origin + '/api')) return }
+      if (href.startsWith('data:')) return
       e.preventDefault()
-      navigate(href)
+      // The href is the host's URL for the page (hrefs.ts); the app's path is on the anchor.
+      navigate(a.getAttribute('data-app-href') ?? linker.toApp(href))
     }
     el.addEventListener('click', onClick)
     return () => el.removeEventListener('click', onClick)
-  }, [navigate])
+  }, [navigate, linker])
+
+  // Anchors the app renders as a plain <a href="/..."> rather than through next/link get the same
+  // treatment the stub gives its own: the host's href, or hidden. In the frame and in the portals
+  // the widget opens under <body> (which carry oa-demo-root).
+  useEffect(() => rewritePlainAnchors(linker), [linker])
 
   const screen = (
     <RouteScreen
@@ -117,6 +126,7 @@ export function DemoApp({ data, fetch, initialPath = '/dashboard', onNavigate, e
   )
 
   return (
+    <LinkerProvider value={linker}>
     <DemoLocationProvider value={location}>
     <AppRuntimeProvider fetch={fetch} navigate={navigate} exit={exit}>
       {/* A transformed ancestor is the containing block for `position: fixed` descendants, which
@@ -153,5 +163,24 @@ export function DemoApp({ data, fetch, initialPath = '/dashboard', onNavigate, e
       </div>
     </AppRuntimeProvider>
     </DemoLocationProvider>
+    </LinkerProvider>
   )
+}
+
+function rewritePlainAnchors(linker: Linker): () => void {
+  const apply = (root: ParentNode) => {
+    root.querySelectorAll?.('a[href]').forEach(a => { if (a.closest('.oa-demo-root')) applyToAnchor(a as HTMLAnchorElement, linker) })
+  }
+  apply(document)
+  const observer = new MutationObserver(records => {
+    for (const r of records) {
+      if (r.type === 'attributes') { if (r.target instanceof HTMLAnchorElement && r.target.closest('.oa-demo-root')) applyToAnchor(r.target, linker) }
+      else r.addedNodes.forEach(n => {
+        if (n instanceof HTMLAnchorElement && n.hasAttribute('href') && n.closest('.oa-demo-root')) applyToAnchor(n, linker)
+        else if (n instanceof Element) apply(n)
+      })
+    }
+  })
+  observer.observe(document.body, { subtree: true, childList: true, attributes: true, attributeFilter: ['href'] })
+  return () => observer.disconnect()
 }

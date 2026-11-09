@@ -7,7 +7,8 @@
  * Serves demo-widget/dist on a local port, mounts the widget with its own data files, visits
  * every URL the route table serves, and for each collects: uncaught errors (a page that crashed),
  * console errors, and API requests nothing could answer (mock-api.ts's misses — routes the
- * recorder has not covered). Exits non-zero on a crash; with --strict, on a miss as well.
+ * recorder has not covered), and links to URLs the widget does not build (a 404 on the site when
+ * opened in a new tab). Exits non-zero on a crash; with --strict, on a miss or a dead link as well.
  * The workflow runs it before publishing, so a component that no longer renders on the snapshot
  * stops the publish rather than the site.
  *
@@ -41,7 +42,7 @@ const HOST = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>
 window.__misses = []; window.__pending = 0;
 Promise.all(['snapshot','answers','pages','api'].map(f => fetch('/' + f + '.json').then(r => r.json()))).then(([snapshot, answers, pages, api]) => {
   const orig = window.fetch;
-  window.__demo = PortfolioDemo.mount(document.getElementById('demo'), { snapshot, answers, pages, api, onMiss: k => window.__misses.push(k) });
+  window.__demo = PortfolioDemo.mount(document.getElementById('demo'), { snapshot, answers, pages, api, basePath: '/demo', onMiss: k => window.__misses.push(k) });
   // Count in-flight /api requests so the walker can wait for a page to settle.
   const wrapped = window.fetch;
   window.fetch = function (input, init) { const p = wrapped.call(this, input, init); const u = typeof input === 'string' ? input : input.url ?? String(input); if (u.includes('/api/')) { window.__pending++; p.finally(() => { window.__pending--; }); } return p; };
@@ -66,7 +67,7 @@ const browser = await puppeteer.launch({ executablePath: chrome, args: ['--no-sa
 const page = await browser.newPage()
 await page.setViewport({ width: 1280, height: 900 })
 
-const report = { routes: [], crashes: 0, consoleErrors: 0, misses: new Set() }
+const report = { routes: [], crashes: 0, consoleErrors: 0, misses: new Set(), deadLinks: new Set() }
 let current = null
 page.on('pageerror', e => { if (current) { current.errors.push(String(e.message).slice(0, 400)); report.crashes++ } })
 page.on('console', m => {
@@ -104,6 +105,16 @@ for (const href of routes) {
   await settle()
   current.misses = await page.evaluate('window.__misses')
   for (const m of current.misses) report.misses.add(m)
+  // Visible links whose app path (data-app-href, hrefs.ts) the widget does not build. Hidden ones
+  // are hrefs.ts's HIDDEN_IN_DEMO, which the demo hides on purpose.
+  current.deadLinks = await page.evaluate(served => {
+    const ok = new Set(['/', ...served])
+    return [...new Set([...document.querySelectorAll('.oa-demo-root a[data-app-href]')]
+      .filter(a => a.style.display !== 'none')
+      .map(a => a.getAttribute('data-app-href'))
+      .filter(h => !ok.has(h.split(/[?#]/)[0] || '/')))]
+  }, routes)
+  for (const l of current.deadLinks) report.deadLinks.add(`${l}  (on ${href})`)
   const text = await page.evaluate('document.querySelector(".oa-demo")?.innerText.length ?? 0')
   current.chars = text
   if (shots) {
@@ -111,8 +122,9 @@ for (const href of routes) {
     await page.screenshot({ path: path.join(shots, href.replace(/[^a-z0-9]+/gi, '_').replace(/^_/, '') + '.png') })
   }
   report.routes.push(current)
-  const flag = current.errors.length ? 'CRASH' : current.console.length ? 'error' : current.misses.length ? 'miss ' : 'ok   '
+  const flag = current.errors.length ? 'CRASH' : current.console.length ? 'error' : current.deadLinks.length ? 'link ' : current.misses.length ? 'miss ' : 'ok   '
   console.log(`${flag} ${href}${current.misses.length ? `  (${current.misses.length} unanswered)` : ''}`)
+  for (const l of current.deadLinks) console.log(`       → ${l} is not a demo URL`)
   for (const e of current.errors) console.log(`       ! ${e}`)
   for (const e of current.console) console.log(`       ~ ${e}`)
   // A crash unmounts the React tree; start over so the next page is judged on its own. Report the
@@ -125,7 +137,9 @@ await browser.close()
 server.close()
 
 const misses = [...report.misses].sort()
-fs.writeFileSync(path.join(root, 'demo-widget', 'check-report.json'), JSON.stringify({ ...report, misses }, null, 2))
-console.log(`\n${routes.length} pages: ${report.crashes} crashes, ${report.consoleErrors} console errors, ${misses.length} unanswered API requests.`)
+const deadLinks = [...report.deadLinks].sort()
+fs.writeFileSync(path.join(root, 'demo-widget', 'check-report.json'), JSON.stringify({ ...report, misses, deadLinks }, null, 2))
+console.log(`\n${routes.length} pages: ${report.crashes} crashes, ${report.consoleErrors} console errors, ${misses.length} unanswered API requests, ${deadLinks.length} dead links.`)
 if (misses.length) console.log(`Unanswered (record them with scripts/demo-record.mjs):\n  ${misses.join('\n  ')}`)
-if (report.crashes || (strict && misses.length)) process.exit(1)
+if (deadLinks.length) console.log(`Links to URLs the widget does not build (add a route in demo-widget/route-table.ts, or hide it in demo-widget/hrefs.ts):\n  ${deadLinks.join('\n  ')}`)
+if (report.crashes || (strict && (misses.length || deadLinks.length))) process.exit(1)
