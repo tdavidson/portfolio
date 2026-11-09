@@ -33,8 +33,8 @@ export const BASIS_EXCLUDED_LINES: Record<StatementBasis, (keyof CapitalAccount)
 /** The toggle's labels. */
 export const BASIS_LABELS: Record<StatementBasis, string> = {
   fair_value: 'Fair value',
-  cost: 'Cost basis',
-  cash_only: 'Contributions and income only',
+  cost: 'Book basis',
+  cash_only: 'Capital Only',
 }
 
 /** The line printed on the statement so an LP can tell which version they hold. Null on fair value,
