@@ -14,6 +14,7 @@ import { classifyNewFollowOn } from './fund-timeseries'
 import { observedByHolding, BALANCE_TOLERANCE, type Wallet, type WalletBalance } from '@/lib/portfolio/wallets'
 import type { FairValueLevel } from '@/lib/portfolio/quotes'
 import type { InvestmentTransaction, CompanyStatus } from '@/lib/types/database'
+import { acquiresHolding, isCostTransfer } from '@/lib/portfolio/cost-transfer-math'
 
 const r = (n: number) => Math.round(n * 100) / 100
 
@@ -224,7 +225,7 @@ export function investmentCost(t: InvestmentTransaction): number {
 /** The vehicle's investments, dated, at the cost `invested` sums (the Investments tab's figure). */
 export function investmentCostRows(txns: InvestmentTransaction[], vehicle: string): { date: string | null; cost: number }[] {
   return txns
-    .filter(t => t.transaction_type === 'investment' && t.portfolio_group === vehicle)
+    .filter(t => (t.transaction_type === 'investment' || isCostTransfer(t)) && t.portfolio_group === vehicle)
     .map(t => ({ date: t.transaction_date, cost: investmentCost(t) }))
 }
 
@@ -259,7 +260,7 @@ export function buildSoiPositions(
     const all = byCompany.get(company.id) ?? []
     const relevant = txnsForVehicle(all, vehicle)
     // A company-wide price signal alone isn't a holding — require real investment.
-    if (!relevant.some(t => t.transaction_type === 'investment' && t.portfolio_group === vehicle)) continue
+    if (!relevant.some(t => acquiresHolding(t) && t.portfolio_group === vehicle)) continue
 
     const s = computeSummary(relevant, company.status, asOf)
 
@@ -269,8 +270,9 @@ export function buildSoiPositions(
     // The per-row cost must be defined exactly as computeSummary defines totalInvested —
     // investment_cost + fee_amount, plus interest_converted on a conversion row — or the split
     // will not tie to `invested` and the stacked bars will not sum to their own total.
+    // A cost transfer counts at its signed cost (out of the holding: negative), as totalInvested does.
     const investRows = relevant
-      .filter(t => t.transaction_type === 'investment')
+      .filter(t => t.transaction_type === 'investment' || isCostTransfer(t))
       .map(t => ({ date: t.transaction_date, cost: investmentCost(t) }))
     const classified = classifyNewFollowOn(investRows)
     const investedNew = r(classified.filter(t => t.isNew).reduce((sum, t) => sum + t.cost, 0))

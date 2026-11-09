@@ -380,6 +380,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/portfolio/fund-holdings/[id]/events/[eventId]': { domain: 'portfolio', feature: 'investments' },
   'api/portfolio/fund-holdings/[id]/nav': { domain: 'portfolio', feature: 'investments' },
   'api/portfolio/investments': { domain: 'portfolio', feature: 'investments' },
+  'api/portfolio/cost-transfers': { domain: 'portfolio', feature: 'investments' },
   'api/requests': { domain: 'portfolio', feature: 'asks' },
   'api/requests/responses': { domain: 'portfolio', feature: 'asks' },
   'api/requests/send': { domain: 'portfolio', feature: 'asks' },

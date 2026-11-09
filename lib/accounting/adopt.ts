@@ -16,6 +16,11 @@
 // A 1200/1250 credit beside a cost credit is the exit unwinding its mark, not a separate mark.
 // A company's own 4000 gain with no cost line is an earn-out after a full exit: proceeds, zero basis.
 //
+// A COST TRANSFER is read first: an entry whose only lines are a credit to one company's cost account
+// and an equal debit to another's — no cash, no gain or loss, nothing else — moves basis between
+// holdings. It is two cost_transfer rows (source −amount, target +amount), never an exit plus a
+// purchase, which would report proceeds that were never received (readCostTransfer).
+//
 // WHAT IT REFUSES TO GUESS, in plain words for the person posting: a pooled account (which
 // company?), a pooled gain or escrow across several exits (whose?), a gain beside a cost line that
 // nets to zero, an exit with a mark-up beside it, lines it cannot read, and conversions (a SAFE or note becoming equity has its own transaction shape —
@@ -30,8 +35,11 @@ export interface ReadPosting { accountId: string; amount: number }
 
 export interface AdoptedTxn {
   company_id: string
-  transaction_type: 'investment' | 'proceeds' | 'unrealized_gain_change'
+  transaction_type: 'investment' | 'proceeds' | 'unrealized_gain_change' | 'cost_transfer'
+  /** Signed on a cost_transfer row: negative on the source, positive on the target. */
   investment_cost?: number
+  /** On a cost_transfer row, the other holding. */
+  transfer_company_id?: string
   cost_basis_exited?: number
   proceeds_received?: number
   proceeds_escrow?: number
@@ -52,7 +60,37 @@ export function touchesInvestmentAccounts(postings: ReadPosting[], chart: ChartA
   })
 }
 
+/**
+ * The entry as a cost transfer, or null when it is not one. A transfer is exactly two companies'
+ * cost accounts (netted per company: several lines are fine), one credited and the other debited by
+ * the same amount, and NO other non-zero line: cash, a gain or loss, a mark, escrow, interest or an
+ * account outside the chart all make it something else, which the reader below handles as before.
+ */
+export function readCostTransfer(postings: ReadPosting[], chart: ChartAccount[]): AdoptedTxn[] | null {
+  const byId = new Map(chart.map(a => [a.id, a]))
+  const net = new Map<string, number>()
+  for (const p of postings) {
+    const amount = roundCents(p.amount)
+    if (amount === 0) continue
+    const a = byId.get(p.accountId)
+    if (!a || !a.companyId || investmentKind(a) !== 'cost') return null
+    net.set(a.companyId, roundCents((net.get(a.companyId) ?? 0) + amount))
+  }
+  const moved = Array.from(net.entries()).filter(([, v]) => v !== 0)
+  if (moved.length !== 2) return null
+  const from = moved.find(([, v]) => v < 0)
+  const to = moved.find(([, v]) => v > 0)
+  if (!from || !to || roundCents(from[1] + to[1]) !== 0) return null
+  const amount = to[1]
+  return [
+    { company_id: from[0], transaction_type: 'cost_transfer', investment_cost: -amount, transfer_company_id: to[0] },
+    { company_id: to[0], transaction_type: 'cost_transfer', investment_cost: amount, transfer_company_id: from[0] },
+  ]
+}
+
 export function readInvestmentLines(postings: ReadPosting[], chart: ChartAccount[]): ReadResult {
+  const transfer = readCostTransfer(postings, chart)
+  if (transfer) return { transactions: transfer }
   const byId = new Map(chart.map(a => [a.id, a]))
   const per = new Map<string, { cost: number; hadCost: boolean; unrealized: number; fx: number; realized: number; interest: number }>()
   const at = (companyId: string) => {

@@ -36,6 +36,7 @@ import type { InvestmentTransaction, CompanyStatus } from '@/lib/types/database'
 import { facilitiesWithStatus, loadFacilityRegister, type DrawPurpose, type FacilityWithStatus } from '@/lib/accounting/credit-facility'
 import { buildIlpaPerformance, portfolioPerformance, type IlpaPerformance, type PerformanceFlow, type PortfolioHolding, type PortfolioPerformance } from './performance'
 import { ILPA_PERFORMANCE_ATTRIBUTION, type PerformanceType } from './performance-types'
+import { acquiresHolding, isCostTransfer } from '@/lib/portfolio/cost-transfer-math'
 
 const DRAWDOWN_TYPE: Record<DrawPurpose, PerformanceType> = {
   investment: 'Fund-level Subscription Facility Drawdown: Investments',
@@ -256,7 +257,7 @@ export function portfolioHoldings(
   const holdings: PortfolioHolding[] = []
   for (const c of companies) {
     const relevant = txnsForVehicle(byCompany.get(c.id) ?? [], group).filter(t => !t.transaction_date || t.transaction_date <= asOf)
-    if (!relevant.some(t => t.transaction_type === 'investment' && t.portfolio_group === group)) continue
+    if (!relevant.some(t => acquiresHolding(t) && t.portfolio_group === group)) continue
     const status = (c.status ?? 'active') as CompanyStatus
     const s = computeSummary(relevant, status, asOfDate)
     const hFlows: { date: string; amount: number }[] = []
@@ -264,6 +265,10 @@ export function portfolioHoldings(
       if (!t.transaction_date) continue
       if (t.transaction_type === 'investment' && t.investment_cost) hFlows.push({ date: t.transaction_date, amount: -t.investment_cost })
       else if (t.transaction_type === 'proceeds' && t.proceeds_received) hFlows.push({ date: t.transaction_date, amount: t.proceeds_received })
+      // A cost transfer moves basis between two holdings on its date: in is money into this holding,
+      // out is money out of it. The pair nets to zero across the portfolio, so the whole-portfolio
+      // IRR is unchanged; it only moves capital between the realized and unrealized slices.
+      else if (isCostTransfer(t) && t.investment_cost) hFlows.push({ date: t.transaction_date, amount: -t.investment_cost })
     }
     const realized = status !== 'active'
     holdings.push({ realized, invested: s.totalInvested, proceeds: s.totalRealized, value: realized ? 0 : s.unrealizedValue, flows: hFlows })

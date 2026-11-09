@@ -107,8 +107,10 @@ export function buildLots(txns: InvestmentTransaction[]): Lot[] {
   }
   const lots: Lot[] = []
   for (const t of adjusted) {
+    // A cost transfer in carries its units into this holding on the transfer date: its own lot.
     const acquires = t.transaction_type === 'investment'
       || (t.transaction_type === 'income' && (t as any).income_settlement === 'in_kind')
+      || (t.transaction_type === 'cost_transfer' && Number(t.investment_cost ?? 0) > 0)
     if (!acquires) continue
     const units = Number(t.shares_acquired ?? 0)
     if (!(units > 0) || !t.transaction_date) continue
@@ -131,7 +133,20 @@ export function buildLots(txns: InvestmentTransaction[]): Lot[] {
       unitCost: cost / units,
     })
   }
-  return lots.sort((a, b) => a.date.localeCompare(b.date))
+  lots.sort((a, b) => a.date.localeCompare(b.date))
+  // A cost transfer OUT takes its units (and their cost) from the lots open on its date, pro rata.
+  // It is not a disposal: nothing is sold and no gain is measured, so it never appears there.
+  for (const t of adjusted) {
+    if (t.transaction_type !== 'cost_transfer' || !t.transaction_date || !(Number(t.investment_cost ?? 0) < 0)) continue
+    const units = Math.abs(Number(t.shares_acquired ?? 0))
+    if (!(units > 0)) continue
+    const open = lots.filter(l => l.date <= t.transaction_date! && l.units > 0)
+    const held = open.reduce((s, l) => s + l.units, 0)
+    if (held <= 0) continue
+    const keep = Math.max(0, 1 - units / held)
+    for (const l of open) { l.units *= keep; l.cost *= keep }
+  }
+  return lots.filter(l => l.units > 0)
 }
 
 /** Disposals for one holding, oldest first. Rows with no unit count are skipped. */

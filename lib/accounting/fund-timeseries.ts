@@ -29,6 +29,7 @@ import { txnsForVehicle } from './soi'
 import { computeSummary } from '@/lib/investments'
 import { xirr, type CashFlow } from '@/lib/xirr'
 import type { InvestmentTransaction, CompanyStatus } from '@/lib/types/database'
+import { acquiresHolding } from '@/lib/portfolio/cost-transfer-math'
 
 export interface FundTimeseriesPoint {
   /** Quarter-end date (YYYY-MM-DD). */
@@ -274,7 +275,7 @@ export async function fundTimeseries(
   }
   const held = companies
     .map(c => ({ status: (c.status ?? 'active') as CompanyStatus, relevant: txnsForVehicle(byCompany.get(c.id) ?? [], group) }))
-    .filter(c => c.relevant.some(t => t.transaction_type === 'investment' && t.portfolio_group === group))
+    .filter(c => c.relevant.some(t => acquiresHolding(t) && t.portfolio_group === group))
 
   // Earliest activity across both producers — where the curve should start.
   const postingDates = postings.map(p => p.entryDate).filter((d): d is string => !!d)

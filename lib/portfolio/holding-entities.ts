@@ -10,6 +10,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AccessContext } from '@/lib/access/effective'
 import { canSeeVehicle } from '@/lib/access/scope'
+import { acquiresHolding } from '@/lib/portfolio/cost-transfer-math'
 
 export interface HoldingEntity { id: string; name: string }
 
@@ -37,7 +38,7 @@ export async function holdingEntities(
     .sort((a, b) => a.name.localeCompare(b.name))
 }
 
-type TxnLike = { company_id: string; transaction_type: string; portfolio_group?: string | null; transaction_date?: string | null }
+type TxnLike = { company_id: string; transaction_type: string; portfolio_group?: string | null; transaction_date?: string | null; investment_cost?: number | null }
 
 /**
  * Per holding, the entity names that had bought into it by `date` (an `investment` row tagged to
@@ -53,11 +54,11 @@ export function holdersAsOf(txns: TxnLike[], date: string | null): Map<string, s
 
 /** Per holding, the entity names that bought into it — over whatever history it is given. */
 function holdersFromTransactions(
-  txns: { company_id: string; transaction_type: string; portfolio_group?: string | null }[],
+  txns: { company_id: string; transaction_type: string; portfolio_group?: string | null; investment_cost?: number | null }[],
 ): Map<string, string[]> {
   const sets = new Map<string, Set<string>>()
   for (const t of txns) {
-    if (t.transaction_type !== 'investment' || !t.portfolio_group) continue
+    if (!acquiresHolding(t) || !t.portfolio_group) continue
     if (!sets.has(t.company_id)) sets.set(t.company_id, new Set())
     sets.get(t.company_id)!.add(t.portfolio_group)
   }

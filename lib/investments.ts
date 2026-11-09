@@ -8,6 +8,9 @@ import { splitAdjust } from '@/lib/splits'
 // ---------------------------------------------------------------------------
 
 const OPENS_ROUND = new Set(['investment', 'conversion', 'share_split'])
+/** A cost transfer INTO a holding opens its round like a purchase; one out of it reads like an exit. */
+const opensRound = (t: InvestmentTransaction) =>
+  OPENS_ROUND.has(t.transaction_type) || (t.transaction_type === 'cost_transfer' && Number(t.investment_cost ?? 0) > 0)
 
 /** Date order, acquisitions first within a day — what the per-round roll-up needs. */
 export function sortForRollup(txns: InvestmentTransaction[]): InvestmentTransaction[] {
@@ -15,9 +18,20 @@ export function sortForRollup(txns: InvestmentTransaction[]): InvestmentTransact
     .map((t, i) => ({ t, i }))
     .sort((a, b) =>
       String(a.t.transaction_date ?? '').localeCompare(String(b.t.transaction_date ?? ''))
-      || (OPENS_ROUND.has(a.t.transaction_type) ? 0 : 1) - (OPENS_ROUND.has(b.t.transaction_type) ? 0 : 1)
+      || (opensRound(a.t) ? 0 : 1) - (opensRound(b.t) ? 0 : 1)
       || a.i - b.i)
     .map(x => x.t)
+}
+
+/**
+ * Shrink the investment outflows recorded so far pro rata, so they sum `moved` less: a cost
+ * transfer out of a holding, which reduces its invested capital without returning any cash.
+ */
+function shrinkOutflows(flows: CashFlow[], moved: number): void {
+  const invested = -flows.reduce((sum, cf) => sum + (cf.amount < 0 ? cf.amount : 0), 0)
+  if (invested <= 0) return
+  const factor = Math.max(0, 1 - moved / invested)
+  for (const cf of flows) if (cf.amount < 0) cf.amount *= factor
 }
 
 export function computeSummary(
@@ -61,6 +75,7 @@ export function computeSummary(
   for (const t of transactions) if (t.id) byId.set(t.id, t)
   const carriedInByRound = new Map<string, number>()   // basis moved INTO a round from a conversion
   const carriedOutByRound = new Map<string, number>()  // basis moved OUT of a source round
+  const transferredOutByRound = new Map<string, number>() // basis a cost transfer moved to another holding
   for (const t of transactions) {
     const srcId = (t as { converts_from_txn_id?: string | null }).converts_from_txn_id
     if (t.transaction_type !== 'investment' || !srcId) continue
@@ -139,6 +154,74 @@ export function computeSummary(
           latestSharePriceDate = txn.transaction_date
           latestFromConversion = !!txn.converts_from_txn_id
         }
+      }
+    }
+
+    // A COST TRANSFER moves basis between two holdings with no cash and no gain (one journal entry,
+    // Dr Investment — target / Cr Investment — source). investment_cost is signed: negative on the
+    // source, positive on the target.
+    //   source: invested capital and the round's cost go down; nothing is realized. For IRR the
+    //           source's earlier outflows shrink pro rata, as if the moved cost had never been
+    //           invested here — a positive flow on the transfer date would be proceeds by another name.
+    //   target: cost and invested capital start on the transfer date, like a purchase with no cash.
+    if (txn.transaction_type === 'cost_transfer') {
+      const amount = Number(txn.investment_cost ?? 0)
+      if (amount > 0) {
+        const units = Number(txn.shares_acquired ?? 0)
+        totalInvested += amount
+        totalShares += units
+        const roundName = txn.round_name ?? 'Unknown'
+        const existing = roundMap.get(roundName)
+        if (existing) {
+          existing.investmentCost += amount
+          existing.sharesAcquired += units
+          if (!existing.date && txn.transaction_date) existing.date = txn.transaction_date
+        } else {
+          roundMap.set(roundName, {
+            roundName,
+            date: txn.transaction_date,
+            investmentCost: amount,
+            sharesAcquired: units,
+            sharePrice: null,
+            currentSharePrice: null,
+            currentValue: 0,
+            interestConverted: 0,
+            unrealizedValueChange: 0,
+            costBasisExited: 0,
+            totalRealized: 0,
+            totalEscrow: 0,
+            escrowOutstanding: 0,
+            proceedsDate: null,
+            grossIrr: null,
+          })
+        }
+        if (txn.transaction_date) {
+          const cf = { date: new Date(txn.transaction_date), amount: -amount }
+          cashFlows.push(cf)
+          if (!roundCashFlows.has(roundName)) roundCashFlows.set(roundName, [])
+          roundCashFlows.get(roundName)!.push({ ...cf })
+        }
+      } else if (amount < 0) {
+        const moved = -amount
+        totalInvested -= moved
+        // The round it leaves: its own name, else the round round-less purchases opened, else the only one.
+        const roundName = txn.round_name
+          ?? (roundMap.has('Unknown') ? 'Unknown' : roundMap.size === 1 ? Array.from(roundMap.keys())[0] : null)
+        const round = roundName ? roundMap.get(roundName) : undefined
+        // Units go with the cost: as recorded, else in proportion to the round's cost they take.
+        const units = txn.shares_acquired != null
+          ? Math.abs(Number(txn.shares_acquired))
+          : round && round.investmentCost > 0 && round.sharesAcquired > 0
+            ? round.sharesAcquired * Math.min(1, moved / round.investmentCost)
+            : 0
+        totalShares -= units
+        if (round && roundName) {
+          round.investmentCost -= moved
+          round.sharesAcquired -= units
+          transferredOutByRound.set(roundName, (transferredOutByRound.get(roundName) ?? 0) + moved)
+          shrinkOutflows(roundCashFlows.get(roundName) ?? [], moved)
+        }
+        shrinkOutflows(cashFlows, moved)
       }
     }
 
@@ -305,7 +388,7 @@ export function computeSummary(
     // "Exited" means basis actually LEFT: a round that cost nothing (warrants received with a deal)
     // and was never sold still holds whatever its marks say, so a zero basis alone is not gone.
     const remainingBasis = roundBasis - round.costBasisExited - carriedOut
-    const exitedAway = round.costBasisExited + carriedOut > 0
+    const exitedAway = round.costBasisExited + carriedOut + (transferredOutByRound.get(round.roundName) ?? 0) > 0
     if (remainingBasis <= 0 && (exitedAway || roundBasis > 0)) {
       round.currentValue = 0
     } else if (isPricedEquity && effectiveSharePrice != null) {

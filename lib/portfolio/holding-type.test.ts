@@ -64,6 +64,7 @@ const ALLOWLIST = new Map<string, string>([
   ['lib/accounting/close.ts', 'the pre-close quoted-position check values every ledger position; a feed is what selects them, not holding_type'],
   // Intentionally all holdings.
   ['lib/accounting/retract-adopted.ts', "by-id lookup of an adopted entry's owners; fund and crypto holdings carry transactions too"],
+  ['lib/portfolio/cost-transfer.ts', 'by-id name lookup of the two holdings in a cost transfer; cost moves between holdings of any kind'],
   ['lib/accounting/escrow-exit-review.ts', 'by-id name lookup for exits with escrow; an exit from a fund or crypto holding is reviewed the same way'],
   ['lib/vehicles.ts', 'vehicle rollups cover every holding a vehicle owns, funds included'],
   ['lib/accounting/holdings-firm.ts', 'the firm-wide schedule of investments reports every holding an entity owns, fund and crypto holdings included, sectioned by type'],

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, Fragment } from 'react'
-import { DollarSign, Plus, Trash2, Pencil, Loader2, ChevronDown, ChevronRight, Lock } from 'lucide-react'
+import { DollarSign, Plus, Trash2, Pencil, Loader2, ChevronDown, ChevronRight, Lock, ArrowRightLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -15,6 +15,7 @@ import {
 import { deleteInvestmentTransaction } from '@/lib/delete-investment-transaction'
 import type { InvestmentTransaction, CompanyStatus } from '@/lib/types/database'
 import type { CompanyInvestmentSummary } from '@/lib/types/investments'
+import { CostTransferDialog } from './cost-transfer-dialog'
 
 interface Props {
   companyId: string
@@ -68,6 +69,7 @@ export function CompanyInvestments({
   const [loading, setLoading] = useState(true)
   const [expanded, setExpanded] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
+  const [transferOpen, setTransferOpen] = useState(false)
   const [editing, setEditing] = useState<InvestmentTransaction | null>(null)
 
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -157,12 +159,20 @@ export function CompanyInvestments({
             <span className="text-xs bg-muted rounded-full px-1.5 py-0.5">{transactions.length}</span>
           )}
         </button>
-        {!hideAddButton && (
-          <Button size="sm" variant="outline" onClick={openAdd} className="h-7 px-2 text-xs">
-            <Plus className="h-3.5 w-3.5 mr-1" />
-            Add
-          </Button>
-        )}
+        <div className="flex items-center gap-1.5">
+          {transactions.length > 0 && portfolioGroups.length > 0 && (
+            <Button size="sm" variant="ghost" onClick={() => setTransferOpen(true)} className="h-7 px-2 text-xs">
+              <ArrowRightLeft className="h-3.5 w-3.5 mr-1" />
+              Transfer cost
+            </Button>
+          )}
+          {!hideAddButton && (
+            <Button size="sm" variant="outline" onClick={openAdd} className="h-7 px-2 text-xs">
+              <Plus className="h-3.5 w-3.5 mr-1" />
+              Add
+            </Button>
+          )}
+        </div>
       </div>
 
       {expanded && summary && summary.totalInvested > 0 && !groupSummaries && (
@@ -235,6 +245,14 @@ export function CompanyInvestments({
           No investment transactions recorded yet.
         </p>
       )}
+
+      <CostTransferDialog
+        open={transferOpen}
+        onOpenChange={setTransferOpen}
+        companyId={companyId}
+        portfolioGroups={portfolioGroups}
+        onSaved={load}
+      />
 
       {/* Add/Edit Dialog */}
       {/* Add/Edit Dialog. The form itself is shared with /start — see investment-transaction-form.tsx. */}
@@ -518,6 +536,8 @@ function TransactionTable({
                           row is identifiable and distinct from a plain investment. */}
                       {(txn as any).converts_from_txn_id
                         ? TYPE_LABELS.conversion
+                        : txn.transaction_type === 'cost_transfer'
+                        ? (Number(txn.investment_cost ?? 0) < 0 ? 'Cost transfer out' : 'Cost transfer in')
                         : TYPE_LABELS[txn.transaction_type as TransactionType] ?? txn.transaction_type}
                     </span>
                     {isFx && (
@@ -536,7 +556,7 @@ function TransactionTable({
                 {companyStatus === 'exited' ? (
                   <>
                     <td className="px-3 py-2 text-right tabular-nums">
-                      {txn.transaction_type === 'investment' ? fmt(txn.investment_cost) : '-'}
+                      {txn.transaction_type === 'investment' || txn.transaction_type === 'cost_transfer' ? fmt(txn.investment_cost) : '-'}
                     </td>
                     {hasInterestConversion && (
                       <td className="px-3 py-2 text-right tabular-nums">
@@ -563,7 +583,7 @@ function TransactionTable({
                 ) : (
                   <>
                     <td className="px-3 py-2 text-right tabular-nums">
-                      {txn.transaction_type === 'investment' ? fmt(txn.investment_cost) : '-'}
+                      {txn.transaction_type === 'investment' || txn.transaction_type === 'cost_transfer' ? fmt(txn.investment_cost) : '-'}
                     </td>
                     {hasProceeds && (
                       <td className="px-3 py-2 text-right tabular-nums">
@@ -635,6 +655,12 @@ function TransactionTable({
                   </>
                 )}
                 <td className="px-3 py-2">
+                  {txn.transaction_type === 'cost_transfer' ? (
+                    // Both sides belong to one journal entry: changed by voiding or reversing it.
+                    <div className="flex items-center justify-end" title="A cost transfer is changed through its journal entry">
+                      <Lock className="h-3 w-3 text-muted-foreground" />
+                    </div>
+                  ) : (
                   <div className="flex items-center gap-1 justify-end">
                     <Button
                       size="sm" variant="ghost"
@@ -656,6 +682,7 @@ function TransactionTable({
                       )}
                     </Button>
                   </div>
+                  )}
                 </td>
               </tr>
               {isFx && isOpen && (

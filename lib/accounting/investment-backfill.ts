@@ -66,7 +66,7 @@ const chunks = <T,>(xs: T[]) => Array.from({ length: Math.ceil(xs.length / CHUNK
  * the top of buildEntryForTransaction; anything subtler is still derived and its reason reported.
  */
 export function impliesNoEntry(t: any): boolean {
-  if (t.transaction_type === 'round_info' || t.transaction_type === 'split') return true
+  if (t.transaction_type === 'round_info' || t.transaction_type === 'split' || t.transaction_type === 'cost_transfer') return true
   // A mark recorded as a share price books the change in value that price implies.
   if (t.transaction_type === 'unrealized_gain_change') return n(t.unrealized_value_change) === 0 && n(t.fx_value_change) === 0 && !(n(t.current_share_price) > 0)
   if (t.transaction_type === 'investment' && !t.converts_from_txn_id) return n(t.investment_cost) + n(t.fee_amount) === 0

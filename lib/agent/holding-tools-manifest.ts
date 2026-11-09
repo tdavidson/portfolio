@@ -114,6 +114,55 @@ export const HOLDING_TOOL_MANIFEST: AgentToolMeta[] = [
     },
   },
   {
+    name: 'transfer_cost',
+    description:
+      'Move cost basis from one holding to another inside one entity, with no cash and no gain: a note rolled into another ' +
+      'holding, cost reallocated between two records, an in-kind exchange at cost. Posts ONE journal entry, Dr Investment — ' +
+      'target / Cr Investment — source, recorded as a cost transfer: the source\'s invested capital and cost go down with ' +
+      'nothing realized (no proceeds, no gain, MOIC and IRR unaffected by it), and the target\'s cost starts on the date. ' +
+      'Refused when the source carries less cost than the amount on that date, or the period is closed. A sale for cash is ' +
+      'record_investment (proceeds); an entry already booked this way but showing proceeds is convert_to_cost_transfer.',
+    scope: 'write',
+    domain: 'portfolio',
+    accessFeature: 'investments',
+    inputSchema: {
+      type: 'object',
+      required: ['company', 'to_company', 'amount', 'date', 'vehicle'],
+      properties: {
+        company: { type: 'string', description: 'The holding the cost leaves (id or name).' },
+        to_company: { type: 'string', description: 'The holding the cost moves to (id or name).' },
+        amount: { type: 'number', description: 'The cost moved, in the fund\'s currency. Positive.' },
+        date: DATE,
+        vehicle: { type: 'string', description: 'The entity that holds both (its name).' },
+        memo: { type: 'string', description: 'Optional memo for the journal entry.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'convert_to_cost_transfer',
+    description:
+      'Fix a cost transfer that was read as an exit plus a purchase. Given a posted journal entry whose only lines are a credit ' +
+      'to one holding\'s investment account and an equal debit to another\'s (no cash, no gain), replace the proceeds row on ' +
+      'the source and the investment row on the target that were adopted from it with one cost transfer. The journal entry ' +
+      'and the trial balance are not changed; the source stops reporting proceeds. Refused for any other shape (a real exit ' +
+      'stays proceeds), an entry already converted, a closed period, or rows the fund register or a conversion points at. ' +
+      'dry_run: true describes the change without making it.',
+    scope: 'write',
+    domain: 'portfolio',
+    accessFeature: 'investments',
+    inputSchema: {
+      type: 'object',
+      required: ['entry_id'],
+      properties: {
+        entry_id: { type: 'string', description: 'The journal entry id (list_journal or query_ledger give it).' },
+        vehicle: { type: 'string', description: 'The entry\'s entity (its name). Optional; needed only by a member scoped to some entities.' },
+        dry_run: { type: 'boolean', description: 'Describe the change without making it.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'set_fund_terms',
     description:
       'Set a fund holding\'s terms on one entity: the commitment (which unfunded is derived from), and optionally the commitment ' +

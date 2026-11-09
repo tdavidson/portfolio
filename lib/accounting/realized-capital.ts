@@ -11,6 +11,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { realizedCapitalFromDeals, type DealHistory, type RealizedCapital } from '@portfolio/fund-engine'
 import { computeCapitalAccounts, type CapitalPosting } from './capital-account'
 import { roundCents } from './ledger'
+import { investmentsAfterTransfers, isCostTransfer } from '@/lib/portfolio/cost-transfer-math'
 
 const CLOSED = new Set(['exited', 'written-off'])
 
@@ -41,10 +42,15 @@ export function dealHistories(
   const status = new Map(companies.map(c => [c.id, c.status]))
   const out: DealHistory[] = []
   for (const [companyId, rows] of Array.from(byCompany.entries())) {
-    const investments = rows
-      .filter(t => t.transaction_type === 'investment')
-      .map(t => ({ date: t.transaction_date!, amount: roundCents(Number(t.investment_cost ?? 0) + Number(t.fee_amount ?? 0)) }))
-      .filter(i => i.amount > 0)
+    // A cost transfer is not a realization: in is capital in this deal from its date, out shrinks
+    // this deal's capital (investmentsAfterTransfers).
+    const investments = investmentsAfterTransfers(
+      rows
+        .filter(t => t.transaction_type === 'investment')
+        .map(t => ({ date: t.transaction_date!, amount: roundCents(Number(t.investment_cost ?? 0) + Number(t.fee_amount ?? 0)) }))
+        .filter(i => i.amount > 0),
+      rows.filter(isCostTransfer).map(t => ({ date: t.transaction_date!, amount: roundCents(Number(t.investment_cost ?? 0)) })),
+    )
     if (investments.length === 0) continue
     const realizations = rows
       .filter(t => t.transaction_type === 'proceeds')

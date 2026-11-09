@@ -2384,6 +2384,7 @@ export type Database = {
           shares_acquired: number | null
           transaction_date: string | null
           transaction_type: string
+          transfer_company_id: string | null
           unrealized_value_change: number | null
           updated_at: string | null
           valuation_change_source: string | null
@@ -2429,6 +2430,7 @@ export type Database = {
           shares_acquired?: number | null
           transaction_date?: string | null
           transaction_type: string
+          transfer_company_id?: string | null
           unrealized_value_change?: number | null
           updated_at?: string | null
           valuation_change_source?: string | null
@@ -2474,6 +2476,7 @@ export type Database = {
           shares_acquired?: number | null
           transaction_date?: string | null
           transaction_type?: string
+          transfer_company_id?: string | null
           unrealized_value_change?: number | null
           updated_at?: string | null
           valuation_change_source?: string | null
@@ -3535,5 +3538,5 @@ export type DealStatus         = 'new' | 'reviewing' | 'advancing' | 'met' | 'di
 export type IntroSource        = 'referral' | 'cold' | 'warm_intro' | 'accelerator' | 'demo_day' | 'event' | 'heartbeat' | 'other'
 export type ReviewResolution   = 'accepted' | 'rejected' | 'manually_corrected'
 export type EmailRequestStatus = 'draft' | 'sent' | 'failed'
-export type TransactionType    = 'investment' | 'proceeds' | 'escrow_receipt' | 'unrealized_gain_change' | 'round_info'
+export type TransactionType    = 'investment' | 'proceeds' | 'escrow_receipt' | 'unrealized_gain_change' | 'round_info' | 'cost_transfer'
 export type NotificationLevel  = 'all' | 'mentions' | 'none'
