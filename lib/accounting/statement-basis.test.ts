@@ -120,8 +120,10 @@ describe('statement basis on the document', () => {
   })
   const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
 
-  it('prints the basis so an LP can tell which version they have', () => {
-    expect(text(buildStatementHtml(data({ basis: 'cost' })))).toContain(BASIS_NOTES.cost!)
+  it('prints the basis once, in the footnote, so an LP can tell which version they have', () => {
+    const t = text(buildStatementHtml(data({ basis: 'cost' })))
+    expect(t.split(BASIS_NOTES.cost!).length - 1).toBe(1)
+    expect(t.indexOf(BASIS_NOTES.cost!)).toBeGreaterThan(t.indexOf('Commitment summary'))
     expect(text(buildStatementHtml(data({ basis: 'cash_only' })))).toContain(BASIS_NOTES.cash_only!)
     expect(text(buildStatementHtml(data({})))).not.toContain('Presented on')
   })

@@ -45,7 +45,7 @@ function money(v: number | null, currency: string): string {
 
 const pct = (v: number) => `${(v * 100).toFixed(3)}%`
 
-export { NET_PNL_LABEL, PNL_FIELDS } from './capital-statement-layout'
+export { PNL_FIELDS } from './capital-statement-layout'
 
 export interface StatementPdfData {
   /** Fund's display face (FundTheme.displayFont). Absent = Newsreader. */
@@ -83,8 +83,8 @@ export function buildStatementHtml(d: StatementPdfData): string {
   const cell = (v: string) =>
     `<td style="padding:6px 8px;border-top:1px solid #e5e5e5;text-align:right;font-variant-numeric:tabular-nums;">${v}</td>`
   const rollForwardHtml = rollForwardRows(accounts).map(({ label, values, style }) => `
-    <tr${style === 'total' ? ' style="font-weight:600;background:#fafafa;"' : style === 'subtotal' ? ' style="font-weight:600;"' : ''}>
-      <td style="padding:6px 8px${style === 'component' ? ' 6px 22px' : ''};border-top:1px solid #e5e5e5;${style === 'component' ? 'color:#555;' : ''}">${esc(label)}</td>
+    <tr${style === 'total' ? ' style="font-weight:600;background:#fafafa;"' : ''}>
+      <td style="padding:6px 8px;border-top:1px solid #e5e5e5;">${esc(label)}</td>
       ${values.map(v => cell(m(v))).join('')}
     </tr>`).join('')
 
@@ -94,6 +94,7 @@ export function buildStatementHtml(d: StatementPdfData): string {
     r.values.map((v, i) => v === null && i < lastCol ? '' : r.format === 'percent' ? pct(v ?? 0) : m(v)),
   ])
 
+  // The basis is stated once, in the footnote, not under the heading as well.
   const basisNote = BASIS_NOTES[d.basis ?? DEFAULT_STATEMENT_BASIS]
 
   const periodLabel = d.period.start && d.period.end
@@ -121,8 +122,7 @@ export function buildStatementHtml(d: StatementPdfData): string {
 
     <h1 style="font-family:${PDF_DISPLAY};font-size:22px;font-weight:400;letter-spacing:-0.01em;margin-bottom:3px;">Capital Account Statement</h1>
     <p style="font-size:14px;font-weight:600;color:#111;">${esc(d.partnerName)}</p>
-    <p style="font-size:11px;color:#888;margin-bottom:${basisNote ? '4' : '22'}px;">${esc(d.vehicle)} &middot; ${esc(periodLabel)}</p>
-    ${basisNote ? `<p style="font-size:11px;color:#555;margin-bottom:22px;">${esc(basisNote)}</p>` : ''}
+    <p style="font-size:14px;color:#888;margin-bottom:22px;">${esc(d.vehicle)} &middot; ${esc(periodLabel)}</p>
 
     <!-- Roll-forward -->
     <table>
