@@ -37,11 +37,10 @@ export function statementColumns<T>(
 export const PNL_FIELDS: (keyof CapitalAccount)[] = [
   'managementFees', 'expenses', 'operatingIncome', 'realizedGains', 'unrealizedGains', 'fxTranslation',
 ]
-/** Capital movements printed above the profit and loss block. */
+/** Capital movements printed above the profit and loss lines. */
 const PRE_PNL_FIELDS: (keyof CapitalAccount)[] = ['contributions', 'distributions']
-export const NET_PNL_LABEL = 'Net profit / (loss)'
 
-export type StatementRowStyle = 'plain' | 'total' | 'subtotal' | 'component'
+export type StatementRowStyle = 'plain' | 'total'
 
 export interface StatementRow {
   key: string
@@ -52,21 +51,18 @@ export interface StatementRow {
 
 /**
  * The roll-forward rows for the given columns. A line shows only if it moved in ANY column (an SPV
- * shouldn't print four empty rows). The partner's share of the fund's profit and loss (fees,
- * expenses, income and gains) is indented under one subtotal, so an LP reads a single
- * profit-or-loss figure; the rows that are not indented still sum to ending capital.
+ * shouldn't print four empty rows). Contributions and distributions come first, then the partner's
+ * share of fees, expenses, income and gains, then the rest. Every line sits at the same level and
+ * they sum to ending capital; there is no net profit or loss subtotal (not a line LPs are used to).
  */
 export function rollForwardRows(accounts: CapitalAccount[]): StatementRow[] {
   const lines = ACTIVITY_FIELDS.filter(f => accounts.some(a => Math.abs(a[f]) > 0.004))
   const row = (f: keyof CapitalAccount, style: StatementRowStyle = 'plain'): StatementRow =>
     ({ key: f, label: CAPITAL_ACCOUNT_LABELS[f], values: accounts.map(a => a[f]), style })
-  const pnlShown = lines.filter(f => PNL_FIELDS.includes(f))
-  const sumPnl = (a: CapitalAccount) => PNL_FIELDS.reduce((s, f) => s + a[f], 0)
   return [
     row('beginning'),
     ...lines.filter(f => !PNL_FIELDS.includes(f) && PRE_PNL_FIELDS.includes(f)).map(f => row(f)),
-    ...pnlShown.map(f => row(f, 'component')),
-    ...(pnlShown.length > 0 ? [{ key: 'netPnl', label: NET_PNL_LABEL, values: accounts.map(sumPnl), style: 'subtotal' as const }] : []),
+    ...lines.filter(f => PNL_FIELDS.includes(f)).map(f => row(f)),
     ...lines.filter(f => !PNL_FIELDS.includes(f) && !PRE_PNL_FIELDS.includes(f)).map(f => row(f)),
     row('ending', 'total'),
   ]

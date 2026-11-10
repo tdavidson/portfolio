@@ -11,7 +11,7 @@ import { useCanWrite } from '@/components/access-context'
 import { VehicleLetterheadDialog } from '@/components/vehicle-letterhead'
 import type { CapitalAccount } from '@/lib/accounting/capital-account'
 import { rollForwardRows, commitmentSummaryRows, statementColumns } from '@/lib/accounting/capital-statement-layout'
-import { BASIS_LABELS, BASIS_NOTES, STATEMENT_BASES, type StatementBasis } from '@/lib/accounting/statement-basis'
+import { BASIS_LABELS, STATEMENT_BASES, type StatementBasis } from '@/lib/accounting/statement-basis'
 
 interface Row { lpEntityId: string; name: string; partnerClass: string; commitment: number; called: number; funded: number; outstanding: number; receivable: number; ending: number }
 interface Period { preset: PeriodPreset; start: string | null; end: string | null; label: string }
@@ -99,7 +99,6 @@ export function LpStatementView({ lpEntityId, vehicleId }: { lpEntityId: string;
   const lastCol = accounts.length - 1
   // The PDF names the basis on screen explicitly, so it can't come out on a different one.
   const pdfQs = new URLSearchParams({ lp: lpEntityId, ...request, basis: data.basis })
-  const basisNote = BASIS_NOTES[data.basis]
   if (group) pdfQs.set('group', group)
   const firstYear = Math.min(THIS_YEAR, Number(data.inception?.slice(0, 4)) || THIS_YEAR)
   const years = Array.from({ length: THIS_YEAR - firstYear + 1 }, (_, i) => THIS_YEAR - i)
@@ -211,7 +210,6 @@ export function LpStatementView({ lpEntityId, vehicleId }: { lpEntityId: string;
           <p className="text-heading font-display font-normal">Capital Account Statement</p>
           <p className="text-sm font-semibold">{row.name}</p>
           <p className="text-xs text-muted-foreground">{vehicleName} · {period.label}</p>
-          {basisNote && <p className="text-xs mt-1">{basisNote}</p>}
         </div>
 
         <div className="overflow-x-auto">
@@ -229,8 +227,8 @@ export function LpStatementView({ lpEntityId, vehicleId }: { lpEntityId: string;
             </thead>
             <tbody>
               {rows.map(r => (
-                <tr key={r.key} className={`border-b last:border-b-0 ${r.style === 'total' ? 'font-semibold bg-muted/30' : r.style === 'subtotal' ? 'font-semibold' : ''}`}>
-                  <td className={`px-3 py-2 ${r.style === 'component' ? 'pl-7 text-muted-foreground' : ''}`}>{r.label}</td>
+                <tr key={r.key} className={`border-b last:border-b-0 ${r.style === 'total' ? 'font-semibold bg-muted/30' : ''}`}>
+                  <td className="px-3 py-2">{r.label}</td>
                   {r.values.map((v, i) => (
                     <td key={i} className={`px-3 py-2 text-right tabular-nums ${r.key === 'unclassified' && Math.abs(v) > 0.004 ? 'text-warning' : ''}`}>{fmt(v)}</td>
                   ))}

@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { buildStatementHtml, NET_PNL_LABEL, type StatementPdfData } from './lp-statement-pdf'
+import { buildStatementHtml, type StatementPdfData } from './lp-statement-pdf'
 import { ytdWindow } from './statement-period'
 import { emptyAccount, type CapitalAccount } from './capital-account'
 
@@ -24,28 +24,21 @@ function data(over: Partial<StatementPdfData> = {}): StatementPdfData {
 const text = (html: string) => html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ')
 
 describe('buildStatementHtml', () => {
-  it('shows beginning, management fees, net profit or loss, ending capital and the commitment', () => {
+  it('shows beginning, management fees, ending capital and the commitment', () => {
     const t = text(buildStatementHtml(data()))
     expect(t).toContain('Beginning capital')
     expect(t).toContain('Management fees ($8,000.00)')
-    // -8000 - 4000 + 1500 + 200
-    expect(t).toContain(`${NET_PNL_LABEL} ($10,300.00)`)
     expect(t).toContain('Ending capital $69,700.00')
     expect(t).toContain('Commitment $100,000.00')
   })
 
-  it('keeps the rows outside the profit and loss block summing to ending capital', () => {
-    // beginning + contributions + net P&L = ending; the components are indented under the subtotal.
-    expect(0 + 80000 - 10300).toBeCloseTo(itd.ending, 2)
+  it('prints no net profit or loss subtotal: every line sits at one level and sums to ending capital', () => {
     const html = buildStatementHtml(data())
+    expect(text(html)).not.toMatch(/Net profit/i)
+    // 80,000 − 8,000 − 4,000 + 1,500 + 200
+    expect(80000 - 8000 - 4000 + 1500 + 200).toBeCloseTo(itd.ending, 2)
     expect(html.indexOf('Contributions')).toBeLessThan(html.indexOf('Management fees'))
-    expect(html.indexOf('Net realized gain')).toBeLessThan(html.indexOf(NET_PNL_LABEL))
-    expect(html.indexOf(NET_PNL_LABEL)).toBeLessThan(html.indexOf('Ending capital'))
-  })
-
-  it('leaves the subtotal out when nothing in the period is profit or loss', () => {
-    const flat = { ...emptyAccount(), contributions: 5000, ending: 5000 }
-    expect(buildStatementHtml(data({ periodRollForward: flat, ytdRollForward: flat, rollForward: flat }))).not.toContain(NET_PNL_LABEL)
+    expect(html.indexOf('Net realized gain')).toBeLessThan(html.indexOf('Ending capital'))
   })
 
   it("puts the vehicle's logo in the header when one is passed", () => {
