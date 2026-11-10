@@ -122,7 +122,7 @@ export function buildStatementHtml(d: StatementPdfData): string {
 
     <h1 style="font-family:${PDF_DISPLAY};font-size:22px;font-weight:400;letter-spacing:-0.01em;margin-bottom:3px;">Capital Account Statement</h1>
     <p style="font-size:14px;font-weight:600;color:#111;">${esc(d.partnerName)}</p>
-    <p style="font-size:11px;color:#888;margin-bottom:22px;">${esc(d.vehicle)} &middot; ${esc(periodLabel)}</p>
+    <p style="font-size:14px;color:#888;margin-bottom:22px;">${esc(d.vehicle)} &middot; ${esc(periodLabel)}</p>
 
     <!-- Roll-forward -->
     <table>
