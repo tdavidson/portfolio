@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { Loader2, FileText, Pencil, Download } from 'lucide-react'
 import { Input } from '@/components/ui/input'
-import { useCurrency, formatCurrencyPrice } from '@/components/currency-context'
+import { useCurrency, formatAccountingPrice } from '@/components/currency-context'
 import { useLedgerFetch, useVehicle } from '@/components/accounting-vehicle'
 import { quarterWindow, type PeriodPreset } from '@/lib/accounting/statement-period'
 import { EmptyState } from '@/components/ui/empty-state'
@@ -58,7 +58,8 @@ function periodRequest(scope: Scope, part: Part, start: string, end: string): { 
 // capital account.
 export function LpStatementView({ lpEntityId, vehicleId }: { lpEntityId: string; vehicleId?: string | null }) {
   const currency = useCurrency()
-  const fmt = (v: number) => formatCurrencyPrice(v, currency)
+  // Accounting style, as the PDF prints it: negatives in parentheses around symbol and figure.
+  const fmt = (v: number) => formatAccountingPrice(v, currency)
   const lf = useLedgerFetch()
   const { group } = useVehicle()
   const canEditLetterhead = useCanWrite('accounting')

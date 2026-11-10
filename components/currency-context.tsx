@@ -50,6 +50,15 @@ export function formatCurrencyPrice(value: number | null | undefined, currency: 
   return v.toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+/** Accounting style with cents: a negative is wrapped in parentheses around the symbol and figure,
+ *  ($1,234.50), as LP statements print it. Zero and positives read as formatCurrencyPrice. */
+export function formatAccountingPrice(value: number | null | undefined, currency: string): string {
+  if (value == null || !Number.isFinite(value)) return '—'
+  const rounded = Math.round(value * 100) / 100
+  const shown = formatCurrencyPrice(Math.abs(rounded), currency)
+  return rounded < 0 ? `(${shown})` : shown
+}
+
 /** Per-SHARE price: shown to up to 4 decimals so sub-cent prices aren't lost ($1.20, $1.2345).
  *  The stored value keeps full precision and the valuation math uses it — this only widens the
  *  display so shares × price visibly ties out. */
