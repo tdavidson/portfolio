@@ -205,10 +205,9 @@ export async function generateLpStatementPdf(
 
   const pdf = await renderHtmlToPdf(html)
   const safe = (s: string) => String(s || '').replace(/[^a-zA-Z0-9 _-]/g, '').trim()
-  const basisSuffix = basis === 'cost' ? ' - Cost Basis' : basis === 'cash_only' ? ' - Contributions and Income' : ''
   // The partner's entity, then the vehicle, so a folder of statements sorts by partner and still
   // says which vehicle each one is for.
-  const fileName = `${safe(statement.row.name) || 'Partner'} - ${safe(group) || 'Vehicle'} - Capital Account Statement - ${safe(period.label) || 'Period'}${basisSuffix}.pdf`
+  const fileName = `${safe(statement.row.name) || 'Partner'} - ${safe(group) || 'Vehicle'} - Capital Account Statement - ${safe(period.label) || 'Period'}.pdf`
 
   return { pdf, fileName, partnerName: statement.row.name }
 }
