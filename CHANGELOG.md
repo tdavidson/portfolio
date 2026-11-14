@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+### Clean installs on npm 12
+- **No install-script warnings.** npm 12 blocks dependency install scripts that the project hasn't allow-listed and warns about each one. `package.json` now has an `allowScripts` field: `esbuild` and `unrs-resolver` may run theirs (binary checks), `tesseract.js` and `fsevents` stay blocked and silent. `npm run setup` installs the Vercel CLI with `--allow-scripts=esbuild,fsevents`, since a global install has no `package.json` to read. npm 10 and 11 ignore both. The self-hosting guide explains it under Step 1.
+
 ### Cost transfers between holdings
 - **A new transaction kind, `cost_transfer`.** Moving cost from one holding to another inside an entity, with no cash and no gain, is one journal entry (Dr Investment — target / Cr Investment — source) owning two rows: the source's invested capital and cost go down with nothing realized, and the target's cost starts on the transfer date. Before, the reader took that entry as proceeds on the source and an investment in the target, which reported proceeds never received and lifted the source's MOIC and IRR.
 - **Read from the journal.** An entry whose only lines are a credit to one holding's investment account and an equal debit to another's becomes a cost transfer when it is posted, adopted or imported. A cash line, a gain or loss, a mark or a third holding keeps the old reading, so a real exit is still proceeds.

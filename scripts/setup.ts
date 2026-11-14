@@ -139,7 +139,10 @@ async function ensureSupabaseCli(): Promise<boolean> {
 async function ensureVercelCli(): Promise<boolean> {
   if (onPath('vercel')) return true
   if (!(await confirm('The Vercel CLI isn\'t installed. Install it now (npm i -g vercel)? (no: you\'ll deploy by hand)', arg('install-clis'), false))) return false
-  return runLive('npm', ['install', '-g', 'vercel']) && onPath('vercel')
+  // npm 12 blocks dependency install scripts unless allow-listed, and a global install has no
+  // package.json to list them in. These are the two the Vercel CLI pulls in (fsevents on macOS
+  // only); npm 10 and 11 accept the flag and ignore it.
+  return runLive('npm', ['install', '-g', '--allow-scripts=esbuild,fsevents', 'vercel']) && onPath('vercel')
 }
 
 // ---------------------------------------------------------------------------
