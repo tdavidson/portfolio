@@ -63,6 +63,8 @@ cd portfolio
 npm install
 ```
 
+**Install scripts (npm 12 and later).** npm 12 no longer runs a dependency's install scripts unless the project allow-lists it. The `allowScripts` field in `package.json` covers every dependency here that has one, so `npm install` should print no `install-scripts` warning: `esbuild` and `unrs-resolver` may run theirs (each only checks that its prebuilt binary for your platform is in place), while `tesseract.js` (a donation message) and `fsevents` (macOS only, which ships prebuilt) stay blocked without a warning. If an update adds a dependency with an install script, npm lists it; review it with `npm install-scripts ls`, then run `npm install-scripts approve <pkg>` or `npm install-scripts deny <pkg>`. `npm run setup` installs the Vercel CLI with `--allow-scripts=esbuild,fsevents` for the same reason. Older npm versions ignore all of this.
+
 ### Step 2: Create the Supabase project
 
 Next setup your database.
