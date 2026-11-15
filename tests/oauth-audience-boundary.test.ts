@@ -106,12 +106,11 @@ describe('a token issued for the advertised MCP resource', () => {
 describe('a token that claimed no resource', () => {
   beforeEach(() => issue('mcp_at_legacy', null))
 
-  it('still works at both boundaries — the transitional case, deliberately', async () => {
-    // Tokens predating the check have resource null. Refusing them would sign out every current
-    // client to close a gap they are not the ones exploiting; the finding's attack carries the
-    // WRONG resource, not none. Tighten once no null-resource rows remain in oauth_tokens.
-    await expect(resolveV1Principal(admin, bearer('mcp_at_legacy'))).resolves.toBeTruthy()
-    expect(await resolveAgentAuth(admin, bearer('mcp_at_legacy'))).not.toBeNull()
+  it('is refused at both boundaries now that no such tokens remain', async () => {
+    // The transitional allowance for tokens predating the check is gone: consent stamps the fund's
+    // MCP resource on a request that names none, so a token without one is refused everywhere.
+    await expect(resolveV1Principal(admin, bearer('mcp_at_legacy'))).rejects.toThrow(V1PrincipalError)
+    expect(await resolveAgentAuth(admin, bearer('mcp_at_legacy'))).toBeNull()
   })
 })
 
