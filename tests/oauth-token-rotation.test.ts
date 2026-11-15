@@ -272,14 +272,10 @@ describe('SEC-009 — a token is bound to the boundary it was issued for', () =>
     expect(await resolveAccessToken(store.admin, tokens.accessToken, 'v1')).toBeNull()
   })
 
-  it('still accepts a token that claimed NO resource, which is the transitional case', async () => {
-    // Deliberate: tokens issued before this check exist with resource null, and rejecting them
-    // would sign out every current client to close a gap they are not the ones exploiting. The
-    // attack in the finding is closed regardless, because that token carries the WRONG resource
-    // rather than none. Tighten once no null-resource tokens remain.
+  it('refuses a token that claimed NO resource, at every boundary', async () => {
     const tokens = await issueFor(null)
-    expect(await resolveAccessToken(store.admin, tokens.accessToken, 'v1')).not.toBeNull()
-    expect(await resolveAccessToken(store.admin, tokens.accessToken, 'mcp')).not.toBeNull()
+    expect(await resolveAccessToken(store.admin, tokens.accessToken, 'v1')).toBeNull()
+    expect(await resolveAccessToken(store.admin, tokens.accessToken, 'mcp')).toBeNull()
   })
 
   it('reports the resource it resolved, so a caller can log what was presented', async () => {

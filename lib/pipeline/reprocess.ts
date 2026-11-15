@@ -10,6 +10,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { runPipeline, type PostmarkPayload } from '@/lib/pipeline/processEmail'
 import { hydrateAttachments } from '@/lib/parsing/extractAttachmentText'
+import { storedSenderVerified } from '@/lib/pipeline/sender-verified'
 
 export interface ReprocessableEmail {
   id: string
@@ -54,8 +55,13 @@ export async function runReprocess(admin: SupabaseClient, email: ReprocessableEm
   try {
     const payload = await hydrateAttachments(email.raw_payload as PostmarkPayload) as unknown as PostmarkPayload
     const senderEmail = (payload.FromFull?.Email ?? payload.From ?? '').trim().toLowerCase()
-    const { data: memberRow } = await db.rpc('is_fund_member_by_email', { p_fund_id: email.fund_id, p_email: senderEmail })
-    const fundMember = memberRow?.[0] ? { userId: memberRow[0].user_id as string } : null
+    // A member's treatment only when intake showed the mail really is from that address, as the
+    // webhook routes decide it. The From header alone is the sender's own claim.
+    let fundMember: { userId: string } | null = null
+    if (await storedSenderVerified(admin, email.id)) {
+      const { data: memberRow } = await db.rpc('is_fund_member_by_email', { p_fund_id: email.fund_id, p_email: senderEmail })
+      fundMember = memberRow?.[0] ? { userId: memberRow[0].user_id as string } : null
+    }
     await runPipeline(db, email.id, email.fund_id, payload, fundMember)
   } catch (err) {
     const raw = err instanceof Error ? err.message : String(err)

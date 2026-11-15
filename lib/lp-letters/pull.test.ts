@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { diffDraft, normalizeDocText, parseGoogleDocUrl } from './pull'
+import { diffDraft, isInsideFolder, normalizeDocText, parseGoogleDocUrl } from './pull'
 
 const ID = '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789'
 
@@ -32,5 +32,21 @@ describe('diffDraft', () => {
   it('is empty when only blank lines and spacing differ, and caps the list', () => {
     expect(diffDraft('A\n\nB', '  A\nB  ')).toMatchObject({ added: 0, removed: 0, changes: [] })
     expect(diffDraft('', Array.from({ length: 10 }, (_, i) => `L${i}`).join('\n'), 3).changes).toHaveLength(3)
+  })
+})
+
+describe('isInsideFolder — the pull reads only docs in the fund folder', () => {
+  const tree: Record<string, string[]> = { doc: ['letters'], letters: ['fund'], fund: ['root'], loose: ['root'], loop: ['loop2'], loop2: ['loop'] }
+  const parentsOf = async (id: string) => tree[id] ?? []
+
+  it('finds the fund folder above the doc, and only there', async () => {
+    expect(await isInsideFolder('doc', 'fund', parentsOf)).toBe(true)
+    expect(await isInsideFolder('doc', 'letters', parentsOf)).toBe(true)
+    expect(await isInsideFolder('loose', 'fund', parentsOf)).toBe(false)
+  })
+
+  it('stops at the depth limit and on cycles', async () => {
+    expect(await isInsideFolder('doc', 'root', parentsOf, 2)).toBe(false)
+    expect(await isInsideFolder('loop', 'fund', parentsOf)).toBe(false)
   })
 })

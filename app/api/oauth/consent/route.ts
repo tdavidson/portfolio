@@ -136,7 +136,9 @@ export async function POST(req: NextRequest) {
     redirectUri,
     scope,
     codeChallenge,
-    resource,
+    // A client that names no resource gets the fund's MCP endpoint, the one the metadata
+    // advertises: a token always names the boundary it may be used at (lib/oauth/audience.ts).
+    resource: resource ?? resourceFor(req),
   })
 
   // RFC 9207: the issuer rides on every authorization response. The metadata promises it

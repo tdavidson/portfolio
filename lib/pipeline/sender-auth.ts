@@ -21,23 +21,46 @@ export function resendSenderVerified(auth: ResendAuthentication | null): boolean
 type Header = { Name?: string; Value?: string }
 
 /**
- * Postmark: the topmost Authentication-Results (the one Postmark's own server added; lower ones
- * came with the message and prove nothing) shows DMARC pass, or a DKIM or SPF pass for a domain
- * aligned with From. Without that header, a Received-SPF pass whose envelope sender is aligned.
+ * The authserv-ids (RFC 8601) of the receiving servers whose Authentication-Results we trust, from
+ * POSTMARK_AUTHSERV_IDS (comma-separated). Empty by default.
  */
-export function postmarkSenderVerified(from: string, headers: Header[] | null | undefined): boolean {
+export function trustedAuthservIds(raw: string | undefined = process.env.POSTMARK_AUTHSERV_IDS): string[] {
+  return (raw ?? '').split(',').map(s => s.trim().toLowerCase()).filter(Boolean)
+}
+
+/** The authserv-id an Authentication-Results value names: the token before the first ';'. */
+function authservIdOf(value: string): string {
+  return (value.split(';')[0] ?? '').trim().split(/\s+/)[0]?.toLowerCase() ?? ''
+}
+
+/**
+ * Postmark: the sender's address is shown to be real by
+ *   - an Authentication-Results header written by a server we trust (its authserv-id is in
+ *     `trustedIds`), showing DMARC pass or a DKIM or SPF pass aligned with From, or
+ *   - the first Received-SPF header (Postmark's own check) passing for an aligned envelope sender.
+ *
+ * Any other Authentication-Results header is ignored, as RFC 8601 section 5 asks. A sender can put
+ * one in the message themselves, and Postmark's inbound processing doesn't write its own, so
+ * "the topmost one" can be the sender's. Reading it would let a spoofer claim `dmarc=pass`.
+ */
+export function postmarkSenderVerified(
+  from: string,
+  headers: Header[] | null | undefined,
+  trustedIds: string[] = trustedAuthservIds(),
+): boolean {
   const fromDomain = domainOf(from)
   if (!fromDomain || !Array.isArray(headers)) return false
-  const named = (n: string) => headers.find(h => h?.Name?.toLowerCase() === n)?.Value ?? null
-  const results = named('authentication-results')
-  if (results) {
+  const named = (n: string) => headers.filter(h => h?.Name?.toLowerCase() === n).map(h => h.Value ?? '')
+
+  for (const results of named('authentication-results')) {
+    if (!trustedIds.includes(authservIdOf(results))) continue
     const lower = results.toLowerCase()
     if (/\bdmarc=pass\b/.test(lower)) return true
     for (const m of lower.matchAll(/\bdkim=pass\b[^;]*?\bheader\.(?:d|i)=([^\s;]+)/g)) if (aligned(fromDomain, m[1])) return true
     for (const m of lower.matchAll(/\bspf=pass\b[^;]*?\bsmtp\.mailfrom=([^\s;]+)/g)) if (aligned(fromDomain, m[1])) return true
-    return false
   }
-  const spf = named('received-spf')
+
+  const spf = named('received-spf')[0]
   if (spf && /^\s*pass\b/i.test(spf)) {
     const m = spf.match(/envelope-from=["<]?([^\s">;]+)/i)
     return aligned(fromDomain, m?.[1])

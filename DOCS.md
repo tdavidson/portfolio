@@ -177,6 +177,8 @@ This is how portfolio company reports get into the system. Choose one:
 
 To use your own address, set an **inbound domain** on the Postmark server (e.g. `inbound.yourfund.com`, with an MX record pointing at `inbound.postmarkapp.com`) and save any address on it, such as `reports@inbound.yourfund.com`. Mail to any name at that domain then comes to the fund. A Postmark server has one inbound domain and one webhook token, so each fund on a deployment needs its own server and its own domain (`fund-a.inbound.example.com`, `fund-b.inbound.example.com`). On Postmark's shared `inbound.postmarkapp.com` domain only the exact address routes.
 
+Mail from a fund member's address gets a member's treatment (receipts, interactions, no authorized-senders check) only when the receiving server shows it really came from that address. On Postmark that is its `Received-SPF` header: a pass for an envelope sender aligned with the From domain. An `Authentication-Results` header counts only if the server that wrote it is named in `POSTMARK_AUTHSERV_IDS` (comma-separated authserv-ids), because a sender can put that header in the message themselves. Mail that isn't verified is still accepted from an authorized sender, as anyone else's would be.
+
 **Resend:**
 1. Create a [Resend](https://resend.com) account, add a domain with receiving turned on (a subdomain such as `inbound.yourdomain.com` keeps your existing mailboxes untouched), and add the DNS records it lists, including the receiving MX record
 2. Create a **full-access** API key, so the app can read each received email and its attachments

@@ -8,6 +8,8 @@ import { NextRequest } from 'next/server'
  * missing the expected issuer"); Claude did not, which is how it went unnoticed.
  */
 
+const issued: Array<string | null> = []
+
 vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { getUser: async () => ({ data: { user: { id: 'u1' } } }) } }) }))
 vi.mock('@/lib/supabase/admin', () => ({
   createAdminClient: () => ({
@@ -20,7 +22,7 @@ vi.mock('@/lib/supabase/admin', () => ({
 vi.mock('@/lib/oauth/store', () => ({
   getClient: async () => ({ id: 'c1', redirect_uris: ['https://chatgpt.com/connector_platform_oauth_redirect'] }),
   redirectUriAllowed: () => true,
-  issueAuthorizationCode: async () => 'code-123',
+  issueAuthorizationCode: async (_admin: unknown, params: { resource: string | null }) => { issued.push(params.resource); return 'code-123' },
   grantableScope: () => 'read write',
 }))
 vi.mock('@/lib/access/effective', () => ({ loadAccessContext: async () => ({}), canWriteAnywhere: () => true }))
@@ -54,5 +56,13 @@ describe('OAuth authorization responses carry the issuer (RFC 9207)', () => {
     const url = new URL((await (await consent(false)).json()).redirect)
     expect(url.searchParams.get('error')).toBe('access_denied')
     expect(url.searchParams.get('iss')).toBeTruthy()
+  })
+})
+
+describe('a client that names no resource', () => {
+  it("gets the fund's MCP endpoint stamped on its code, so its token names a boundary", async () => {
+    issued.length = 0
+    await consent(true)
+    expect(issued).toEqual(['https://fund.example.com/api/mcp'])
   })
 })
