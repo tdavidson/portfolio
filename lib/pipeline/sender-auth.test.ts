@@ -1,30 +1,52 @@
 import { describe, it, expect } from 'vitest'
-import { postmarkSenderVerified, resendSenderVerified } from './sender-auth'
+import { postmarkSenderVerified, resendSenderVerified, trustedAuthservIds } from './sender-auth'
 import { authenticationRejection, matchInboundDomain } from '@/lib/resend/inbound'
 
 const h = (Name: string, Value: string) => ({ Name, Value })
 
 describe('postmarkSenderVerified — a member treatment needs more than a From header', () => {
-  it('accepts DMARC pass, or a DKIM or SPF pass aligned with the From domain, in the topmost results', () => {
-    expect(postmarkSenderVerified('gp@fund.example', [h('Authentication-Results', 'mx.example; dmarc=pass header.from=fund.example')])).toBe(true)
-    expect(postmarkSenderVerified('gp@fund.example', [h('Authentication-Results', 'mx.example; dkim=pass header.d=fund.example')])).toBe(true)
-    expect(postmarkSenderVerified('gp@mail.fund.example', [h('Authentication-Results', 'mx.example; spf=pass smtp.mailfrom=bounce@fund.example')])).toBe(true)
+  const trusted = ['mx.postmark.example']
+
+  it('accepts DMARC pass, or a DKIM or SPF pass aligned with From, from a trusted authserv-id', () => {
+    expect(postmarkSenderVerified('gp@fund.example', [h('Authentication-Results', 'mx.postmark.example; dmarc=pass header.from=fund.example')], trusted)).toBe(true)
+    expect(postmarkSenderVerified('gp@fund.example', [h('Authentication-Results', 'mx.postmark.example; dkim=pass header.d=fund.example')], trusted)).toBe(true)
+    expect(postmarkSenderVerified('gp@mail.fund.example', [h('Authentication-Results', 'mx.postmark.example 1; spf=pass smtp.mailfrom=bounce@fund.example')], trusted)).toBe(true)
   })
 
-  it('refuses a pass for some other domain, a lower header the sender wrote, and no headers at all', () => {
-    expect(postmarkSenderVerified('gp@fund.example', [h('Authentication-Results', 'mx.example; dkim=pass header.d=attacker.example')])).toBe(false)
+  it('ignores Authentication-Results from any server not trusted, so a sender cannot write their own pass', () => {
+    // The spoof: a forged From and a hand-written header claiming DMARC passed.
+    expect(postmarkSenderVerified('gp@fund.example', [h('Authentication-Results', 'spoof.example; dmarc=pass header.from=fund.example')], trusted)).toBe(false)
+    expect(postmarkSenderVerified('gp@fund.example', [h('Authentication-Results', 'mx.postmark.example; dmarc=pass')], [])).toBe(false)
+    // A forged header doesn't hide Postmark's own SPF result, either way.
     expect(postmarkSenderVerified('gp@fund.example', [
-      h('Authentication-Results', 'mx.example; dkim=none; spf=softfail smtp.mailfrom=attacker.example'),
-      h('Authentication-Results', 'forged; dmarc=pass'),
-    ])).toBe(false)
-    expect(postmarkSenderVerified('gp@fund.example', [])).toBe(false)
-    expect(postmarkSenderVerified('gp@fund.example', undefined)).toBe(false)
+      h('Received-SPF', 'Softfail identity=mailfrom; envelope-from="x@attacker.example"'),
+      h('Authentication-Results', 'spoof.example; dmarc=pass'),
+    ], trusted)).toBe(false)
+    expect(postmarkSenderVerified('gp@fund.example', [
+      h('Authentication-Results', 'spoof.example; dmarc=fail'),
+      h('Received-SPF', 'Pass identity=mailfrom; envelope-from="gp@fund.example"'),
+    ], trusted)).toBe(true)
   })
 
-  it('falls back to an aligned Received-SPF pass', () => {
-    expect(postmarkSenderVerified('gp@fund.example', [h('Received-SPF', 'Pass (sender SPF authorized) identity=mailfrom; envelope-from="gp@fund.example"; receiver=x')])).toBe(true)
-    expect(postmarkSenderVerified('gp@fund.example', [h('Received-SPF', 'Pass identity=mailfrom; envelope-from="x@attacker.example"')])).toBe(false)
-    expect(postmarkSenderVerified('gp@fund.example', [h('Received-SPF', 'Softfail identity=mailfrom; envelope-from="gp@fund.example"')])).toBe(false)
+  it('refuses a pass for some other domain, and no headers at all', () => {
+    expect(postmarkSenderVerified('gp@fund.example', [h('Authentication-Results', 'mx.postmark.example; dkim=pass header.d=attacker.example')], trusted)).toBe(false)
+    expect(postmarkSenderVerified('gp@fund.example', [], trusted)).toBe(false)
+    expect(postmarkSenderVerified('gp@fund.example', undefined, trusted)).toBe(false)
+  })
+
+  it('reads only the first Received-SPF, and needs an aligned pass', () => {
+    expect(postmarkSenderVerified('gp@fund.example', [h('Received-SPF', 'Pass (sender SPF authorized) identity=mailfrom; envelope-from="gp@fund.example"; receiver=x')], [])).toBe(true)
+    expect(postmarkSenderVerified('gp@fund.example', [h('Received-SPF', 'Pass identity=mailfrom; envelope-from="x@attacker.example"')], [])).toBe(false)
+    expect(postmarkSenderVerified('gp@fund.example', [h('Received-SPF', 'Softfail identity=mailfrom; envelope-from="gp@fund.example"')], [])).toBe(false)
+    expect(postmarkSenderVerified('gp@fund.example', [
+      h('Received-SPF', 'Softfail identity=mailfrom; envelope-from="gp@fund.example"'),
+      h('Received-SPF', 'Pass identity=mailfrom; envelope-from="gp@fund.example"'),
+    ], [])).toBe(false)
+  })
+
+  it('reads the trusted ids from a comma-separated setting', () => {
+    expect(trustedAuthservIds(' MX.Postmark.example, other.example ,')).toEqual(['mx.postmark.example', 'other.example'])
+    expect(trustedAuthservIds(undefined)).toEqual([])
   })
 })
 
