@@ -1,5 +1,8 @@
 import { AffinityClient, AffinityError, renderNoteAsMarkdown } from '@/lib/affinity/client'
 import type { ToolDefinition, ToolExecutor, ToolInvocation, McpServerConfig } from '@/lib/ai/types'
+import { createHash } from 'crypto'
+import { isReadOnlyTool, listMcpTools } from '@/lib/mcp-client/tools'
+import type { FetchLike } from '@/lib/mcp-client/oauth'
 
 /**
  * Affinity tools for the diligence assistant.
@@ -151,14 +154,53 @@ export function makeAffinityExecutor(apiKey: string): ToolExecutor {
  *   + Full Affinity tool surface, maintained by Affinity, zero tool code here.
  *   - Anthropic-only (the MCP connector is an Anthropic API feature).
  *   - Requires an Affinity Scale/Advanced/Enterprise plan.
- *   - Includes WRITE tools — the model can log notes back into the CRM.
+ *   - Its tool list includes WRITE tools. Only the read-only ones are turned on
+ *     (`affinityMcpServerReadOnly`): the model reads data-room files the fund didn't write, and an
+ *     instruction planted in one must not be able to change the CRM.
  */
-export function affinityMcpServer(apiKey: string): McpServerConfig {
+export const AFFINITY_MCP_URL = 'https://mcp.affinity.co/mcp'
+
+export function affinityMcpServer(apiKey: string, allowedTools: string[]): McpServerConfig {
   return {
     name: 'affinity',
-    url: 'https://mcp.affinity.co/mcp',
+    url: AFFINITY_MCP_URL,
     authorizationToken: apiKey,
+    allowedTools,
   }
+}
+
+/** Read-only tool names per key, for an hour, so each question doesn't list Affinity's tools again. */
+const readToolCache = new Map<string, { names: string[]; at: number }>()
+const READ_TOOL_TTL_MS = 60 * 60 * 1000
+
+/**
+ * Affinity's hosted MCP server with only its read-only tools enabled, or null when the tool list
+ * can't be read or has no read-only tools. The caller then falls back to the custom read-only tools
+ * above, never to the full surface.
+ */
+export async function affinityMcpServerReadOnly(
+  apiKey: string,
+  opts: { fetchImpl?: FetchLike; now?: number } = {},
+): Promise<McpServerConfig | null> {
+  const now = opts.now ?? Date.now()
+  const cacheKey = createHash('sha256').update(apiKey).digest('hex')
+  const cached = readToolCache.get(cacheKey)
+  let names = cached && now - cached.at < READ_TOOL_TTL_MS ? cached.names : null
+  if (!names) {
+    try {
+      names = (await listMcpTools(AFFINITY_MCP_URL, apiKey, opts.fetchImpl)).filter(isReadOnlyTool).map(t => t.name).sort()
+    } catch (err) {
+      console.error('[affinity-mcp] could not read the tool list:', err instanceof Error ? err.message : err)
+      return null
+    }
+    readToolCache.set(cacheKey, { names, at: now })
+  }
+  return names.length > 0 ? affinityMcpServer(apiKey, names) : null
+}
+
+/** Tests only. */
+export function clearAffinityReadToolCache() {
+  readToolCache.clear()
 }
 
 function formatSize(bytes: number): string {

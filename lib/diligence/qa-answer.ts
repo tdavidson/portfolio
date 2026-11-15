@@ -18,7 +18,7 @@ import { getStageProvider } from '@/lib/memo-agent/stage-provider'
 import { extractJsonObject } from '@/lib/memo-agent/parse-ai-json'
 import { buildQAChatContext } from '@/lib/diligence/qa-chat-context'
 import { getAffinityKey } from '@/lib/affinity/credentials'
-import { AFFINITY_TOOLS, makeAffinityExecutor, affinityMcpServer } from '@/lib/affinity/tools'
+import { AFFINITY_TOOLS, makeAffinityExecutor, affinityMcpServerReadOnly } from '@/lib/affinity/tools'
 import { getMcpServerForUser } from '@/lib/mcp-client/connections'
 import type { AIResult, McpServerConfig } from '@/lib/ai/types'
 
@@ -174,11 +174,13 @@ ${ctx.text}`
   let specterLookups: string[] = []
 
   if ((affinityAvailable || specterAvailable) && provider.createToolLoop) {
-    // Affinity is either our read-only tools, or its hosted MCP server if the fund opted into
-    // it (which also grants the model write access — see lib/affinity/tools.ts).
-    const affinityViaMcp = affinityAvailable && useMcp
+    // Affinity is either our read-only tools, or its hosted MCP server if the fund opted into it.
+    // The hosted server gets only its read-only tools (lib/affinity/tools.ts); when its tool list
+    // can't be read, the custom read-only tools stand in.
+    const affinityMcp = affinityAvailable && useMcp ? await affinityMcpServerReadOnly(affinityKey!) : null
+    const affinityViaMcp = !!affinityMcp
     const mcpServers: McpServerConfig[] = [
-      ...(affinityViaMcp ? [affinityMcpServer(affinityKey!)] : []),
+      ...(affinityMcp ? [affinityMcp] : []),
       ...(specterServer ? [specterServer] : []),
     ]
     const loop = await provider.createToolLoop({

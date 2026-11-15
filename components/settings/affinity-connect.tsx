@@ -216,7 +216,8 @@ export function AffinityConnect() {
                 Uses Affinity&rsquo;s hosted MCP server rather than the three built-in REST tools, so
                 the assistant can reach lists, fields and relationship data instead of just notes and
                 files. Fund-wide — but each person still authenticates with their own key, so nobody
-                sees a CRM record they couldn&rsquo;t open in Affinity themselves.
+                sees a CRM record they couldn&rsquo;t open in Affinity themselves. Only its read-only
+                tools are turned on: the assistant reads Affinity, it never changes it.
               </span>
             </span>
             {savingMcp && <Loader2 className="h-3.5 w-3.5 animate-spin shrink-0" />}
