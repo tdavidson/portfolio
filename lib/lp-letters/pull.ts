@@ -12,6 +12,33 @@ export function parseGoogleDocUrl(input: string): string | null {
   return /^[a-zA-Z0-9_-]{20,}$/.test(s) ? s : null
 }
 
+/**
+ * Whether a Drive file sits inside `folderId` (the fund's configured Drive folder, where letter
+ * exports go), at most `maxDepth` folders down. The pull reads with the fund's Google token, which
+ * can open far more than letters: a member with letter write must not be able to read any doc that
+ * account can see by pasting its id.
+ */
+export async function isInsideFolder(
+  fileId: string,
+  folderId: string,
+  parentsOf: (id: string) => Promise<string[]>,
+  maxDepth = 6,
+): Promise<boolean> {
+  const seen = new Set<string>([fileId])
+  let level = [fileId]
+  for (let depth = 0; depth < maxDepth && level.length > 0; depth++) {
+    const next: string[] = []
+    for (const id of level) {
+      for (const parent of await parentsOf(id)) {
+        if (parent === folderId) return true
+        if (!seen.has(parent)) { seen.add(parent); next.push(parent) }
+      }
+    }
+    level = next
+  }
+  return false
+}
+
 /** A Google Doc's plain-text export as letter text: no BOM, Unix line ends, no trailing spaces, at most one blank line in a row. */
 export function normalizeDocText(text: string): string {
   return text

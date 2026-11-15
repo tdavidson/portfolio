@@ -14,8 +14,13 @@ vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { g
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => store.admin }))
 vi.mock('@/lib/api-helpers', async orig => ({ ...(await orig<any>()), assertWriteAccess: async () => ({ fundId: 'fund-1', userId: 'u1', role: 'admin' }) }))
 vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScopeForUser: async () => scope }))
-vi.mock('@/lib/google/fund-drive', () => ({ fundDriveToken: async () => ({ ok: true, value: { accessToken: 'tok', folderId: 'root' } }) }))
-vi.mock('@/lib/google/drive', () => ({ exportFile: (...a: unknown[]) => (docText as any)(...a) }))
+// The doc sits in the fund folder's "LP Letters" subfolder, where exports go.
+const parents: Record<string, string[]> = { '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789': ['letters-folder'], 'letters-folder': ['fund-folder'], 'fund-folder': ['root'] }
+vi.mock('@/lib/google/fund-drive', () => ({ fundDriveToken: async () => ({ ok: true, value: { accessToken: 'tok', folderId: 'fund-folder' } }) }))
+vi.mock('@/lib/google/drive', () => ({
+  exportFile: (...a: unknown[]) => (docText as any)(...a),
+  getFileParents: async (_tok: string, id: string) => parents[id] ?? [],
+}))
 
 import { POST } from '@/app/api/lp-letters/[id]/pull-google-doc/route'
 
@@ -40,7 +45,7 @@ describe('pulling a draft back from a Google Doc', () => {
     const preview = await res.json()
     expect(docText).toHaveBeenCalledWith('tok', '1AbCdEfGhIjKlMnOpQrStUvWxYz0123456789', 'text/plain')
     expect(preview.diff).toMatchObject({ added: 1, removed: 1, unchanged: 2 })
-    expect(preview.text).toBe('Dear Investors,\n\nAcme grew fast.\nClosing')
+    expect(preview.text).toBeUndefined()
     expect(store.tables.lp_letters[0].full_draft).toBe('Dear Investors,\n\nAcme grew.\nClosing')
 
     const applied = await pull({ url: DOC, apply: true })
@@ -55,6 +60,14 @@ describe('pulling a draft back from a Google Doc', () => {
     scope = { vehicleNames: ['Fund I'] }
     expect((await pull({ url: DOC, apply: true }, 'l3')).status).toBe(404)
     expect(store.tables.lp_letters[2].full_draft).toBe('Other.')
+  })
+
+  it("refuses a doc outside the fund's Drive folder without reading it", async () => {
+    const elsewhere = 'https://docs.google.com/document/d/9ZyXwVuTsRqPoNmLkJiHgFeDcBa9876543210/edit'
+    parents['9ZyXwVuTsRqPoNmLkJiHgFeDcBa9876543210'] = ['someone-elses-folder']
+    const res = await pull({ url: elsewhere })
+    expect(res.status).toBe(403)
+    expect(docText).not.toHaveBeenCalled()
   })
 
   it("says so when the doc can't be read", async () => {

@@ -6,9 +6,9 @@ import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 import { outcomeResponse } from '@/lib/service-outcome'
 import { getLetter, updateLetter } from '@/lib/lp-letters/service'
 import { investorText } from '@/lib/lp-letters/internal'
-import { diffDraft, normalizeDocText, parseGoogleDocUrl } from '@/lib/lp-letters/pull'
+import { diffDraft, isInsideFolder, normalizeDocText, parseGoogleDocUrl } from '@/lib/lp-letters/pull'
 import { fundDriveToken } from '@/lib/google/fund-drive'
-import { exportFile } from '@/lib/google/drive'
+import { exportFile, getFileParents } from '@/lib/google/drive'
 
 /**
  * Bring a draft back from the Google Doc the partners edited. Without `apply` it only reads the doc
@@ -43,9 +43,23 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   const drive = await fundDriveToken(admin, fundId)
   if (!drive.ok) return outcomeResponse(drive)
 
+  // Only a doc in the fund's Drive folder (where letter exports go): the fund's token can open
+  // much more than letters, and this route must not read any of it for whoever pastes an id.
+  const { accessToken, folderId } = drive.value
+  let inside: boolean
+  try {
+    inside = await isInsideFolder(docId, folderId, id => getFileParents(accessToken, id))
+  } catch (err) {
+    console.error('[lp-letters-pull-gdoc]', err instanceof Error ? err.message : err)
+    return NextResponse.json({ error: "Couldn't read that Google Doc. Check that the fund's Google account can open it." }, { status: 502 })
+  }
+  if (!inside) {
+    return NextResponse.json({ error: "That Google Doc isn't in the fund's Drive folder. Pull from the doc the letter was exported to, or move the doc into that folder." }, { status: 403 })
+  }
+
   let incoming: string
   try {
-    incoming = normalizeDocText((await exportFile(drive.value.accessToken, docId, 'text/plain')).toString('utf8'))
+    incoming = normalizeDocText((await exportFile(accessToken, docId, 'text/plain')).toString('utf8'))
   } catch (err) {
     console.error('[lp-letters-pull-gdoc]', err instanceof Error ? err.message : err)
     return NextResponse.json({ error: "Couldn't read that Google Doc. Check that the fund's Google account can open it." }, { status: 502 })
@@ -54,7 +68,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
 
   // Compared with what investors would see: the internal notes stay with the letter, apart.
   const diff = diffDraft(investorText(letter.full_draft) ?? '', incoming)
-  if (body?.apply !== true) return NextResponse.json({ diff, text: incoming })
+  if (body?.apply !== true) return NextResponse.json({ diff })
 
   const saved = await updateLetter(admin, { fundId, visible }, params.id, { full_draft: incoming })
   if (!saved.ok) return outcomeResponse(saved)

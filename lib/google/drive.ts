@@ -221,6 +221,21 @@ export async function exportFile(accessToken: string, fileId: string, exportMime
 }
 
 /**
+ * The folders a Drive file sits in (usually one). 'root' is My Drive's own id alias, and is also
+ * returned as itself when the file is in My Drive's top level.
+ */
+export async function getFileParents(accessToken: string, fileId: string): Promise<string[]> {
+  if (!fileId || !/^[a-zA-Z0-9_-]+$/.test(fileId)) throw new Error('Invalid file ID')
+  const url = new URL(`${DRIVE_API}/files/${fileId}`)
+  url.searchParams.set('fields', 'parents')
+  url.searchParams.set('supportsAllDrives', 'true')
+  const res = await fetch(url.toString(), { headers: { Authorization: `Bearer ${accessToken}` } })
+  if (!res.ok) throw new Error(`Failed to read file parents: ${await res.text()}`)
+  const data = await res.json()
+  return Array.isArray(data.parents) ? data.parents.filter((p: unknown) => typeof p === 'string') : []
+}
+
+/**
  * Extract a Google Drive folder ID from a URL like
  *   https://drive.google.com/drive/folders/<id>
  *   https://drive.google.com/drive/u/0/folders/<id>
