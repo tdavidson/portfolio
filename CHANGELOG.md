@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+### Security fixes (14 Nov 2026 review)
+- **Postmark: a sender can't vouch for themselves.** An inbound email's `Authentication-Results` header counts only when a server named in `POSTMARK_AUTHSERV_IDS` wrote it. Any other one is ignored, because the sender can put one in the message. Without that setting, Postmark's own `Received-SPF` decides (the first one only, with an aligned envelope sender). A forged header no longer hides the real SPF result either.
+- **Reprocessing keeps intake's sender decision.** Intake now records whether the sender was verified (`inbound_emails.sender_verified`). The Reprocess button and `reprocess_company_update` give a member's treatment only to mail that passed, instead of trusting the From address on the second run. Mail stored before this counts as unverified.
+- **Join requests come from the server only.** The browser can no longer insert or change `fund_join_requests` through the Data API. That path skipped the signup allow-list and let any signed-in account show an admin any email address. Members still read their own request.
+- **Affinity's hosted MCP server is read-only.** Deal Q&A turns on only the tools Affinity marks (or names) as read-only, because the assistant reads data-room files the fund didn't write. If the tool list can't be read, the built-in read-only tools stand in.
+- **Google Doc pull reads only the fund's folder.** Pulling a letter back from a Google Doc accepts only a doc inside the fund's Drive folder, where letter exports go, and the comparison no longer returns the doc's text.
+- **OAuth tokens must name a boundary.** A token without a `resource` is refused everywhere. Consent stamps the fund's MCP endpoint on a request that names none.
+- **No TRUNCATE for browser roles on new tables.** `diligence_rounds` loses the TRUNCATE, TRIGGER and REFERENCES grants it picked up, and the default privileges stop handing them to tables created from now on.
+- Migrations, additive: `20261115090000_inbound_sender_verified.sql` and `20261115090100_join_requests_server_only.sql`.
+
 ### Clean installs on npm 12
 - **No install-script warnings.** npm 12 blocks dependency install scripts that the project hasn't allow-listed and warns about each one. `package.json` now has an `allowScripts` field: `esbuild` and `unrs-resolver` may run theirs (binary checks), `tesseract.js` and `fsevents` stay blocked and silent. `npm run setup` installs the Vercel CLI with `--allow-scripts=esbuild,fsevents`, since a global install has no `package.json` to read. npm 10 and 11 ignore both. The self-hosting guide explains it under Step 1.
 
