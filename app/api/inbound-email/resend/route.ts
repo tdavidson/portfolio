@@ -6,6 +6,7 @@ import { normalizeResendEmail, toPostmarkPayload, extractEmail } from '@/lib/pip
 import { runPipeline } from '@/lib/pipeline/processEmail'
 import { checkFundMember } from '@/lib/pipeline/checkFundMember'
 import { resendSenderVerified } from '@/lib/pipeline/sender-auth'
+import { recordSenderVerified } from '@/lib/pipeline/sender-verified'
 import { isAuthorizedSender } from '@/lib/pipeline/isAuthorizedSender'
 import { decrypt } from '@/lib/crypto'
 import { scanFileAsync } from '@/lib/security/scan-file'
@@ -146,7 +147,8 @@ async function handleResendInbound(req: NextRequest): Promise<'done' | 'retry'> 
   }
   // A member's treatment only for mail shown to be from them (DMARC pass). Otherwise it is mail from
   // someone claiming a member's address: it needs to be from an authorized sender like anyone else's.
-  if (fundMember && !resendSenderVerified(fetched.email.authentication)) {
+  const senderVerified = resendSenderVerified(fetched.email.authentication)
+  if (fundMember && !senderVerified) {
     fundMember = null
     if (!(await isAuthorizedSender(supabase, fundId, fromAddress))) {
       console.warn(`[inbound-email/resend] Unverified mail claiming a member's address ${fromAddress} for fund ${fundId}`)
@@ -209,6 +211,7 @@ async function handleResendInbound(req: NextRequest): Promise<'done' | 'retry'> 
   }
 
   const inboundId = emailRow.id
+  await recordSenderVerified(supabase, inboundId, senderVerified)
 
   // Upload attachments to Storage and update payload with StoragePaths
   if (payload.Attachments && payload.Attachments.length > 0) {

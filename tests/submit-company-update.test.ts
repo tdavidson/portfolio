@@ -141,7 +141,8 @@ describe('reprocessCompanyUpdate', () => {
       q.select = (c: string) => { cols = c; return q }
       if (table === 'company_updates') q.maybeSingle = async () => ({ data: update })
       if (table === 'inbound_emails') {
-        q.maybeSingle = async () => ({ data: cols.includes('routed_to') ? email : { processing_status: 'success', companies: { id: 'co-1', name: 'Acme' }, processing_error: null } })
+        // Intake verified this sender (sender_verified), so the rerun keeps the member's treatment.
+        q.maybeSingle = async () => ({ data: cols.includes('routed_to') ? email : cols === 'sender_verified' ? { sender_verified: true } : { processing_status: 'success', companies: { id: 'co-1', name: 'Acme' }, processing_error: null } })
       }
       return q
     }
