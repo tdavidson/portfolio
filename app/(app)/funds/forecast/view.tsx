@@ -563,7 +563,9 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
                   )}
                 >
                   <span className="truncate font-medium">{p.name}</span>
-                  <span className="shrink-0 text-xs text-muted-foreground">{p.kind === 'budget' ? `Budget ${p.fiscalYear}` : 'Forecast'}</span>
+                  {/* Only a budget is tagged: a plain forecast is the default, and a "Forecast" tag on
+                      every chip pushed the toolbar onto two lines. */}
+                  {p.kind === 'budget' && <span className="shrink-0 text-xs text-muted-foreground">Budget {p.fiscalYear}</span>}
                 </button>
               )
             })}

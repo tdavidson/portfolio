@@ -62,18 +62,24 @@ function noNegZero(v: number): number {
   return v
 }
 
+/** Negative money in accounting parentheses, as on every other surface. */
+function accounting(v: number, s: string): string {
+  return v < 0 ? `(${s})` : s
+}
+
 function fmtCurrency(value: number | null, currency: string): string {
   if (value == null) return '—'
   const v = noNegZero(value)
   const symbol = getCurrencySymbol(currency)
-  if (Math.abs(v) >= 1_000_000) return `${symbol}${(v / 1_000_000).toFixed(1)}M`
-  if (Math.abs(v) >= 1_000) return `${symbol}${(v / 1_000).toFixed(0)}K`
-  return v.toLocaleString('en-US', { style: 'currency', currency, maximumFractionDigits: 0 })
+  const a = Math.abs(v)
+  if (a >= 1_000_000) return accounting(v, `${symbol}${(a / 1_000_000).toFixed(1)}M`)
+  if (a >= 1_000) return accounting(v, `${symbol}${(a / 1_000).toFixed(0)}K`)
+  return v.toLocaleString('en-US', { style: 'currency', currency, currencySign: 'accounting', maximumFractionDigits: 0 })
 }
 
 function fmtCurrencyFull(value: number | null, currency: string): string {
   if (value == null) return '—'
-  return noNegZero(value).toLocaleString('en-US', { style: 'currency', currency, maximumFractionDigits: 0 })
+  return noNegZero(value).toLocaleString('en-US', { style: 'currency', currency, currencySign: 'accounting', maximumFractionDigits: 0 })
 }
 
 function fmtMoic(val: number | null): string {

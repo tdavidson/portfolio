@@ -7,9 +7,10 @@ function esc(s: string): string {
 
 export function fmt(value: number, currency: string): string {
   const sym = getCurrencySymbol(currency)
-  if (Math.abs(value) >= 1_000_000) return `${sym}${(value / 1_000_000).toFixed(1)}M`
-  if (Math.abs(value) >= 1_000) return `${sym}${(value / 1_000).toFixed(0)}K`
-  return `${sym}${value.toLocaleString()}`
+  const a = Math.abs(value)
+  const s = a >= 1_000_000 ? `${sym}${(a / 1_000_000).toFixed(1)}M` : a >= 1_000 ? `${sym}${(a / 1_000).toFixed(0)}K` : `${sym}${a.toLocaleString()}`
+  // Negatives in accounting parentheses, as on every other surface.
+  return value < 0 && s.replace(/[^1-9]/g, '') !== '' ? `(${s})` : s
 }
 
 /**

@@ -16,7 +16,7 @@ function formatter(locale: string | undefined, options: Intl.NumberFormatOptions
 export interface Formatters {
   /** Whole currency units, negatives in parentheses: the form a financial table uses. */
   money(value: number | null | undefined): string
-  /** Compact currency for tiles, axis ticks and bar labels: $4.2M, $850K. */
+  /** Compact currency for tiles, axis ticks and bar labels: $4.2M, $850K, ($1.2M). */
   compact(value: number | null | undefined): string
   /** A plain number, compact from 10,000 up. For KPIs whose unit is not money. */
   number(value: number | null | undefined): string
@@ -28,14 +28,19 @@ export function createFormatters(currency: string, locale?: string): Formatters 
   const money = formatter(locale, { style: 'currency', currency, minimumFractionDigits: 0, maximumFractionDigits: 0, currencySign: 'accounting' })
   // minimumFractionDigits is stated because engines disagree on the default for a compact
   // currency: without it one prints $620K and another $620.0K.
+  // Intl ignores currencySign in compact notation, so the sign is put in parentheses by hand.
   const compact = formatter(locale, { style: 'currency', currency, notation: 'compact', minimumFractionDigits: 0, maximumFractionDigits: 1 })
-  const price = formatter(locale, { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 4 })
+  const price = formatter(locale, { style: 'currency', currency, currencySign: 'accounting', minimumFractionDigits: 2, maximumFractionDigits: 4 })
   const plain = formatter(locale, { maximumFractionDigits: 2 })
   const plainCompact = formatter(locale, { notation: 'compact', minimumFractionDigits: 0, maximumFractionDigits: 1 })
   const ok = (v: number | null | undefined): v is number => typeof v === 'number' && Number.isFinite(v)
   return {
     money: v => (ok(v) ? money.format(Object.is(v, -0) ? 0 : v) : DASH),
-    compact: v => (ok(v) ? compact.format(Object.is(v, -0) ? 0 : v) : DASH),
+    compact: v => {
+      if (!ok(v)) return DASH
+      const s = compact.format(Math.abs(v))
+      return v < 0 && /[1-9]/.test(s) ? `(${s})` : s
+    },
     number: v => (ok(v) ? (Math.abs(v) >= 10_000 ? plainCompact.format(v) : plain.format(v)) : DASH),
     price: v => (ok(v) ? price.format(v) : DASH),
   }
