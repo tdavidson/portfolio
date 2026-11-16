@@ -28,7 +28,7 @@ const RECEIVED: ActivityKind[] = ['distribution']
 
 function money(v: number, currency: string): string {
   try {
-    return new Intl.NumberFormat('en-US', { style: 'currency', currency, minimumFractionDigits: 2 }).format(v)
+    return new Intl.NumberFormat('en-US', { style: 'currency', currencySign: 'accounting', currency, minimumFractionDigits: 2 }).format(v)
   } catch {
     return `${currency} ${v.toFixed(2)}`
   }

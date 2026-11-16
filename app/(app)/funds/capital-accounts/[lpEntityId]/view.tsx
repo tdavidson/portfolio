@@ -208,7 +208,7 @@ export function LpStatementView({ lpEntityId, vehicleId }: { lpEntityId: string;
         </div>
 
         <div>
-          <p className="text-heading font-display font-normal">Capital Account Statement</p>
+          <p className="text-heading font-display font-normal">Capital account statement</p>
           <p className="text-sm font-semibold">{row.name}</p>
           <p className="text-sm text-muted-foreground">{vehicleName} · {period.label}</p>
         </div>

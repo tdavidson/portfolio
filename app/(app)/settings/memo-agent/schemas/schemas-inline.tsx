@@ -14,7 +14,7 @@ const SCHEMA_LABELS: Record<string, { label: string; description: string }> = {
   data_room_ingestion: { label: 'Data Room Ingestion', description: 'Per-document extraction, claims, gap analysis' },
   research_dossier: { label: 'Research Dossier', description: 'External research, source quality tiers, founder constraints' },
   memo_output: { label: 'Memo Output', description: 'Memo assembly, sections, paragraph-level provenance, partner-only fields' },
-  style_anchors: { label: 'Style Anchors', description: 'Metadata for uploaded reference memos, voice and structure aggregation rules' },
+  style_anchors: { label: 'Style anchors', description: 'Metadata for uploaded reference memos, voice and structure aggregation rules' },
   instructions: { label: 'Instructions', description: 'Operating manual, hard rules, six-stage flow, behavioral defaults' },
 }
 

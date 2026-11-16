@@ -3,10 +3,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis,
-  CartesianGrid, Tooltip, Legend, PieChart, Pie, Cell,
-  LineChart, Line, ReferenceLine,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, PieChart, Pie, Cell, LineChart, Line, ReferenceLine,
 } from 'recharts'
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart'
 import { Loader2, ArrowRight } from 'lucide-react'
 import type { FundDetailInitial } from '@/lib/accounting/fund-detail-initial'
 import { useCurrency, formatCurrency, formatCurrencyFull } from '@/components/currency-context'
@@ -15,7 +14,7 @@ import { AccountingBody, AccountingPageHeader } from '@/components/accounting-ch
 import { Card, CardContent } from '@/components/ui/card'
 import { Metric as MetricBox } from '@/components/ui/metric'
 import {
-  ChartCard, EmptyPlot, AXIS, tooltipStyle, HUE, SLICE, sliceFill,
+  ChartCard, EmptyPlot, AXIS, HUE, useAxisMoney, SLICE, sliceFill,
   INVEST_NEW, INVEST_FOLLOW, GAINS_HUE, PROCEEDS_HUE,
 } from '@/components/fund-chart-kit'
 import { formatReportedFigure } from '@/lib/accounting/reported-figures-shared'
@@ -321,6 +320,7 @@ function CashFlowsChart({
   // capital-tracking vehicle has no called capital, so it shows the gross (deal-level) view only.
   const canNet = hasCapitalData
   const canGross = hasGross
+  const axisMoney = useAxisMoney()
   const [mode, setMode] = useState<'net' | 'gross'>(hasCapitalData ? 'net' : 'gross')
   const view: 'net' | 'gross' =
     mode === 'net' && canNet ? 'net' : mode === 'gross' && canGross ? 'gross' : canGross ? 'gross' : 'net'
@@ -370,19 +370,19 @@ function CashFlowsChart({
       {points.length === 0 ? (
         <EmptyPlot label="No dated activity yet." />
       ) : (
-        <ResponsiveContainer width="100%" height={260}>
+        <ChartContainer height={260}>
           <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }} stackOffset="sign">
-            <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
+            <CartesianGrid vertical={false} />
             <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} interval="equidistantPreserveStart" className="text-muted-foreground" />
-            <YAxis tick={AXIS} tickLine={false} axisLine={false} width={52} tickFormatter={fmt} className="text-muted-foreground" />
-            <Tooltip cursor={{ fill: 'hsl(var(--muted) / 0.4)' }} contentStyle={tooltipStyle} formatter={(v: any, n: any) => [fmtFull(Math.abs(v as number)), n]} />
-            <Legend wrapperStyle={{ fontSize: 12 }} iconType="circle" />
+            <YAxis tick={AXIS} tickLine={false} axisLine={false} width={52} tickFormatter={axisMoney} className="text-muted-foreground" />
+            <ChartTooltip cursor={{ fill: 'hsl(var(--muted) / 0.4)' }} content={<ChartTooltipContent />} formatter={(v: any, n: any) => [fmtFull(Math.abs(v as number)), n]} />
+            <ChartLegend verticalAlign="top" align="left" content={<ChartLegendContent />} />
             <ReferenceLine y={0} stroke="hsl(var(--border))" />
             {series.map(s => (
               <Bar key={s.key} dataKey={s.key} name={s.name} stackId="a" fill={s.color} stroke={HUE.surface} strokeWidth={1} />
             ))}
           </BarChart>
-        </ResponsiveContainer>
+        </ChartContainer>
       )}
     </ChartCard>
   )
@@ -410,6 +410,7 @@ const GROSS_ASSET_SERIES = [
 function AssetsChart({
   points, hasCapitalData, fmt, fmtFull,
 }: { points: TsPoint[]; hasCapitalData: boolean; fmt: (v: number) => string; fmtFull: (v: number) => string }) {
+  const axisMoney = useAxisMoney()
   const { data, series } = useMemo(() => {
     if (hasCapitalData) {
       // Net paid-in = contributions net of capital returned; the rest is already signed so the
@@ -436,18 +437,18 @@ function AssetsChart({
       {points.length === 0 ? (
         <EmptyPlot label="No dated activity yet." />
       ) : (
-        <ResponsiveContainer width="100%" height={260}>
+        <ChartContainer height={260}>
           <BarChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }} stackOffset="sign">
-            <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
+            <CartesianGrid vertical={false} />
             <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} interval="equidistantPreserveStart" className="text-muted-foreground" />
-            <YAxis tick={AXIS} tickLine={false} axisLine={false} width={52} tickFormatter={fmt} className="text-muted-foreground" />
-            <Tooltip cursor={{ fill: 'hsl(var(--muted) / 0.4)' }} contentStyle={tooltipStyle} formatter={(v: any, n: any) => [fmtFull(v as number), n]} />
-            <Legend wrapperStyle={{ fontSize: 12 }} iconType="circle" />
+            <YAxis tick={AXIS} tickLine={false} axisLine={false} width={52} tickFormatter={axisMoney} className="text-muted-foreground" />
+            <ChartTooltip cursor={{ fill: 'hsl(var(--muted) / 0.4)' }} content={<ChartTooltipContent />} formatter={(v: any, n: any) => [fmtFull(v as number), n]} />
+            <ChartLegend verticalAlign="top" align="left" content={<ChartLegendContent />} />
             {series.map(s => (
               <Bar key={s.key} dataKey={s.key} name={s.name} stackId="assets" fill={s.color} stroke={HUE.surface} strokeWidth={1} />
             ))}
           </BarChart>
-        </ResponsiveContainer>
+        </ChartContainer>
       )}
     </ChartCard>
   )
@@ -470,14 +471,14 @@ function NewVsFollowOnPie({
         <EmptyPlot label="No invested capital yet." />
       ) : (
         <div className="flex items-center gap-4">
-          <ResponsiveContainer width="55%" height={220}>
+          <ChartContainer height={220} className="w-[55%]">
             <PieChart>
               <Pie data={data} dataKey="value" nameKey="name" cx="50%" cy="50%" innerRadius={48} outerRadius={80} paddingAngle={2} stroke={HUE.surface} strokeWidth={2}>
                 {data.map((d, i) => <Cell key={i} fill={d.color} />)}
               </Pie>
-              <Tooltip contentStyle={tooltipStyle} formatter={(v: any, n: any) => [fmtFull(v as number), n]} />
+              <ChartTooltip content={<ChartTooltipContent />} formatter={(v: any, n: any) => [fmtFull(v as number), n]} />
             </PieChart>
-          </ResponsiveContainer>
+          </ChartContainer>
           <ul className="flex-1 space-y-1.5 text-xs min-w-0">
             {data.map(d => (
               <li key={d.name} className="flex items-center gap-2">
@@ -532,16 +533,16 @@ function IrrOverTimeChart({
       {!hasAny ? (
         <EmptyPlot label="Not enough dated activity to compute IRR." />
       ) : (
-        <ResponsiveContainer width="100%" height={260}>
+        <ChartContainer height={260}>
           <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
+            <CartesianGrid vertical={false} />
             <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} interval="equidistantPreserveStart" className="text-muted-foreground" />
             <YAxis tick={AXIS} tickLine={false} axisLine={false} width={44} tickFormatter={(v: number) => `${Math.round(v)}%`} className="text-muted-foreground" />
-            <Tooltip contentStyle={tooltipStyle} formatter={(v: any) => [`${Number(v).toFixed(1)}%`, seriesName]} />
+            <ChartTooltip content={<ChartTooltipContent />} formatter={(v: any) => [`${Number(v).toFixed(1)}%`, seriesName]} />
             <ReferenceLine y={0} stroke="hsl(var(--border))" />
             <Line type="monotone" dataKey="irr" name={seriesName} stroke={INVEST_NEW} strokeWidth={2} dot={{ r: 2 }} activeDot={{ r: 4 }} connectNulls isAnimationActive={false} />
           </LineChart>
-        </ResponsiveContainer>
+        </ChartContainer>
       )}
     </ChartCard>
   )
@@ -570,14 +571,14 @@ function BreakdownChart({
         <EmptyPlot label="Nothing to break down." />
       ) : (
         <div className="flex items-center gap-4">
-          <ResponsiveContainer width="55%" height={220}>
+          <ChartContainer height={220} className="w-[55%]">
             <PieChart>
               <Pie data={data} dataKey="fairValue" nameKey="name" cx="50%" cy="50%" innerRadius={48} outerRadius={80} paddingAngle={2} stroke={HUE.surface} strokeWidth={2}>
                 {data.map((_, i) => <Cell key={i} fill={sliceFill(i)} />)}
               </Pie>
-              <Tooltip contentStyle={tooltipStyle} formatter={(v: any, n: any) => [fmtFull(v as number), n]} />
+              <ChartTooltip content={<ChartTooltipContent />} formatter={(v: any, n: any) => [fmtFull(v as number), n]} />
             </PieChart>
-          </ResponsiveContainer>
+          </ChartContainer>
           {/* Direct-labelled legend — identity + magnitude beside each swatch, in ink. */}
           <ul className="flex-1 space-y-1.5 text-xs min-w-0">
             {data.map((gp, i) => (

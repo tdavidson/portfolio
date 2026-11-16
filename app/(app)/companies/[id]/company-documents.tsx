@@ -203,8 +203,7 @@ export function CompanyDocuments({ companyId, fundId, storageProvider, googleDri
     return (
       <div className="mt-6">
         <div className="flex items-center gap-2 mb-2">
-          <FileText className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-sm font-medium text-muted-foreground">{title}</span>
+          <span className="text-base font-medium">{title}</span>
         </div>
         <div className="animate-pulse space-y-2">
           <div className="h-8 bg-muted rounded w-full" />
@@ -220,13 +219,12 @@ export function CompanyDocuments({ companyId, fundId, storageProvider, googleDri
       <div className="flex items-center justify-between mb-2">
         <button
           onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
+          className="flex items-center gap-1.5 text-base font-medium text-foreground hover:text-foreground/80"
         >
           {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-          <FileText className="h-3.5 w-3.5" />
           {title}
           {documents.length > 0 && (
-            <span className="text-xs bg-muted rounded-full px-1.5 py-0.5">{documents.length}</span>
+            <span className="text-xs font-normal text-muted-foreground tabular-nums">({documents.length})</span>
           )}
         </button>
         <Button

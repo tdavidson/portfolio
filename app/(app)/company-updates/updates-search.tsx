@@ -139,7 +139,7 @@ function ResultCard({ result }: { result: SearchResult }) {
   return (
     <article className="rounded-card border bg-card shadow-sm dark:shadow-none p-4">
       <div className="flex items-center gap-2 flex-wrap">
-        <Link href={`/companies/${result.company_id}`} className="text-sm font-medium text-brand-700 dark:text-brand-400 hover:underline">
+        <Link href={`/companies/${result.company_id}`} className="text-sm font-semibold text-foreground hover:underline">
           {result.company_name}
         </Link>
         <span className="text-sm text-foreground truncate">{result.subject || '(no subject)'}</span>

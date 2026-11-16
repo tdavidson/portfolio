@@ -27,7 +27,7 @@ interface Investment {
 interface Snapshot { id: string; name: string; as_of_date: string | null; description: string | null; footer_note: string | null }
 
 const money = (v: number | null) =>
-  v == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v)
+  v == null ? '—' : new Intl.NumberFormat('en-US', { style: 'currency', currencySign: 'accounting', currency: 'USD', maximumFractionDigits: 0 }).format(v)
 const moic = (v: number | null) => (v == null ? '—' : `${v.toFixed(2)}x`)
 const pct = (v: number | null) => (v == null ? '—' : `${(v * 100).toFixed(1)}%`)
 

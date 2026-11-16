@@ -1,9 +1,9 @@
 'use client'
 
+import { Metric } from '@/components/ui/metric'
 import { Fragment, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
 import { Loader2, ChevronUp, ChevronDown, Lock, Pencil, Link2Off } from 'lucide-react'
-import { Card, CardContent } from '@/components/ui/card'
 import { useCurrency, formatCurrency, formatCurrencyFull } from '@/components/currency-context'
 import type { CompanyStatus } from '@/lib/types/database'
 import { AnalystToggleButton } from '@/components/analyst-button'
@@ -405,11 +405,11 @@ export default function InvestmentsPage() {
   // Shared numeric column definitions (used by both group summary and company table)
   const numericColumns: { label: string; sortKey: string; getValue: (row: { totalInvested: number; totalRealized: number; unrealizedValue: number; totalCostBasisExited: number; proceedsReceived: number; proceedsEscrow: number; moic?: number | null; irr?: number | null }) => number | null; format: 'currency' | 'moic' | 'irr' }[] = [
     { label: 'Invested', sortKey: 'totalInvested', getValue: r => r.totalInvested, format: 'currency' },
-    { label: 'Current Cost', sortKey: 'currentCost', getValue: r => currentCost(r), format: 'currency' },
+    { label: 'Current cost', sortKey: 'currentCost', getValue: r => currentCost(r), format: 'currency' },
     { label: 'Proceeds', sortKey: 'proceedsReceived', getValue: r => r.proceedsReceived, format: 'currency' },
     { label: 'Escrow', sortKey: 'proceedsEscrow', getValue: r => r.proceedsEscrow, format: 'currency' },
     { label: 'Unrealized', sortKey: 'unrealizedValue', getValue: r => r.unrealizedValue, format: 'currency' },
-    { label: 'Total Value', sortKey: 'totalValue', getValue: r => totalValue(r), format: 'currency' },
+    { label: 'Total value', sortKey: 'totalValue', getValue: r => totalValue(r), format: 'currency' },
     { label: 'Realized G/L', sortKey: 'realizedGL', getValue: r => realizedGL(r), format: 'currency' },
     { label: 'Unrealized G/L', sortKey: 'unrealizedGL', getValue: r => unrealizedGL(r), format: 'currency' },
     { label: 'Total G/L', sortKey: 'totalGL', getValue: r => totalGL(r), format: 'currency' },
@@ -424,7 +424,7 @@ export default function InvestmentsPage() {
   for (let i = 0; i < numericColumns.length; i++) {
     companyColumns.push({ label: numericColumns[i].label, sortKey: numericColumns[i].sortKey, type: 'numeric', colIdx: i })
     if (numericColumns[i].sortKey === 'unrealizedValue') {
-      companyColumns.push({ label: '% Unrealized', sortKey: 'pctUnrealized', type: 'pct' })
+      companyColumns.push({ label: '% unrealized', sortKey: 'pctUnrealized', type: 'pct' })
     }
     if (numericColumns[i].sortKey === 'totalValue') {
       companyColumns.push({ label: '% Total Value', sortKey: 'pctTotalValue', type: 'pct' })
@@ -519,38 +519,13 @@ export default function InvestmentsPage() {
       <div className="flex flex-col lg:flex-row gap-6 items-start">
       <div className="flex-1 min-w-0 w-full">
 
-      {/* Summary cards */}
+      {/* Summary tiles: the app's KPI tile (components/ui/metric.tsx), as on the fund pages. */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4 mb-8">
-        <Card>
-          <CardContent className="pt-4 pb-3 px-4">
-            <p className="text-xs text-muted-foreground mb-1">Total Invested</p>
-            <p className="text-xl font-semibold">{fmt(data.totalInvested)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-3 px-4">
-            <p className="text-xs text-muted-foreground mb-1">Total FMV</p>
-            <p className="text-xl font-semibold">{fmt(data.totalFMV)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-3 px-4">
-            <p className="text-xs text-muted-foreground mb-1">Total Realized</p>
-            <p className="text-xl font-semibold">{fmt(data.totalRealized)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-3 px-4">
-            <p className="text-xs text-muted-foreground mb-1">Gross MOIC</p>
-            <p className="text-xl font-semibold">{fmtMoic(data.portfolioMOIC)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-4 pb-3 px-4">
-            <p className="text-xs text-muted-foreground mb-1">Gross IRR</p>
-            <p className="text-xl font-semibold">{fmtIrr(data.portfolioIRR)}</p>
-          </CardContent>
-        </Card>
+        <Metric label="Total invested" value={fmt(data.totalInvested)} />
+        <Metric label="Total FMV" value={fmt(data.totalFMV)} />
+        <Metric label="Total realized" value={fmt(data.totalRealized)} />
+        <Metric label="Gross MOIC" value={fmtMoic(data.portfolioMOIC)} />
+        <Metric label="Gross IRR" value={fmtIrr(data.portfolioIRR)} />
       </div>
 
       {/* Charts — the same rows as the holdings table below, so every filter applies. */}

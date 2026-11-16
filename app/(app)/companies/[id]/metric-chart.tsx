@@ -2,17 +2,9 @@
 
 import { useState, useCallback } from 'react'
 import {
-  ResponsiveContainer,
-  LineChart,
-  BarChart,
-  Line,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  Cell,
+  LineChart, BarChart, Line, Bar, XAxis, YAxis, CartesianGrid, Cell,
 } from 'recharts'
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import type { Metric } from '@/lib/types/database'
 import type { MetricValueRow } from './company-charts'
 import { DataPointPopover } from './data-point-popover'
@@ -39,6 +31,9 @@ const CONFIDENCE_COLORS: Record<string, string> = {
   low: 'hsl(var(--destructive))',
 }
 
+// Axis ticks read $1M and $1.5M, not $1.0M: the trailing zero is noise at tick size.
+const trimZero = (s: string) => s.replace(/\.0$/, '')
+
 export function MetricChart({ metric, values, onRefresh, compact }: Props) {
   const fundCurrency = useCurrency()
   const [chartType, setChartType] = useState<'line' | 'bar'>('line')
@@ -60,8 +55,11 @@ export function MetricChart({ metric, values, onRefresh, compact }: Props) {
   const effectiveUnitPosition = metric.unit ? metric.unit_position : 'prefix'
 
   const formatValue = useCallback(
-    (val: number | null) => {
-      if (val === null) return '—'
+    (raw: number | null) => {
+      if (raw === null) return '—'
+      // A negative amount reads in accounting parentheses, as every money figure in the app does.
+      const wrap = raw < 0 && metric.value_type === 'currency'
+      const val = wrap ? -raw : raw
       const formatted =
         metric.value_type === 'percentage'
           ? `${val}%`
@@ -69,24 +67,28 @@ export function MetricChart({ metric, values, onRefresh, compact }: Props) {
             ? val.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 2 })
             : val.toLocaleString()
 
-      if (!effectiveUnit) return formatted
-      return effectiveUnitPosition === 'prefix'
-        ? `${effectiveUnit}${formatted}`
-        : `${formatted} ${effectiveUnit}`
+      const withUnit = !effectiveUnit
+        ? formatted
+        : effectiveUnitPosition === 'prefix'
+          ? `${effectiveUnit}${formatted}`
+          : `${formatted} ${effectiveUnit}`
+      return wrap ? `(${withUnit})` : withUnit
     },
     [metric, effectiveUnit, effectiveUnitPosition]
   )
 
   const formatYAxis = useCallback(
-    (val: number) => {
+    (raw: number) => {
+      const wrap = raw < 0 && metric.value_type === 'currency'
+      const val = wrap ? -raw : raw
       let str: string
-      if (Math.abs(val) >= 1_000_000) str = `${(val / 1_000_000).toFixed(1)}M`
+      if (Math.abs(val) >= 1_000_000) str = `${trimZero((val / 1_000_000).toFixed(1))}M`
       else if (Math.abs(val) >= 1_000) str = `${(val / 1_000).toFixed(0)}K`
       else str = val.toString()
 
-      if (effectiveUnit && effectiveUnitPosition === 'prefix') return `${effectiveUnit}${str}`
-      if (metric.value_type === 'percentage') return `${str}%`
-      return str
+      if (effectiveUnit && effectiveUnitPosition === 'prefix') str = `${effectiveUnit}${str}`
+      else if (metric.value_type === 'percentage') str = `${str}%`
+      return wrap ? `(${str})` : str
     },
     [metric, effectiveUnit, effectiveUnitPosition]
   )
@@ -102,14 +104,14 @@ export function MetricChart({ metric, values, onRefresh, compact }: Props) {
   const chartColor = 'hsl(var(--chart-1))'
 
   const chartHeight = compact ? 180 : 250
-  const tickFontSize = compact ? 9 : 11
+  const tickFontSize = compact ? 10 : 11
   const yAxisWidth = compact ? 40 : 56
 
   const commonProps = {
     data,
     margin: compact
-      ? { top: 4, right: 4, bottom: 0, left: 0 }
-      : { top: 8, right: 8, bottom: 0, left: 8 },
+      ? { top: 4, right: 10, bottom: 0, left: 0 }
+      : { top: 8, right: 16, bottom: 0, left: 0 },
   }
 
   return (
@@ -131,10 +133,10 @@ export function MetricChart({ metric, values, onRefresh, compact }: Props) {
         </div>
       </div>
 
-      <ResponsiveContainer width="100%" height={chartHeight}>
+      <ChartContainer height={chartHeight}>
         {chartType === 'line' ? (
           <LineChart {...commonProps}>
-            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+            <CartesianGrid vertical={false} />
             <XAxis
               dataKey="label"
               tick={{ fontSize: tickFontSize }}
@@ -151,15 +153,9 @@ export function MetricChart({ metric, values, onRefresh, compact }: Props) {
               axisLine={false}
               width={yAxisWidth}
             />
-            <Tooltip
+            <ChartTooltip
               formatter={(val: any) => [formatValue(val as number), metric.name]}
-              contentStyle={{
-                borderRadius: '6px',
-                border: '1px solid hsl(var(--border))',
-                backgroundColor: 'hsl(var(--popover))',
-                color: 'hsl(var(--popover-foreground))',
-                fontSize: '12px',
-              }}
+              content={<ChartTooltipContent />}
             />
             <Line
               type="monotone"
@@ -174,7 +170,7 @@ export function MetricChart({ metric, values, onRefresh, compact }: Props) {
                 const isManual = point.raw.is_manually_entered
                 return (
                   <g key={index} className="cursor-pointer" onClick={(e: React.MouseEvent) => handleClick(point, e)}>
-                    <circle cx={cx} cy={cy} r={4} fill={isManual ? 'hsl(var(--background))' : color} stroke={color} strokeWidth={2} strokeDasharray={isManual ? '2 2' : 'none'} />
+                    <circle cx={cx} cy={cy} r={3} fill={isManual ? 'hsl(var(--background))' : color} stroke={color} strokeWidth={2} strokeDasharray={isManual ? '2 2' : 'none'} />
                   </g>
                 )
               }}
@@ -186,7 +182,7 @@ export function MetricChart({ metric, values, onRefresh, compact }: Props) {
                 const isManual = point.raw.is_manually_entered
                 return (
                   <g key={index} className="cursor-pointer" onClick={(e: React.MouseEvent) => handleClick(point, e)}>
-                    <circle cx={cx} cy={cy} r={6} fill={isManual ? 'hsl(var(--background))' : color} stroke={color} strokeWidth={2} strokeDasharray={isManual ? '2 2' : 'none'} />
+                    <circle cx={cx} cy={cy} r={5} fill={isManual ? 'hsl(var(--background))' : color} stroke={color} strokeWidth={2} strokeDasharray={isManual ? '2 2' : 'none'} />
                   </g>
                 )
               }}
@@ -194,7 +190,7 @@ export function MetricChart({ metric, values, onRefresh, compact }: Props) {
           </LineChart>
         ) : (
           <BarChart {...commonProps}>
-            <CartesianGrid strokeDasharray="3 3" className="stroke-border" />
+            <CartesianGrid vertical={false} />
             <XAxis
               dataKey="label"
               tick={{ fontSize: tickFontSize }}
@@ -211,15 +207,9 @@ export function MetricChart({ metric, values, onRefresh, compact }: Props) {
               axisLine={false}
               width={yAxisWidth}
             />
-            <Tooltip
+            <ChartTooltip
               formatter={(val: any) => [formatValue(val as number), metric.name]}
-              contentStyle={{
-                borderRadius: '6px',
-                border: '1px solid hsl(var(--border))',
-                backgroundColor: 'hsl(var(--popover))',
-                color: 'hsl(var(--popover-foreground))',
-                fontSize: '12px',
-              }}
+              content={<ChartTooltipContent />}
             />
             <Bar
               dataKey="value"
@@ -233,7 +223,7 @@ export function MetricChart({ metric, values, onRefresh, compact }: Props) {
                 <Cell
                   key={i}
                   fill={CONFIDENCE_COLORS[entry.raw.confidence] ?? chartColor}
-                  fillOpacity={entry.raw.is_manually_entered ? 0.5 : 0.8}
+                  fillOpacity={entry.raw.is_manually_entered ? 0.5 : 1}
                   strokeDasharray={entry.raw.is_manually_entered ? '4 2' : 'none'}
                   stroke={entry.raw.is_manually_entered ? (CONFIDENCE_COLORS[entry.raw.confidence] ?? chartColor) : 'none'}
                   strokeWidth={entry.raw.is_manually_entered ? 2 : 0}
@@ -242,7 +232,7 @@ export function MetricChart({ metric, values, onRefresh, compact }: Props) {
             </Bar>
           </BarChart>
         )}
-      </ResponsiveContainer>
+      </ChartContainer>
 
       {activePoint && (
         <DataPointPopover

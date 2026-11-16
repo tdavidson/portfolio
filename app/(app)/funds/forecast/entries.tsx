@@ -170,7 +170,7 @@ export function ForecastEntries({ detail, fmt, editable, months, onClearMonths, 
                       // Investments and exits are entered on the Investments tab, where the deal lives.
                       onOpenInvestments
                         ? <button type="button" className="text-muted-foreground hover:text-foreground" onClick={onOpenInvestments}>Change on Investments</button>
-                        : <span className="text-muted-foreground">From Investments</span>
+                        : <span className="text-muted-foreground">From investments</span>
                     ) : (e.source === 'construction' || e.source === 'opening' || e.source === 'manual') ? (
                       <span className="flex justify-end gap-3">
                         <button type="button" className="text-muted-foreground hover:text-foreground" onClick={() => editEntry(e)}>Edit</button>

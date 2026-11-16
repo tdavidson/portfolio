@@ -11,7 +11,7 @@ export default function SupportPage() {
   const tocLinks = (
     <ul className="space-y-1 text-muted-foreground">
       <li><a href="#links" className="hover:text-foreground underline underline-offset-4">Links</a></li>
-      <li><a href="#getting-started" className="hover:text-foreground underline underline-offset-4">Getting Started</a></li>
+      <li><a href="#getting-started" className="hover:text-foreground underline underline-offset-4">Getting started</a></li>
       <li className="pl-4"><a href="#start" className="hover:text-foreground underline underline-offset-4">Start</a></li>
       <li className="pl-4"><a href="#setup" className="hover:text-foreground underline underline-offset-4">Self-hosting &amp; license</a></li>
       <li><a href="#portfolio" className="hover:text-foreground underline underline-offset-4">Portfolio</a></li>
@@ -138,7 +138,7 @@ export default function SupportPage() {
 
           {/* Sections */}
         <div id="getting-started">
-          <h2 className="text-base font-medium mb-2">Getting Started</h2>
+          <h2 className="text-base font-medium mb-2">Getting started</h2>
           <p className="text-muted-foreground mb-2">
             This platform is designed to automate the collection, parsing, and tracking of portfolio
             company reports. Instead of manually copying numbers out of emails and spreadsheets,
@@ -168,8 +168,8 @@ export default function SupportPage() {
           </p>
           <p className="text-muted-foreground">
             The app is four products an admin turns on separately in Settings &mdash; <strong>Portfolio
-            Reporting</strong>, <strong>Investment Workflow</strong> (deals and diligence), <strong>LP Reporting</strong> and
-            <strong> Fund Operations</strong> (accounting, forecast, compliance) &mdash; so you only see what your fund
+            Reporting</strong>, <strong>Investment workflow</strong> (deals and diligence), <strong>LP Reporting</strong> and
+            <strong> Fund operations</strong> (accounting, forecast, compliance) &mdash; so you only see what your fund
             uses. On a phone you can install it as an app from the browser&rsquo;s Share or Install menu.
           </p>
         </div>
@@ -444,7 +444,7 @@ export default function SupportPage() {
             Import
           </h2>
           <p className="text-muted-foreground mb-2">
-            <strong>Document Upload</strong> matches each file to a company by name and saves it to that company&rsquo;s documents, where the Analyst can use it. It accepts PDF, Word, PowerPoint, Excel, CSV and JPEG/PNG files up to 20 MB; files over 10 MB keep their extracted text only. To have a report&rsquo;s metrics extracted, forward it to the inbound address instead.
+            <strong>Document upload</strong> matches each file to a company by name and saves it to that company&rsquo;s documents, where the Analyst can use it. It accepts PDF, Word, PowerPoint, Excel, CSV and JPEG/PNG files up to 20 MB; files over 10 MB keep their extracted text only. To have a report&rsquo;s metrics extracted, forward it to the inbound address instead.
           </p>
           <p className="text-muted-foreground mb-2">
             You can also paste data that covers <strong>multiple companies</strong> at once &mdash; for example, rows copied from a spreadsheet or CSV file containing metrics across your portfolio. The system will parse the data, create new companies if they don&apos;t already exist, add new metrics as needed, and populate values for existing companies and metrics. An Email column adds those addresses to the authorized senders.
@@ -498,7 +498,7 @@ export default function SupportPage() {
             Admins configure the <strong>organization</strong> &mdash; fund name, logo and address, the sign-in page, appearance (accent colour), currency, team and roles, AI providers (Anthropic, OpenAI and/or OpenRouter), inbound email (Postmark or Resend) and authorized senders, outbound email (Gmail, Resend or Postmark), authentication email templates, file storage (Google Drive), analytics, usage tracking, operational reminders, Agent access and the version card &mdash; and turn on each <strong>product</strong>.
           </p>
           <p className="text-muted-foreground mb-2">
-            Each product group has a <em>Turn on</em> button and a row per feature, set to members, admins only, or off: <strong>Portfolio Reporting</strong> (default metrics, the AI summary prompt, dashboard entities), <strong>Investment Workflow</strong> (deal screening, external deal research, known referrers, AI models, diligence schemas, style anchors, defaults and caps, the Affinity connection), <strong>LP Reporting</strong> (the LP portal), and <strong>Fund Operations</strong> &mdash; whose accounting configuration lives on each entity&rsquo;s Admin page. A danger zone at the end of the organization settings permanently deletes all fund data.
+            Each product group has a <em>Turn on</em> button and a row per feature, set to members, admins only, or off: <strong>Portfolio reporting</strong> (default metrics, the AI summary prompt, dashboard entities), <strong>Investment workflow</strong> (deal screening, external deal research, known referrers, AI models, diligence schemas, style anchors, defaults and caps, the Affinity connection), <strong>LP Reporting</strong> (the LP portal), and <strong>Fund operations</strong> &mdash; whose accounting configuration lives on each entity&rsquo;s Admin page. A danger zone at the end of the organization settings permanently deletes all fund data.
           </p>
           <div id="access" className="pl-4 border-l-2 border-border mb-2">
             <h3 className="font-medium mb-1">Access</h3>
@@ -616,7 +616,7 @@ export default function SupportPage() {
             details to expand and see the names, emails, and context of introduced contacts.
           </p>
           <p className="text-muted-foreground mb-2">
-            On each company&apos;s detail page, a <strong>Recent Interactions</strong> section shows the
+            On each company&apos;s detail page, a <strong>Recent interactions</strong> section shows the
             latest interactions for that company, with intro entries highlighted in a distinct style. A
             &ldquo;View all&rdquo; link takes you to the full interactions list.
           </p>
@@ -692,7 +692,7 @@ export default function SupportPage() {
             the first time you open the editor, so you can run the agent immediately and customize as you go.
           </p>
           <p className="text-muted-foreground mb-2">
-            <strong>Style Anchors</strong> are uploaded reference memos that teach the agent your firm&apos;s
+            <strong>Style anchors</strong> are uploaded reference memos that teach the agent your firm&apos;s
             voice. Upload 3&ndash;8 prior memos in Settings &rarr; Investment Workflow &rarr; Diligence &rarr; Style anchors, tag each
             with vintage, sector, voice representativeness, and partner notes, and the agent uses them to
             match structure and tone during drafting. Reference memos teach voice &mdash; they never supply

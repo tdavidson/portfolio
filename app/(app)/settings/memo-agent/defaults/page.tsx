@@ -5,7 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { resolvePageAccess, canViewPage } from '@/lib/access/page-gate'
 import { DefaultsEditor } from './editor'
 
-export const metadata: Metadata = { title: 'Diligence Defaults' }
+export const metadata: Metadata = { title: 'Diligence defaults' }
 
 export default async function DefaultsPage() {
   const supabase = await createClient()

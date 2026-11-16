@@ -1,7 +1,7 @@
 'use client'
 
+import { Metric } from '@/components/ui/metric'
 import { useEffect, useMemo, useState } from 'react'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Input } from '@/components/ui/input'
 import { Loader2, LogIn, Eye, ArrowDownCircle, Search, Upload, BadgeCheck, MessageSquare } from 'lucide-react'
 import { AnalystToggleButton } from '@/components/analyst-button'
@@ -165,24 +165,12 @@ export function LpActivityDashboard() {
 
       {data && !loading && (
         <>
-          {/* Summary cards */}
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-            <Card>
-              <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Active LPs & users</CardTitle></CardHeader>
-              <CardContent><div className="text-2xl font-semibold">{data.summary.activePeople}</div></CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Logins</CardTitle></CardHeader>
-              <CardContent><div className="text-2xl font-semibold">{data.summary.logins}</div></CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Views</CardTitle></CardHeader>
-              <CardContent><div className="text-2xl font-semibold">{data.summary.views}</div></CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="pb-1"><CardTitle className="text-xs font-medium text-muted-foreground">Downloads</CardTitle></CardHeader>
-              <CardContent><div className="text-2xl font-semibold">{data.summary.downloads}</div></CardContent>
-            </Card>
+          {/* Summary tiles: the app's KPI tile (components/ui/metric.tsx). */}
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-6">
+            <Metric label="Active LPs & users" value={data.summary.activePeople} />
+            <Metric label="Logins" value={data.summary.logins} />
+            <Metric label="Views" value={data.summary.views} />
+            <Metric label="Downloads" value={data.summary.downloads} />
           </div>
 
           {/* Per-person rollup */}

@@ -245,7 +245,7 @@ export function ImportDocuments({ onUploaded }: { onUploaded?: (count: number) =
                 <thead>
                   <tr className="border-b bg-muted/50">
                     <th className="text-left px-3 py-2 font-medium">Filename</th>
-                    <th className="text-left px-3 py-2 font-medium">Matched Company</th>
+                    <th className="text-left px-3 py-2 font-medium">Matched company</th>
                     <th className="text-left px-3 py-2 font-medium w-20">Status</th>
                   </tr>
                 </thead>

@@ -107,7 +107,7 @@ export function splitByWeights(amount: number, weights: Map<PerformanceType, num
 }
 
 const money = (n: number, currency: string) =>
-  n.toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  n.toLocaleString('en-US', { style: 'currency', currency, currencySign: 'accounting', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
 export interface FlowInputs {
   asOf: string

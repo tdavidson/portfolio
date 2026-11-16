@@ -134,7 +134,7 @@ export function CompanyCharts({ companyId, companyName, metrics, compactEmpty }:
     <Dialog open={addMetricOpen} onOpenChange={setAddMetricOpen}>
       <DialogContent className="max-w-lg">
         <DialogHeader>
-          <DialogTitle>Add Metric</DialogTitle>
+          <DialogTitle>Add metric</DialogTitle>
         </DialogHeader>
         <MetricForm
           companyId={companyId}
@@ -225,7 +225,7 @@ export function CompanyCharts({ companyId, companyName, metrics, compactEmpty }:
   return (
     <div className="space-y-4" data-metrics-ready="company">
       <div className="flex items-center justify-between gap-3">
-        <h2 className="text-lg font-semibold tracking-tight">Metrics</h2>
+        <h2 className="text-base font-medium">Metrics</h2>
         <div className="flex items-center gap-3">
           {hasData && (
             <button
@@ -382,7 +382,7 @@ function MetricChartCard({
       <Dialog open={editOpen} onOpenChange={setEditOpen}>
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Edit Metric</DialogTitle>
+            <DialogTitle>Edit metric</DialogTitle>
           </DialogHeader>
           <MetricForm
             companyId={companyId}

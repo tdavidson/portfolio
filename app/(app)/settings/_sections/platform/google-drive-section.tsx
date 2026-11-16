@@ -42,7 +42,7 @@ function GoogleSetupGuide({ show, onToggle }: { show: boolean; onToggle: () => v
             <li>Authorized redirect URI: <code className="text-[11px] bg-muted px-1 rounded">{typeof window !== 'undefined' ? window.location.origin : ''}/api/auth/google/callback</code></li>
           </ul>
         </li>
-        <li>Copy the <strong>Client ID</strong> and <strong>Client Secret</strong> into the fields above</li>
+        <li>Copy the <strong>Client ID</strong> and <strong>Client secret</strong> into the fields above</li>
       </ol>
     </div>
   )

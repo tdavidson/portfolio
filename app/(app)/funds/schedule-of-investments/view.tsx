@@ -347,7 +347,7 @@ export function ScheduleOfInvestmentsView() {
           // reachable from Portfolio — so that is the way in from here.
           action={
             <Button size="sm" variant="outline" asChild>
-              <Link href="/dashboard">Open Portfolio</Link>
+              <Link href="/dashboard">Open portfolio</Link>
             </Button>
           }
         >

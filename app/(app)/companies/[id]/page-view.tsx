@@ -26,7 +26,9 @@ const CompanyDocuments = lazy(() => import('./company-documents').then(module =>
 const CompanyUpdates = lazy(() => import('./company-updates').then(module => ({ default: module.CompanyUpdates })))
 const CompanyInteractions = lazy(() => import('./company-interactions').then(module => ({ default: module.CompanyInteractions })))
 
-function formatHighlightValue(value: number, metric: Metric, fundCurrency: string) {
+function formatHighlightValue(value: number, metric: Metric, fundCurrency: string): string {
+  // A negative amount reads in accounting parentheses, as every money figure in the app does.
+  if (value < 0 && metric.value_type === 'currency') return `(${formatHighlightValue(-value, metric, fundCurrency)})`
   let formatted: string
   if (metric.value_type === 'percentage') {
     formatted = `${value}%`
@@ -233,14 +235,14 @@ export function CompanyPageView({
 
               {company.why_invested && (
                 <div>
-                  <h3 className="text-base font-medium text-muted-foreground mb-1">Why We Invested</h3>
+                  <h3 className="text-base font-medium text-muted-foreground mb-1">Why we invested</h3>
                   <p className="text-sm">{company.why_invested}</p>
                 </div>
               )}
 
               {company.current_update && (
                 <div>
-                  <h3 className="text-base font-medium text-muted-foreground mb-1">Current Business Update</h3>
+                  <h3 className="text-base font-medium text-muted-foreground mb-1">Current business update</h3>
                   <p className="text-sm">{company.current_update}</p>
                 </div>
               )}

@@ -22,32 +22,51 @@ function noNegZero(v: number): number {
   return v
 }
 
-/** Abbreviated currency format: $1.2M, €500K, ¥1,000 */
+/** Wraps a negative's figure in accounting parentheses, ($1,234), the one way the app shows a
+ *  negative amount: in tables, tiles, tooltips and chart axes alike. */
+function accounting(v: number, positive: string): string {
+  return v < 0 ? `(${positive})` : positive
+}
+
+/** Abbreviated currency format: $1.2M, €500K, ¥1,000; a negative in parentheses, ($1.2M). */
 export function formatCurrency(value: number | null | undefined, currency: string): string {
   if (value == null || !Number.isFinite(value)) return '—'
   const v = noNegZero(value)
   const symbol = getCurrencySymbol(currency)
-  if (Math.abs(v) >= 1_000_000) {
-    return `${symbol}${(v / 1_000_000).toFixed(1)}M`
-  }
-  if (Math.abs(v) >= 1_000) {
-    return `${symbol}${(v / 1_000).toFixed(0)}K`
-  }
-  return v.toLocaleString('en-US', { style: 'currency', currency, maximumFractionDigits: 0 })
+  const a = Math.abs(v)
+  if (a >= 1_000_000) return accounting(v, `${symbol}${(a / 1_000_000).toFixed(1)}M`)
+  if (a >= 1_000) return accounting(v, `${symbol}${(a / 1_000).toFixed(0)}K`)
+  return accounting(v, a.toLocaleString('en-US', { style: 'currency', currency, maximumFractionDigits: 0 }))
 }
 
-/** Full-precision currency format: $1,234,567 */
+/** Chart-axis currency: formatCurrency without a trailing ".0" ($50M, $1.5M, ($2M), $1B), since a
+ *  tick's zero decimal is noise and a column of them reads as false precision. */
+export function formatCurrencyAxis(value: number | null | undefined, currency: string): string {
+  if (value == null || !Number.isFinite(value)) return ''
+  const v = noNegZero(value)
+  const a = Math.abs(v)
+  const symbol = getCurrencySymbol(currency)
+  const trim = (n: number) => n.toFixed(1).replace(/\.0$/, '')
+  if (a >= 1_000_000_000) return accounting(v, `${symbol}${trim(a / 1_000_000_000)}B`)
+  if (a >= 1_000_000) return accounting(v, `${symbol}${trim(a / 1_000_000)}M`)
+  if (a >= 1_000) return accounting(v, `${symbol}${trim(a / 1_000)}K`)
+  return accounting(v, `${symbol}${Math.round(a)}`)
+}
+
+/** Full-precision currency format: $1,234,567; a negative in parentheses, ($1,234,567). */
 export function formatCurrencyFull(value: number | null | undefined, currency: string): string {
   if (value == null || !Number.isFinite(value)) return '—'
-  return noNegZero(value).toLocaleString('en-US', { style: 'currency', currency, maximumFractionDigits: 0 })
+  const v = noNegZero(value)
+  return accounting(v, Math.abs(v).toLocaleString('en-US', { style: 'currency', currency, maximumFractionDigits: 0 }))
 }
 
-/** Full-precision currency with cents, always two decimals: $12.50, $1,234.00 */
+/** Full-precision currency with cents, always two decimals: $12.50, $1,234.00, ($12.50). */
 export function formatCurrencyPrice(value: number | null | undefined, currency: string): string {
   if (value == null || !Number.isFinite(value)) return '—'
   // Only normalize -0 → 0 here; keep real sub-dollar amounts (cents matter).
-  const v = Object.is(value, -0) ? 0 : value
-  return v.toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  // A negative that rounds to $0.00 shows as $0.00, not ($0.00).
+  const v = Object.is(value, -0) || Math.round(value * 100) === 0 ? 0 : value
+  return accounting(v, Math.abs(v).toLocaleString('en-US', { style: 'currency', currency, minimumFractionDigits: 2, maximumFractionDigits: 2 }))
 }
 
 /** Accounting style with cents: a negative is wrapped in parentheses around the symbol and figure,

@@ -43,7 +43,7 @@ interface Row {
 
 type Stage = 'idle' | 'uploading' | 'sorting' | 'review' | 'filing' | 'done'
 
-const money = (v: number) => new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(v)
+const money = (v: number) => new Intl.NumberFormat('en-US', { style: 'currency', currencySign: 'accounting', currency: 'USD', maximumFractionDigits: 0 }).format(v)
 
 function Conf({ level }: { level: 'high' | 'medium' | 'low' | null }) {
   if (!level) return <span className="rounded px-1.5 py-0.5 text-[10px] bg-muted text-muted-foreground">unmatched</span>

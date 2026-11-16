@@ -105,7 +105,7 @@ export function LpReportCard(props: ReportCardProps) {
           <p className="text-xs text-muted-foreground">No investments found for this investor.</p>
         ) : (
           <>
-            <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Capital Summary</h3>
+            <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Capital summary</h3>
             <table className="w-full text-xs mb-5" style={{ tableLayout: 'fixed' }}>
               <Cols />
               <thead>
@@ -115,8 +115,8 @@ export function LpReportCard(props: ReportCardProps) {
                   <th className="text-right px-1.5 py-1.5 font-semibold">Commitment</th>
                   <th className="text-right px-1.5 py-1.5 font-semibold">Paid-in Capital</th>
                   <th className="text-right px-1.5 py-1.5 font-semibold">Distributions</th>
-                  <th className="text-right px-1.5 py-1.5 font-semibold">Net Asset Balance</th>
-                  <th className="text-right px-1.5 py-1.5 font-semibold">Total Value</th>
+                  <th className="text-right px-1.5 py-1.5 font-semibold">Net asset balance</th>
+                  <th className="text-right px-1.5 py-1.5 font-semibold">Total value</th>
                 </tr>
               </thead>
               <tbody>
@@ -144,7 +144,7 @@ export function LpReportCard(props: ReportCardProps) {
               </tfoot>
             </table>
 
-            <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Performance Metrics</h3>
+            <h3 className="text-[10px] font-semibold text-muted-foreground uppercase tracking-wider mb-1.5">Performance metrics</h3>
             <table className="w-full text-xs mb-5" style={{ tableLayout: 'fixed' }}>
               <Cols />
               <thead>

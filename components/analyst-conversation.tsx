@@ -596,7 +596,7 @@ export function AnalystConversation({
         <button onClick={() => setShowHistory(false)} className="p-1 rounded hover:bg-muted">
           <ArrowLeft className="h-3.5 w-3.5 text-muted-foreground" />
         </button>
-        <span className="text-xs font-medium text-muted-foreground">Conversation History</span>
+        <span className="text-xs font-medium text-muted-foreground">Conversation history</span>
       </div>
       {conversations.length === 0 ? (
         <p className="text-xs text-muted-foreground">No previous conversations.</p>

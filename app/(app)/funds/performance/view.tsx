@@ -137,11 +137,8 @@ export function FundPerformanceView() {
             </div>
           ))}
 
-          <div>
-            <h2 className="text-heading font-normal">Fund Performance Report</h2>
-            <p className="text-sm">{report.vehicle}</p>
-            <p className="text-sm text-muted-foreground">Through {report.periodLabel}</p>
-          </div>
+          {/* The page title already names the report; the PDF keeps its own document heading. */}
+          <p className="text-sm text-muted-foreground">{report.vehicle} · through {report.periodLabel}</p>
 
           <div className="border rounded-lg overflow-x-auto">
             <table className="w-full text-sm whitespace-nowrap">

@@ -251,7 +251,7 @@ export default function NewLetterPage() {
             <h2 className="font-medium text-base mb-2">{preview.fundName}, {preview.periodLabel}</h2>
             <div className="grid grid-cols-3 gap-4 text-sm">
               <div>
-                <p className="text-muted-foreground text-xs">Capital Deployed</p>
+                <p className="text-muted-foreground text-xs">Capital deployed</p>
                 <p className="font-medium">{fmt(preview.totals.totalInvested, preview.fundCurrency)}</p>
               </div>
               <div>

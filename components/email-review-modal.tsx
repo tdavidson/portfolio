@@ -556,7 +556,7 @@ export function EmailReviewModal({
             {items.length > 0 && (
               <section>
                 <div className="flex items-center gap-2 mb-3">
-                  <h3 className="text-base font-medium">Review Items</h3>
+                  <h3 className="text-base font-medium">Review items</h3>
                   <span className="text-xs text-muted-foreground">
                     {items.length} pending
                   </span>
@@ -729,7 +729,7 @@ export function EmailReviewModal({
                       className="gap-1.5"
                     >
                       <Plus className="h-3.5 w-3.5" />
-                      Add Metric
+                      Add metric
                     </Button>
                   </div>
                 )}
@@ -747,7 +747,7 @@ export function EmailReviewModal({
                       <Upload className="h-3 w-3 text-muted-foreground" />
                     )}
                   </div>
-                  <h3 className="text-base font-medium">Upload Document</h3>
+                  <h3 className="text-base font-medium">Upload document</h3>
                 </div>
 
                 <div className="ml-7">
@@ -856,7 +856,7 @@ export function EmailReviewModal({
                       <RefreshCw className="h-3 w-3 text-muted-foreground" />
                     )}
                   </div>
-                  <h3 className="text-base font-medium">Process Email</h3>
+                  <h3 className="text-base font-medium">Process email</h3>
                 </div>
 
                 <div className="ml-7">
@@ -881,7 +881,7 @@ export function EmailReviewModal({
                         ) : (
                           <RefreshCw className="h-3.5 w-3.5" />
                         )}
-                        {reprocessing ? 'Processing…' : 'Process Email'}
+                        {reprocessing ? 'Processing…' : 'Process email'}
                       </Button>
                     </>
                   )}

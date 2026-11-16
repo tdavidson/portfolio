@@ -304,7 +304,7 @@ export function EmailMetricsSection({ emailId, initialCompany }: Props) {
                 className="gap-1.5"
               >
                 <Plus className="h-3.5 w-3.5" />
-                Add Metric
+                Add metric
               </Button>
 
               {defaultsAvailable > 0 && (

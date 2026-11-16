@@ -74,7 +74,7 @@ export default async function UpdatesPage() {
 
       {update?.hasUpdate && update.body && (
         <div className="rounded-card border p-6 space-y-3">
-          <h2 className="text-lg font-semibold">Release Notes</h2>
+          <h2 className="text-lg font-semibold">Release notes</h2>
           {/* GitHub hands these back as markdown — headings, bullets, links, bold. They were
               being printed verbatim, so a release note read as one run of text with stray #
               and * characters in it. */}

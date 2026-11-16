@@ -204,7 +204,7 @@ export function UsageDashboard() {
 
       {/* Daily breakdown table */}
       <div>
-        <h2 className="text-lg font-medium mb-3">Daily Breakdown</h2>
+        <h2 className="text-lg font-medium mb-3">Daily breakdown</h2>
         {data.daily.length === 0 ? (
           <p className="text-sm text-muted-foreground">No AI usage recorded this month.</p>
         ) : (
@@ -215,8 +215,8 @@ export function UsageDashboard() {
                   <th className="text-left font-medium px-4 py-2.5">Date</th>
                   <th className="text-left font-medium px-4 py-2.5">Provider</th>
                   <th className="text-left font-medium px-4 py-2.5">Model</th>
-                  <th className="text-right font-medium px-4 py-2.5">Input Tokens</th>
-                  <th className="text-right font-medium px-4 py-2.5">Output Tokens</th>
+                  <th className="text-right font-medium px-4 py-2.5">Input tokens</th>
+                  <th className="text-right font-medium px-4 py-2.5">Output tokens</th>
                   <th className="text-right font-medium px-4 py-2.5">Est. Cost</th>
                 </tr>
               </thead>
@@ -248,14 +248,14 @@ export function UsageDashboard() {
       {/* Monthly summary table */}
       {data.monthly.length > 0 && (
         <div>
-          <h2 className="text-lg font-medium mb-3">Monthly Summary</h2>
+          <h2 className="text-lg font-medium mb-3">Monthly summary</h2>
           <div className="rounded-lg border overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b bg-muted/50">
                   <th className="text-left font-medium px-4 py-2.5">Month</th>
-                  <th className="text-right font-medium px-4 py-2.5">Input Tokens</th>
-                  <th className="text-right font-medium px-4 py-2.5">Output Tokens</th>
+                  <th className="text-right font-medium px-4 py-2.5">Input tokens</th>
+                  <th className="text-right font-medium px-4 py-2.5">Output tokens</th>
                   <th className="text-right font-medium px-4 py-2.5">Est. Cost</th>
                 </tr>
               </thead>
@@ -300,7 +300,7 @@ export function UsageDashboard() {
       {/* User Activity Summary */}
       {activity && activity.userSummary.length > 0 && (
         <div>
-          <h2 className="text-lg font-medium mb-3">User Activity Summary</h2>
+          <h2 className="text-lg font-medium mb-3">User activity summary</h2>
           <div className="rounded-lg border overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -342,7 +342,7 @@ export function UsageDashboard() {
       {activity && activity.recent.length > 0 && (
         <div>
           <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
-            <h2 className="text-lg font-medium">Recent Activity</h2>
+            <h2 className="text-lg font-medium">Recent activity</h2>
             <SourceFilter value={activitySource} onChange={setActivitySource} />
           </div>
           <div className="rounded-lg border overflow-x-auto">

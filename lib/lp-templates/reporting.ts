@@ -240,7 +240,7 @@ export function buildIlpaReporting(x: ReportingInputs): IlpaReporting {
   const { quarterStart, yearStart } = quarterBounds(Q)
   const dates = reportingDates(Q)
   const money = (n: number) =>
-    n.toLocaleString('en-US', { style: 'currency', currency: x.fund.currency, minimumFractionDigits: 2, maximumFractionDigits: 2 })
+    n.toLocaleString('en-US', { style: 'currency', currency: x.fund.currency, currencySign: 'accounting', minimumFractionDigits: 2, maximumFractionDigits: 2 })
 
   const capital = x.capital.filter(p => p.entryDate <= Q)
   const pnl = x.pnl.filter(l => l.entryDate <= Q)

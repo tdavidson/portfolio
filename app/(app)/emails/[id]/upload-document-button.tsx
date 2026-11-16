@@ -93,7 +93,7 @@ export function UploadDocumentButton({ emailId }: Props) {
           ) : (
             <Upload className="h-3.5 w-3.5" />
           )}
-          {uploading ? 'Uploading...' : 'Upload Document'}
+          {uploading ? 'Uploading...' : 'Upload document'}
         </Button>
       </label>
     </div>

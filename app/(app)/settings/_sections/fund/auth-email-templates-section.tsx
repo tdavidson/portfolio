@@ -38,7 +38,7 @@ export function AuthEmailTemplatesSection() {
 
             <p className="font-medium text-foreground pt-2">If using hosted Supabase (dashboard):</p>
             <ol className="list-decimal list-inside space-y-1">
-              <li>Go to your Supabase project dashboard → <strong>Authentication</strong> → <strong>Email Templates</strong></li>
+              <li>Go to your Supabase project dashboard → <strong>Authentication</strong> → <strong>Email templates</strong></li>
               <li>For each template type, copy the HTML from the corresponding file in <code className="text-[11px] bg-muted px-1 rounded font-mono">templates/</code></li>
               <li>Update the subject line to match</li>
             </ol>

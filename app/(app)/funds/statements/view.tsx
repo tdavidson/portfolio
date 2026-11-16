@@ -178,7 +178,7 @@ export function StatementsView() {
     <tr className="border-b bg-muted/50">
       <th className="text-left px-3 py-2 font-medium" />
       {cols.map((c, i) => (
-        <th key={i} className="text-right px-3 py-2 font-medium whitespace-nowrap">
+        <th key={i} className="text-right px-3 py-2 text-sm font-medium text-foreground whitespace-nowrap">
           <div>{c.period.label}</div>
           <div className="text-[10px] font-normal text-muted-foreground">
             {kind === 'asOf' ? (c.period.end ? `as of ${c.period.end}` : 'as of today') : (c.period.preset === 'itd' ? 'since inception' : c.period.label)}
