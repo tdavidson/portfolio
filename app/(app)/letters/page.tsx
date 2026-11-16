@@ -131,7 +131,7 @@ export default function LettersPage() {
                 <thead>
                   <tr className="border-b bg-muted/50">
                     <th className="text-left font-medium px-4 py-2.5">Period</th>
-                    <th className="text-left font-medium px-4 py-2.5">Portfolio Group</th>
+                    <th className="text-left font-medium px-4 py-2.5">Portfolio group</th>
                     <th className="text-left font-medium px-4 py-2.5">Updated</th>
                     <th className="w-10"></th>
                   </tr>
@@ -172,7 +172,7 @@ export default function LettersPage() {
       <Dialog open={!!deleteConfirmId} onOpenChange={(open) => { if (!open) { setDeleteConfirmId(null); setDeleteConfirmText('') } }}>
         <DialogContent className="sm:max-w-md">
           <DialogHeader>
-            <DialogTitle>Delete Letter</DialogTitle>
+            <DialogTitle>Delete letter</DialogTitle>
             <DialogDescription>This will permanently delete this letter and all its content. This action cannot be undone.</DialogDescription>
           </DialogHeader>
           <div>
@@ -189,7 +189,7 @@ export default function LettersPage() {
           <DialogFooter>
             <Button variant="outline" onClick={() => { setDeleteConfirmId(null); setDeleteConfirmText('') }}>Cancel</Button>
             <Button variant="destructive" onClick={handleDeleteLetter} disabled={deleting || deleteConfirmText !== 'delete'}>
-              {deleting ? 'Deleting...' : 'Delete Letter'}
+              {deleting ? 'Deleting...' : 'Delete letter'}
             </Button>
           </DialogFooter>
         </DialogContent>

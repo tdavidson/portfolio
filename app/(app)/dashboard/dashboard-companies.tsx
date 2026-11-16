@@ -62,6 +62,8 @@ type SortMode = 'alpha' | 'investDate' | null
 
 function formatMetricValue(v: number | null, metric: ActiveMetric, fundCurrency: string): string {
   if (v === null) return '\u2014'
+  // A negative amount reads in accounting parentheses, as every money figure in the app does.
+  if (v < 0 && metric.value_type === 'currency') return `(${formatMetricValue(-v, metric, fundCurrency)})`
   const metricCurrency = metric.currency ?? fundCurrency
   const effectiveUnit = metric.unit ?? (metric.value_type === 'currency' ? getCurrencySymbol(metricCurrency) : null)
   const effectivePos = metric.unit ? metric.unit_position : 'prefix'
@@ -82,7 +84,7 @@ function formatCurrency(v: number): string {
   if (abs >= 1_000_000) str = `$${(abs / 1_000_000).toFixed(1)}M`
   else if (abs >= 1_000) str = `$${(abs / 1_000).toFixed(0)}K`
   else str = `$${abs.toLocaleString()}`
-  return neg ? `-${str}` : str
+  return neg ? `(${str})` : str
 }
 
 export function DashboardCompanies({ companies, canAdd, entities }: Props) {
@@ -170,10 +172,10 @@ export function DashboardCompanies({ companies, canAdd, entities }: Props) {
             onChange={e => setStatusFilter(e.target.value)}
             className="h-8 rounded-md border border-input bg-background px-3 text-xs"
           >
-            <option value="">All Statuses</option>
+            <option value="">All statuses</option>
             <option value="active">Active</option>
             <option value="exited">Exited</option>
-            <option value="written-off">Written Off</option>
+            <option value="written-off">Written off</option>
           </select>
           {entities.options.length > 0 && (
             <EntityPicker
@@ -358,7 +360,7 @@ function ExitedMetricDisplay({ company }: { company: Company }) {
   return (
     <div className="grid grid-cols-2 gap-3 mt-3">
       <div className="min-w-0">
-        <div className="text-[10px] text-muted-foreground truncate mb-0.5">Net Gain</div>
+        <div className="text-[10px] text-muted-foreground truncate mb-0.5">Net gain</div>
         <div className={`text-xl font-semibold tabular-nums truncate ${netGain != null && netGain < 0 ? 'text-destructive' : ''}`}>
           {netGain != null ? formatCurrency(netGain) : '\u2014'}
         </div>

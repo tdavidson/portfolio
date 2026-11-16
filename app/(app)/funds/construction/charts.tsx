@@ -2,11 +2,12 @@
 
 import { useMemo } from 'react'
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Cell, ReferenceLine, LabelList, Treemap,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell, ReferenceLine, LabelList, Treemap,
 } from 'recharts'
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import {
-  ChartCard, EmptyPlot, AXIS, tooltipStyle, HUE, sliceFill,
-  INVEST_NEW, INVEST_FOLLOW,
+  ChartCard, EmptyPlot, AXIS, HUE, useAxisMoney,
+  INVEST_NEW, INVEST_FOLLOW, PROCEEDS_HUE, GAINS_HUE,
 } from '@/components/fund-chart-kit'
 import { valueSources, type ConstructionResult } from '@/lib/accounting/construction'
 import { capitalUsage } from './capital-usage'
@@ -71,12 +72,12 @@ export function CapitalUsageChart({ model, calledKnown, fmt, fmtFull }: { model:
         <EmptyPlot label="No committed capital recorded." />
       ) : (
         <div className="space-y-4">
-          <ResponsiveContainer width="100%" height={220}>
+          <ChartContainer height={220}>
             <Treemap data={tiles} dataKey="size" aspectRatio={4 / 3} stroke={HUE.surface} isAnimationActive={false}
               content={<UsageTile />}>
-              <Tooltip contentStyle={tooltipStyle} formatter={(v: any, _n: any, item: any) => [`${fmtFull(v as number)} · ${pctOf(v as number)}`, item?.payload?.name ?? '']} />
+              <ChartTooltip content={<ChartTooltipContent />} formatter={(v: any, _n: any, item: any) => [`${fmtFull(v as number)} · ${pctOf(v as number)}`, item?.payload?.name ?? '']} />
             </Treemap>
-          </ResponsiveContainer>
+          </ChartContainer>
           <ul className="space-y-1.5 text-xs">
             {series.map(s => (
               <li key={s.key} className="flex items-center gap-2">
@@ -104,8 +105,10 @@ export function CapitalUsageChart({ model, calledKnown, fmt, fmtFull }: { model:
  * on a solid slot, ink on a forecast tint (which is light). Smaller areas leave it to the legend beneath.
  */
 function UsageTile(props: any) {
-  const { x, y, width, height, fill, name, caption, ink } = props
-  if (!(width > 0 && height > 0)) return null
+  const { x, y, width, height, fill, name, caption, ink, depth } = props
+  // Recharts also hands the content the root node, which carries no fill and so paints black:
+  // drawn under the forecast tints, that turned every translucent tile near-black.
+  if (depth === 0 || !(width > 0 && height > 0)) return null
   const fitsName = width >= 96 && height >= 30
   const fitsCaption = fitsName && height >= 48
   // Roughly 6.5px a character at 12px: shorten a long name rather than spill it.
@@ -131,6 +134,7 @@ function UsageTile(props: any) {
 
 export function ValueSourcesChart({ model, fmt, fmtFull }: { model: ConstructionResult; fmt: Fmt; fmtFull: Fmt }) {
   const sources = useMemo(() => valueSources(model), [model])
+  const axisMoney = useAxisMoney()
 
   const data = useMemo(() => {
     // A marked-down book has a negative forecast gain. Rather than paint a negative slice, the
@@ -139,9 +143,11 @@ export function ValueSourcesChart({ model, fmt, fmtFull }: { model: Construction
     const gain = sources.forecastGain
     const invested = gain >= 0 ? sources.investedAtWork : Math.max(0, sources.investedAtWork + gain)
     return [
-      { key: 'realized', name: 'Realized proceeds', value: Math.max(0, sources.realizedProceeds), color: sliceFill(0) },
-      { key: 'invested', name: 'Invested capital at work', value: invested, color: sliceFill(1) },
-      { key: 'gain', name: 'Unrealized gains', value: Math.max(0, gain), color: sliceFill(2) },
+      // The slots these amounts have on the fund page (fund-chart-kit), so proceeds, invested
+      // capital and gains read the same colour on both.
+      { key: 'realized', name: 'Realized proceeds', value: Math.max(0, sources.realizedProceeds), color: PROCEEDS_HUE },
+      { key: 'invested', name: 'Invested capital at work', value: invested, color: INVEST_NEW },
+      { key: 'gain', name: 'Unrealized gains', value: Math.max(0, gain), color: GAINS_HUE },
     ].filter(d => d.value > 0.5)
   }, [sources])
 
@@ -155,15 +161,15 @@ export function ValueSourcesChart({ model, fmt, fmtFull }: { model: Construction
         <EmptyPlot label="No proceeds or forecast yet." />
       ) : (
         <>
-          <ResponsiveContainer width="100%" height={110}>
+          <ChartContainer height={110}>
             <BarChart data={[row]} layout="vertical" margin={{ top: 4, right: 8, bottom: 0, left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" horizontal={false} className="stroke-border" />
-              <XAxis type="number" domain={[0, total]} tick={AXIS} tickLine={false} axisLine={false} tickFormatter={value => fmt(value as number)} className="text-muted-foreground" />
+              <CartesianGrid horizontal={false} />
+              <XAxis type="number" domain={[0, total]} tick={AXIS} tickLine={false} axisLine={false} tickFormatter={axisMoney} className="text-muted-foreground" />
               <YAxis type="category" dataKey="label" hide />
-              <Tooltip cursor={{ fill: 'hsl(var(--muted) / 0.4)' }} contentStyle={tooltipStyle} formatter={(value: any, name: any) => [`${fmtFull(value as number)} · ${pctOf(value as number)}`, name]} />
+              <ChartTooltip cursor={{ fill: 'hsl(var(--muted) / 0.4)' }} content={<ChartTooltipContent />} formatter={(value: any, name: any) => [`${fmtFull(value as number)} · ${pctOf(value as number)}`, name]} />
               {data.map(source => <Bar key={source.key} dataKey={source.key} name={source.name} stackId="value" fill={source.color} stroke={HUE.surface} strokeWidth={2} />)}
             </BarChart>
-          </ResponsiveContainer>
+          </ChartContainer>
           <ul className="mt-1 space-y-1.5 text-xs">
             {data.map(d => (
               <li key={d.name} className="flex items-center gap-2">
@@ -221,14 +227,14 @@ export function ReturnRangeChart({ model, fmt, multiple }: { model: Construction
         <EmptyPlot label="Add ownership forecasts to see return scenarios." />
       ) : (
         <>
-          <ResponsiveContainer width="100%" height={hasTarget ? 176 : 190}>
+          <ChartContainer height={hasTarget ? 176 : 190}>
             <BarChart data={data} margin={{ top: 16, right: 12, bottom: 0, left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
+              <CartesianGrid vertical={false} />
               <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} className="text-muted-foreground" />
               <YAxis tick={AXIS} tickLine={false} axisLine={false} width={40} tickFormatter={v => `${(v as number).toFixed(1)}x`} className="text-muted-foreground" />
-              <Tooltip
+              <ChartTooltip
                 cursor={{ fill: 'hsl(var(--muted) / 0.4)' }}
-                contentStyle={tooltipStyle}
+                content={<ChartTooltipContent />}
                 labelFormatter={l => `${l} ownership at exit`}
                 formatter={(v: any, _n: any, item: any) => [
                   `${multiple(v as number)} · one exit at ${fmt(item?.payload?.exitToReturnFund ?? null)} returns the fund`,
@@ -265,7 +271,7 @@ export function ReturnRangeChart({ model, fmt, multiple }: { model: Construction
                 />
               </Bar>
             </BarChart>
-          </ResponsiveContainer>
+          </ChartContainer>
         </>
       )}
     </ChartCard>

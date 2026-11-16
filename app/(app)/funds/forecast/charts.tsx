@@ -2,9 +2,10 @@
 
 import { useMemo } from 'react'
 import {
-  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ReferenceLine, Cell,
+  ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, ReferenceLine, Cell,
 } from 'recharts'
-import { ChartCard, EmptyPlot, AXIS, tooltipStyle, HUE } from '@/components/fund-chart-kit'
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart'
+import { ChartCard, EmptyPlot, AXIS, HUE, useAxisMoney } from '@/components/fund-chart-kit'
 import type { SeriesResult } from '@/lib/forecast/service'
 import { NOT_REVENUE, OTHER_KEY, sourceBreakdown } from './breakdown'
 
@@ -36,6 +37,7 @@ function boundaryLabel(s: SeriesResult): string | null {
 }
 
 export function CashChart({ series, fmt }: { series: SeriesResult; fmt: Fmt }) {
+  const axisMoney = useAxisMoney()
   // Two keys so the forecast run can be dashed; they share the boundary point so the line is unbroken.
   const data = useMemo(() => {
     const lastActual = series.periods.reduce((i, p, idx) => (isActual(p.status) ? idx : i), -1)
@@ -54,20 +56,20 @@ export function CashChart({ series, fmt }: { series: SeriesResult; fmt: Fmt }) {
   return (
     <ChartCard title="Ending cash">
       {!any ? <EmptyPlot label="No cash accounts with activity in this range" /> : (
-        <ResponsiveContainer width="100%" height={240}>
+        <ChartContainer height={240}>
           <ComposedChart data={data} margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+            <CartesianGrid vertical={false} />
             <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} minTickGap={16} />
-            <YAxis tick={AXIS} tickLine={false} axisLine={false} width={64} tickFormatter={v => fmt(v)} />
-            <Tooltip
-              contentStyle={tooltipStyle}
+            <YAxis tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={axisMoney} />
+            <ChartTooltip
+              content={<ChartTooltipContent />}
               formatter={(v: any, name: any) => [fmt(v as number), name === 'actual' ? 'Actual' : 'Forecast']}
             />
             {edge && <ReferenceLine x={edge} stroke={HUE.muted} strokeDasharray="4 4" label={{ value: 'Actuals through', position: 'insideTopLeft', fontSize: 11, fill: HUE.muted }} />}
             <Line type="monotone" dataKey="actual" name="actual" stroke={CASH} strokeWidth={2} dot={false} connectNulls={false} isAnimationActive={false} />
             <Line type="monotone" dataKey="forecast" name="forecast" stroke={CASH} strokeWidth={2} strokeDasharray="6 4" dot={false} connectNulls={false} isAnimationActive={false} />
           </ComposedChart>
-        </ResponsiveContainer>
+        </ChartContainer>
       )}
     </ChartCard>
   )
@@ -77,13 +79,25 @@ export function CashChart({ series, fmt }: { series: SeriesResult; fmt: Fmt }) {
 // their own series — unrealized and FX changes are left out. Forecast periods are a lighter tint. A
 // single exit would dwarf every month, so the scale is set by the ordinary periods and one far
 // larger is cut at the edge with its full figure on it.
-const REVENUE_HUE = 'var(--chart-1)'
-const EXPENSE_HUE = 'var(--chart-2)'
+//
+// Each series takes the slot it has on the fund overview's assets chart (fund-chart-kit:
+// INCOME_HUE, EXPENSE_HUE, REALIZED_HUE), so revenue, expenses and gains are one colour wherever
+// they are plotted. Bare `var()`s here because forecast periods tint them with `/ 0.45`.
+const REVENUE_HUE = 'var(--chart-5)'
+const EXPENSE_HUE = 'var(--chart-4)'
 // Realized gains (an exit's gain over cost) are shown, as their own series: they are what a fund
 // earns, just not operating revenue. Unrealized and FX changes stay out.
-const GAIN_HUE = 'var(--chart-3)'
+const GAIN_HUE = 'var(--chart-2)'
+
+/** The smallest 1, 2, 2.5 or 5 × 10ⁿ at or above `v`, so a cut-off scale still ticks in round steps. */
+function niceCeil(v: number): number {
+  const p = 10 ** Math.floor(Math.log10(v))
+  const step = [1, 2, 2.5, 5, 10].find(m => m * p >= v) ?? 10
+  return step * p
+}
 
 export function PnlChart({ series, fmt }: { series: SeriesResult; fmt: Fmt }) {
+  const axisMoney = useAxisMoney()
   const { data, cap } = useMemo(() => {
     const revenueLines = series.lines.filter(l => l.type === 'income' && !NOT_REVENUE.has(l.subtype ?? ''))
     const expenseLines = series.lines.filter(l => l.type === 'expense')
@@ -98,7 +112,7 @@ export function PnlChart({ series, fmt }: { series: SeriesResult; fmt: Fmt }) {
     const mags = rows.flatMap(r => [Math.abs(r.up), Math.abs(r.down)]).filter(v => v > 0).sort((a, b) => a - b)
     const p80 = mags.length ? mags[Math.min(mags.length - 1, Math.floor(mags.length * 0.8))] : 0
     const max = mags[mags.length - 1] ?? 0
-    const cap = p80 > 0 && max > 4.5 * p80 ? p80 * 1.5 : null
+    const cap = p80 > 0 && max > 4.5 * p80 ? niceCeil(p80 * 1.5) : null
     return { data: rows, cap }
   }, [series])
   const edge = boundaryLabel(series)
@@ -109,27 +123,35 @@ export function PnlChart({ series, fmt }: { series: SeriesResult; fmt: Fmt }) {
   return (
     <ChartCard title={hasGains ? 'Revenue, gains and expenses' : 'Revenue and expenses'}>
       {!any ? <EmptyPlot label="No revenue or expenses in this range" /> : (
-        <ResponsiveContainer width="100%" height={240}>
+        <ChartContainer height={240}>
           <ComposedChart data={data} stackOffset="sign" margin={{ top: 18, right: 8, left: 8, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+            <CartesianGrid vertical={false} />
             <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} minTickGap={16} />
-            <YAxis tick={AXIS} tickLine={false} axisLine={false} width={64} tickFormatter={v => fmt(Math.abs(v))}
-              {...(cap ? { domain: [-cap, cap], allowDataOverflow: true } : {})} />
-            <Tooltip
-              contentStyle={tooltipStyle}
+            <YAxis tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={axisMoney}
+              {...(cap ? { domain: [-cap, cap], ticks: [-cap, -cap / 2, 0, cap / 2, cap], allowDataOverflow: true } : {})} />
+            <ChartTooltip
+              content={<ChartTooltipContent />}
               formatter={(v: any, name: any) => [fmt(Math.abs(v as number)), name]}
               labelFormatter={(label: any, payload: any) => {
                 const st = payload?.[0]?.payload?.status
                 return `${label} · ${st === 'forecast' ? 'forecast' : st === 'mixed' ? 'part forecast' : st === 'actual_unclosed' ? 'actual, not closed' : 'actual'}`
               }}
             />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <ChartLegend verticalAlign="top" align="left" content={<ChartLegendContent />} />
             <ReferenceLine y={0} stroke={HUE.muted} />
             {edge && <ReferenceLine x={edge} stroke={HUE.muted} strokeDasharray="4 4" />}
-            {clipped.map(d => (
-              <ReferenceLine key={`clip-${d.label}`} x={d.label} stroke="none"
-                label={{ value: Math.abs(d.up) > cap! ? `▲ ${fmt(d.up)}` : `▼ ${fmt(Math.abs(d.down))}`, position: Math.abs(d.up) > cap! ? 'insideTop' : 'insideBottom', fontSize: 10, fill: HUE.ink }} />
-            ))}
+            {clipped.map(d => {
+              // Neighbouring cut bars have no room for a figure each, so those get the marker alone
+              // and the tooltip carries the amount.
+              const i = data.indexOf(d)
+              const crowded = clipped.includes(data[i - 1]) || clipped.includes(data[i + 1])
+              const up = Math.abs(d.up) > cap!
+              const amount = up ? fmt(d.up) : fmt(Math.abs(d.down))
+              return (
+                <ReferenceLine key={`clip-${d.label}`} x={d.label} stroke="none"
+                  label={{ value: crowded ? (up ? '▲' : '▼') : `${up ? '▲' : '▼'} ${amount}`, position: up ? 'insideTop' : 'insideBottom', fontSize: 10, fill: HUE.muted }} />
+              )
+            })}
             <Bar dataKey="revenue" name="Revenue" stackId="pnl" fill={`hsl(${REVENUE_HUE})`} radius={[4, 4, 0, 0]} isAnimationActive={false}>
               {data.map(d => <Cell key={d.label} fill={fill(REVENUE_HUE, d.status)} />)}
             </Bar>
@@ -142,7 +164,7 @@ export function PnlChart({ series, fmt }: { series: SeriesResult; fmt: Fmt }) {
               </Bar>
             )}
           </ComposedChart>
-        </ResponsiveContainer>
+        </ChartContainer>
       )}
     </ChartCard>
   )
@@ -165,6 +187,7 @@ const FLOW_META = [
 ] as const
 
 export function CashFlowTimeline({ series, fmt }: { series: SeriesResult; fmt: Fmt }) {
+  const axisMoney = useAxisMoney()
   const flows = series.cashFlows
   const data = useMemo(
     () => series.periods.map((p, i) => ({
@@ -179,13 +202,13 @@ export function CashFlowTimeline({ series, fmt }: { series: SeriesResult; fmt: F
   return (
     <ChartCard title="Cash flows by source">
       {!present.length ? <EmptyPlot label="No cash movement in this range" /> : (
-        <ResponsiveContainer width="100%" height={260}>
+        <ChartContainer height={260}>
           <ComposedChart data={data} stackOffset="sign" margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+            <CartesianGrid vertical={false} />
             <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} minTickGap={16} />
-            <YAxis tick={AXIS} tickLine={false} axisLine={false} width={64} tickFormatter={v => fmt(v)} />
-            <Tooltip contentStyle={tooltipStyle} formatter={(v: any, name: any) => [fmt(v as number), name]} />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <YAxis tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={axisMoney} />
+            <ChartTooltip content={<ChartTooltipContent />} formatter={(v: any, name: any) => [fmt(v as number), name]} />
+            <ChartLegend verticalAlign="top" align="left" content={<ChartLegendContent />} />
             <ReferenceLine y={0} stroke={HUE.muted} />
             {edge && <ReferenceLine x={edge} stroke={HUE.muted} strokeDasharray="4 4" />}
             {present.map(f => (
@@ -194,7 +217,7 @@ export function CashFlowTimeline({ series, fmt }: { series: SeriesResult; fmt: F
               </Bar>
             ))}
           </ComposedChart>
-        </ResponsiveContainer>
+        </ChartContainer>
       )}
     </ChartCard>
   )
@@ -211,6 +234,7 @@ const SOURCE_HUES = ['var(--cat-1)', 'var(--cat-2)', 'var(--cat-3)', 'var(--cat-
 const OTHER_HUE = 'var(--muted-foreground)'
 
 export function SourceChart({ series, fmt, type }: { series: SeriesResult; fmt: Fmt; type: 'income' | 'expense' }) {
+  const axisMoney = useAxisMoney()
   const sources = useMemo(() => sourceBreakdown(series.lines, type), [series, type])
   const data = useMemo(
     () => series.periods.map((p, i) => ({
@@ -226,20 +250,20 @@ export function SourceChart({ series, fmt, type }: { series: SeriesResult; fmt: 
   return (
     <ChartCard title={title}>
       {!sources.length ? <EmptyPlot label={type === 'income' ? 'No revenue in this range' : 'No expenses in this range'} /> : (
-        <ResponsiveContainer width="100%" height={260}>
+        <ChartContainer height={260}>
           <ComposedChart data={data} stackOffset="sign" margin={{ top: 8, right: 8, left: 8, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+            <CartesianGrid vertical={false} />
             <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} minTickGap={16} />
-            <YAxis tick={AXIS} tickLine={false} axisLine={false} width={64} tickFormatter={v => fmt(v)} />
-            <Tooltip
-              contentStyle={tooltipStyle}
+            <YAxis tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={axisMoney} />
+            <ChartTooltip
+              content={<ChartTooltipContent />}
               formatter={(v: any, name: any) => [fmt(v as number), name]}
               labelFormatter={(label: any, payload: any) => {
                 const st = payload?.[0]?.payload?.status
                 return `${label} · ${st === 'forecast' ? 'forecast' : st === 'mixed' ? 'part forecast' : st === 'actual_unclosed' ? 'actual, not closed' : 'actual'}`
               }}
             />
-            <Legend wrapperStyle={{ fontSize: 12 }} />
+            <ChartLegend verticalAlign="top" align="left" content={<ChartLegendContent />} />
             <ReferenceLine y={0} stroke={HUE.muted} />
             {edge && <ReferenceLine x={edge} stroke={HUE.muted} strokeDasharray="4 4" />}
             {sources.map((s, i) => (
@@ -248,7 +272,7 @@ export function SourceChart({ series, fmt, type }: { series: SeriesResult; fmt: 
               </Bar>
             ))}
           </ComposedChart>
-        </ResponsiveContainer>
+        </ChartContainer>
       )}
     </ChartCard>
   )

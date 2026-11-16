@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
-import { AlertTriangle, ChevronDown, ChevronRight, Download, ExternalLink, FileText, Loader2, Mail, ScanText } from 'lucide-react'
+import { AlertTriangle, ChevronDown, ChevronRight, Download, ExternalLink, FileText, Loader2, ScanText } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import type { TimelineArtifact, TimelineUpdate } from '@/lib/company-updates/search'
@@ -151,12 +151,11 @@ export function CompanyUpdates({ companyId }: Props) {
       <button
         type="button"
         onClick={() => setExpanded(v => !v)}
-        className="flex items-center gap-2 mb-2 text-sm font-medium text-muted-foreground hover:text-foreground"
+        className="flex items-center gap-1.5 mb-2 text-base font-medium text-foreground hover:text-foreground/80"
       >
         {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-        <Mail className="h-3.5 w-3.5" />
         <span>Updates</span>
-        <span className="text-xs font-normal">({updates.length}{cursor ? '+' : ''})</span>
+        <span className="text-xs font-normal text-muted-foreground tabular-nums">({updates.length}{cursor ? '+' : ''})</span>
       </button>
 
       {error && (

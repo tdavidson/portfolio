@@ -639,7 +639,7 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
             "Round" that should be a "Valuation Update") can be reclassified. changeTransactionType
             clears the previous type's amounts so nothing lingers. */}
         <div>
-          <Label>Transaction Type</Label>
+          <Label>Transaction type</Label>
           <Select value={form.transaction_type} onValueChange={changeTransactionType}>
               <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
               <SelectContent>
@@ -647,7 +647,7 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
                 <SelectItem value="conversion">Conversion (SAFE / note → equity)</SelectItem>
                 <SelectItem value="proceeds">Proceeds</SelectItem>
                 <SelectItem value="escrow_receipt">Escrow receipt</SelectItem>
-                <SelectItem value="unrealized_gain_change">Valuation Update</SelectItem>
+                <SelectItem value="unrealized_gain_change">Valuation update</SelectItem>
                 <SelectItem value="round_info">Round</SelectItem>
                 <SelectItem value="split">Share split</SelectItem>
                 <SelectItem value="income">Income (staking, airdrop, dividend)</SelectItem>
@@ -657,7 +657,7 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
 
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <Label>Round Name</Label>
+            <Label>Round name</Label>
             {/* Free text for every type, with existing rounds as autocomplete suggestions. It
                 used to be a dropdown of INVESTMENT round names for non-investment types, so a
                 Valuation Update / Round whose round the fund never invested in (e.g. an
@@ -727,7 +727,7 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
               />
             </div>
             <div>
-              <Label>Security Type</Label>
+              <Label>Security type</Label>
               {/* A select, not free text: the column has a CHECK constraint, so anything but
                   these exact values is rejected on insert. It used to be an Input whose
                   placeholder ("Preferred, Convertible note, SAFE…") suggested three values
@@ -769,7 +769,7 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
                   </p>
                 </div>
                 <div>
-                  <Label>Note Maturity</Label>
+                  <Label>Note maturity</Label>
                   <Input
                     className="mt-1"
                     type="date"
@@ -801,7 +801,7 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
             {showSharePricing && (
               <>
                 <div>
-                  <Label>Shares Acquired</Label>
+                  <Label>Shares acquired</Label>
                   <Input
                     className="mt-1"
                     type="number"
@@ -864,7 +864,7 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
           return (
             <div className="space-y-3">
               <div>
-                <Label>Converts From</Label>
+                <Label>Converts from</Label>
                 <select
                   className="mt-1 h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                   value={form.converts_from_txn_id}
@@ -889,7 +889,7 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Shares Acquired</Label>
+                  <Label>Shares acquired</Label>
                   <Input className="mt-1" type="number" step="any" value={form.shares_acquired}
                     onChange={e => setForm(f => ({ ...f, shares_acquired: e.target.value }))} />
                 </div>
@@ -905,7 +905,7 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
                   <p className="text-[11px] text-muted-foreground mt-1">Accrued note interest capitalizing into basis at this date. 0 for a SAFE.</p>
                 </div>
                 <div>
-                  <Label>Security Type</Label>
+                  <Label>Security type</Label>
                   <select
                     className="mt-1 h-9 w-full rounded-md border border-input bg-transparent px-3 text-sm"
                     value={form.security_type}
@@ -1192,7 +1192,7 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
                 <div>
                   <Label>Effective date</Label>
                   <p className="mt-3 text-xs text-muted-foreground">
-                    Set it in <span className="font-medium">Transaction Date</span> above. Purchases before
+                    Set it in <span className="font-medium">Transaction date</span> above. Purchases before
                     that date are restated; a purchase on or after it already trades in new shares.
                   </p>
                 </div>
@@ -1225,7 +1225,7 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
         {txnType === 'unrealized_gain_change' && (
           <div className="space-y-4">
             <div>
-              <Label>Change Driven By</Label>
+              <Label>Change driven by</Label>
               <Select value={form.valuation_change_source} onValueChange={setValuationSource}>
                 <SelectTrigger className="mt-1"><SelectValue /></SelectTrigger>
                 <SelectContent>
@@ -1298,7 +1298,7 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
         ) : (
           <div className="border rounded-card p-3 space-y-3">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-medium text-muted-foreground">Original Currency Amounts</span>
+              <span className="text-xs font-medium text-muted-foreground">Original currency amounts</span>
               <button
                 type="button"
                 onClick={() => setShowOrigCurrency(false)}
@@ -1455,7 +1455,7 @@ function FxRevaluationFields({
   return (
     <div className="border rounded-card p-3 space-y-3">
       <div>
-        <Label>Deal Currency</Label>
+        <Label>Deal currency</Label>
         <Select value={ccy || undefined} onValueChange={setFxCurrency}>
           <SelectTrigger className="mt-1"><SelectValue placeholder="Select currency" /></SelectTrigger>
           <SelectContent>

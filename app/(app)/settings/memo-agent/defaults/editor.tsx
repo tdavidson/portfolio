@@ -300,7 +300,7 @@ export function DefaultsEditor({ embedded, section }: { embedded?: boolean; sect
           <Link href="/settings" className="inline-flex items-center gap-1 text-sm text-muted-foreground hover:text-foreground mb-4">
             <ArrowLeft className="h-3.5 w-3.5" /> Back to settings
           </Link>
-          <h1 className="text-2xl font-semibold tracking-tight mb-1">Diligence Defaults</h1>
+          <h1 className="text-2xl font-semibold tracking-tight mb-1">Diligence defaults</h1>
           <p className="text-sm text-muted-foreground mb-6 max-w-2xl">
             Cost guardrails and per-stage AI provider overrides. Caps are checked before each agent
             stage runs; if the estimate would exceed a cap, the run is blocked.

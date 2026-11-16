@@ -2,9 +2,10 @@
 
 import { useMemo, useState } from 'react'
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, Legend, Cell, ReferenceLine,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, Cell, ReferenceLine,
 } from 'recharts'
-import { ChartCard, EmptyPlot, AXIS, tooltipStyle, HUE } from '@/components/fund-chart-kit'
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart'
+import { ChartCard, EmptyPlot, AXIS, HUE, useAxisMoney } from '@/components/fund-chart-kit'
 import { cn } from '@/lib/utils'
 import type { VarianceResponse } from '@/lib/forecast/service'
 import type { VarianceCell } from '@/lib/forecast/variance'
@@ -29,7 +30,7 @@ function Diff({ c, fmt }: { c: VarianceCell | null; fmt: Fmt }) {
   )
 }
 
-export function VarianceSection({ data, fmt, short, baseLabel, compareLabel }: {
+export function VarianceSection({ data, fmt, baseLabel, compareLabel }: {
   data: VarianceResponse
   fmt: Fmt
   short: Fmt
@@ -37,6 +38,7 @@ export function VarianceSection({ data, fmt, short, baseLabel, compareLabel }: {
   compareLabel: string
 }) {
   const [focus, setFocus] = useState<string>('expenses')
+  const axisMoney = useAxisMoney()
 
   const focusCells = useMemo(() => {
     if (focus === 'revenue') return data.revenue
@@ -74,37 +76,37 @@ export function VarianceSection({ data, fmt, short, baseLabel, compareLabel }: {
           }
         >
           {!hasPeriods ? <EmptyPlot label="No comparable months in this range" /> : (
-            <ResponsiveContainer width="100%" height={240}>
+            <ChartContainer height={240}>
               <BarChart data={comparison} margin={{ top: 8, right: 8, left: 8, bottom: 0 }} barGap={2}>
-                <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="hsl(var(--border))" />
+                <CartesianGrid vertical={false} />
                 <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} minTickGap={16} />
-                <YAxis tick={AXIS} tickLine={false} axisLine={false} width={64} tickFormatter={v => short(v)} />
-                <Tooltip contentStyle={tooltipStyle} formatter={(v: any, name: any) => [fmt(v as number), name]} />
-                <Legend wrapperStyle={{ fontSize: 12 }} />
+                <YAxis tick={AXIS} tickLine={false} axisLine={false} width={64} tickFormatter={axisMoney} />
+                <ChartTooltip content={<ChartTooltipContent />} formatter={(v: any, name: any) => [fmt(v as number), name]} />
+                <ChartLegend verticalAlign="top" align="left" content={<ChartLegendContent />} />
                 <Bar dataKey="base" name={baseLabel} fill={BASE} radius={[4, 4, 0, 0]} isAnimationActive={false} />
                 <Bar dataKey="compare" name={compareLabel} fill={COMPARE} radius={[4, 4, 0, 0]} isAnimationActive={false} />
               </BarChart>
-            </ResponsiveContainer>
+            </ChartContainer>
           )}
         </ChartCard>
 
         <ChartCard title="Largest variances by account">
           {!byAccount.length ? <EmptyPlot label="No variances in this range" /> : (
-            <ResponsiveContainer width="100%" height={Math.max(240, byAccount.length * 28 + 32)}>
+            <ChartContainer height={Math.max(240, byAccount.length * 28 + 32)}>
               <BarChart data={byAccount} layout="vertical" margin={{ top: 8, right: 16, left: 8, bottom: 0 }}>
-                <CartesianGrid strokeDasharray="3 3" horizontal={false} stroke="hsl(var(--border))" />
-                <XAxis type="number" tick={AXIS} tickLine={false} axisLine={false} tickFormatter={v => short(v)} />
+                <CartesianGrid horizontal={false} />
+                <XAxis type="number" tick={AXIS} tickLine={false} axisLine={false} tickFormatter={axisMoney} />
                 <YAxis type="category" dataKey="label" tick={AXIS} tickLine={false} axisLine={false} width={150} />
                 <ReferenceLine x={0} stroke={HUE.muted} />
-                <Tooltip
-                  contentStyle={tooltipStyle}
+                <ChartTooltip
+                  content={<ChartTooltipContent />}
                   formatter={(v: any, _n: any, item: any) => [`${(v as number) > 0 ? '+' : ''}${fmt(v as number)} · ${item?.payload?.favorable ? 'favourable' : 'unfavourable'}`, 'Variance']}
                 />
                 <Bar dataKey="diff" radius={4} isAnimationActive={false}>
                   {byAccount.map(d => <Cell key={d.label} fill={d.favorable ? FAVORABLE : UNFAVORABLE} />)}
                 </Bar>
               </BarChart>
-            </ResponsiveContainer>
+            </ChartContainer>
           )}
         </ChartCard>
       </div>

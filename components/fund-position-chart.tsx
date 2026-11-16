@@ -1,34 +1,33 @@
 'use client'
 
 import { useState } from 'react'
-import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { formatCurrency, useCurrency } from '@/components/currency-context'
+import {
+  CartesianGrid, Line, LineChart, XAxis, YAxis,
+} from 'recharts'
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
+import { formatCurrency, formatCurrencyAxis, useCurrency } from '@/components/currency-context'
 import type { FundPositionPoint } from '@/lib/portfolio/fund-position-series'
 
 type View = 'capital' | 'multiples'
 
 /**
- * Colour follows the series, never its rank (DESIGN.md, categorical slots in fixed order). Distributed
- * and DPI are the same money, so they share a slot.
+ * Colour follows the series, never its rank (DESIGN.md, categorical slots in fixed order), in the
+ * slots fund-chart-kit gives the same money on the fund pages: contributed is called capital
+ * (chart-3), distributed is proceeds (chart-2), NAV is what is still held (chart-1). Distributed and
+ * DPI are the same money, so they share a slot, as TVPI shares the forecast's TVPI slot.
  */
 const SERIES: Record<View, { key: keyof FundPositionPoint; label: string; color: string; step?: boolean }[]> = {
   capital: [
-    { key: 'contributed', label: 'Contributed', color: 'hsl(var(--cat-1))', step: true },
+    { key: 'contributed', label: 'Contributed', color: 'hsl(var(--cat-3))', step: true },
     { key: 'distributed', label: 'Distributed', color: 'hsl(var(--cat-2))', step: true },
-    { key: 'reportedNav', label: 'Reported NAV', color: 'hsl(var(--cat-3))' },
+    { key: 'reportedNav', label: 'Reported NAV', color: 'hsl(var(--cat-1))' },
   ],
   multiples: [
-    { key: 'tvpi', label: 'TVPI', color: 'hsl(var(--cat-4))' },
+    { key: 'tvpi', label: 'TVPI', color: 'hsl(var(--chart-1))' },
     { key: 'dpi', label: 'DPI', color: 'hsl(var(--cat-2))' },
   ],
 }
 
-const short = (v: number) => {
-  const a = Math.abs(v)
-  if (a >= 1_000_000) return `${(v / 1_000_000).toFixed(1)}M`
-  if (a >= 1_000) return `${(v / 1_000).toFixed(0)}K`
-  return String(v)
-}
 const multiple = (v: number | null | undefined) => (v == null ? '—' : `${v.toFixed(2)}x`)
 
 /**
@@ -53,7 +52,7 @@ export function FundPositionChart({ points }: { points: FundPositionPoint[] }) {
         <ul className="flex flex-wrap items-center gap-x-4 gap-y-1 text-xs text-muted-foreground" aria-label="Legend">
           {series.map(s => (
             <li key={s.key} className="inline-flex items-center gap-1.5">
-              <span aria-hidden className="inline-block h-2 w-2 rounded-full" style={{ backgroundColor: s.color }} />
+              <span aria-hidden className="inline-block h-2.5 w-2.5 rounded-full" style={{ backgroundColor: s.color }} />
               {s.label}
             </li>
           ))}
@@ -73,23 +72,16 @@ export function FundPositionChart({ points }: { points: FundPositionPoint[] }) {
         </div>
       </div>
 
-      <ResponsiveContainer width="100%" height={220}>
+      <ChartContainer height={220}>
         <LineChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-border" vertical={false} />
+          <CartesianGrid vertical={false} />
           <XAxis dataKey="date" tick={{ fontSize: 11 }} className="text-muted-foreground tabular-nums" tickLine={false} axisLine={false}
                  interval="preserveStartEnd" />
           <YAxis tick={{ fontSize: 11 }} className="text-muted-foreground tabular-nums" tickLine={false} axisLine={false} width={56}
-                 tickFormatter={(v: number) => (view === 'capital' ? short(v) : `${v.toFixed(1)}x`)} />
-          <Tooltip
+                 tickFormatter={(v: number) => (view === 'capital' ? formatCurrencyAxis(v, currency) : `${v.toFixed(1)}x`)} />
+          <ChartTooltip
             formatter={(val: any, name: any) => [fmt(val as number), series.find(s => s.key === name)?.label ?? name]}
-            contentStyle={{
-              borderRadius: '6px',
-              border: '1px solid hsl(var(--border))',
-              backgroundColor: 'hsl(var(--popover))',
-              color: 'hsl(var(--popover-foreground))',
-              fontSize: '12px',
-              fontVariantNumeric: 'tabular-nums',
-            }}
+            content={<ChartTooltipContent />}
           />
           {series.map(s => (
             <Line
@@ -106,7 +98,7 @@ export function FundPositionChart({ points }: { points: FundPositionPoint[] }) {
             />
           ))}
         </LineChart>
-      </ResponsiveContainer>
+      </ChartContainer>
     </div>
   )
 }

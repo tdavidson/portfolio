@@ -34,6 +34,8 @@ interface Props {
 function formatValue(v: number | string | null, metric: MetricData, fundCurrency?: string): string {
   if (v === null || v === undefined) return '—'
   if (typeof v === 'string') return v
+  // A negative amount reads in accounting parentheses, as every money figure in the app does.
+  if (v < 0 && metric.valueType === 'currency') return `(${formatValue(-v, metric, fundCurrency)})`
   let str: string
   if (Math.abs(v) >= 1_000_000) str = `${(v / 1_000_000).toFixed(1)}M`
   else if (Math.abs(v) >= 1_000) str = `${(v / 1_000).toFixed(0)}K`

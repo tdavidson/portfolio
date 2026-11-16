@@ -509,7 +509,7 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
       )}
 
       <div className="space-y-2">
-        <Label>Contact Emails</Label>
+        <Label>Contact emails</Label>
         {contactEmails.length > 0 && (
           <div className="flex flex-wrap gap-1.5 mb-2">
             {contactEmails.map(val => (
@@ -548,7 +548,7 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="why-invested">Why We Invested</Label>
+        <Label htmlFor="why-invested">Why we invested</Label>
         <Textarea
           id="why-invested"
           placeholder="Investment thesis..."
@@ -559,7 +559,7 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
       </div>
 
       <div className="space-y-2">
-        <Label htmlFor="current-update">Current Business Update</Label>
+        <Label htmlFor="current-update">Current business update</Label>
         <Textarea
           id="current-update"
           placeholder="Latest update on the business..."

@@ -347,9 +347,11 @@ export function CapitalAccountsView() {
     const label = r.settlementReview ? 'Review payments' : r.status === 'settled' ? (verb === 'funded' ? 'Funded' : 'Paid')
       : r.status === 'partial' ? (verb === 'funded' ? 'Partly funded' : 'Partly paid')
       : r.overdue ? 'Overdue' : 'Open'
+    // Tone follows the label: a part-paid call says "Partly funded" even when it is past due, so it
+    // reads as a warning, not the red reserved for "Overdue" with nothing in.
     const tone = r.settlementReview ? 'bg-warning text-warning-foreground' : r.status === 'settled' ? 'bg-success text-success-foreground'
-      : r.overdue ? 'bg-destructive text-destructive-foreground'
-      : r.status === 'partial' ? 'bg-warning text-warning-foreground' : 'bg-muted text-muted-foreground'
+      : r.status === 'partial' ? 'bg-warning text-warning-foreground'
+      : r.overdue ? 'bg-destructive text-destructive-foreground' : 'bg-muted text-muted-foreground'
     return <span className={`inline-flex items-center rounded-sm px-1.5 py-0.5 text-[11px] font-medium ${tone}`}>{label}</span>
   }
   // What else is on the line, before how it stands: charges added, an advance applied, deductions taken.

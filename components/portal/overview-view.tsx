@@ -13,7 +13,7 @@ export interface OverviewViewData extends Partial<OverviewMetrics> {
 
 function fmtMoney(v: number | null, currency: string): string {
   if (v == null) return '—'
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency, maximumFractionDigits: 0 }).format(v || 0)
+  return new Intl.NumberFormat('en-US', { style: 'currency', currencySign: 'accounting', currency, maximumFractionDigits: 0 }).format(v || 0)
 }
 function fmtMultiple(v: number | null | undefined): string {
   return v == null ? '—' : `${v.toFixed(2)}x`

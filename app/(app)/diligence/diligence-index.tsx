@@ -108,7 +108,7 @@ export function DiligenceIndex({ initialDeals, isAdmin }: { initialDeals: Deal[]
         </div>
         <div className="flex items-center gap-2">
           <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" /> New Deal
+            <Plus className="h-4 w-4 mr-1" /> New deal
           </Button>
           <AnalystToggleButton />
         </div>

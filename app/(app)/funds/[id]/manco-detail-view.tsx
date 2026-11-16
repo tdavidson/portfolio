@@ -2,16 +2,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import {
-  ResponsiveContainer, ComposedChart, Bar, Line, XAxis, YAxis,
-  CartesianGrid, Tooltip, Legend, ReferenceLine,
+  ComposedChart, Bar, Line, XAxis, YAxis, CartesianGrid, ReferenceLine,
 } from 'recharts'
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart'
 import { Loader2 } from 'lucide-react'
-import { useCurrency, formatCurrency, formatCurrencyFull } from '@/components/currency-context'
+import { useCurrency, formatCurrency, formatCurrencyAxis, formatCurrencyFull } from '@/components/currency-context'
 import { useVehicle, FundSwitcher } from '@/components/accounting-vehicle'
 import { AccountingBody, AccountingPageHeader } from '@/components/accounting-chrome'
 import { Card, CardContent } from '@/components/ui/card'
 import { Metric as MetricBox } from '@/components/ui/metric'
-import { ChartCard, EmptyPlot, AXIS, tooltipStyle, HUE } from '@/components/fund-chart-kit'
+import { ChartCard, EmptyPlot, AXIS, HUE, INCOME_HUE, EXPENSE_HUE as KIT_EXPENSE_HUE } from '@/components/fund-chart-kit'
 import { IntercompanyPanel } from '@/components/accounting/intercompany-panel'
 
 // The management company dashboard. Everything here is READ-ONLY and derived from the manco's own
@@ -54,8 +54,10 @@ interface Overview {
 // Revenue and expenses are the two series on the quarterly chart, and they are compared to each
 // other rather than summed — so they take two distinct categorical slots, not two shades of one.
 // Net rides on top as a line, in ink, because it is a different QUANTITY, not a third category.
-const REVENUE_HUE = HUE.chart1
-const EXPENSE_HUE = HUE.chart4
+// The fund overview's slots for operating income and expenses (fund-chart-kit), so a management
+// company's P&L reads in the same colours as a fund's.
+const REVENUE_HUE = INCOME_HUE
+const EXPENSE_HUE = KIT_EXPENSE_HUE
 
 export function MancoDetailView({
   vehicle, vehicleId, active,
@@ -171,27 +173,27 @@ export function MancoDetailView({
               {chartData.length === 0 ? (
                 <EmptyPlot label="No income or expenses in this window" />
               ) : (
-                <ResponsiveContainer width="100%" height={280}>
+                <ChartContainer height={280}>
                   <ComposedChart data={chartData} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
-                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" vertical={false} />
-                    <XAxis dataKey="name" tick={AXIS} stroke="hsl(var(--muted-foreground))" />
-                    <YAxis tick={AXIS} stroke="hsl(var(--muted-foreground))" tickFormatter={v => fmt(Number(v))} />
-                    <Tooltip
-                      contentStyle={tooltipStyle}
+                    <CartesianGrid vertical={false} />
+                    <XAxis dataKey="name" tick={AXIS} tickLine={false} axisLine={false} />
+                    <YAxis tick={AXIS} tickLine={false} axisLine={false} width={56} tickFormatter={v => formatCurrencyAxis(Number(v), currency)} />
+                    <ChartTooltip
+                      content={<ChartTooltipContent />}
                       formatter={(v: any, n: any) => [fmtFull(Number(v)), n]}
                     />
-                    <Legend wrapperStyle={{ fontSize: 11 }} />
+                    <ChartLegend verticalAlign="top" align="left" content={<ChartLegendContent />} />
                     {/* Zero is where a quarter turns from profit to loss, so it gets a rule rather
                         than being left for the reader to find among the gridlines. */}
                     <ReferenceLine y={0} stroke="hsl(var(--border))" />
-                    <Bar dataKey="revenue" name="Revenue" fill={REVENUE_HUE} radius={[2, 2, 0, 0]} />
-                    <Bar dataKey="expenses" name="Expenses" fill={EXPENSE_HUE} radius={[2, 2, 0, 0]} />
+                    <Bar dataKey="revenue" name="Revenue" fill={REVENUE_HUE} radius={[4, 4, 0, 0]} />
+                    <Bar dataKey="expenses" name="Expenses" fill={EXPENSE_HUE} radius={[4, 4, 0, 0]} />
                     <Line
                       type="monotone" dataKey="net" name="Net"
                       stroke={HUE.ink} strokeWidth={1.5} dot={{ r: 2 }}
                     />
                   </ComposedChart>
-                </ResponsiveContainer>
+                </ChartContainer>
               )}
               <p className="mt-2 text-caption text-muted-foreground">
                 Quarters with no activity are shown as gaps rather than skipped &mdash; a fee that

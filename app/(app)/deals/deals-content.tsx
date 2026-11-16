@@ -163,7 +163,7 @@ export function DealsContent({ initialDeals }: { initialDeals: Deal[] }) {
             </button>
           </div>
           <Button variant="outline" size="sm" onClick={() => setCreateOpen(true)}>
-            <Plus className="h-4 w-4 mr-1" /> New Deal
+            <Plus className="h-4 w-4 mr-1" /> New deal
           </Button>
         </div>
       </div>
@@ -431,7 +431,7 @@ function DealsBoard({ deals, onMove }: { deals: Deal[]; onMove: (id: string, sta
             className={`rounded-md border bg-card flex flex-col min-h-[400px] transition-colors ${isOver ? 'ring-2 ring-primary border-primary' : ''}`}
           >
             <div className="p-2 border-b flex items-center justify-between">
-              <span className="text-xs font-medium uppercase tracking-wide text-muted-foreground">{col.label}</span>
+              <span className="text-xs font-medium text-muted-foreground">{col.label}</span>
               <span className="text-xs text-muted-foreground">{colDeals.length}</span>
             </div>
             <div className="p-2 space-y-2 flex-1 overflow-y-auto">
@@ -483,7 +483,7 @@ function SortableTh({ label, sortKey, sort, onToggle }: {
     <th className="px-3 py-2 font-medium select-none">
       <button
         onClick={() => onToggle(sortKey)}
-        className="inline-flex items-center gap-1 uppercase hover:text-foreground"
+        className="inline-flex items-center gap-1 hover:text-foreground"
       >
         <span>{label}</span>
         {active && (sort.dir === 'asc' ? <ChevronUp className="h-3 w-3" /> : <ChevronDown className="h-3 w-3" />)}

@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, Fragment } from 'react'
-import { DollarSign, Plus, Trash2, Pencil, Loader2, ChevronDown, ChevronRight, Lock, ArrowRightLeft } from 'lucide-react'
+import { Plus, Trash2, Pencil, Loader2, ChevronDown, ChevronRight, Lock, ArrowRightLeft } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
@@ -42,7 +42,7 @@ const TYPE_LABELS: Record<TransactionType, string> = {
   conversion: 'Conversion',
   proceeds: 'Proceeds',
   escrow_receipt: 'Escrow Receipt',
-  unrealized_gain_change: 'Valuation Update',
+  unrealized_gain_change: 'Valuation update',
   round_info: 'Round',
   split: 'Share split',
   income: 'Income',
@@ -129,8 +129,7 @@ export function CompanyInvestments({
     return (
       <div className="mt-6">
         <div className="flex items-center gap-2 mb-2">
-          <DollarSign className="h-3.5 w-3.5 text-muted-foreground" />
-          <span className="text-sm font-medium text-muted-foreground">Investment Details</span>
+          <span className="text-base font-medium">Investment details</span>
           {adminOnly && <Lock className="h-3 w-3 text-warning" />}
         </div>
         <div className="animate-pulse space-y-2">
@@ -149,14 +148,13 @@ export function CompanyInvestments({
       <div className="flex items-center justify-between mb-2">
         <button
           onClick={() => setExpanded(!expanded)}
-          className="flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground"
+          className="flex items-center gap-1.5 text-base font-medium text-foreground hover:text-foreground/80"
         >
           {expanded ? <ChevronDown className="h-3.5 w-3.5" /> : <ChevronRight className="h-3.5 w-3.5" />}
-          <DollarSign className="h-3.5 w-3.5" />
           Investment Details
           {adminOnly && <Lock className="h-3 w-3 text-warning" />}
           {transactions.length > 0 && (
-            <span className="text-xs bg-muted rounded-full px-1.5 py-0.5">{transactions.length}</span>
+            <span className="text-xs font-normal text-muted-foreground tabular-nums">({transactions.length})</span>
           )}
         </button>
         <div className="flex items-center gap-1.5">
@@ -786,7 +784,7 @@ function RoundSummaryTable({
           <tr className="border-b bg-muted/50">
             {showGroup && <th className="text-left px-3 py-2 font-medium">Vehicle</th>}
             <th className="text-left px-3 py-2 font-medium">Round</th>
-            <th className="text-right px-3 py-2 font-medium">Cost Basis</th>
+            <th className="text-right px-3 py-2 font-medium">Cost basis</th>
             <th className="text-right px-3 py-2 font-medium">Proceeds</th>
             <th className="text-right px-3 py-2 font-medium">In escrow</th>
             <th className="text-right px-3 py-2 font-medium">Gross MOIC</th>

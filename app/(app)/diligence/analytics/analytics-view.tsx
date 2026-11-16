@@ -2,7 +2,10 @@
 
 import { useEffect, useState } from 'react'
 import { Loader2, BarChart3, Lock } from 'lucide-react'
-import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer } from 'recharts'
+import {
+  BarChart, Bar, CartesianGrid, XAxis, YAxis,
+} from 'recharts'
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Metric as Stat } from '@/components/ui/metric'
 
@@ -105,16 +108,15 @@ export function AnalyticsView() {
             <Card>
               <CardHeader className="pb-3"><CardTitle className="text-base">By sector</CardTitle></CardHeader>
               <CardContent>
-                <div style={{ width: '100%', height: Math.max(180, data.by_sector.length * 40) }}>
-                  <ResponsiveContainer>
-                    <BarChart data={data.by_sector} layout="vertical" margin={{ top: 8, right: 16, left: 16, bottom: 8 }}>
-                      <XAxis type="number" />
-                      <YAxis dataKey="sector" type="category" width={140} />
-                      <Tooltip />
-                      <Bar dataKey="total" fill="hsl(var(--primary))" />
-                    </BarChart>
-                  </ResponsiveContainer>
-                </div>
+                <ChartContainer height={Math.max(180, data.by_sector.length * 40)}>
+                  <BarChart data={data.by_sector} layout="vertical" margin={{ top: 4, right: 16, left: 0, bottom: 4 }}>
+                    <CartesianGrid horizontal={false} />
+                    <XAxis type="number" allowDecimals={false} tick={{ fontSize: 11 }} tickLine={false} axisLine={false} />
+                    <YAxis dataKey="sector" type="category" width={140} tick={{ fontSize: 12 }} tickLine={false} axisLine={false} />
+                    <ChartTooltip cursor={false} content={<ChartTooltipContent />} />
+                    <Bar dataKey="total" name="Deals" fill="hsl(var(--chart-1))" radius={[0, 4, 4, 0]} maxBarSize={24} />
+                  </BarChart>
+                </ChartContainer>
               </CardContent>
             </Card>
           )}

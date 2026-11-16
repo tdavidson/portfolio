@@ -12,6 +12,20 @@
     @apply bg-background text-foreground antialiased;
   }
 
+  /* Table headers: one style everywhere.
+     ------------------------------------------------------------------
+     The app had three: an ink text-sm row (most hand-built tables), an
+     uppercase eyebrow (deals, journal) and a muted text-xs row (the LP list).
+     Every header cell now reads as a label — muted, text-xs, medium, sentence
+     case — however its <tr> or <thead> is classed. This targets the <th>, so
+     it beats anything the row passes down by inheritance (text-sm, uppercase,
+     ink) and still loses to a utility on the cell itself, which is the opt-out
+     (the statements' period headers keep their ink label that way). The row's
+     tint, borders and padding are untouched. */
+  thead th {
+    @apply text-xs font-medium normal-case tracking-normal text-muted-foreground;
+  }
+
   /* Native <select> arrows.
      ------------------------------------------------------------------
      Chrome and Safari paint the dropdown arrow at a FIXED inset from the

@@ -15,7 +15,9 @@
  * forms (pie, scatter) clear only four, which is why `SLICE` is four long and folds to muted.
  */
 
+import { useCallback } from 'react'
 import { Card, CardContent } from '@/components/ui/card'
+import { formatCurrencyAxis, useCurrency } from '@/components/currency-context'
 
 export function ChartCard({ title, action, children }: { title: string; action?: React.ReactNode; children: React.ReactNode }) {
   return (
@@ -37,15 +39,14 @@ export function EmptyPlot({ label }: { label: string }) {
   return <div className="flex h-[240px] items-center justify-center text-sm text-muted-foreground">{label}</div>
 }
 
+/** Tick text for every cartesian axis. Colour comes from ChartContainer (muted foreground). */
 export const AXIS = { fontSize: 11 } as const
 
-export const tooltipStyle = {
-  borderRadius: '6px',
-  border: '1px solid hsl(var(--border))',
-  backgroundColor: 'hsl(var(--popover))',
-  color: 'hsl(var(--popover-foreground))',
-  fontSize: '12px',
-} as const
+/** Money on a chart axis, in the page's currency: $50M, $1.5M, -$2M. */
+export function useAxisMoney() {
+  const currency = useCurrency()
+  return useCallback((v: number) => formatCurrencyAxis(v, currency), [currency])
+}
 
 // Categorical hues, assigned in FIXED order from the theme's chart ramp (never cycled).
 export const HUE = {
@@ -56,7 +57,9 @@ export const HUE = {
   chart5: 'hsl(var(--chart-5))',
   ink: 'hsl(var(--foreground))',
   muted: 'hsl(var(--muted-foreground))',
-  surface: 'hsl(var(--background))',
+  // Gaps between stacked segments and slices are cut in the card's colour, which is what sits
+  // behind every chart (the page background is a shade off it).
+  surface: 'hsl(var(--card))',
 }
 
 // Pie slices sit side by side in every combination, so they need the ALL-PAIRS
@@ -84,3 +87,11 @@ export const UNCALLED_HUE = 'hsl(var(--chart-3) / 0.35)'
 // What is still held, at fair value: the slot unrealized gains already use, since on every
 // chart that plots both, the held value is the bar those gains are the visible part of.
 export const HELD_HUE = HUE.chart1
+
+// Fund operating flows, in the slots the fund overview's assets chart already gives them, so a
+// series is one colour wherever it is plotted: "Expenses & fees" chart-4, "Operating income"
+// chart-5, "Realized gains" chart-2 (a realized gain is proceeds over cost, so it shares the
+// proceeds slot).
+export const EXPENSE_HUE = HUE.chart4
+export const INCOME_HUE = HUE.chart5
+export const REALIZED_HUE = HUE.chart2

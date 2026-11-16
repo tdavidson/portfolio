@@ -2,10 +2,10 @@
 
 import { useMemo } from 'react'
 import {
-  ResponsiveContainer, ComposedChart, BarChart, Bar, Line, Area, XAxis, YAxis, CartesianGrid, Tooltip, Legend,
-  ReferenceLine, Cell, LabelList,
+  ComposedChart, BarChart, Bar, Line, Area, XAxis, YAxis, CartesianGrid, ReferenceLine, Cell, LabelList,
 } from 'recharts'
-import { ChartCard, EmptyPlot, AXIS, tooltipStyle, HUE, INVEST_NEW, PROCEEDS_HUE } from '@/components/fund-chart-kit'
+import { ChartContainer, ChartTooltip, ChartTooltipContent, ChartLegend, ChartLegendContent } from '@/components/ui/chart'
+import { ChartCard, EmptyPlot, AXIS, HUE, INVEST_NEW, PROCEEDS_HUE, useAxisMoney } from '@/components/fund-chart-kit'
 import type { ForecastSchedule } from '@/lib/accounting/construction-forecast'
 import type { SimulationResult } from '@/lib/accounting/construction-simulation'
 
@@ -141,13 +141,23 @@ export function JCurveChart({ actual, schedule, simulation, netOfCarry, multiple
         <EmptyPlot label="State the pacing assumptions to see the J-curve." />
       ) : (
         <>
-          <ResponsiveContainer width="100%" height={260}>
+          {/* A legend of our own: recharts' would list six entries for what are two series
+              (each drawn twice, solid then dashed), and the bands are not series at all. Above the
+              plot, where ChartLegendContent sits on every other chart. */}
+          <ul className="mb-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-muted-foreground">
+            <li className="flex items-center gap-1.5"><span className="h-0 w-3 border-t-2" style={{ borderColor: TVPI_HUE }} /> TVPI</li>
+            <li className="flex items-center gap-1.5"><span className="h-0 w-3 border-t-2" style={{ borderColor: DPI_HUE }} /> DPI</li>
+            <li className="flex items-center gap-1.5"><span className="h-0 w-3 border-t-2" style={{ borderColor: RVPI_LINE_HUE }} /> RVPI</li>
+            <li className="flex items-center gap-1.5"><span className="h-0 w-3 border-t-2" style={{ borderColor: PIC_HUE }} /> PIC (paid in ÷ committed)</li>
+            {hasBand && <li className="flex items-center gap-1.5"><span className="h-2.5 w-2.5 rounded-full" style={{ background: TVPI_BAND_INNER }} /> TVPI range (simulated)</li>}
+          </ul>
+          <ChartContainer height={260}>
             <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
+              <CartesianGrid vertical={false} />
               <XAxis dataKey="x" type="number" domain={['dataMin', 'dataMax']} tick={AXIS} tickLine={false} axisLine={false} tickFormatter={(v: number) => String(Math.round(v))} allowDecimals={false} className="text-muted-foreground" />
               <YAxis domain={[0, yMax]} ticks={yTicks} allowDataOverflow tick={AXIS} tickLine={false} axisLine={false} width={40} tickFormatter={(v: number) => `${v.toFixed(1)}x`} className="text-muted-foreground" />
-              <Tooltip
-                contentStyle={tooltipStyle}
+              <ChartTooltip
+                content={<ChartTooltipContent />}
                 labelFormatter={(_l, payload) => String((payload?.[0]?.payload as { label?: string } | undefined)?.label ?? '')}
                 formatter={(v: any, n: any) => {
                   if (Array.isArray(v)) return [`${multiple(v[0])} – ${multiple(v[1])}`, n]
@@ -166,16 +176,7 @@ export function JCurveChart({ actual, schedule, simulation, netOfCarry, multiple
               <Line type="monotone" dataKey="picActual" name="PIC to date" stroke={PIC_HUE} strokeWidth={2} dot={false} activeDot={{ r: 4 }} connectNulls isAnimationActive={false} legendType="none" />
               <Line type="monotone" dataKey="picForecast" name="PIC forecast" stroke={PIC_HUE} strokeWidth={2} strokeDasharray="5 4" dot={{ r: 2 }} activeDot={{ r: 4 }} connectNulls isAnimationActive={false} legendType="none" />
             </ComposedChart>
-          </ResponsiveContainer>
-          {/* A legend of our own: recharts' would list six entries for what are two series
-              (each drawn twice, solid then dashed), and the bands are not series at all. */}
-          <ul className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-xs">
-            <li className="flex items-center gap-1.5"><span className="h-0.5 w-4 rounded" style={{ background: TVPI_HUE }} /> TVPI</li>
-            <li className="flex items-center gap-1.5"><span className="h-0.5 w-4 rounded" style={{ background: DPI_HUE }} /> DPI</li>
-            <li className="flex items-center gap-1.5"><span className="h-0.5 w-4 rounded" style={{ background: RVPI_LINE_HUE }} /> RVPI</li>
-            <li className="flex items-center gap-1.5"><span className="h-0.5 w-4 rounded" style={{ background: PIC_HUE }} /> PIC (paid in ÷ committed)</li>
-            {hasBand && <li className="flex items-center gap-1.5"><span className="h-2.5 w-4 rounded-sm" style={{ background: TVPI_BAND_INNER }} /> TVPI range (simulated)</li>}
-          </ul>
+          </ChartContainer>
         </>
       )}
     </ChartCard>
@@ -203,7 +204,8 @@ export interface PlanCashFlows {
  */
 export interface HeadlinePeriod { label: string; year: number; yearEnd: boolean; lastMonth: string; actual: boolean; called: number; distributed: number; carry: number }
 
-export function CashFlowChart({ actual, schedule, accounting, fmt, fmtFull, plan, periods }: { actual: ActualCashFlow[]; schedule: ForecastSchedule; accounting: boolean; fmt: Fmt; fmtFull: Fmt; plan?: PlanCashFlows | null; periods?: HeadlinePeriod[] | null }) {
+export function CashFlowChart({ actual, schedule, accounting, fmtFull, plan, periods }: { actual: ActualCashFlow[]; schedule: ForecastSchedule; accounting: boolean; fmt: Fmt; fmtFull: Fmt; plan?: PlanCashFlows | null; periods?: HeadlinePeriod[] | null }) {
+  const axisMoney = useAxisMoney()
   const data = useMemo(() => {
     // On the page's timescale: its periods, with the simulated range placed at each year's last
     // period (the band joins them, so it reads the same monthly, quarterly or annually).
@@ -293,14 +295,14 @@ export function CashFlowChart({ actual, schedule, accounting, fmt, fmtFull, plan
         <EmptyPlot label="State the pacing assumptions to see the cash flows." />
       ) : (
         <>
-          <ResponsiveContainer width="100%" height={260}>
+          <ChartContainer height={260}>
             <ComposedChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }} stackOffset="sign">
-              <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
+              <CartesianGrid vertical={false} />
               <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} className="text-muted-foreground" />
-              <YAxis domain={cashScale.domain} ticks={cashScale.ticks} allowDataOverflow tick={AXIS} tickLine={false} axisLine={false} width={48} tickFormatter={v => fmt(v as number)} className="text-muted-foreground" />
-              <Tooltip
+              <YAxis domain={cashScale.domain} ticks={cashScale.ticks} allowDataOverflow tick={AXIS} tickLine={false} axisLine={false} width={48} tickFormatter={axisMoney} className="text-muted-foreground" />
+              <ChartTooltip
                 cursor={{ fill: 'hsl(var(--muted) / 0.4)' }}
-                contentStyle={tooltipStyle}
+                content={<ChartTooltipContent />}
                 labelFormatter={(label, payload) => `${label} · ${(payload?.[0]?.payload as { period?: string } | undefined)?.period ?? ''}`}
                 formatter={(v: any, n: any, item: any) => {
                   if (n === outflowLabel && accounting) return [`${fmtFull(Math.abs(v as number))} · ${fmtFull(item?.payload?.invested ?? 0)} invested, ${fmtFull(item?.payload?.fees ?? 0)} fees, ${fmtFull((item?.payload?.expensesRaw ?? 0))} expenses`, n]
@@ -308,18 +310,18 @@ export function CashFlowChart({ actual, schedule, accounting, fmt, fmtFull, plan
                   return [fmtFull(v as number), n]
                 }}
               />
-              <Legend wrapperStyle={{ fontSize: 11 }} />
+              <ChartLegend verticalAlign="top" align="left" content={<ChartLegendContent />} />
               <ReferenceLine y={0} stroke="hsl(var(--border))" />
               <Bar dataKey="called" name={outflowLabel} stackId="flow" fill={INVEST_NEW} maxBarSize={28} radius={[0, 0, 4, 4]} stroke={HUE.surface} strokeWidth={2} isAnimationActive={false} />
               {!accounting && <Bar dataKey="expenses" name="Expenses" stackId="flow" fill={HUE.chart4} maxBarSize={28} radius={[0, 0, 4, 4]} stroke={HUE.surface} strokeWidth={2} isAnimationActive={false} />}
               <Bar dataKey="distributed" name={inflowLabel} stackId="flow" fill={PROCEEDS_HUE} maxBarSize={28} radius={[4, 4, 0, 0]} stroke={HUE.surface} strokeWidth={2} isAnimationActive={false} />
               {accounting && <Bar dataKey="carry" name="Carried interest" stackId="flow" fill={HUE.chart4} maxBarSize={28} radius={[4, 4, 0, 0]} stroke={HUE.surface} strokeWidth={2} isAnimationActive={false} />}
               {hasBand && <Area dataKey="low" stackId="band" stroke="none" fill="transparent" legendType="none" tooltipType="none" connectNulls isAnimationActive={false} />}
-              {hasBand && <Area dataKey="spread" name="Distributed to date, 10th–90th percentile" stackId="band" stroke="none" fill={PROCEEDS_HUE} fillOpacity={0.15} tooltipType="none" connectNulls isAnimationActive={false} />}
+              {hasBand && <Area dataKey="spread" name="Distributed to date, 10th–90th" stackId="band" stroke="none" fill={PROCEEDS_HUE} fillOpacity={0.15} tooltipType="none" connectNulls isAnimationActive={false} />}
               {hasBand && <Line dataKey="median" name="Distributed to date, median" stroke={PROCEEDS_HUE} strokeWidth={2} strokeDasharray="4 4" dot={false} connectNulls isAnimationActive={false} />}
-              {hasBand && <Line dataKey="planned" name="Distributed to date, forecast" stroke={HUE.ink} strokeWidth={2} dot={false} isAnimationActive={false} />}
+              {hasBand && <Line dataKey="planned" name="Distributed to date, plan" stroke={HUE.ink} strokeWidth={2} dot={false} isAnimationActive={false} />}
             </ComposedChart>
-          </ResponsiveContainer>
+          </ChartContainer>
         </>
       )}
     </ChartCard>
@@ -351,14 +353,14 @@ export function OutcomeHistogram({ simulation, target, multiple }: { simulation:
         <EmptyPlot label="State a loss rate or a dispersion to run the simulation." />
       ) : (
         <>
-          <ResponsiveContainer width="100%" height={220}>
+          <ChartContainer height={220}>
             <BarChart data={data} margin={{ top: 16, right: 8, bottom: 0, left: 8 }} barCategoryGap={2}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
+              <CartesianGrid vertical={false} />
               <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} interval="preserveStartEnd" className="text-muted-foreground" />
               <YAxis tick={AXIS} tickLine={false} axisLine={false} width={40} tickFormatter={(v: number) => `${Math.round((v / simulation.runs) * 100)}%`} className="text-muted-foreground" />
-              <Tooltip
+              <ChartTooltip
                 cursor={{ fill: 'hsl(var(--muted) / 0.4)' }}
-                contentStyle={tooltipStyle}
+                content={<ChartTooltipContent />}
                 labelFormatter={(l, payload) => { const p = payload?.[0]?.payload as { from: number; to: number } | undefined; return p ? `${multiple(p.from)} to ${multiple(p.to)} TVPI` : String(l) }}
                 formatter={(v: any) => [`${v} of ${simulation.runs} runs · ${Math.round(((v as number) / simulation.runs) * 100)}%`, 'Runs']}
               />
@@ -368,7 +370,7 @@ export function OutcomeHistogram({ simulation, target, multiple }: { simulation:
                 {data.map(d => <Cell key={d.label} fill={TVPI_HUE} />)}
               </Bar>
             </BarChart>
-          </ResponsiveContainer>
+          </ChartContainer>
         </>
       )}
     </ChartCard>
@@ -410,14 +412,14 @@ export function ExitOutcomesChart({ simulation, netOfCarry, target, multiple }: 
         <EmptyPlot label="State a loss rate or a dispersion to run the simulation." />
       ) : (
         <>
-          <ResponsiveContainer width="100%" height={220}>
+          <ChartContainer height={220}>
             <BarChart data={data} margin={{ top: 20, right: 8, bottom: 0, left: 8 }}>
-              <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
+              <CartesianGrid vertical={false} />
               <XAxis dataKey="label" tick={AXIS} tickLine={false} axisLine={false} className="text-muted-foreground" />
               <YAxis domain={[0, yMax]} tick={AXIS} tickLine={false} axisLine={false} width={40} tickFormatter={(v: number) => `${v.toFixed(1)}x`} className="text-muted-foreground" />
-              <Tooltip
+              <ChartTooltip
                 cursor={{ fill: 'hsl(var(--muted) / 0.4)' }}
-                contentStyle={tooltipStyle}
+                content={<ChartTooltipContent />}
                 labelFormatter={l => (l === 'Median' ? 'Median run' : `${l} percentile`)}
                 formatter={(v: any, _n: any, item: any) => [
                   `${multiple(v as number)}${item?.payload?.irr != null ? ` · ${pct(item.payload.irr)} net IRR` : ''}`,
@@ -438,7 +440,7 @@ export function ExitOutcomesChart({ simulation, netOfCarry, target, multiple }: 
                 />
               </Bar>
             </BarChart>
-          </ResponsiveContainer>
+          </ChartContainer>
           <p className="mt-1 text-xs text-muted-foreground">
             {measure} across {simulation.runs.toLocaleString()} simulated runs, by percentile.
             {simulation.final.netIrr && <> Net IRR: <span className="tabular-nums">{pct(simulation.final.netIrr.p10)}</span> (10th) · <span className="tabular-nums">{pct(simulation.final.netIrr.p50)}</span> (median) · <span className="tabular-nums">{pct(simulation.final.netIrr.p90)}</span> (90th).</>}

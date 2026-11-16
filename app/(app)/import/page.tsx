@@ -111,7 +111,7 @@ export default function ImportPage() {
       <div className="flex-1 min-w-0 max-w-3xl w-full">
       {/* Document Upload Section */}
       <div>
-        <h2 className="text-lg font-semibold tracking-tight mb-2">Document Upload</h2>
+        <h2 className="text-lg font-semibold tracking-tight mb-2">Document upload</h2>
         <p className="text-sm text-muted-foreground mb-6">
           Upload documents (strategy decks, board materials, reports) and auto-match them to portfolio companies. These provide additional context for the AI analyst.
         </p>
@@ -121,7 +121,7 @@ export default function ImportPage() {
 
       {/* Paste Data Section */}
       <div className="mt-12 pt-8 border-t">
-        <h2 className="text-lg font-semibold tracking-tight mb-2">Paste Company Metrics</h2>
+        <h2 className="text-lg font-semibold tracking-tight mb-2">Paste company metrics</h2>
         <p className="text-sm text-muted-foreground mb-6">
           Paste CSV or spreadsheet data from Google Sheets. Claude will parse it to create companies, metrics, and historical values.
         </p>
@@ -183,7 +183,7 @@ export default function ImportPage() {
 
       {/* Investment Data Section */}
       <div className="mt-12 pt-8 border-t">
-        <h2 className="text-lg font-semibold tracking-tight mb-2">Paste Investment Data</h2>
+        <h2 className="text-lg font-semibold tracking-tight mb-2">Paste investment data</h2>
         <p className="text-sm text-muted-foreground mb-6">
           Paste investment transaction data (rounds, proceeds, valuations). AI will parse and match to existing portfolio companies.
           Starting from scratch?{' '}

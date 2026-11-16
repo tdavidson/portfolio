@@ -152,7 +152,7 @@ export function EmailPageView({ email, company, metricValues, metricsById, hasRe
       {/* Email body */}
       {textBody && (
         <section>
-          <h2 className="text-base font-semibold mb-2">Email Body</h2>
+          <h2 className="text-base font-semibold mb-2">Email body</h2>
           <pre className="text-xs bg-muted rounded-card p-4 whitespace-pre-wrap break-words font-mono max-h-96 overflow-auto border">
             {textBody}
           </pre>

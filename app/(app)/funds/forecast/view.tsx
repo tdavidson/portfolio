@@ -635,7 +635,7 @@ export function ForecastView({ vehicle, vehicleId, kind, initialTab }: { vehicle
           {hasPortfolio && !versionId && (
             <Button variant="outline" className="text-muted-foreground" onClick={() => { setTab('investments'); setAddInvestment(n => n + 1) }}>
               {/* Shorter while the Analyst panel narrows the page. */}
-              <Plus className="mr-1.5 h-4 w-4" /> {analystOpen ? 'Investment' : 'Add Investment'}
+              <Plus className="mr-1.5 h-4 w-4" /> {analystOpen ? 'Investment' : 'Add investment'}
             </Button>
           )}
           <MoreMenu items={[

@@ -14,9 +14,10 @@
 
 import { useMemo, useState } from 'react'
 import {
-  ResponsiveContainer, BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, LabelList,
+  BarChart, Bar, XAxis, YAxis, CartesianGrid, LabelList,
 } from 'recharts'
-import { AXIS, ChartCard, EmptyPlot, HELD_HUE, HUE, INVEST_NEW, PROCEEDS_HUE, tooltipStyle } from '@/components/fund-chart-kit'
+import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
+import { AXIS, ChartCard, EmptyPlot, HELD_HUE, HUE, INVEST_NEW, PROCEEDS_HUE, useAxisMoney } from '@/components/fund-chart-kit'
 import { RankedBars } from '@/components/ranked-bars'
 import { foldPositions, heldPositions, positionsByHolding, type HoldingPosition, type HoldingRow } from '@/lib/charts/holdings'
 import { multipleBuckets, othersLabel, ratio } from '@/lib/charts/ranked'
@@ -156,6 +157,7 @@ function ValueByMultiple({ positions, fmt, fmtFull }: { positions: HoldingPositi
   const buckets = useMemo(() => multipleBuckets(positions), [positions])
   const counted = buckets.reduce((s, b) => s + b.count, 0)
   const countOf = useMemo(() => new Map(buckets.map(b => [b.label, b.count])), [buckets])
+  const axisMoney = useAxisMoney()
 
   // The band's name with its holding count underneath: the count is what says whether a tall
   // column is one outlier or a dozen positions, and it should not need a hover.
@@ -193,14 +195,14 @@ function ValueByMultiple({ positions, fmt, fmtFull }: { positions: HoldingPositi
               </span>
             ))}
           </div>
-          <ResponsiveContainer width="100%" height={280}>
+          <ChartContainer height={280}>
             <BarChart data={buckets} margin={{ top: 16, right: 8, bottom: 0, left: 8 }} barGap={6} barCategoryGap="18%">
-              <CartesianGrid strokeDasharray="3 3" vertical={false} className="stroke-border" />
+              <CartesianGrid vertical={false} />
               <XAxis dataKey="label" tick={tick} tickLine={false} axisLine={false} interval={0} height={40} />
-              <YAxis tick={AXIS} tickLine={false} axisLine={false} width={52} tickFormatter={v => fmt(v as number)} className="text-muted-foreground" />
-              <Tooltip
+              <YAxis tick={AXIS} tickLine={false} axisLine={false} width={52} tickFormatter={axisMoney} className="text-muted-foreground" />
+              <ChartTooltip
                 cursor={{ fill: 'hsl(var(--muted) / 0.4)' }}
-                contentStyle={tooltipStyle}
+                content={<ChartTooltipContent />}
                 labelFormatter={l => `${l} · ${holdings(countOf.get(String(l)) ?? 0)}`}
                 formatter={(v: any, n: any) => [fmtFull(v as number), n]}
               />
@@ -216,7 +218,7 @@ function ValueByMultiple({ positions, fmt, fmtFull }: { positions: HoldingPositi
                 <LabelList dataKey="totalValue" content={label} />
               </Bar>
             </BarChart>
-          </ResponsiveContainer>
+          </ChartContainer>
           <p className="mt-1 text-xs text-muted-foreground">
             Holdings grouped by gross multiple: proceeds received plus fair value, over capital invested.
           </p>

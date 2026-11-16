@@ -15,7 +15,7 @@ const STATUS_OPTIONS: { value: string; label: string }[] = [
   { value: '', label: 'All' },
   { value: 'active', label: 'Active' },
   { value: 'exited', label: 'Exited' },
-  { value: 'written-off', label: 'Written Off' },
+  { value: 'written-off', label: 'Written off' },
 ]
 
 interface Props {

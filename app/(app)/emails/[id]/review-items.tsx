@@ -234,7 +234,7 @@ export function ReviewItems({
                       <>
                         <Button size="sm" onClick={() => setCreateCompanyFor(item)} disabled={isResolving} className="gap-1.5">
                           <Building2 className="h-3.5 w-3.5" />
-                          Create Company
+                          Create company
                         </Button>
                         <Button size="sm" variant="outline" onClick={() => resolve(item, 'rejected')} disabled={isResolving}>
                           <X className="h-3.5 w-3.5 mr-1" />
@@ -276,7 +276,7 @@ export function ReviewItems({
       >
         <DialogContent className="max-w-lg">
           <DialogHeader>
-            <DialogTitle>Create Company</DialogTitle>
+            <DialogTitle>Create company</DialogTitle>
           </DialogHeader>
           <CompanyForm
             initialName={createCompanyFor?.extracted_value ?? ''}
