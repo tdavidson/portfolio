@@ -80,7 +80,7 @@ export function OverviewView({ data }: { data: OverviewViewData }) {
                       <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
                         {fmtMultiple(v.tvpi)} TVPI
                         {v.irr !== undefined && (
-                          <span title={v.irr == null ? 'No IRR yet: it is shown from a year after your first contribution, for one account per vehicle.' : 'Annualized.'}>
+                          <span title={v.irr == null ? 'No IRR yet: it is shown from three months after your first contribution, for one account per vehicle.' : 'Annualized.'}>
                             {' · '}{fmtPct(v.irr)} IRR
                           </span>
                         )}

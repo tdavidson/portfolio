@@ -144,8 +144,10 @@ export function resolveCapitalEvidence(
     else if (missing.length === 0) postings.push(...positionsToPostings(observations.filter(p => p.calledCapital != null && p.distributions != null && p.nav != null)))
     // A recorded link is the fact; the source-type regex stays as the fallback for opening entries
     // booked before links existed. Either way an opening balance is a starting position, not a
-    // dated cash flow, so an IRR cannot be calculated from it.
-    const openingOnly = links.length > 0 || lpLedger.some(p => /opening|bootstrap|cutover/.test(p.sourceType ?? ''))
+    // dated cash flow, so an IRR cannot be calculated from it. Opening entries that net to nothing
+    // (a duplicate opening and its reversal) leave no starting position behind, so they don't count.
+    const openingNet = lpLedger.filter(p => /opening|bootstrap|cutover/.test(p.sourceType ?? '')).reduce((sum, p) => sum + p.amount, 0)
+    const openingOnly = links.length > 0 || Math.abs(openingNet) >= 0.005
     const balance = computeCapitalAccounts(lpLedger).get(id) ?? emptyAccount()
     evidenceByLp.set(id, {
       values: useLedger ? { contributions: balance.contributions, distributions: -balance.distributions || 0, nav: balance.ending } : { contributions: latest!.calledCapital, distributions: latest!.distributions, nav: latest!.nav },

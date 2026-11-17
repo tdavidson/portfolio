@@ -115,6 +115,17 @@ describe('statement observations an opening entry represents', () => {
       .evidenceByLp.get('lp')?.canCalculateIrr).toBe(false)
   })
 
+  it('calculates an IRR when an opening entry was reversed in full', () => {
+    // A duplicate opening and its reversal net to nothing, so the dated contribution is the record.
+    const books = [
+      { lpEntityId: 'lp', entryDate: '2021-06-01', sourceType: 'contribution', amount: -100, entryId: 'c-1' },
+      { lpEntityId: 'lp', entryDate: '2025-03-31', sourceType: 'opening_balance', amount: -100, entryId: 'dup' },
+      { lpEntityId: 'lp', entryDate: '2025-03-31', sourceType: 'opening_balance', amount: 100, entryId: 'dup-rev' },
+    ]
+    expect(resolveCapitalEvidence(books, [], '2025-04-30').evidenceByLp.get('lp')?.canCalculateIrr).toBe(true)
+    expect(resolveCapitalEvidence(books.slice(0, 2), [], '2025-04-30').evidenceByLp.get('lp')?.canCalculateIrr).toBe(false)
+  })
+
   it('returns the statement to anchor duty if the entry representing it is gone', () => {
     // A voided or deleted opening entry leaves its link row behind (it is only dropped when the
     // entry row is). The statement must go back to anchoring rather than staying suppressed by a
