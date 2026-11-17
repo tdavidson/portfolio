@@ -24,7 +24,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { roundCents } from './ledger'
-import { reportingIrr } from './reporting-irr'
+import { reportingIrr, tooNewForIrr } from './reporting-irr'
 import { irrFlowPostings } from './irr-flows'
 import { loadReportingCapital } from './reporting-capital'
 import { computeCapitalAccounts, bucketForSourceType, emptyAccount, type CapitalAccount } from './capital-account'
@@ -164,7 +164,8 @@ export function rollUp(
     dpi: rr.dpi,
     rvpi: rr.rvpi,
     tvpi: rr.tvpi,
-    irr: irrFlows.length >= 2 ? xirr(irrFlows) : null,
+    // Same floor as a single partner's IRR (reporting-irr.ts): no rate on under three months of history.
+    irr: irrFlows.length >= 2 && !(asOf && tooNewForIrr(irrFlows, asOf)) ? xirr(irrFlows) : null,
   }
 }
 

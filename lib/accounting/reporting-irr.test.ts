@@ -97,17 +97,24 @@ describe('IRR across an assignment', () => {
   })
 })
 
-describe('IRR under a year', () => {
+describe('IRR on a short history', () => {
   const books = [
     { lpEntityId: 'a', entryDate: '2026-06-01', sourceType: 'contribution', amount: -5_000 },
     { lpEntityId: 'a', entryDate: '2026-06-05', sourceType: 'valuation', amount: -175 },
   ]
 
-  it('is not annualized: no IRR until the first cash flow is a year old', () => {
+  it('is withheld for the first three months', () => {
     // 5,000 in and worth 5,175 four days later would annualize to several hundred percent.
     expect(irr(books, 'a', '2026-06-05')).toBeNull()
-    expect(irr(books, 'a', '2027-05-31')).toBeNull()
+    expect(irr(books, 'a', '2026-08-29')).toBeNull()
     expect(lpIrr(irrFlowPostings(books), 5_175, '2026-06-05')).toBeNull()
+  })
+
+  it('is shown, annualized, from three months on', () => {
+    // 5,000 in on 2026-06-01, worth 5,175 on 2026-12-01 (183 days): (1.035)^(365/183) - 1.
+    const expected = Math.pow(1.035, 365 / 183) - 1
+    expect(irr(books, 'a', '2026-12-01')!).toBeCloseTo(expected, 4)
+    expect(lpIrr(irrFlowPostings(books), 5_175, '2026-12-01')!).toBeCloseTo(expected, 3)
   })
 
   it('is shown from a year on', () => {

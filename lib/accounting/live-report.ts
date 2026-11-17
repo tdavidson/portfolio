@@ -23,7 +23,7 @@ import { xirr, type CashFlow } from '@/lib/xirr'
 import { lpRatios } from '@/lib/lp-metrics'
 import { loadCapitalPostings, type CapitalSource } from './capital-source'
 import { loadCommitmentEvents, commitmentsFrom, loadPartnerTerms } from './terms'
-import { heldUnderAYear, reportingIrr } from './reporting-irr'
+import { reportingIrr, tooNewForIrr } from './reporting-irr'
 import { irrFlowPostings, isIrrFlow } from './irr-flows'
 import type { CapitalEvidence } from './capital-evidence'
 import { loadReportingCapital } from './reporting-capital'
@@ -133,7 +133,7 @@ export function lpIrr(
   }
 
   if (flows.length === 0) return null
-  if (heldUnderAYear(flows, new Date(asOf))) return null
+  if (tooNewForIrr(flows, new Date(asOf))) return null
   flows.push({ date: new Date(asOf), amount: nav })
 
   flows.sort((a, b) => a.date.getTime() - b.date.getTime())

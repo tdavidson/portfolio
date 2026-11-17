@@ -117,7 +117,7 @@ export function LpConnectorRow({ enabled, portalOn, onSaved }: { enabled: boolea
 /**
  * Whether the portal overview shows each fund's IRR (fund_settings.lp_portal_show_irr). Off by
  * default, since some managers prefer not to show IRR in a portal. Per fund only, never blended
- * across funds, and blank until a partner has held for a year (lib/accounting/reporting-irr.ts).
+ * across funds, and blank until a partner has held for three months (lib/accounting/reporting-irr.ts).
  */
 export function LpPortalIrrRow({ enabled, portalOn, onSaved }: { enabled: boolean; portalOn: boolean; onSaved: () => void }) {
   const [on, setOn] = useState(enabled)
@@ -141,7 +141,7 @@ export function LpPortalIrrRow({ enabled, portalOn, onSaved }: { enabled: boolea
       <div className="min-w-0">
         <div className="text-sm font-medium">IRR on the portal</div>
         <div className="text-xs text-muted-foreground">
-          Shows each investor their IRR in each fund on the portal overview. It stays blank until they have held for a year,
+          Shows each investor their IRR in each fund on the portal overview. It stays blank until they have held for three months,
           and is never combined across funds.
           {!portalOn && ' Needs the LP portal on.'}
         </div>
