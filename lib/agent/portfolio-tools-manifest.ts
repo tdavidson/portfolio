@@ -83,9 +83,10 @@ export const PORTFOLIO_TOOL_MANIFEST: AgentToolMeta[] = [
   {
     name: 'fund_performance',
     description:
-      'Fund-level performance per vehicle: committed, called, distributed, NAV, DPI, RVPI, TVPI, and gross MOIC on invested ' +
-      "capital, computed from the LP register. Also `reported`: the latest figures the fund administrator reports, recorded " +
-      'with record_fund_figures, each with its source and date. When both are there, the reported ones are what investors are told.',
+      'Fund-level performance per vehicle: committed, called, distributed, NAV, DPI, RVPI, TVPI and the net LP IRR, from the ' +
+      'books as of `as_of` (default: everything posted). `basis` says when a vehicle falls back to imported balances. Also ' +
+      '`reported`: the latest figures the fund administrator reports, recorded with record_fund_figures, each with its source ' +
+      'and date. When both are there, the reported ones are what investors are told.',
     scope: 'read',
     domain: 'portfolio',
     // Committed / called / distributed / NAV, read straight from the LP register — the fund's
@@ -95,7 +96,10 @@ export const PORTFOLIO_TOOL_MANIFEST: AgentToolMeta[] = [
     accessDomain: 'accounting',
     inputSchema: {
       type: 'object',
-      properties: { vehicle: VEHICLE_FILTER },
+      properties: {
+        vehicle: VEHICLE_FILTER,
+        as_of: { type: 'string', description: 'ISO date (YYYY-MM-DD); figures as of that day. Default: everything posted.' },
+      },
     },
   },
   {

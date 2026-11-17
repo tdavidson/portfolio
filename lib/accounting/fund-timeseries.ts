@@ -322,7 +322,7 @@ export async function fundTimeseries(
 
   const netIrrFor = (until: string, terminalDate: Date, ids: Set<string> | null): number | null => {
     const { postings, evidenceByLp } = resolvedPeriods[quarters.indexOf(until)]
-    if (Array.from(evidenceByLp.entries()).some(([id, e]) => (!ids || ids.has(id)) && (!e.canCalculateIrr || e.conflict || e.missing.length > 0))) return null
+    if (Array.from(evidenceByLp.entries()).some(([id, e]) => (!ids || ids.has(id)) && (!e.canCalculateIrr || e.missing.length > 0))) return null
     const accounts = computeCapitalAccounts(postings, { end: until })
     let nav = 0
     for (const [id, a] of Array.from(accounts.entries())) if (!ids || ids.has(id)) nav += a.ending

@@ -103,6 +103,8 @@ describe('shared reporting capital', () => {
 
   it('excludes future observations, commitments, and reported IRR when reusing a preload', async () => {
     const pre = fixture()
+    // Imports only: a partner with capital in the books reports the books, which is not under test.
+    Object.assign(pre.ledgerByVehicleId.get('v')!, { entryRows: [], postingRows: [] })
     pre.positionsByVehicleId.get('v')!.push({ lpEntityId: 'lp', asOfDate: '2025-06-30', commitment: 999, calledCapital: 300, distributions: 60, nav: 400, irr: 0.8 })
     pre.commitmentEventsByVehicleId.get('v')!.push({ lpEntityId: 'gp', effectiveDate: '2025-06-30', amount: 100, kind: 'increase' })
     const { rows } = await liveRowsForVehicle(noQueries, 'firm', group, '2025-03-31', pre)

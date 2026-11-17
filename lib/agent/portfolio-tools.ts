@@ -9,16 +9,15 @@ import { KEYLESS_HANDLERS } from './keyless-tools'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { PORTFOLIO_TOOL_MANIFEST } from './portfolio-tools-manifest'
 import { computeSummary } from '@/lib/investments'
-import { lpRatios } from '@/lib/lp-metrics'
 import { draftEntryForTransaction } from '@/lib/accounting/from-portfolio'
 import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-tools'
 import { getUpdates } from '@/lib/company-updates/analyst'
 import type { AccessContext } from '@/lib/access/effective'
 import { entityScopeFor, type EntityScope } from '@/lib/access/entity-scope'
-import { filterByCompany, groupWriteDenial, scopeCompanyRows, scopeGroups, scopeTransactions, visibleCompanyIds } from '@/lib/access/scope'
+import { canSeeVehicle, filterByCompany, groupWriteDenial, scopeCompanyRows, scopeGroups, scopeTransactions, visibleCompanyIds } from '@/lib/access/scope'
 import { validateConversionLink } from '@/lib/accounting/conversion-link'
 import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
-import { fetchAllRows, latestInvestmentRows } from '@/lib/accounting/load'
+import { fetchAllRows } from '@/lib/accounting/load'
 import { companyUpdateStatus, reprocessCompanyUpdate, submitCompanyUpdate } from '@/lib/company-updates/submit'
 import { rateLimit } from '@/lib/rate-limit'
 import { jobRecordId } from './jobs'
@@ -29,7 +28,8 @@ import { createCompanyNote } from '@/lib/notes/create'
 import { EDITABLE_TXN_FIELDS, deleteInvestmentTransaction, updateInvestmentTransaction } from '@/lib/portfolio/transaction-edit'
 import { unwrap } from '@/lib/service-outcome'
 import { setRoundTerms } from '@/lib/portfolio/round-terms'
-import { formatReportedFigure, latestReportedFigures, recordReportedFigures } from '@/lib/accounting/reported-figures'
+import { formatReportedFigure, recordReportedFigures } from '@/lib/accounting/reported-figures'
+import { fundEconomics } from '@/lib/accounting/fund-economics'
 import { escrowExceedsGross } from '@/lib/portfolio/proceeds'
 import { loadReviewForAccess, loadReviewQueue, resolveReview } from '@/lib/review/resolve'
 
@@ -248,55 +248,40 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
   },
 
   fund_performance: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
-    // Committed / called / distributed come from the LP register, which is the fund's
-    // own record of what it asked for and paid out. NAV comes from the portfolio.
-    // One row per LP per snapshot, each cumulative to date: take each LP's latest row in each
-    // vehicle, never the sum across snapshots (see loadOwnership).
-    const lps = latestInvestmentRows(await fetchAllRows<any>((f, t) => (admin as any)
-      .from('lp_investments')
-      .select('id, entity_id, portfolio_group, commitment, paid_in_capital, distributions, nav, snapshot_id, updated_at, lp_snapshots(as_of_date, created_at)')
-      .eq('fund_id', fundId)
-      .order('id')
-      .range(f, t)), r => `${r.entity_id}|${r.portfolio_group ?? ''}`)
-
-    const byVehicle = new Map<string, { committed: number; called: number; distributed: number; nav: number }>()
-    const perfScope = await entityScopeFor(admin, access)
-    for (const r of scopeCompanyRows(lps, perfScope.vehicleNames, 'portfolio_group')) {
-      const v = r.portfolio_group ?? '—'
-      if (input?.vehicle && v !== input.vehicle) continue
-      const cur = byVehicle.get(v) ?? { committed: 0, called: 0, distributed: 0, nav: 0 }
-      cur.committed += Number(r.commitment ?? 0)
-      cur.called += Number(r.paid_in_capital ?? 0)
-      cur.distributed += Number(r.distributions ?? 0)
-      cur.nav += Number(r.nav ?? 0)
-      byVehicle.set(v, cur)
-    }
-
-    const reported = await latestReportedFigures(admin, fundId)
-    const out: any[] = []
-    for (const [vehicle, t] of Array.from(byVehicle.entries())) {
-      const called = r2(t.called)
-      const rep = reported.get(vehicle) ?? []
-      out.push({
-        vehicle,
-        basis: 'Computed from the LP register (paid-in, distributions, NAV).',
-        ...(rep.length ? {
-          reported: rep.map(f => ({ label: `${f.metric.toUpperCase()}, ${f.basis}`, value: formatReportedFigure(f), source: f.source, as_of: f.as_of })),
-        } : {}),
-        committed: r2(t.committed),
-        called,
-        unfunded: r2(t.committed - called),
-        distributed: r2(t.distributed),
-        nav: r2(t.nav),
-        // The standard three, via the shared definition. Denominator is paid-in ≡ called (they
-        // are the same figure); null rather than Infinity when nothing has been called.
-        ...(() => {
-          const rr = lpRatios({ commitment: t.committed, paidIn: called, distributions: t.distributed, nav: t.nav })
-          return { dpi: rr.dpi == null ? null : r2(rr.dpi), rvpi: rr.rvpi == null ? null : r2(rr.rvpi), tvpi: rr.tvpi == null ? null : r2(rr.tvpi) }
-        })(),
+    // From the books, through the same per-partner resolver as the capital accounts and the ILPA
+    // view, so every surface reports the same called, distributed and NAV. This used to sum the
+    // latest LP register snapshot instead, which froze the figures at whatever was last imported
+    // however current the books were. Only the caller's vehicles.
+    const asOf = typeof input?.as_of === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(input.as_of) ? input.as_of : undefined
+    const wanted = typeof input?.vehicle === 'string' && input.vehicle.trim() ? input.vehicle.trim().toLowerCase() : null
+    const all = await fundEconomics(admin, fundId, asOf)
+    return all
+      .filter(v => canSeeVehicle(access, v.id))
+      .filter(v => !wanted || v.vehicle.toLowerCase() === wanted)
+      .map(v => {
+        const f = v.fund
+        const called = f.paidIn == null ? null : r2(f.paidIn)
+        const ratio = (x: number | null) => x == null ? null : r2(x)
+        return {
+          vehicle: v.vehicle,
+          basis: v.source === 'ledger'
+            ? 'From the books.'
+            : v.source === 'mixed'
+              ? 'From the books, plus imported balances for partners with no activity in the books.'
+              : 'From imported balances: this vehicle has no partner capital in the books.',
+          as_of: asOf ?? null,
+          ...(v.reported?.length ? {
+            reported: v.reported.map(r => ({ label: `${r.metric.toUpperCase()}, ${r.basis}`, value: formatReportedFigure(r as Parameters<typeof formatReportedFigure>[0]), source: r.source, as_of: r.as_of })),
+          } : {}),
+          committed: r2(f.committed),
+          called,
+          unfunded: f.uncalled == null ? null : r2(f.uncalled),
+          distributed: f.distributions == null ? null : r2(f.distributions),
+          nav: f.nav == null ? null : r2(f.nav),
+          dpi: ratio(f.dpi), rvpi: ratio(f.rvpi), tvpi: ratio(f.tvpi),
+          net_lp_irr: v.lp.irr,
+        }
       })
-    }
-    return out.sort((a, b) => String(a.vehicle).localeCompare(String(b.vehicle)))
   },
 
   company_metrics: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
