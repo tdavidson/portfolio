@@ -11,10 +11,23 @@ const ledger = [
 ]
 
 describe('capital evidence resolution', () => {
-  it('keeps reported balances when a partial ledger exists, without adding the two', () => {
+  it('reports the books over an import they disagree with, flagging the difference and never adding the two', () => {
     const r = resolveCapitalEvidence(ledger.slice(0, 1), [position], '2025-04-30')
-    expect(computeCapitalAccounts(r.postings).get('lp')?.ending).toBe(120)
-    expect(r.evidenceByLp.get('lp')).toMatchObject({ basis: 'reported', conflict: true, asOf: '2025-03-31' })
+    expect(computeCapitalAccounts(r.postings).get('lp')?.ending).toBe(100)
+    expect(r.evidenceByLp.get('lp')).toMatchObject({
+      basis: 'ledger', conflict: true, asOf: '2025-04-30', reviewed: false,
+      anchor: { agreesWithBooks: false, variance: { contributions: 0, distributions: 0, nav: -20 } },
+    })
+  })
+  it('calculates an IRR from books that disagree with an import', () => {
+    const books = [
+      { lpEntityId: 'lp', entryDate: '2023-01-01', sourceType: 'contribution', amount: -100 },
+      { lpEntityId: 'lp', entryDate: '2024-12-31', sourceType: 'valuation', amount: -21 },
+    ]
+    const r = resolveCapitalEvidence(books, [{ ...position, asOfDate: '2024-12-31' }], '2024-12-31')
+    const evidence = r.evidenceByLp.get('lp')!
+    expect(evidence).toMatchObject({ basis: 'ledger', conflict: true })
+    expect(reportingIrr(r.postings, 121, evidence)).toBeCloseTo(0.1, 2)
   })
   it('ignores a chart and unrelated activity when selecting capital information', () => {
     expect(resolveCapitalEvidence([], [position]).evidenceByLp.get('lp')?.basis).toBe('reported')
@@ -27,9 +40,11 @@ describe('capital evidence resolution', () => {
     expect(r.postings).toEqual(ledger)
     expect(computeCapitalAccounts(r.postings).get('lp')?.ending).toBe(120)
   })
-  it('retains the observation date if later activity has not been reviewed', () => {
+  it('reports later activity before it is reviewed, labelled unreviewed', () => {
     const r = resolveCapitalEvidence([...ledger, { ...ledger[1], entryDate: '2025-04-20', amount: 5 }], [position], '2025-04-30', '2025-03-31')
-    expect(r.evidenceByLp.get('lp')).toMatchObject({ basis: 'reported', asOf: '2025-03-31' })
+    expect(r.evidenceByLp.get('lp')).toMatchObject({ basis: 'ledger', asOf: '2025-04-30', reviewed: false, values: { nav: 115 } })
+    const closed = resolveCapitalEvidence(ledger, [position], '2025-03-31', '2025-03-31')
+    expect(closed.evidenceByLp.get('lp')?.reviewed).toBe(true)
   })
   it('does not turn missing fields into evidence of zero', () => {
     const r = resolveCapitalEvidence([], [{ ...position, nav: null }])
@@ -61,10 +76,10 @@ describe('statement observations an opening entry represents', () => {
   const link = { lpEntityId: 'lp', positionId: 'pos-march', entryId: 'open-1', observedOn: '2025-03-31', observedNav: 120, bookedAmount: 120 }
 
   it('stops a represented observation from competing with the books that represent it', () => {
-    // WITHOUT the link this partner is stuck on the reported basis: the opening entry books the
-    // 120 NAV but says nothing about contributions or distributions, so `ties` can never hold.
+    // WITHOUT the link the statement is a competing anchor: the books still report, but the
+    // opening entry says nothing about contributions, so the two disagree and it is flagged.
     const inferred = resolveCapitalEvidence(opening, [anchored], '2025-04-30')
-    expect(inferred.evidenceByLp.get('lp')?.basis).toBe('reported')
+    expect(inferred.evidenceByLp.get('lp')).toMatchObject({ basis: 'ledger', conflict: true })
     // WITH it, the statement is not a second representation of the same fact, so the books win
     // and the 120 is counted exactly once.
     const linked = resolveCapitalEvidence(opening, [anchored], '2025-04-30', null, undefined, [link])
@@ -79,12 +94,12 @@ describe('statement observations an opening entry represents', () => {
     expect(evidence.observationDates).toEqual(['2025-03-31'])
   })
 
-  it('still anchors on a later statement the books do not represent', () => {
+  it('checks the books against a later statement they do not represent', () => {
     const june = { ...position, id: 'pos-june', asOfDate: '2025-06-30', nav: 140 }
     const evidence = resolveCapitalEvidence(opening, [anchored, june], '2025-07-31', null, undefined, [link])
       .evidenceByLp.get('lp')!
-    expect(evidence).toMatchObject({ basis: 'reported', asOf: '2025-06-30' })
-    expect(evidence.values.nav).toBe(140)
+    expect(evidence).toMatchObject({ basis: 'ledger', conflict: true, anchor: { date: '2025-06-30', variance: { nav: -20 } } })
+    expect(evidence.values.nav).toBe(120)
   })
 
   it('surfaces a statement restated after the books were started from it', () => {
@@ -156,20 +171,23 @@ describe('dated commitments', () => {
 
 describe('reviewed coverage', () => {
   const later = [...ledger, { ...ledger[1], entryDate: '2025-05-20', amount: 5 }]
-  it('retains reported balances when there is a gap between closed periods', () => {
+  it('labels the books unreviewed when there is a gap between closed periods', () => {
     const result = resolveCapitalEvidence(later, [position], '2025-05-31', '2025-05-31', [
       { start: '2025-03-01', end: '2025-03-31' }, { start: '2025-05-01', end: '2025-05-31' },
     ])
-    expect(result.evidenceByLp.get('lp')).toMatchObject({ basis: 'reported', values: { nav: 120 } })
+    expect(result.evidenceByLp.get('lp')).toMatchObject({ basis: 'ledger', reviewed: false, values: { nav: 115 } })
   })
-  it('rolls matching balances through contiguous reviewed activity exactly once', () => {
+  it('labels the books reviewed through contiguous closed periods, counting activity exactly once', () => {
     const result = resolveCapitalEvidence(later, [position], '2025-05-31', null, [
       { start: '2025-04-01', end: '2025-05-31' }, { start: '2025-03-01', end: '2025-03-31' },
     ])
-    expect(result.evidenceByLp.get('lp')).toMatchObject({ basis: 'ledger', values: { nav: 115 } })
+    expect(result.evidenceByLp.get('lp')).toMatchObject({ basis: 'ledger', reviewed: true, values: { nav: 115 } })
   })
   it('reports known-field differences even if another statement field is missing', () => {
     const result = resolveCapitalEvidence(ledger, [{ ...position, calledCapital: 90, nav: null }])
-    expect(result.evidenceByLp.get('lp')).toMatchObject({ conflict: true, missing: ['nav'], values: { nav: null } })
+    expect(result.evidenceByLp.get('lp')).toMatchObject({
+      conflict: true, missing: [], values: { nav: 120 },
+      anchor: { variance: { contributions: 10, nav: null } },
+    })
   })
 })

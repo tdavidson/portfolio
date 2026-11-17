@@ -250,7 +250,7 @@ export async function vehicleEconomics(
     const evidence = selected.map(id => evidenceByLp.get(id))
     if (selected.length === 1) {
       metrics.irr = reportingIrr(irrFlows.filter(p => p.lpEntityId === selected[0]), metrics.nav ?? 0, evidence[0])
-    } else if (evidence.some(e => !e || !e.canCalculateIrr || e.conflict || e.missing.length > 0)) {
+    } else if (evidence.some(e => !e || !e.canCalculateIrr || e.missing.length > 0)) {
       metrics.irr = null
     }
     const sumValues = (field: 'contributions' | 'distributions' | 'nav'): number | null => {

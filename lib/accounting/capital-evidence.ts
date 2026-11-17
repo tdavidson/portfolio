@@ -48,14 +48,32 @@ export interface CapitalEvidence {
   /** Observations describe balances, not transaction dates. */
   observationDates: string[]
   entryIds: string[]
-  anchor?: { positionId: string | null; date: string; agreesWithBooks: boolean; supportingEntryIds: string[] }
+  /**
+   * Whether closed periods cover this partner's figures through the report date. A label for the
+   * reader, never a switch: the books are reported either way.
+   */
+  reviewed: boolean
+  anchor?: {
+    positionId: string | null; date: string; agreesWithBooks: boolean; supportingEntryIds: string[]
+    /** Books less the imported figure on the import's date, per field; null where the import left it blank. */
+    variance?: { contributions: number | null; distributions: number | null; nav: number | null }
+  }
   /** The statement observations this partner's books already represent, newest last. */
   representedObservations?: { positionId: string; date: string; entryId: string; restated: boolean }[]
 }
 
 /** Resolve each partner independently. A chart or an unrelated entry cannot select a source.
  * Observations and postings are alternate representations; they are never added together.
- * A closed period supplies the explicit book-review boundary for using subsequent activity.
+ *
+ * THE BOOKS ARE THE RECORD. A partner with capital activity in the ledger reports from the ledger.
+ * An imported observation (a statement, a migrated register) is then a cross-check: where the books
+ * disagree with it on its date, `conflict` and `anchor.variance` say so, and the figures still come
+ * from the books. Only a partner with no capital activity in the ledger reports the observation.
+ *
+ * This used to run the other way: an observation won unless the books tied to it to the cent AND
+ * closed periods covered every day since, a rule written when the app kept no books. It left funds
+ * whose books were current reporting a months-old import with no IRR, and nothing on screen said
+ * the books were being ignored. Closed periods now only label the result (`reviewed`).
  */
 export function resolveCapitalEvidence(
   ledger: CapitalPosting[], positions: LpPosition[], asOf?: string, closedThrough?: string | null, reviewedPeriods?: ReviewedPeriod[],
@@ -93,21 +111,33 @@ export function resolveCapitalEvidence(
     const observations = allObservations.filter(p => !p.id || !representedIds.has(p.id))
     const latest = observations.at(-1)
     const ledgerThrough = lpLedger.reduce<string | null>((date, p) => p.entryDate && (!date || p.entryDate > date) ? p.entryDate : date, null)
-    const missing: CapitalEvidence['missing'] = []
-    if (latest?.calledCapital == null && latest) missing.push('contributions')
-    if (latest?.distributions == null && latest) missing.push('distributions')
-    if (latest?.nav == null && latest) missing.push('nav')
+    // Blank fields on the import, which matter only when the import is what gets reported.
+    const blank: CapitalEvidence['missing'] = []
+    if (latest?.calledCapital == null && latest) blank.push('contributions')
+    if (latest?.distributions == null && latest) blank.push('distributions')
+    if (latest?.nav == null && latest) blank.push('nav')
     const atObservation = latest ? computeCapitalAccounts(lpLedger, { end: latest.asOfDate }).get(id) ?? emptyAccount() : null
-    const ties = !!latest && missing.length === 0 && !!atObservation &&
+    const ties = !!latest && blank.length === 0 && !!atObservation &&
       Math.abs(atObservation.contributions - latest.calledCapital!) < 0.005 &&
       Math.abs(-atObservation.distributions - latest.distributions!) < 0.005 &&
       Math.abs(atObservation.ending - latest.nav!) < 0.005
     const reportDate = asOf ?? [ledgerThrough, latest?.asOfDate].filter(Boolean).sort().at(-1)
-    const reviewed = !!reportDate && (reviewedPeriods !== undefined
-      ? !!latest && coversReportingInterval(reviewedPeriods, latest.asOfDate, reportDate)
+    // Reviewed from the first day there is anything to review: the import's date when the books
+    // agree with it (so the import vouches for everything before), otherwise the first entry.
+    const firstEntry = lpLedger.reduce<string | null>((date, p) => p.entryDate && (!date || p.entryDate < date) ? p.entryDate : date, null)
+    const reviewFrom = latest && ties ? latest.asOfDate : firstEntry ?? latest?.asOfDate ?? null
+    const reviewed = !!reportDate && !!reviewFrom && (reviewedPeriods !== undefined
+      ? coversReportingInterval(reviewedPeriods, reviewFrom, reportDate)
       : !!closedThrough && closedThrough >= reportDate)
-    const useLedger = !latest || (ties && reviewed)
+    const diff = (books: number, imported: number | null | undefined) => imported == null ? null : (Math.round((books - imported) * 100) / 100 || 0)
+    const variance = latest && atObservation && lpLedger.length > 0 ? {
+      contributions: diff(atObservation.contributions, latest.calledCapital),
+      distributions: diff(-atObservation.distributions, latest.distributions),
+      nav: diff(atObservation.ending, latest.nav),
+    } : undefined
+    const useLedger = lpLedger.length > 0 || !latest
     const basis = useLedger ? 'ledger' : 'reported'
+    const missing: CapitalEvidence['missing'] = useLedger ? [] : blank
     if (useLedger) postings.push(...lpLedger)
     // Numeric compatibility postings exist only for COMPLETE observations; metadata retains
     // missing fields. Never synthesize a zero NAV from a partial statement.
@@ -118,7 +148,7 @@ export function resolveCapitalEvidence(
     const openingOnly = links.length > 0 || lpLedger.some(p => /opening|bootstrap|cutover/.test(p.sourceType ?? ''))
     const balance = computeCapitalAccounts(lpLedger).get(id) ?? emptyAccount()
     evidenceByLp.set(id, {
-      values: useLedger ? { contributions: balance.contributions, distributions: -balance.distributions, nav: balance.ending } : { contributions: latest!.calledCapital, distributions: latest!.distributions, nav: latest!.nav },
+      values: useLedger ? { contributions: balance.contributions, distributions: -balance.distributions || 0, nav: balance.ending } : { contributions: latest!.calledCapital, distributions: latest!.distributions, nav: latest!.nav },
       basis, asOf: useLedger ? (asOf ?? ledgerThrough) : latest!.asOfDate,
       reportedIrr: latest?.irr ?? null,
       canCalculateIrr: useLedger && !openingOnly && lpLedger.length > 0,
@@ -131,7 +161,8 @@ export function resolveCapitalEvidence(
       ),
       ledgerThrough, observationDates: allObservations.map(p => p.asOfDate),
       ...(represented.length > 0 ? { representedObservations: represented } : {}),
-      ...(latest ? { anchor: { positionId: latest.id ?? null, date: latest.asOfDate, agreesWithBooks: ties, supportingEntryIds: Array.from(new Set(lpLedger.filter(p => p.entryDate && p.entryDate <= latest.asOfDate).map(p => p.entryId).filter((id): id is string => !!id))) } } : {}),
+      reviewed,
+      ...(latest ? { anchor: { positionId: latest.id ?? null, date: latest.asOfDate, agreesWithBooks: ties, ...(variance ? { variance } : {}), supportingEntryIds: Array.from(new Set(lpLedger.filter(p => p.entryDate && p.entryDate <= latest.asOfDate).map(p => p.entryId).filter((id): id is string => !!id))) } } : {}),
       entryIds: Array.from(new Set(lpLedger.map(p => p.entryId).filter((id): id is string => !!id))),
     })
   }

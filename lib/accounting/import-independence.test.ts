@@ -23,7 +23,7 @@ describe('investments and LPs remain independent of accounting imports', () => {
     expect(r.totalCost).toBe(100)
     expect(r.rows).toHaveLength(1)
   })
-  it('keeps reported LP balances and identities when QuickBooks brings in overlapping capital', () => {
+  it('leaves reported LP balances and identities untouched when QuickBooks brings in overlapping capital', () => {
     const observations = [{ lpEntityId: 'lp', asOfDate: '2025-03-31', commitment: 200, calledCapital: 100, distributions: 10, nav: 120, irr: 0.12 }]
     const original = structuredClone(observations)
     const txn = { date: '2025-03-31', type: 'Journal Entry', num: '1', memo: 'Capital', lines: [
@@ -33,7 +33,12 @@ describe('investments and LPs remain independent of accounting imports', () => {
     const { entries } = buildEntries([txn], new Map([['Cash', '1000'], ['Capital', '3100']]), new Map([['1000', 'cash'], ['3100', 'capital']]), 'firm')
     const capital = entries.flatMap(e => e.postings.filter(p => p.accountId === 'capital').map(p => ({ ...p, lpEntityId: 'lp', sourceType: e.sourceType, entryDate: e.entryDate })))
     const after = resolveCapitalEvidence(capital, observations, '2025-04-30')
-    expect(after.evidenceByLp.get('lp')).toMatchObject({ basis: 'reported', asOf: '2025-03-31', conflict: true, values: { contributions: 100, distributions: 10, nav: 120 } })
+    // The books are the record, so they report; the import stays as it was and the difference shows.
+    // An imported journal entry is not classed as a contribution, so it moves NAV only.
+    expect(after.evidenceByLp.get('lp')).toMatchObject({
+      basis: 'ledger', conflict: true, values: { contributions: 0, distributions: 0, nav: 100 },
+      anchor: { date: '2025-03-31', agreesWithBooks: false, variance: { contributions: -100, distributions: -10, nav: -20 } },
+    })
     expect(observations).toEqual(original)
   })
 })

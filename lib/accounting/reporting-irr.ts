@@ -23,7 +23,7 @@ export function heldUnderAYear(flows: { date: Date }[], asOf: Date): boolean {
 export function reportingIrr(postings: CapitalPosting[], nav: number, evidence: CapitalEvidence | undefined): number | null {
   if (!evidence || evidence.missing.length > 0) return null
   if (evidence.basis === 'reported') return evidence.reportedIrr
-  if (evidence.conflict) return null
+  // A disagreement with an imported figure is a warning, not a veto: the books are the record.
   if (!evidence.canCalculateIrr) return evidence.reportedIrr
   if (!evidence.asOf) return null
   const flows = postings.flatMap(p => p.entryDate && isIrrFlow(p)
