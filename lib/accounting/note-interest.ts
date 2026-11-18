@@ -42,7 +42,7 @@ const DAY_MS = 24 * 60 * 60 * 1000
 /**
  * Interest earned on one note, from issue to `asOf`.
  *
- * SIMPLE, ACTUAL/365 — what the large majority of convertible notes actually specify, and the
+ * SIMPLE, ACTUAL/365, counting the issue day — what the large majority of convertible notes actually specify, and the
  * same convention the preferred-return hurdle uses. An LP or an auditor can re-derive it by hand,
  * which is worth more than a marginally more precise model they can't check.
  *
@@ -68,8 +68,14 @@ export function accruedInterest(note: Note, asOf: string): number {
   }
   const until = Math.min(...stops)
 
-  const days = (until - start) / DAY_MS
-  if (days <= 0) return 0
+  // The issue day earns interest. So a note accrued at a period end has earned through the END
+  // of that day (issue and as-of days both counted: issued the 14th, accrued at the 31st is 18
+  // days). A note that stops at conversion or maturity earns up to, not including, that day.
+  // The two agree across a stop: accrued at the day before conversion and at conversion give the
+  // same total.
+  const stoppedEarly = stops.slice(1).some(t => t <= end)
+  const days = (until - start) / DAY_MS + (stoppedEarly ? 0 : 1)
+  if (until < start || days <= 0) return 0
 
   return roundCents(note.principal * note.rate * (days / 365))
 }
