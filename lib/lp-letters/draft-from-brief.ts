@@ -200,6 +200,22 @@ export async function briefForLetter(admin: Admin, fundId: string, letter: any):
   })
 }
 
+/**
+ * A letter the fund's AI could not write, with a reason the person can act on. The generate route
+ * and lp_draft_letter show its message as it is, where any other failure stays generic.
+ */
+export class LetterDraftError extends Error {
+  constructor(message: string) {
+    super(message)
+    this.name = 'LetterDraftError'
+  }
+}
+
+// Output room for the whole letter. A long letter is around 10k tokens of text, and models that
+// think before they write spend part of the same budget on that, so 8k could run out before the
+// first word. Kept well under what the 300-second function limit can stream.
+export const LETTER_MAX_TOKENS = 20000
+
 /** The fund's own AI provider writes the letter from the brief, in one call, in the layers of writerPrompt. */
 export async function writeWithFundAI(
   admin: Admin, fundId: string, userId: string | null, brief: LetterBrief, voice: LetterVoice, guidance?: string | null,
@@ -207,7 +223,11 @@ export async function writeWithFundAI(
   const { provider, model, providerType } = await createFundAIProvider(admin as any, fundId)
   const result = await provider.createMessage({
     model,
-    maxTokens: 8000,
+    maxTokens: LETTER_MAX_TOKENS,
+    // The brief already holds the facts and the layers hold the structure, so this is writing,
+    // not reasoning: low effort keeps a thinking model from spending the budget before it writes.
+    // Models without an effort setting are sent none.
+    effort: 'low',
     system:
       "You write a venture fund's quarterly letter to its limited partners. You write plainly and precisely, state bad news " +
       'directly, and never add a number or claim your sources do not contain. Plain text, with a "## " line opening each section.',
@@ -216,7 +236,17 @@ export async function writeWithFundAI(
   await logAIUsage(admin as any, {
     fundId, userId: userId ?? undefined, provider: providerType, model, feature: 'lp-letter-draft', usage: result.usage,
   })
-  return result.text.trim()
+  const text = result.text.trim()
+  // A letter cut off at the limit is refused rather than saved: a draft that stops mid-section
+  // reads as finished, and the missing sections are easy to miss.
+  if (result.truncated) {
+    throw new LetterDraftError(
+      text
+        ? 'The letter ran past the length limit and was cut off, so it was not saved. Try again with shorter guidance or fewer sources.'
+        : 'The AI used its whole length limit before writing any of the letter, so nothing was saved. Try again, or pick a different model in AI settings.',
+    )
+  }
+  return text
 }
 
 /** The letter's sections from written text, each with the sources it was written from. */
