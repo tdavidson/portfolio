@@ -57,6 +57,17 @@ export interface TextEntryInput {
   postings: TextPostingInput[]
 }
 
+/**
+ * A quoted value on one line. A ledger entry is line-oriented, so a memo carrying a line break
+ * (bank memos imported from a CSV often do) would split its header: the rest of the memo lands on
+ * a line of its own, which the parser either reads as a malformed posting (when it starts with
+ * whitespace) or silently drops. Line breaks and runs of whitespace collapse to one space, and a
+ * double quote becomes a single one so it cannot close the quoted value early.
+ */
+function quotedValue(value: string): string {
+  return value.replace(/"/g, "'").replace(/\s+/g, ' ').trim()
+}
+
 /** Serialize a vehicle's books to plain text (open directives + entries). */
 export function serializeLedger(accounts: Account[], entries: TextEntryInput[]): string {
   const byId = new Map(accounts.map(a => [a.id, a]))
@@ -73,12 +84,12 @@ export function serializeLedger(accounts: Account[], entries: TextEntryInput[]):
 
   for (const e of dated) {
     const flag = e.status === 'posted' ? '*' : '!'
-    const narration = (e.memo || e.sourceType || 'Entry').replace(/"/g, "'")
+    const narration = quotedValue(e.memo || e.sourceType || '') || 'Entry'
     lines.push(`${e.entryDate} ${flag} "${narration}"`)
-    if (e.sourceType) lines.push(`  source: "${e.sourceType}"`)
+    if (e.sourceType) lines.push(`  source: "${quotedValue(e.sourceType)}"`)
     // What produced the entry (txn:<id>, qb:<hash>, …). Re-importing an exported ledger must not
     // book these a second time — postLedgerText refuses an entry whose ref is already live.
-    if (e.sourceRef) lines.push(`  ref: "${e.sourceRef.replace(/"/g, '\'')}"`)
+    if (e.sourceRef) lines.push(`  ref: "${quotedValue(e.sourceRef)}"`)
     for (const p of e.postings) {
       const acct = byId.get(p.accountId)
       const name = acct ? textAccountName(acct) : `Equity:Unknown:${p.accountId.slice(0, 8)}`
