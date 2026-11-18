@@ -95,6 +95,29 @@ describe('parseLedgerText', () => {
     expect(entries[0].postings[0].amount).toBe(5_000_000)
     expect(entries[0].postings[1].amount).toBe(-5_000_000)
   })
+  it('keeps a memo with line breaks on its header line', () => {
+    // Bank memos imported from a CSV can carry CRLF or LF breaks, sometimes followed by spaces.
+    // Before, the tail of such a memo landed on its own line: indented, it failed to parse as a
+    // posting (and the period close refused the ledger); unindented, it was dropped.
+    const memos = ['Wire in\r\n  FROM ACCT XXXX0000', 'Wire in\nFROM ACCT XXXX0000', 'Wire "in"\n\n  FROM ACCT XXXX0000']
+    const input = memos.map(memo => ({ entryDate: '2026-03-01', memo, sourceType: 'bank\nimport', sourceRef: 'txn:\r\nt1', status: 'posted', postings: [
+      { accountId: 'cash', amount: 100, currency: 'USD' },
+      { accountId: 'lpA', amount: -100, currency: 'USD' },
+    ] }))
+    const text = serializeLedger(accounts, input)
+    const { entries, errors } = parseLedgerText(text)
+    expect(errors).toEqual([])
+    expect(entries.map(e => e.narration)).toEqual(['Wire in FROM ACCT XXXX0000', 'Wire in FROM ACCT XXXX0000', "Wire 'in' FROM ACCT XXXX0000"])
+    expect(entries.every(e => e.sourceType === 'bank import' && e.ref === 'txn: t1' && e.postings.length === 2)).toBe(true)
+  })
+
+  it('falls back to Entry when a memo is only whitespace', () => {
+    const text = serializeLedger(accounts, [{ entryDate: '2026-03-01', memo: '\r\n ', status: 'posted', postings: [
+      { accountId: 'cash', amount: 1, currency: 'USD' },
+      { accountId: 'lpA', amount: -1, currency: 'USD' },
+    ] }])
+    expect(text).toContain('2026-03-01 * "Entry"')
+  })
 })
 
 describe('resolvePostingAccounts', () => {
