@@ -117,6 +117,16 @@ export function noteAccruals(
 }
 
 /**
+ * The columns loadNotes reads. The company embed names its foreign key because
+ * investment_transactions has two to companies (company_id, and transfer_company_id for cost
+ * transfers). A bare `companies(...)` embed is then ambiguous, and PostgREST refuses the whole
+ * query. @internal Exported for tests.
+ */
+export const NOTE_COLUMNS =
+  'id, company_id, transaction_type, transaction_date, investment_cost, interest_rate, maturity_date, interest_converted, ' +
+  'companies!investment_transactions_company_id_fkey!inner(name)'
+
+/**
  * The vehicle's interest-bearing notes, as at `asOf`.
  *
  * ONLY `interest_rate`. `dividend_rate` is deliberately never read here: cumulative dividends on
@@ -134,12 +144,16 @@ export async function loadNotes(
   group: string,
   asOf: string
 ): Promise<Note[]> {
-  const { data } = await admin
+  const { data, error } = await admin
     .from('investment_transactions' as any)
-    .select('id, company_id, transaction_type, transaction_date, investment_cost, interest_rate, maturity_date, interest_converted, companies!inner(name)')
+    .select(NOTE_COLUMNS)
     .eq('fund_id', fundId)
     .eq('portfolio_group', group)
     .lte('transaction_date', asOf)
+
+  // Throw rather than read an error as "no notes": a failed read here silently stops every
+  // note's interest accruing, and the close still succeeds.
+  if (error) throw new Error(`Couldn't load notes for ${group}: ${error.message}`)
 
   const rows = (data as any[]) ?? []
 

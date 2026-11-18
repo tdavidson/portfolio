@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { accruedInterest, noteAccruals, type Note } from './note-interest'
+import { accruedInterest, noteAccruals, NOTE_COLUMNS, type Note } from './note-interest'
 
 const note = (over: Partial<Note> = {}): Note => ({
   txnId: 't1',
@@ -124,5 +124,12 @@ describe('noteAccruals', () => {
       '2026-01-01'
     )
     expect(out).toEqual([]) // nothing further to post
+  })
+})
+
+describe('NOTE_COLUMNS', () => {
+  it('names the company_id foreign key, since transfer_company_id also points at companies', () => {
+    expect(NOTE_COLUMNS).toContain('companies!investment_transactions_company_id_fkey')
+    expect(NOTE_COLUMNS).not.toMatch(/(^|[ ,])companies!inner\(/)
   })
 })

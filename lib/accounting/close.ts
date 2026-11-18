@@ -1502,7 +1502,12 @@ async function accrueNoteInterest(
   periodEnd: string,
   sourceRef: string
 ): Promise<{ entryIds: string[] } | { error: string }> {
-  const notes = await loadNotes(admin, fundId, group, periodEnd)
+  let notes: Awaited<ReturnType<typeof loadNotes>>
+  try {
+    notes = await loadNotes(admin, fundId, group, periodEnd)
+  } catch (e) {
+    return { error: e instanceof Error ? e.message : String(e) }
+  }
   if (notes.length === 0) return { entryIds: [] }
 
   const codes = await accountIdByCode(admin, fundId, group)
