@@ -26,6 +26,7 @@ import { parseMetricPeriod } from '@/lib/metrics/period'
 import { createCompany } from '@/lib/companies/create'
 import { createCompanyNote } from '@/lib/notes/create'
 import { EDITABLE_TXN_FIELDS, deleteInvestmentTransaction, updateInvestmentTransaction } from '@/lib/portfolio/transaction-edit'
+import { normalizeSecurityType, SECURITY_TYPES } from '@/lib/accounting/soi'
 import { unwrap } from '@/lib/service-outcome'
 import { setRoundTerms } from '@/lib/portfolio/round-terms'
 import { formatReportedFigure, recordReportedFigures } from '@/lib/accounting/reported-figures'
@@ -504,6 +505,12 @@ export interface RecordInvestmentInput {
   original_position_value?: number | string | null
   /** When set, this priced round CONVERTS a prior SAFE/note transaction — links the two. */
   converts_from_txn_id?: string
+  /** Accrued note interest that converted into shares (on the converting round). */
+  interest_converted?: number | string | null
+  security_type?: string | null
+  /** Convertible note: annual simple rate as a fraction. The close accrues on this. */
+  interest_rate?: number | string | null
+  maturity_date?: string | null
 }
 
 /**
@@ -535,6 +542,15 @@ export async function executeRecordInvestment(
   if (!input?.transaction_date) throw new Error('transaction_date is required (YYYY-MM-DD)')
 
   const num = (v: any) => (v == null || v === '' ? null : Number(v))
+  // The column is CHECK-constrained, so map aliases ("note", "SAFE") and refuse anything else
+  // here rather than letting the insert fail on the constraint.
+  let securityType: string | null = null
+  if (input.security_type != null && input.security_type !== '') {
+    securityType = normalizeSecurityType(input.security_type)
+    if (!securityType) throw new Error(`Invalid security_type "${input.security_type}". Must be one of: ${SECURITY_TYPES.join(', ')}`)
+  }
+  const rate = num(input.interest_rate)
+  if (rate != null && !(rate >= 0 && rate < 1)) throw new Error('interest_rate is a fraction: 0.06 for 6%.')
   const escrowProblem = escrowExceedsGross({ transaction_type: input.transaction_type, proceeds_received: num(input.proceeds_received), proceeds_escrow: num(input.proceeds_escrow) })
   if (escrowProblem) throw new Error(escrowProblem)
 
@@ -574,6 +590,10 @@ export async function executeRecordInvestment(
         : null,
       original_position_value: num(input.original_position_value),
       converts_from_txn_id: input.converts_from_txn_id ?? null,
+      interest_converted: num(input.interest_converted) ?? 0,
+      security_type: securityType,
+      interest_rate: num(input.interest_rate),
+      maturity_date: input.maturity_date || null,
     })
     .select('*')
     .single()
