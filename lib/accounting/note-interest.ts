@@ -36,12 +36,18 @@ export interface Note {
   /** When the note converted, if it has. Interest stops here. */
   convertedDate?: string | null
   /**
-   * The interest the company's conversion round(s) recorded as converting (`interest_converted`),
-   * summed per company. The conversion entry moves exactly this out of 1150 into the equity's
+   * The interest the conversion round recorded as converting (`interest_converted`) for this note,
+   * or for the company when the conversion isn't linked to a note. The conversion entry moves exactly this out of 1150 into the equity's
    * cost, so it is both part of what the ledger accrued and the final figure for the interest a
    * converted note earned.
    */
   convertedInterest?: number
+  /**
+   * Which conversion `convertedInterest` belongs to. Notes that share a key share one converted
+   * figure, so it is counted once. A conversion linked to its note (`converts_from_txn_id`) keys
+   * on that note alone; an unlinked one keys on the company. Defaults to the company.
+   */
+  conversionKey?: string
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -110,16 +116,20 @@ export function noteAccruals(
   accruedByCompany: Map<string, number>,
   asOf: string
 ): NoteAccrual[] {
-  const targetByCompany = new Map<string, { name: string; target: number; converted: number }>()
+  const targetByCompany = new Map<string, { name: string; target: number; converted: number; keys: Set<string> }>()
 
   for (const n of notes) {
-    const cur = targetByCompany.get(n.companyId) ?? { name: n.companyName, target: 0, converted: 0 }
+    const cur = targetByCompany.get(n.companyId) ?? { name: n.companyName, target: 0, converted: 0, keys: new Set<string>() }
     const converted = roundCents(n.convertedInterest ?? 0)
     const hasConverted = !!n.convertedDate && n.convertedDate <= asOf && converted > 0
     if (hasConverted) {
       // A converted note's interest is what the conversion recorded, not our own estimate: the
-      // company's figure is what actually became shares. Count it once per company.
-      cur.converted = converted
+      // company's figure is what actually became shares. Count each conversion once.
+      const key = n.conversionKey ?? n.companyId
+      if (!cur.keys.has(key)) {
+        cur.keys.add(key)
+        cur.converted = roundCents(cur.converted + converted)
+      }
     } else {
       cur.target = roundCents(cur.target + accruedInterest(n, asOf))
     }
@@ -147,7 +157,7 @@ export function noteAccruals(
  * query. @internal Exported for tests.
  */
 export const NOTE_COLUMNS =
-  'id, company_id, transaction_type, transaction_date, investment_cost, interest_rate, maturity_date, interest_converted, ' +
+  'id, company_id, transaction_type, transaction_date, investment_cost, interest_rate, maturity_date, interest_converted, converts_from_txn_id, ' +
   'companies!investment_transactions_company_id_fkey!inner(name)'
 
 /**
@@ -158,9 +168,10 @@ export const NOTE_COLUMNS =
  * declared, and their economic effect reaches the statements through the fair-value mark. Booking
  * them as interest would overstate income and double-count against that mark.
  *
- * A note stops accruing when it CONVERTS. We detect conversion from the tracker: an
- * `interest_converted` amount recorded against the same company is the round that took the note
- * out. (The converted interest then lives in the equity's cost basis, which is where it belongs.)
+ * A note stops accruing when it CONVERTS. We detect conversion from the tracker: the round that
+ * records `interest_converted` and names the note in `converts_from_txn_id` took that note out.
+ * (The converted interest then lives in the equity's cost basis, which is where it belongs.)
+ * See notesFromRows for how unlinked conversions are read.
  */
 export async function loadNotes(
   admin: SupabaseClient,
@@ -179,17 +190,34 @@ export async function loadNotes(
   // note's interest accruing, and the close still succeeds.
   if (error) throw new Error(`Couldn't load notes for ${group}: ${error.message}`)
 
-  const rows = (data as any[]) ?? []
+  return notesFromRows((data as any[]) ?? [])
+}
 
-  // A company whose notes have converted: the round records the interest that came across.
-  const convertedOn = new Map<string, string>()
-  const convertedInterest = new Map<string, number>()
+/**
+ * Turn transaction rows into notes, each knowing whether and when it converted.
+ *
+ * A conversion row names the note it converted (`converts_from_txn_id`), and only that note stops
+ * accruing. A company can issue a new note after an earlier one converts, and the new note earns
+ * interest from its own issue date.
+ *
+ * Older conversion rows may carry `interest_converted` without the link. Those are read at the
+ * company level, as before, but only against notes issued on or before the conversion: a note
+ * issued afterwards can't have been part of it.
+ *
+ * @internal Exported for tests.
+ */
+export function notesFromRows(rows: any[]): Note[] {
+  const byNote = new Map<string, { date: string; interest: number }>()
+  const byCompany = new Map<string, { date: string; interest: number }>()
   for (const r of rows) {
-    if (Number(r.interest_converted ?? 0) > 0 && r.transaction_date) {
-      const prev = convertedOn.get(r.company_id)
-      if (!prev || r.transaction_date < prev) convertedOn.set(r.company_id, r.transaction_date)
-      convertedInterest.set(r.company_id, roundCents((convertedInterest.get(r.company_id) ?? 0) + Number(r.interest_converted)))
-    }
+    if (!(Number(r.interest_converted ?? 0) > 0) || !r.transaction_date) continue
+    const target = r.converts_from_txn_id ? byNote : byCompany
+    const key = (r.converts_from_txn_id ?? r.company_id) as string
+    const prev = target.get(key)
+    target.set(key, {
+      date: !prev || r.transaction_date < prev.date ? r.transaction_date : prev.date,
+      interest: roundCents((prev?.interest ?? 0) + Number(r.interest_converted)),
+    })
   }
 
   return rows
@@ -200,15 +228,21 @@ export async function loadNotes(
       Number(r.investment_cost ?? 0) > 0 &&
       r.transaction_date
     )
-    .map(r => ({
-      txnId: r.id as string,
-      companyId: r.company_id as string,
-      companyName: (r.companies?.name as string) ?? 'Investment',
-      principal: roundCents(Number(r.investment_cost)),
-      rate: Number(r.interest_rate),
-      startDate: r.transaction_date as string,
-      maturityDate: (r.maturity_date as string) ?? null,
-      convertedDate: convertedOn.get(r.company_id) ?? null,
-      convertedInterest: convertedInterest.get(r.company_id) ?? 0,
-    }))
+    .map(r => {
+      const linked = byNote.get(r.id)
+      const legacy = byCompany.get(r.company_id)
+      const conv = linked ?? (legacy && r.transaction_date <= legacy.date ? legacy : undefined)
+      return {
+        txnId: r.id as string,
+        companyId: r.company_id as string,
+        companyName: (r.companies?.name as string) ?? 'Investment',
+        principal: roundCents(Number(r.investment_cost)),
+        rate: Number(r.interest_rate),
+        startDate: r.transaction_date as string,
+        maturityDate: (r.maturity_date as string) ?? null,
+        convertedDate: conv?.date ?? null,
+        convertedInterest: conv?.interest ?? 0,
+        conversionKey: linked ? `note:${r.id}` : `company:${r.company_id}`,
+      }
+    })
 }
