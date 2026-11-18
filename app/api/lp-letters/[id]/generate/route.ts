@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { loadEntityScopeForUser } from '@/lib/access/entity-scope'
 import { getLetter } from '@/lib/lp-letters/service'
-import { briefForLetter, writeDraftInto, writeWithFundAI } from '@/lib/lp-letters/draft-from-brief'
+import { briefForLetter, LetterDraftError, writeDraftInto, writeWithFundAI } from '@/lib/lp-letters/draft-from-brief'
 import { logActivity } from '@/lib/activity'
 import { rateLimit } from '@/lib/rate-limit'
 
@@ -43,7 +43,7 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
   try {
     const loaded = await briefForLetter(admin, fundId, letter)
     const text = await writeWithFundAI(admin, fundId, user.id, loaded.brief, loaded.voice, letter.generation_prompt)
-    if (!text) throw new Error('The draft came back empty')
+    if (!text) throw new LetterDraftError('The AI returned an empty letter, so nothing was saved. Try again.')
     const saved = await writeDraftInto(admin, { fundId, userId: user.id }, params.id, text, loaded, 'fund_ai')
     if (!saved.ok) throw new Error(saved.error)
 
@@ -55,10 +55,12 @@ export async function POST(_req: NextRequest, props: { params: Promise<{ id: str
     return NextResponse.json(saved.value)
   } catch (err) {
     console.error('[lp-letters] Generation error detail:', err instanceof Error ? err.message : err)
+    // A reason the person can act on is shown as it is; anything else stays generic.
+    const message = err instanceof LetterDraftError ? err.message : 'Letter generation failed. Please try again.'
     await admin
       .from('lp_letters')
-      .update({ status: 'draft', generation_error: 'Letter generation failed. Please try again.', updated_at: new Date().toISOString() })
+      .update({ status: 'draft', generation_error: message, updated_at: new Date().toISOString() })
       .eq('id', params.id)
-    return NextResponse.json({ error: 'Letter generation failed. Please try again.' }, { status: 500 })
+    return NextResponse.json({ error: message }, { status: 500 })
   }
 }
