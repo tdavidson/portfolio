@@ -5,7 +5,7 @@
 // The spec for what these terms mean is docs/spec/waterfall-terms.md.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import type { CarryKind, CarryRecipient, CarryStep, ContributionPurpose, DayCount, PrefBase, WaterfallScope } from './carry'
+import type { CarryKind, CarryRecipient, CarryStep, ContributionPurpose, DayCount, PerLpLiquidation, PrefBase, WaterfallScope } from './carry'
 import { vehicleIdByName } from './vehicle-id'
 
 export const CARRY_KINDS: CarryKind[] = ['none', 'straight', 'american', 'european']
@@ -14,6 +14,7 @@ export const DAY_COUNTS: DayCount[] = ['act/365', '30/360']
 export const CATCHUP_MEASURES = ['preferred', 'profit'] as const
 export const CONTRIBUTION_PURPOSES: ContributionPurpose[] = ['investments', 'fees', 'expenses', 'other']
 export const WATERFALL_SCOPES: WaterfallScope[] = ['fund', 'per_lp']
+export const PER_LP_LIQUIDATIONS: PerLpLiquidation[] = ['contributions', 'capital_account']
 
 /** The terms as a caller supplies them (the route's PUT body, the pending action's input). */
 export interface WaterfallTermsInput {
@@ -31,6 +32,7 @@ export interface WaterfallTermsInput {
   capitalIncludes?: unknown
   gpCommitBearsCarry?: unknown
   waterfallScope?: unknown
+  perLpLiquidation?: unknown
   gpEntityId?: unknown
   carryRecipients?: unknown
 }
@@ -60,6 +62,8 @@ export interface ValidWaterfallTerms {
   gpCommitBearsCarry: boolean
   /** Whether the waterfall runs once for the whole fund or once per LP. */
   waterfallScope: WaterfallScope
+  /** Per LP only: how the close's hypothetical liquidation is divided among the LPs. */
+  perLpLiquidation: PerLpLiquidation
   gpEntityId: string | null
   recipients: CarryRecipient[]
 }
@@ -148,6 +152,10 @@ export function parseWaterfallTermsInput(body: WaterfallTermsInput): { ok: true;
   const waterfallScope = body?.waterfallScope ?? 'fund'
   if (!(WATERFALL_SCOPES as unknown[]).includes(waterfallScope)) return { error: 'The waterfall runs for the whole fund or for each LP.' }
   if (waterfallScope === 'per_lp' && kind === 'american') return { error: 'A waterfall for each LP is not supported with American (deal-by-deal) terms yet.' }
+  const liquidationRaw = body?.perLpLiquidation ?? 'contributions'
+  if (!(PER_LP_LIQUIDATIONS as unknown[]).includes(liquidationRaw)) return { error: 'Each LP\'s share of the liquidation is by contributions or by its own capital account.' }
+  // Only meaningful per LP; whole-fund terms store the default.
+  const perLpLiquidation = (waterfallScope === 'per_lp' ? liquidationRaw : 'contributions') as PerLpLiquidation
 
   // Carry has to accrue TO somebody. A vehicle may have ONE recipient (legacy gpEntityId) or a
   // split across several (carryRecipients: [{lpEntityId, pct}] summing to 100). Without any the
@@ -183,6 +191,7 @@ export function parseWaterfallTermsInput(body: WaterfallTermsInput): { ok: true;
       capitalIncludes,
       gpCommitBearsCarry: body?.gpCommitBearsCarry === true,
       waterfallScope: waterfallScope as WaterfallScope,
+      perLpLiquidation,
       gpEntityId,
       recipients,
     },
@@ -244,6 +253,7 @@ export async function saveWaterfallTerms(
         capital_includes: terms.capitalIncludes.length < CONTRIBUTION_PURPOSES.length ? terms.capitalIncludes : null,
         gp_commit_bears_carry: terms.gpCommitBearsCarry,
         waterfall_scope: terms.waterfallScope,
+        per_lp_liquidation: terms.perLpLiquidation,
         gp_entity_id: singleGp,
         carry_recipients: recipients.length > 0 ? recipients : null,
         updated_at: new Date().toISOString(),

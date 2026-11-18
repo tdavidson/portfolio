@@ -53,6 +53,7 @@ agreed to is worse than accruing none.
 | `capitalIncludes` | `capital_includes` (text[]) | any of `investments`, `fees`, `expenses`, `other`; must include `investments` | null (all four) | What the first tier returns as capital and the hurdle accrues on (§5.1). |
 | `gpCommitBearsCarry` | `gp_commit_bears_carry` (boolean) | | false | The recipients' own commitments (the GP commit) bear carry like an LP's (§6, step 3). |
 | `waterfallScope` | `waterfall_scope` (text) | `fund` \| `per_lp` | `fund` | Whether the waterfall runs once on the LPs' pooled amounts or once per LP, each distribution divided among the LPs by contributions first (§4.4, §6). `european` and `straight` only. |
+| `perLpLiquidation` | `per_lp_liquidation` (text) | `contributions` \| `capital_account` | `contributions` | Per LP only: how the close divides the hypothetical liquidation among the LPs, by contributions or at each LP's own capital account (§4.4). Distributions are always divided by contributions. |
 | `recipients` | `carry_recipients` (jsonb `[{lpEntityId, pct}]`) | pct > 0, total 100 ± 0.01 | `[]` | Who receives the carry, and in what split. |
 | `gpEntityId` | `gp_entity_id` | partner id or null | null | Legacy single recipient. Used as `[{gpEntityId, 100}]` when `carry_recipients` is empty. |
 
@@ -72,6 +73,8 @@ Validation (`parseWaterfallTermsInput`, shared by the settings page and `set_wat
 - `capitalIncludes` must include `investments`. Omitted, every contribution is capital.
 - `waterfallScope` is `fund` or `per_lp`. Omitted, it is `fund`. `per_lp` is refused with `american`
   (§7).
+- `perLpLiquidation` is `contributions` or `capital_account`. Omitted, or on whole-fund terms, it is
+  `contributions`.
 - When carry is on (`kind ≠ none` and `carryRate > 0`), there must be at least one recipient.
 - Recipient percentages must total 100.
 - Every recipient must be a partner (`lp_entities`) of the same fund.
@@ -276,6 +279,11 @@ hurdle while another isn't, and the sum of per-LP results is not the pooled resu
      contributions, every purpose, over all of theirs, to the cent by largest remainder. Not by each
      LP's own capital balance, which would be circular: the capital accounts are what the
      allocation is solving for.
+     With `perLpLiquidation: capital_account` it is not divided: each LP liquidates at its own
+     capital account, gross of carry, as many fund administrators run a per-LP accrual. The two
+     agree when accounts are pro rata to contributions; they differ where LPs' accounts are not
+     (close dates, fee terms, equalization), and then an LP ahead of its own contributions is
+     charged carry even while the fund as a whole is below cost.
   3. Each LP's waterfall runs as the whole fund's does (§4.3), from a clean state on
      `D_i = its share + what it has received`, with `C_i` its own capital (§5.1 applies) and
      `T_i = hurdle(asOf)` on its own dated contributions. Counting what it has received in `D_i` is

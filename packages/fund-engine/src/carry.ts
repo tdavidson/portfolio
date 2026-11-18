@@ -33,6 +33,15 @@ export type CarryKind = 'none' | 'straight' | 'american' | 'european'
  */
 export type WaterfallScope = 'fund' | 'per_lp'
 
+/**
+ * How a per-LP close divides the hypothetical liquidation among the LPs. 'contributions' (the
+ * default): by each LP's share of contributed capital, the Capital Contribution Percentage most
+ * LPAs use. 'capital_account': each LP liquidates at its own capital account, gross of carry, the
+ * way many fund administrators run a per-LP accrual. They differ only where LPs' accounts are not
+ * pro rata to contributions (different close dates, fee terms or equalization).
+ */
+export type PerLpLiquidation = 'contributions' | 'capital_account'
+
 export interface CarryRecipient {
   lpEntityId: string
   /** Share of the accrued carry, 0–100. The set sums to 100. */
@@ -83,6 +92,8 @@ export interface VehicleCarryTerms {
    * straight only; American terms run whole fund whatever this says (not supported per LP).
    */
   waterfallScope?: WaterfallScope
+  /** Per LP only: how the close's hypothetical liquidation is divided. Absent: 'contributions'. */
+  perLpLiquidation?: PerLpLiquidation
 }
 
 /** Whether these terms run the waterfall per LP: 'per_lp', on European or straight terms. */
@@ -278,11 +289,14 @@ export function carryTargetByLp(input: CarryTargetInput, terms: VehicleCarryTerm
   }
   const contributedBy = (id: string, date: string) => roundCents((own.get(id) ?? []).filter(c => c.date <= date && c.amount > 0).reduce((s, c) => s + c.amount, 0))
 
-  // 1–2. The liquidation, divided by contributions as at the date.
+  // 1–2. The liquidation, divided by contributions as at the date — or, on 'capital_account'
+  // terms, each LP liquidating at its own capital account (gross of carry).
   const nav = roundCents(input.lps.reduce((s, l) => s + l.nav, 0))
   let weights = input.lps.map(l => contributedBy(l.lpEntityId, asOf))
   if (!weights.some(w => w > 0)) weights = input.lps.map(l => Math.max(0, l.contributed))
-  const navCents = apportionCents(Math.round(nav * 100), weights)
+  const navCents = terms.perLpLiquidation === 'capital_account'
+    ? input.lps.map(l => Math.round(l.nav * 100))
+    : apportionCents(Math.round(nav * 100), weights)
 
   // Each LP's own distributions, for an unreturned hurdle: what the books say it received.
   let divided = false
@@ -335,6 +349,7 @@ export function carryTermsFromRow(row: {
   carry_recipients?: unknown
   gp_commit_bears_carry?: unknown
   waterfall_scope?: unknown
+  per_lp_liquidation?: unknown
 } | null | undefined): VehicleCarryTerms {
   if (!row) return NO_CARRY
   const kind: CarryKind =
@@ -358,6 +373,7 @@ export function carryTermsFromRow(row: {
     recipients: resolveCarryRecipients(row.carry_recipients, gpEntityId),
     ...(row.gp_commit_bears_carry === true ? { gpCommitBearsCarry: true } : {}),
     ...(row.waterfall_scope === 'per_lp' ? { waterfallScope: 'per_lp' as const } : {}),
+    ...(row.waterfall_scope === 'per_lp' && row.per_lp_liquidation === 'capital_account' ? { perLpLiquidation: 'capital_account' as const } : {}),
   }
 }
 

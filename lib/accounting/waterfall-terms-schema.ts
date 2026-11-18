@@ -48,6 +48,11 @@ export const SET_WATERFALL_TERMS_SCHEMA = {
       enum: ['fund', 'per_lp'],
       description: 'Whether the waterfall runs once for the whole fund (fund, the default) or once per LP (per_lp): each distribution is divided among the LPs by their share of contributed capital at the date, and each LP\'s share runs through its own tiers on its own capital, hurdle and history. The close accrues carry the same way. Use per_lp for an LPA that apportions proceeds among the LPs before applying the tiers to each. Not supported with american.',
     },
+    perLpLiquidation: {
+      type: 'string',
+      enum: ['contributions', 'capital_account'],
+      description: "Per LP only: how the close's hypothetical liquidation is divided among the LPs. contributions (the default): by each LP's share of contributed capital. capital_account: each LP liquidates at its own capital account, gross of carry, the way many fund administrators accrue per-LP carry; it differs where LPs' accounts are not pro rata to contributions (close dates, fee terms, equalization).",
+    },
     carryRecipients: {
       type: 'array',
       description: 'Who receives the carry, with percentages that total 100. Required when carry is on, unless gpEntityId is given.',

@@ -34,6 +34,7 @@ interface Terms {
   capitalIncludes?: string[]
   gpCommitBearsCarry?: boolean
   waterfallScope?: 'fund' | 'per_lp'
+  perLpLiquidation?: 'contributions' | 'capital_account'
   recipients: Recipient[]
 }
 
@@ -67,6 +68,7 @@ export function CarryTerms() {
   const [investedOnly, setInvestedOnly] = useState(false)
   const [gpCommitBearsCarry, setGpCommitBearsCarry] = useState(false)
   const [waterfallScope, setWaterfallScope] = useState<'fund' | 'per_lp'>('fund')
+  const [perLpLiquidation, setPerLpLiquidation] = useState<'contributions' | 'capital_account'>('contributions')
   const [recipients, setRecipients] = useState<Recipient[]>([])
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [vehicleName, setVehicleName] = useState('')
@@ -99,6 +101,7 @@ export function CarryTerms() {
     setInvestedOnly(Array.isArray(t.capitalIncludes) && t.capitalIncludes.length === 1 && t.capitalIncludes[0] === 'investments')
     setGpCommitBearsCarry(t.gpCommitBearsCarry === true)
     setWaterfallScope(t.waterfallScope === 'per_lp' ? 'per_lp' : 'fund')
+    setPerLpLiquidation(t.perLpLiquidation === 'capital_account' ? 'capital_account' : 'contributions')
     setRecipients(t.recipients ?? [])
     setCandidates(d.candidates ?? [])
     setVehicleName(d.group ?? '')
@@ -147,6 +150,7 @@ export function CarryTerms() {
         gpCommitBearsCarry,
         // Per LP is European or straight only; American runs whole fund.
         waterfallScope: kind === 'american' ? 'fund' : waterfallScope,
+        perLpLiquidation,
         carryRecipients: recipients,
       }),
     })
@@ -405,6 +409,15 @@ export function CarryTerms() {
               close accrues carry the same way, so each LP is charged its own carry. Forecasts still
               run the waterfall for the whole fund, since a forecast has no per-LP timing.
             </p>
+          )}
+          {waterfallScope === 'per_lp' && kind !== 'american' && (
+            <Field label="Each LP's carry at the close is measured on" hint="Most LPAs use contributions">
+              <Choice
+                value={perLpLiquidation}
+                onChange={v => setPerLpLiquidation(v === 'capital_account' ? 'capital_account' : 'contributions')}
+                options={[['contributions', 'Its share of contributions'], ['capital_account', 'Its own capital account']]}
+              />
+            </Field>
           )}
 
           <Field label="Capital returned before carry" hint="Most LPAs return fees and expenses too">
