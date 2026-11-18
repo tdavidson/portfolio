@@ -446,3 +446,41 @@ describe('grouped states', () => {
     expect(ent.total).toBe(ent.byGroup[0])
   })
 })
+
+describe('per LP on capital accounts (perLpLiquidation: capital_account)', () => {
+  // Two LPs, same contributions on the same date, but their capital accounts differ: lp-a paid
+  // more fees, so the fund as a whole is below cost while lp-b is ahead. No hurdle, 20% carry.
+  const lpContributions: LpDatedContribution[] = [
+    { lpEntityId: 'lp-a', date: '2024-01-01', amount: 1_000 },
+    { lpEntityId: 'lp-b', date: '2024-01-01', amount: 1_000 },
+  ]
+  const contributions = lpContributions.map(({ lpEntityId: _l, ...c }) => c)
+  const lps = [
+    { lpEntityId: 'lp-a', contributed: 1_000, distributed: 0, nav: 900 },
+    { lpEntityId: 'lp-b', contributed: 1_000, distributed: 0, nav: 1_050 },
+  ]
+  const input = { lps, contributions, lpContributions, asOf: '2025-01-01' }
+  const noPref = terms({ prefRate: 0 })
+
+  it('by contributions, every LP is below cost and no carry accrues', () => {
+    expect(carryTargetByLp(input, perLp(noPref))!.total).toBe(0)
+  })
+
+  it('by capital account, the LP that is ahead is charged 20% of its own gain', () => {
+    const each = carryTargetByLp(input, { ...perLp(noPref), perLpLiquidation: 'capital_account' })!
+    expect(Object.fromEntries(each.byLp)).toEqual({ 'lp-a': 0, 'lp-b': 10 })
+    expect(each.total).toBe(10)
+  })
+
+  it('agrees with contributions when accounts are pro rata', () => {
+    const even = { ...input, lps: lps.map(l => ({ ...l, nav: 1_200 })) }
+    const byAccount = carryTargetByLp(even, { ...perLp(noPref), perLpLiquidation: 'capital_account' })!
+    const byContrib = carryTargetByLp(even, perLp(noPref))!
+    expect(byAccount.byLp).toEqual(byContrib.byLp)
+  })
+
+  it('is read from the stored row only alongside per_lp', () => {
+    expect(carryTermsFromRow({ kind: 'european', carry_rate: 0.2, waterfall_scope: 'per_lp', per_lp_liquidation: 'capital_account' }).perLpLiquidation).toBe('capital_account')
+    expect(carryTermsFromRow({ kind: 'european', carry_rate: 0.2, waterfall_scope: 'fund', per_lp_liquidation: 'capital_account' }).perLpLiquidation).toBeUndefined()
+  })
+})

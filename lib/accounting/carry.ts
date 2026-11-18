@@ -32,6 +32,7 @@ export type {
   CarryTargetInput,
   CarryAccrual,
   WaterfallScope,
+  PerLpLiquidation,
 } from '@portfolio/fund-engine'
 
 /** A vehicle's carry terms. Absent row = no carry, which is the only safe default:

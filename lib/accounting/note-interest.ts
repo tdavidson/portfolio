@@ -35,6 +35,13 @@ export interface Note {
   maturityDate: string | null
   /** When the note converted, if it has. Interest stops here. */
   convertedDate?: string | null
+  /**
+   * The interest the company's conversion round(s) recorded as converting (`interest_converted`),
+   * summed per company. The conversion entry moves exactly this out of 1150 into the equity's
+   * cost, so it is both part of what the ledger accrued and the final figure for the interest a
+   * converted note earned.
+   */
+  convertedInterest?: number
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -103,18 +110,29 @@ export function noteAccruals(
   accruedByCompany: Map<string, number>,
   asOf: string
 ): NoteAccrual[] {
-  const targetByCompany = new Map<string, { name: string; target: number }>()
+  const targetByCompany = new Map<string, { name: string; target: number; converted: number }>()
 
   for (const n of notes) {
-    const earned = accruedInterest(n, asOf)
-    const cur = targetByCompany.get(n.companyId) ?? { name: n.companyName, target: 0 }
-    cur.target = roundCents(cur.target + earned)
+    const cur = targetByCompany.get(n.companyId) ?? { name: n.companyName, target: 0, converted: 0 }
+    const converted = roundCents(n.convertedInterest ?? 0)
+    const hasConverted = !!n.convertedDate && n.convertedDate <= asOf && converted > 0
+    if (hasConverted) {
+      // A converted note's interest is what the conversion recorded, not our own estimate: the
+      // company's figure is what actually became shares. Count it once per company.
+      cur.converted = converted
+    } else {
+      cur.target = roundCents(cur.target + accruedInterest(n, asOf))
+    }
     targetByCompany.set(n.companyId, cur)
   }
 
   const out: NoteAccrual[] = []
-  for (const [companyId, { name, target }] of Array.from(targetByCompany.entries())) {
-    const alreadyAccrued = roundCents(accruedByCompany.get(companyId) ?? 0)
+  for (const [companyId, entry] of Array.from(targetByCompany.entries())) {
+    const { name } = entry
+    const target = roundCents(entry.target + entry.converted)
+    // The conversion entry already moved the converted interest out of 1150 into cost, so the
+    // 1150 balance alone understates what was accrued by exactly that amount.
+    const alreadyAccrued = roundCents((accruedByCompany.get(companyId) ?? 0) + entry.converted)
     const delta = roundCents(target - alreadyAccrued)
     if (delta === 0) continue
     out.push({ companyId, companyName: name, target, alreadyAccrued, delta })
@@ -165,10 +183,12 @@ export async function loadNotes(
 
   // A company whose notes have converted: the round records the interest that came across.
   const convertedOn = new Map<string, string>()
+  const convertedInterest = new Map<string, number>()
   for (const r of rows) {
     if (Number(r.interest_converted ?? 0) > 0 && r.transaction_date) {
       const prev = convertedOn.get(r.company_id)
       if (!prev || r.transaction_date < prev) convertedOn.set(r.company_id, r.transaction_date)
+      convertedInterest.set(r.company_id, roundCents((convertedInterest.get(r.company_id) ?? 0) + Number(r.interest_converted)))
     }
   }
 
@@ -189,5 +209,6 @@ export async function loadNotes(
       startDate: r.transaction_date as string,
       maturityDate: (r.maturity_date as string) ?? null,
       convertedDate: convertedOn.get(r.company_id) ?? null,
+      convertedInterest: convertedInterest.get(r.company_id) ?? 0,
     }))
 }

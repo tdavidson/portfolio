@@ -277,7 +277,7 @@ describe('parseWaterfallTermsInput (the shared write path)', () => {
   it('accepts valid terms and defaults catch-up to full and the hurdle to compounding', () => {
     expect(parseWaterfallTermsInput({ kind: 'european', carryRate: 0.2, prefRate: 0.08, carryRecipients: [{ lpEntityId: 'gp', pct: 100 }] })).toEqual({
       ok: true,
-      value: { kind: 'european', carryRate: 0.2, prefRate: 0.08, catchupRate: 1, catchupSize: 1, prefCompounds: true, prefBase: 'contributed', prefMultiple: null, prefDayCount: 'act/365', catchupMeasure: 'preferred', carrySteps: [], capitalIncludes: ['investments', 'fees', 'expenses', 'other'], gpCommitBearsCarry: false, waterfallScope: 'fund', gpEntityId: null, recipients: [{ lpEntityId: 'gp', pct: 100 }] },
+      value: { kind: 'european', carryRate: 0.2, prefRate: 0.08, catchupRate: 1, catchupSize: 1, prefCompounds: true, prefBase: 'contributed', prefMultiple: null, prefDayCount: 'act/365', catchupMeasure: 'preferred', carrySteps: [], capitalIncludes: ['investments', 'fees', 'expenses', 'other'], gpCommitBearsCarry: false, waterfallScope: 'fund', perLpLiquidation: 'contributions', gpEntityId: null, recipients: [{ lpEntityId: 'gp', pct: 100 }] },
     })
   })
 
@@ -291,6 +291,16 @@ describe('parseWaterfallTermsInput (the shared write path)', () => {
       .toEqual({ error: 'A waterfall for each LP is not supported with American (deal-by-deal) terms yet.' })
     expect(parseWaterfallTermsInput({ kind: 'european', ...base, waterfallScope: 'per_partner' }))
       .toEqual({ error: 'The waterfall runs for the whole fund or for each LP.' })
+  })
+
+  it('takes a per-LP liquidation on capital accounts, and keeps the default on whole-fund terms', () => {
+    const base = { carryRate: 0.2, prefRate: 0, gpEntityId: 'gp' }
+    const liq = (r: ReturnType<typeof parseWaterfallTermsInput>) => ('ok' in r ? r.value.perLpLiquidation : r.error)
+    expect(liq(parseWaterfallTermsInput({ kind: 'european', ...base, waterfallScope: 'per_lp', perLpLiquidation: 'capital_account' }))).toBe('capital_account')
+    expect(liq(parseWaterfallTermsInput({ kind: 'european', ...base, waterfallScope: 'per_lp' }))).toBe('contributions')
+    expect(liq(parseWaterfallTermsInput({ kind: 'european', ...base, perLpLiquidation: 'capital_account' }))).toBe('contributions')
+    expect(liq(parseWaterfallTermsInput({ kind: 'european', ...base, waterfallScope: 'per_lp', perLpLiquidation: 'nav' })))
+      .toBe("Each LP's share of the liquidation is by contributions or by its own capital account.")
   })
 
   it('takes a multiple hurdle, a 30/360 day count and a catch-up measured on profit', () => {

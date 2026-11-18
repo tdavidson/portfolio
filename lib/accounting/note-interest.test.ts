@@ -140,6 +140,32 @@ describe('noteAccruals', () => {
   })
 })
 
+describe('noteAccruals after a conversion', () => {
+  // 100k at 10%, issued 1 Jan 2025, converted 1 Jul 2025: 181 days earned = 4,958.90.
+  const n = (convertedInterest: number) =>
+    note({ principal: 100_000, rate: 0.1, startDate: '2025-01-01', convertedDate: '2025-07-01', convertedInterest })
+
+  it('posts nothing more when the conversion carried exactly what was accrued', () => {
+    // The conversion entry moved the 4,958.90 out of 1150, leaving it at zero.
+    expect(noteAccruals([n(4_958.9)], new Map([['c1', 0]]), '2025-12-31')).toEqual([])
+  })
+
+  it('trues income up to the interest the conversion actually recorded', () => {
+    // The company converted 5,200 of interest. 1150 held 4,958.90 and the conversion took 5,200
+    // out, so it sits at -241.10. The close books the 241.10 difference as income.
+    const out = noteAccruals([n(5_200)], new Map([['c1', -241.1]]), '2025-12-31')
+    expect(out).toHaveLength(1)
+    expect(out[0].delta).toBe(241.1)
+    expect(out[0].target).toBe(5_200)
+  })
+
+  it('does not book the converted interest a second time', () => {
+    // Before the fix the empty 1150 read as nothing accrued, and the close posted it all again.
+    const out = noteAccruals([n(4_958.9)], new Map([['c1', 0]]), '2026-06-30')
+    expect(out).toEqual([])
+  })
+})
+
 describe('NOTE_COLUMNS', () => {
   it('names the company_id foreign key, since transfer_company_id also points at companies', () => {
     expect(NOTE_COLUMNS).toContain('companies!investment_transactions_company_id_fkey')
