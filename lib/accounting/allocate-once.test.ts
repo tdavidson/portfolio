@@ -20,6 +20,8 @@ const accounts: Account[] = [
 
 // The ledger the mocked loader serves; each test sets it.
 let sourced: SourcedPosting[] = []
+// Partner terms the mocked loader serves; a test that changes them resets them.
+let partnerTerms: { lpEntityId: string; category: string; participates: boolean }[] = []
 
 vi.mock('./load', async importOriginal => ({
   ...(await importOriginal<typeof import('./load')>()),
@@ -30,7 +32,7 @@ vi.mock('./load', async importOriginal => ({
 vi.mock('./terms', async importOriginal => ({
   ...(await importOriginal<typeof import('./terms')>()),
   loadAllocationBasis: async () => 'commitment',
-  loadPartnerTerms: async () => [],
+  loadPartnerTerms: async () => partnerTerms,
   loadCommitmentEvents: async () => [{ lpEntityId: 'a' }],
   loadResolvedCommitments: async () => new Map([['a', 600], ['b', 400]]),
 }))
@@ -68,7 +70,7 @@ const entryOf = (lines: SourcedPosting[]) => ({
   postings: lines.map(l => ({ accountId: l.accountId, amount: l.amount, currency: 'USD', lpEntityId: l.lpEntityId })),
 })
 
-beforeEach(() => { sourced = [] })
+beforeEach(() => { sourced = []; partnerTerms = [] })
 
 describe('carriesOwnAllocation', () => {
   it('recognises the compound form (3200 and partner capital lines)', () => {
@@ -96,6 +98,21 @@ describe('allocatePostedEntry', () => {
     expect(second).toEqual(first)
     expect(m.tables.journal_entry_allocations).toHaveLength(2)
     expect(m.tables.journal_entry_allocation_skips ?? []).toEqual([])
+  })
+
+  it('re-posting after an unpost allocates afresh under the current terms, not the old split', async () => {
+    const m = memoryAdmin({ journal_entries: [{ id: 'e1', fund_id: 'f', vehicle_id: 'v', status: 'posted' }] })
+    const first = await allocatePostedEntry(m.admin as any, 'f', 'Fund I', 'u', 'e1', entryOf(interestEntry('e1')))
+    if ('error' in first) throw new Error(first.error)
+    // Unposted: the generated allocation goes back to draft alongside its source.
+    expect(await setGeneratedAllocationStatus(m.admin as any, 'f', 'e1', 'draft')).toEqual({})
+    // Meanwhile B stops taking part in this category.
+    partnerTerms = [{ lpEntityId: 'b', category: 'income', participates: false }]
+    const second = await allocatePostedEntry(m.admin as any, 'f', 'Fund I', 'u', 'e1', entryOf(interestEntry('e1')))
+    if ('error' in second) throw new Error(second.error)
+    expect(m.tables.journal_entry_allocations.map(r => [r.lp_entity_id, r.posted_amount])).toEqual([['a', 100]])
+    // The stale draft is gone; only the fresh allocation remains.
+    expect(m.tables.journal_entries.filter(r => r.source_ref?.startsWith('allocation:e1:')).map(r => r.status)).toEqual(['posted'])
   })
 
   it('does not allocate a compound entry that already posts its own allocation, and records why', async () => {

@@ -136,9 +136,21 @@ export async function allocatePostedEntry(
     .select('allocation_entry_id').eq('source_entry_id', sourceEntryId)
   if (((existing as any[]) ?? []).length > 0) {
     const ids = Array.from(new Set(((existing as any[]) ?? []).map(row => row.allocation_entry_id as string)))
-    await admin.from('journal_entries' as any).update({ status: 'posted', posted_at: new Date().toISOString() })
-      .eq('fund_id', fundId).in('id', ids)
-    return { allocationEntryIds: ids }
+    // An allocation still posted means another request already allocated this posting: reuse it.
+    // One left as a draft is what unposting leaves behind. It was worked out under the terms,
+    // commitments and amounts of the earlier posting, so re-posting it unchanged would keep a
+    // split that no longer applies (a partner since made fee-exempt would still bear the fee).
+    // Throw the draft away and allocate afresh below.
+    const { data: statuses, error: statusReadError } = await admin.from('journal_entries' as any)
+      .select('id, status').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('id', ids)
+    if (statusReadError) return { error: `Could not read the earlier allocation: ${statusReadError.message}` }
+    const stale = ((statuses as any[]) ?? []).length > 0 && ((statuses as any[]) ?? []).every(row => row.status === 'draft')
+    if (!stale) {
+      await admin.from('journal_entries' as any).update({ status: 'posted', posted_at: new Date().toISOString() })
+        .eq('fund_id', fundId).in('id', ids)
+      return { allocationEntryIds: ids }
+    }
+    await rollbackGeneratedAllocations(admin, fundId, sourceEntryId)
   }
 
   const { accounts, capitalPostings } = await loadPostedLedger(admin, fundId, group, entry.entryDate)
