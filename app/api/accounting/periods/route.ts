@@ -13,6 +13,10 @@ import { outcomeResponse } from '@/lib/service-outcome'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { createSuggestedDrafts } from '@/lib/accounting/close-suggestions'
 
+// Closing runs month by month and stops starting months before CLOSE_TIME_BUDGET_MS, which
+// assumes this ceiling (the same as /api/mcp).
+export const maxDuration = 300
+
 // GET — { periods, nextStart }: a vehicle's fiscal periods plus where the next close would
 // start (the page derives the still-open months from it), or (?entriesFor=<periodId>) the
 // allocation transactions a specific closed period posted.

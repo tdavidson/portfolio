@@ -1099,20 +1099,57 @@ export async function previewCloseThrough(
 }
 
 /**
+ * How long one close request may keep starting months. The MCP route and the Periods route both
+ * run under a 300-second function limit, and the preview that opens a close already spends part of
+ * it, so this leaves room for the month in flight to finish and the response to go out.
+ */
+export const CLOSE_TIME_BUDGET_MS = 240_000
+/** Headroom kept beyond the slowest month so far before another month is started. */
+const CLOSE_MONTH_MARGIN_MS = 15_000
+
+/**
+ * Whether another month fits in the budget: there must be room for the slowest month so far, with
+ * a margin. The first month always starts. @internal Exported for tests.
+ */
+export function fitsAnotherMonth(elapsedMs: number, slowestMonthMs: number, budgetMs: number = CLOSE_TIME_BUDGET_MS): boolean {
+  if (slowestMonthMs === 0) return true
+  return elapsedMs + slowestMonthMs + CLOSE_MONTH_MARGIN_MS <= budgetMs
+}
+
+export interface CloseThroughResult {
+  closed: { id: string; label: string; netIncome: number }[]
+  /**
+   * Set when the time budget ran out before every month was closed. The months closed so far
+   * stand; closing through the same date again picks up at `from`, because the start is derived.
+   */
+  remaining?: { from: string; through: string; months: number; message: string }
+}
+
+/**
  * Close every month from the derived start through `endDate`, in order. Each month is
  * its own fiscal period with its own allocation entries, so a single month can be
  * reopened later without unwinding the rest.
  *
  * Stops at the first failure and leaves earlier months closed — they're valid on their
  * own, and re-running picks up where it left off (the start is derived).
+ *
+ * Each month snapshots the whole ledger and builds a bundle from it, so a month takes tens of
+ * seconds on a large book and a year of them does not fit in one request. Rather than run into the
+ * function's time limit (which kills the request mid-month and returns nothing to the caller), the
+ * loop stops starting months once the next one would not fit, and says what is left.
  */
 export async function closeThrough(
   admin: SupabaseClient,
   fundId: string,
   group: string,
   userId: string | null,
-  endDate: string
-): Promise<{ closed: { id: string; label: string; netIncome: number }[] } | { error: string }> {
+  endDate: string,
+  opts: { budgetMs?: number; now?: () => number } = {}
+): Promise<CloseThroughResult | { error: string }> {
+  const now = opts.now ?? Date.now
+  const budgetMs = opts.budgetMs ?? CLOSE_TIME_BUDGET_MS
+  const startedAt = now()
+
   const preview = await previewCloseThrough(admin, fundId, group, endDate)
   if ('error' in preview) return preview
 
@@ -1122,16 +1159,53 @@ export async function closeThrough(
     return { error: `Not ready to close. ${preview.readiness.blockers.join(' ')}` }
   }
 
-  const windows = monthWindows(preview.start, preview.end)
-  const closed: { id: string; label: string; netIncome: number }[] = []
+  return closeMonthsWithinBudget(
+    monthWindows(preview.start, preview.end),
+    preview.end,
+    w => closePeriodWithAllocation(admin, fundId, group, userId, w.start, w.end, w.label),
+    { budgetMs, now, startedAt },
+  )
+}
 
-  for (const w of windows) {
-    const result = await closePeriodWithAllocation(admin, fundId, group, userId, w.start, w.end, w.label)
+/**
+ * The month loop of closeThrough: close each window in order, stop at the first failure, and stop
+ * starting months once the next one would not fit in the budget. @internal Exported for tests.
+ */
+export async function closeMonthsWithinBudget(
+  windows: { start: string; end: string; label: string }[],
+  through: string,
+  closeMonth: (w: { start: string; end: string; label: string }) => Promise<{ id: string; netIncome: number } | { error: string }>,
+  opts: { budgetMs: number; now: () => number; startedAt: number },
+): Promise<CloseThroughResult | { error: string }> {
+  const { budgetMs, now, startedAt } = opts
+  const closed: { id: string; label: string; netIncome: number }[] = []
+  let slowestMonthMs = 0
+
+  for (let i = 0; i < windows.length; i++) {
+    const w = windows[i]
+    if (closed.length > 0 && !fitsAnotherMonth(now() - startedAt, slowestMonthMs, budgetMs)) {
+      const left = windows.length - i
+      return {
+        closed,
+        remaining: {
+          from: w.start,
+          through,
+          months: left,
+          message: `Closed ${closed.length} month${closed.length === 1 ? '' : 's'} (${closed[0].label} – ${closed[closed.length - 1].label}) before the time limit. ` +
+            `${left} month${left === 1 ? ' is' : 's are'} still open, from ${w.label} — close through ${through} again to continue.`,
+        },
+      }
+    }
+    const monthStartedAt = now()
+    const result = await closeMonth(w)
     if ('error' in result) {
       return closed.length > 0
         ? { error: `Closed ${closed.map(c => c.label).join(', ')}, then failed on ${w.label}: ${result.error}` }
         : { error: `${w.label}: ${result.error}` }
     }
+    const monthMs = now() - monthStartedAt
+    slowestMonthMs = Math.max(slowestMonthMs, monthMs)
+    console.info(`[close] ${w.label} closed in ${Math.round(monthMs / 100) / 10}s (${Math.round((now() - startedAt) / 1000)}s into the request)`)
     closed.push({ id: result.id, label: w.label, netIncome: result.netIncome })
   }
 
