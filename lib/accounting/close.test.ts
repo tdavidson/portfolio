@@ -1,8 +1,8 @@
-import { describe, it, expect } from 'vitest'
+import { describe, it, expect, vi } from 'vitest'
 import { balanceSheet } from './statements'
 import { computeCapitalAccounts, rollForwardTies } from './capital-account'
 import { allocateAmount } from './allocation'
-import { monthWindows, loadWalletCloseInputs, checkReadiness, snapshotRefusal } from './close'
+import { monthWindows, loadWalletCloseInputs, checkReadiness, snapshotRefusal, fitsAnotherMonth, closeMonthsWithinBudget } from './close'
 import { memoryAdmin } from '@/tests/helpers/memory-admin'
 import type { Account, Posting } from './types'
 
@@ -324,5 +324,48 @@ describe('the bank reconciliation check', () => {
   it('is not applicable only when there is no bank feed at all', async () => {
     const m = memoryAdmin(seed([]))
     expect((await checkReadiness(m.admin as any, 'f', 'Fund I', '2026-09-01', '2026-09-30')).bank).toBeNull()
+  })
+})
+
+describe('closing a long span within the time budget', () => {
+  const windows = monthWindows('2026-01-01', '2026-12-31')
+
+  it('always starts the first month, then needs room for the slowest month plus a margin', () => {
+    expect(fitsAnotherMonth(999_999, 0, 240_000)).toBe(true)
+    expect(fitsAnotherMonth(190_000, 35_000, 240_000)).toBe(true)
+    expect(fitsAnotherMonth(191_000, 35_000, 240_000)).toBe(false)
+  })
+
+  it('stops starting months before the budget runs out and says where to pick up', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    let clock = 0
+    // The preview took 60s; each month takes 35s.
+    const closeMonth = vi.fn(async (w: { label: string }) => { clock += 35_000; return { id: w.label, netIncome: 0 } })
+    clock = 60_000
+    const result = await closeMonthsWithinBudget(windows, '2026-12-31', closeMonth, { budgetMs: 240_000, now: () => clock, startedAt: 0 })
+    if ('error' in result) throw new Error(result.error)
+    // 60 + 35×4 = 200s; a fifth month would end at 235s, past 240s once the 15s margin is kept.
+    expect(result.closed.map(c => c.label)).toEqual(['January 2026', 'February 2026', 'March 2026', 'April 2026'])
+    expect(result.remaining).toMatchObject({ from: '2026-05-01', through: '2026-12-31', months: 8 })
+    expect(result.remaining!.message).toContain('close through 2026-12-31 again')
+    expect(closeMonth).toHaveBeenCalledTimes(4)
+  })
+
+  it('closes every month when they fit', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    let clock = 0
+    const result = await closeMonthsWithinBudget(windows, '2026-12-31', async w => { clock += 1_000; return { id: w.label, netIncome: 0 } },
+      { budgetMs: 240_000, now: () => clock, startedAt: 0 })
+    if ('error' in result) throw new Error(result.error)
+    expect(result.closed).toHaveLength(12)
+    expect(result.remaining).toBeUndefined()
+  })
+
+  it('stops at the first failure and names the months already closed', async () => {
+    vi.spyOn(console, 'info').mockImplementation(() => {})
+    const result = await closeMonthsWithinBudget(windows.slice(0, 3), '2026-03-31',
+      async w => w.label === 'February 2026' ? { error: 'boom' } : { id: w.label, netIncome: 0 },
+      { budgetMs: 240_000, now: () => 0, startedAt: 0 })
+    expect(result).toEqual({ error: 'Closed January 2026, then failed on February 2026: boom' })
   })
 })

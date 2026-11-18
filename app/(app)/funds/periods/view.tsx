@@ -162,6 +162,8 @@ export function PeriodsView() {
     setBusy(false)
     if (!ok) { setError(data.error ?? 'Could not close'); return }
     setPreview(null)
+    // A long span stops before the request's time limit; the months closed so far stand.
+    setNotice(data.remaining?.message ?? null)
     load()
   }
 
