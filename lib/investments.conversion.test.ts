@@ -55,6 +55,24 @@ describe('computeSummary — SAFE/note conversions', () => {
     expect(round(s, 'Note').currentValue).toBe(0)
   })
 
+  it('a note partly sold before it converts carries only the rest into the new round', () => {
+    const note = txn({ id: 'n1', round_name: 'Note', security_type: 'convertible_note', investment_cost: 100_000, transaction_date: '2026-01-01' })
+    const sale = txn({ id: 'p1', transaction_type: 'proceeds', round_name: 'Note', transaction_date: '2026-06-01',
+      cost_basis_exited: 50_000, proceeds_received: 120_000 })
+    const conv = txn({ id: 'c1', round_name: 'Common', converts_from_txn_id: 'n1', interest_converted: 2_000,
+      investment_cost: 0, transaction_date: '2026-06-01' })
+
+    const held = computeSummary([note, sale, conv], ACTIVE)
+    expect(held.unrealizedValue).toBe(52_000)             // the unsold half plus its interest
+    expect(round(held, 'Note').currentValue).toBe(0)
+
+    // Selling what converted leaves nothing behind.
+    const rest = txn({ id: 'p2', transaction_type: 'proceeds', round_name: 'Common', transaction_date: '2026-06-01',
+      cost_basis_exited: 52_000, proceeds_received: 120_000 })
+    const gone = computeSummary([note, sale, conv, rest], ACTIVE)
+    expect(gone.unrealizedValue).toBe(0)
+  })
+
   it('same-round conversion (SAFE named like the priced round) needs no basis move', () => {
     const safe = txn({ id: 's1', round_name: 'Series A', security_type: 'safe', investment_cost: 100_000, transaction_date: '2026-01-01' })
     const conv = txn({ id: 'c1', round_name: 'Series A', converts_from_txn_id: 's1', shares_acquired: 50_000, share_price: 3, transaction_date: '2026-06-01' })

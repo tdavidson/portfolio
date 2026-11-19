@@ -76,6 +76,15 @@ export function computeSummary(
   const carriedInByRound = new Map<string, number>()   // basis moved INTO a round from a conversion
   const carriedOutByRound = new Map<string, number>()  // basis moved OUT of a source round
   const transferredOutByRound = new Map<string, number>() // basis a cost transfer moved to another holding
+  // Principal sold out of a source round on or before a conversion never reaches the new round:
+  // when part of a note is sold and the rest converts the same day, only the rest converts.
+  // Exits name a round, not a note, so they are used up by that round's conversions in date order.
+  const exitedFromRound = (round: string, onOrBefore: string) =>
+    transactions
+      .filter(x => x.transaction_type === 'proceeds' && (x.round_name ?? 'Unknown') === round &&
+        !!x.transaction_date && !!onOrBefore && x.transaction_date <= onOrBefore)
+      .reduce((s, x) => s + Number(x.cost_basis_exited ?? 0), 0)
+  const exitUsedByRound = new Map<string, number>()
   for (const t of transactions) {
     const srcId = (t as { converts_from_txn_id?: string | null }).converts_from_txn_id
     if (t.transaction_type !== 'investment' || !srcId) continue
@@ -84,9 +93,14 @@ export function computeSummary(
     const targetRound = t.round_name ?? 'Unknown'
     const sourceRound = src.round_name ?? 'Unknown'
     if (targetRound === sourceRound) continue // nothing to move
+    const principal = src.investment_cost ?? 0
+    const exitedFirst = Math.max(0,
+      exitedFromRound(sourceRound, t.transaction_date ?? '') - (exitUsedByRound.get(sourceRound) ?? 0))
+    const sold = Math.min(principal, exitedFirst)
+    exitUsedByRound.set(sourceRound, (exitUsedByRound.get(sourceRound) ?? 0) + sold)
     // Carta treats converted interest as additional basis in the note before the note converts.
-    // Move principal plus that capitalized interest into the target round.
-    const carried = (src.investment_cost ?? 0) + Number(t.interest_converted ?? 0)
+    // Move the principal still held plus that capitalized interest into the target round.
+    const carried = principal - sold + Number(t.interest_converted ?? 0)
     carriedInByRound.set(targetRound, (carriedInByRound.get(targetRound) ?? 0) + carried)
     carriedOutByRound.set(sourceRound, (carriedOutByRound.get(sourceRound) ?? 0) + carried)
   }
