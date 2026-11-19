@@ -350,3 +350,71 @@ export function adminRows(
     }
   })
 }
+
+// ---------------------------------------------------------------------------
+// Look-through: an associate's administrator-stated row in the fund, split across its members
+// ---------------------------------------------------------------------------
+
+export interface LookThroughMember { lpEntityId: string; ownershipWeight: number; carryWeight: number }
+
+export interface MemberShare {
+  entity_id: string
+  commitment: number
+  paid_in_capital: number | null
+  distributions: number | null
+  nav: number | null
+}
+
+/**
+ * Split a GP/associate partner's row, as the administrator states it, across the associate's own
+ * members. The administrator gives one row for the associate; who inside it holds what is the
+ * associate's own terms, which the app keeps.
+ *
+ * The row mixes the associate's own capital with the carry it earned, and the two belong to
+ * different people. So the part of it its capital would have earned at the FUND'S stated LP return
+ * (paid-in × LP TVPI, of which paid-in × LP DPI distributed) follows ownership, and everything
+ * above that (the carry) follows carry points. Commitment and paid-in follow ownership. Nothing
+ * the administrator states is changed: the members' figures add back to the row.
+ *
+ * Without the fund's LP TVPI and DPI the two parts can't be told apart, so everything follows
+ * ownership.
+ */
+export function splitAdminRow(
+  row: { commitment: number; paid_in_capital: number | null; distributions: number | null; nav: number | null; tvpi: number | null; dpi: number | null },
+  members: LookThroughMember[],
+): MemberShare[] {
+  if (members.length === 0) return []
+  const norm = (ws: number[]) => {
+    const t = ws.reduce((a, w) => a + Math.max(0, w), 0)
+    return t > 0 ? ws.map(w => Math.max(0, w) / t) : ws.map(() => 0)
+  }
+  const own = norm(members.map(m => m.ownershipWeight))
+  const anyCarry = members.some(m => m.carryWeight > 0)
+  const carry = anyCarry ? norm(members.map(m => m.carryWeight)) : own
+
+  const paidIn = row.paid_in_capital ?? 0
+  const dist = row.distributions
+  const nav = row.nav
+  const canSplit = row.tvpi != null && row.dpi != null
+  // The capital part, capped at what the row holds: a fund return can't hand the capital more than the row has.
+  const capDist = dist == null ? 0 : canSplit ? Math.min(dist, paidIn * (row.dpi as number)) : dist
+  const capNav = nav == null ? 0 : canSplit ? Math.min(nav, Math.max(0, paidIn * ((row.tvpi as number) - (row.dpi as number)))) : nav
+
+  const shares = members.map((m, i) => ({
+    entity_id: m.lpEntityId,
+    commitment: round2(row.commitment * own[i]),
+    paid_in_capital: row.paid_in_capital == null ? null : round2(paidIn * own[i]),
+    distributions: dist == null ? null : round2(capDist * own[i] + (dist - capDist) * carry[i]),
+    nav: nav == null ? null : round2(capNav * own[i] + (nav - capNav) * carry[i]),
+  }))
+  // Put any rounding cent on the largest share so the members add back to the row exactly.
+  for (const k of ['commitment', 'paid_in_capital', 'distributions', 'nav'] as const) {
+    const total = (row as any)[k === 'paid_in_capital' ? 'paid_in_capital' : k] as number | null
+    if (total == null) continue
+    const drift = round2(total - shares.reduce((a, s) => a + ((s[k] as number | null) ?? 0), 0))
+    if (drift === 0) continue
+    const big = shares.reduce((a, b) => (Math.abs((b[k] as number) ?? 0) > Math.abs((a[k] as number) ?? 0) ? b : a))
+    ;(big as any)[k] = round2(((big[k] as number) ?? 0) + drift)
+  }
+  return shares
+}
