@@ -49,6 +49,24 @@ export function escrowExceedsGross(t: { transaction_type?: unknown; proceeds_rec
 }
 
 /**
+ * Why an escrow_receipt row can't be booked, or null. A receipt is cash released from an exit's
+ * holdback: its proceeds_received is that cash, and it moves no cost and holds no escrow of its own.
+ * Extra gain paid beyond the escrow held is a separate proceeds row with no cost exited.
+ */
+export function escrowReceiptError(t: {
+  transaction_type?: unknown; proceeds_received?: unknown; proceeds_escrow?: unknown
+  cost_basis_exited?: unknown; investment_cost?: unknown
+}): string | null {
+  if (t.transaction_type !== 'escrow_receipt') return null
+  if (!(n(t.proceeds_received) > 0)) return 'An escrow receipt needs proceeds_received: the cash released from escrow.'
+  if (n(t.cost_basis_exited) !== 0 || n(t.investment_cost) !== 0) {
+    return 'An escrow receipt moves no cost: the exit already took the cost off. Leave cost_basis_exited and investment_cost empty.'
+  }
+  if (n(t.proceeds_escrow) !== 0) return 'An escrow receipt releases escrow; it holds none. Leave proceeds_escrow empty.'
+  return null
+}
+
+/**
  * Why a row's securities-settled consideration doesn't fit, or null. On an exit, cash is the gross
  * less escrow less what came as shares, so escrow and shares together can't exceed the gross. On a
  * purchase, the shares can't pay for more than the cost.
