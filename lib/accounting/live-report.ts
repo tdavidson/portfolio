@@ -33,6 +33,8 @@ import { latestPositionIrr } from './lp-positions'
 import { loadFundPreload, vehicleCapitalPreload, commitmentEventsForGroup, type FundPreload } from './fund-preload'
 import { roundCents } from './ledger'
 import { loadVehicleGpLinks } from './gp-links'
+import { vehicleIdByName } from './vehicle-id'
+import { adminVehicleRows, loadVehicleRecordSource } from '@/lib/admin-reporting/load'
 
 /** The metric half of an `lp_investments` row — same names, same units. */
 export interface LiveMetrics {
@@ -79,6 +81,11 @@ export interface LiveInvestmentRow extends LiveMetrics {
    * so a reader can tell the two apart — and so nobody mistakes one for double-counting.
    */
   lookThroughVia?: string
+  /**
+   * Set on an admin-reported vehicle's row: the administrator whose figures it shows, as stated.
+   * Its IRR, TVPI and DPI are the fund's net LP-only figures for the date, not this LP's own.
+   */
+  reportedBy?: string
 }
 
 // Round the shared ratio to 1e-4 to keep float noise out of the reconciliation compare.
@@ -195,6 +202,8 @@ export async function liveRowsForVehicle(
   preload?: FundPreload
 ): Promise<{ source: CapitalSource; rows: LiveInvestmentRow[] }> {
   const idMap = preload?.idMap
+  const admin_ = await adminReportedRows(admin, fundId, group, asOf, preload)
+  if (admin_) return { source: 'events', rows: admin_ }
   const { source, postings, receivableByLp, commitmentByLp, evidenceByLp } = await loadReportingCapital(
     admin, fundId, group, asOf, preload,
   )
@@ -241,6 +250,63 @@ export async function liveRowsForVehicle(
     return { entity_id: entityId, evidence, portfolio_group: group, source, ...metrics }
   })
   return { source, rows }
+}
+
+/**
+ * An admin-reported vehicle's rows: the administrator's figures as stated, nothing recalculated.
+ * Null for a vehicle that keeps its own books, which then reports from them as before.
+ */
+async function adminReportedRows(
+  admin: SupabaseClient, fundId: string, group: string, asOf?: string, preload?: FundPreload,
+): Promise<LiveInvestmentRow[] | null> {
+  let vehicleId: string | null
+  if (preload) {
+    vehicleId = preload.idMap.get(group) ?? null
+    if (!vehicleId || !preload.adminVehicles?.has(vehicleId)) return null
+  } else {
+    vehicleId = await vehicleIdByName(admin, fundId, group).catch(() => null)
+    if (!vehicleId || (await loadVehicleRecordSource(admin, fundId, vehicleId)).recordSource !== 'admin') return null
+  }
+  const rows = await adminVehicleRows(admin, fundId, vehicleId, asOf, preload ? {
+    positions: preload.adminPositionsByVehicleId?.get(vehicleId) ?? [],
+    fundByDate: preload.adminFundFiguresByVehicleId?.get(vehicleId) ?? new Map(),
+  } : undefined)
+  return rows.map(r => {
+    const missing = ([['contributions', r.paid_in_capital], ['distributions', r.distributions], ['nav', r.nav]] as const)
+      .filter(([, v]) => v == null).map(([k]) => k)
+    const evidence: CapitalEvidence = {
+      values: { contributions: r.paid_in_capital, distributions: r.distributions, nav: r.nav },
+      basis: 'reported',
+      asOf: r.asOf,
+      reportedIrr: r.irr,
+      canCalculateIrr: false,
+      missing,
+      conflict: false,
+      ledgerThrough: null,
+      observationDates: [r.asOf],
+      entryIds: [],
+      reviewed: false,
+    }
+    return {
+      entity_id: r.entity_id,
+      portfolio_group: group,
+      source: 'events' as const,
+      evidence,
+      ...(r.reportedBy ? { reportedBy: r.reportedBy } : {}),
+      commitment: r.commitment,
+      called_capital: r.called_capital,
+      paid_in_capital: r.paid_in_capital,
+      distributions: r.distributions,
+      nav: r.nav,
+      total_value: r.total_value,
+      outstanding_balance: r.outstanding_balance,
+      receivable: r.receivable,
+      dpi: r.dpi,
+      rvpi: r.rvpi,
+      tvpi: r.tvpi,
+      irr: r.irr,
+    }
+  })
 }
 
 export interface LiveReport {

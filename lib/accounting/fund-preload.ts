@@ -5,6 +5,8 @@ import { loadPositionsBatch, type LpPosition } from './lp-positions'
 import { loadCommitmentEventsBatch, type CommitmentEvent } from './terms'
 import type { VehicleIdMap } from './vehicle-id'
 import { loadOpeningLinksBatch, type CapitalSource, type VehicleCapitalPreload } from './capital-source'
+import { loadAdminVehicles, loadAdminPositions, loadAdminFundFigures, type VehicleRecordSource, type FundFiguresOnDate } from '@/lib/admin-reporting/load'
+import type { StoredAdminPosition } from '@/lib/admin-reporting/figures'
 
 /**
  * One fund-wide read of the lookups the report paths otherwise re-run once PER VEHICLE.
@@ -38,6 +40,12 @@ export interface FundPreload {
   openingLinksByVehicleId: Map<string, OpeningLink[]>
   /** vehicle_id → its commitment events, oldest first (batched). */
   commitmentEventsByVehicleId: Map<string, CommitmentEvent[]>
+  /** Vehicles whose fund administrator keeps the books (lib/admin-reporting). Absent ⇒ books. */
+  adminVehicles?: Map<string, VehicleRecordSource>
+  /** An admin vehicle's stored positions, with the receivable. */
+  adminPositionsByVehicleId?: Map<string, StoredAdminPosition[]>
+  /** An admin vehicle's net fund figures by date. */
+  adminFundFiguresByVehicleId?: Map<string, Map<string, FundFiguresOnDate>>
 }
 
 export async function loadFundPreload(admin: SupabaseClient, fundId: string, asOf?: string, groups?: string[]): Promise<FundPreload> {
@@ -97,14 +105,21 @@ export async function loadFundPreload(admin: SupabaseClient, fundId: string, asO
   const vehicleIds = Array.from(new Set(groups === undefined
     ? idMap.values()
     : groups.flatMap(group => { const id = idMap.get(group); return id ? [id] : [] })))
-  const [ledgerByVehicleId, positionsByVehicleId, commitmentEventsByVehicleId, openingLinksByVehicleId] = await Promise.all([
+  const [ledgerByVehicleId, positionsByVehicleId, commitmentEventsByVehicleId, openingLinksByVehicleId, adminVehicles] = await Promise.all([
     loadLedgerRowsBatch(admin, fundId, vehicleIds, asOf),
     loadPositionsBatch(admin, fundId, vehicleIds, asOf),
     loadCommitmentEventsBatch(admin, fundId, vehicleIds),
     loadOpeningLinksBatch(admin, fundId, vehicleIds),
+    loadAdminVehicles(admin, fundId),
+  ])
+  // Admin vehicles report the administrator's figures; their positions carry the receivable too.
+  const adminIds = vehicleIds.filter(id => adminVehicles.has(id))
+  const [adminPositionsByVehicleId, adminFundFiguresByVehicleId] = await Promise.all([
+    loadAdminPositions(admin, fundId, adminIds, asOf),
+    loadAdminFundFigures(admin, fundId, adminIds, asOf),
   ])
 
-  return { idMap, entityNames, entityClasses, ownershipByGroup, closedThroughByVehicleId, reviewedPeriodsByVehicleId, vintageByName, ledgerByVehicleId, positionsByVehicleId, commitmentEventsByVehicleId, openingLinksByVehicleId }
+  return { idMap, entityNames, entityClasses, ownershipByGroup, closedThroughByVehicleId, reviewedPeriodsByVehicleId, vintageByName, ledgerByVehicleId, positionsByVehicleId, commitmentEventsByVehicleId, openingLinksByVehicleId, adminVehicles, adminPositionsByVehicleId, adminFundFiguresByVehicleId }
 }
 
 /** A group's preloaded commitment events (empty if none / not in the id map). */
