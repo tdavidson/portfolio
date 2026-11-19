@@ -45,7 +45,7 @@ import { closedPeriodRanges } from './periods'
 import { buildCarryEntry, buildAssociateMarkupEntry } from './entries'
 import { associateMembers, lookThroughAccount } from './look-through'
 import { loadCapitalPostings } from './capital-source'
-import { gpLinkFor, loadOwnershipBasis } from './gp-economics'
+import { gpLinksFor, associatePosition, loadOwnershipBasis } from './gp-economics'
 import { loadCarryTerms, carryAccrual } from './carry'
 import { carryAccrualInputs, runsPerLp } from '@portfolio/fund-engine'
 import { loadNotes, noteAccruals } from './note-interest'
@@ -1776,7 +1776,10 @@ async function accrueAssociateEconomics(
   periodEnd: string,
   sourceRef: string,
 ): Promise<{ entryIds: string[] } | { error: string }> {
-  const link = await gpLinkFor(admin, fundId, group)
+  // Every vehicle this associate serves (a fund and any SPVs it is also GP of): its position is
+  // the sum of its capital accounts across all of them.
+  const links = await gpLinksFor(admin, fundId, group)
+  const link = links[0]
   if (!link) return { entryIds: [] }
   const codes = await accountIdByCode(admin, fundId, group)
   const investmentId = codes.get('1500')
@@ -1787,8 +1790,8 @@ async function accrueAssociateEconomics(
   const unrealizedInFundId = codes.get('1550') ?? investmentId
   const carryReceivableId = codes.get('1600') ?? investmentId
 
-  const [served, own, ownership, terms] = await Promise.all([
-    loadCapitalPostings(admin, fundId, link.servesVehicle, periodEnd),
+  const [associateAccount, own, ownership, terms] = await Promise.all([
+    associatePosition(admin, fundId, links, periodEnd),
     loadCapitalPostings(admin, fundId, group, periodEnd),
     loadOwnershipBasis(admin, fundId, link, periodEnd),
     loadPartnerTerms(admin, fundId, group),
@@ -1796,7 +1799,6 @@ async function accrueAssociateEconomics(
 
   // Target: the associate's fund-book position, split among members (capital by ownership, carry
   // by points). Booked: what its own books already carry for each line.
-  const associateAccount = computeCapitalAccounts(served.postings).get(link.lpEntityId) ?? emptyAccount()
   const carryWeights = new Map<string, number>(
     terms
       .filter((t: any) => t.category === 'carried_interest' && t.participates && t.weightOverride != null)
@@ -1834,7 +1836,7 @@ async function accrueAssociateEconomics(
     // unrealized-gain-on-investment account (1550). Neither touches 1500, so it stays at cost.
     const assetId = line.bucket === 'carriedInterest' ? carryReceivableId : unrealizedInFundId
     const entry = buildAssociateMarkupEntry(
-      { fundId, entryDate: periodEnd, memo: `${line.label} from ${link.servesVehicle} at ${periodEnd} NAV` },
+      { fundId, entryDate: periodEnd, memo: `${line.label} from ${links.map(l => l.servesVehicle).join(', ')} at ${periodEnd} NAV` },
       perMember,
       capMap,
       assetId,

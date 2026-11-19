@@ -159,6 +159,9 @@ export const ADMIN_ONLY_TOOLS: Record<string, { label: string; when?: (input: an
   // tests/three-door-parity.test.ts found a CFO could approve this from chat but not save it on the web.
   set_waterfall_terms: { label: 'change waterfall terms' },
 
+  // As api/accounting/vehicle-gp-links DELETE: removing a GP link is admin-only; setting one is not.
+  remove_gp_link: { label: 'remove a GP link' },
+
   // As api/lps/documents and its upload-url, which only an admin may call: recording an LP document
   // is what shows it in LPs' portals. The URL tool runs directly from a chat, so its handler checks too.
   lp_document_upload_url: { label: 'upload an LP document' },

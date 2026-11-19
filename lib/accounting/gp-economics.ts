@@ -124,6 +124,48 @@ export async function loadGpLinks(admin: SupabaseClient, fundId: string): Promis
   return rows
 }
 
+/**
+ * Every vehicle this GP/associate entity is linked to, each with the partner it appears as there.
+ * An associate can be GP of a fund AND of SPVs (earning carry in each), so its position is the sum
+ * across all of these, not just the first link.
+ */
+export async function gpLinksFor(
+  admin: SupabaseClient,
+  fundId: string,
+  group: string,
+): Promise<GpVehicleLink[]> {
+  const links = await loadGpLinks(admin, fundId)
+  return links.filter(l => l.vehicle === group)
+}
+
+/** Line-by-line sum of capital accounts (an associate's positions across the vehicles it serves). */
+export function sumCapitalAccounts(accounts: CapitalAccount[]): CapitalAccount {
+  const total = emptyAccount()
+  for (const a of accounts) {
+    for (const key of Object.keys(total) as (keyof CapitalAccount)[]) {
+      total[key] = roundCents(total[key] + (a[key] ?? 0))
+    }
+  }
+  return total
+}
+
+/**
+ * The associate's combined position on the books of every vehicle it serves, as of `asOf`:
+ * its capital account in each served vehicle (as its linked partner there), summed.
+ */
+export async function associatePosition(
+  admin: SupabaseClient,
+  fundId: string,
+  links: GpVehicleLink[],
+  asOf?: string,
+): Promise<CapitalAccount> {
+  const perServed = await Promise.all(links.map(async l => {
+    const served = await loadCapitalPostings(admin, fundId, l.servesVehicle, asOf)
+    return computeCapitalAccounts(served.postings).get(l.lpEntityId) ?? emptyAccount()
+  }))
+  return sumCapitalAccounts(perServed)
+}
+
 /** Is this vehicle a GP/associate entity with a fund behind it? */
 export async function gpLinkFor(
   admin: SupabaseClient,
@@ -192,25 +234,24 @@ export async function loadGpEconomics(
   group: string,
   asOf?: string,
 ): Promise<GpEconomics | null> {
-  const link = await gpLinkFor(admin, fundId, group)
+  const links = await gpLinksFor(admin, fundId, group)
+  const link = links[0]
   if (!link) return null
 
-  const [{ basis, weights }, terms, names, served, own] = await Promise.all([
+  const [{ basis, weights }, terms, names, associate, own] = await Promise.all([
     loadOwnershipBasis(admin, fundId, link, asOf),
     loadPartnerTerms(admin, fundId, link.vehicle),
     loadEntityNames(admin, fundId, link.vehicle),
-    // The vehicle's position is on the SERVED FUND's books, not its own — it is an LP of
-    // the fund. That is where its carriedInterest bucket lives (carry ACCRUED), because that
-    // is where the close credits it.
-    loadCapitalPostings(admin, fundId, link.servesVehicle, asOf),
+    // The vehicle's position is on the SERVED VEHICLES' books, not its own — it is a partner
+    // of each. That is where its carriedInterest bucket lives (carry ACCRUED), because that is
+    // where each served vehicle's close credits it. Summed across every vehicle it serves.
+    associatePosition(admin, fundId, links, asOf),
     // Carry PAID comes from the associate's OWN books. The ledger separates a member's
     // distributions into return-of-capital (source_type 'distribution') and carried-interest
     // paid (source_type 'carried_interest') — they are different economics and post to different
     // buckets. Only the carried-interest portion is carry paid.
     loadCapitalPostings(admin, fundId, link.vehicle, asOf),
   ])
-
-  const associate = computeCapitalAccounts(served.postings).get(link.lpEntityId) ?? emptyAccount()
 
   // Carry points: only rows that PARTICIPATE and carry an explicit weight. The
   // 20260713000000 backfill inserted `participates = false` rows for every gp-class partner
