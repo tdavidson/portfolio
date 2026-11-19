@@ -9,8 +9,9 @@ import Link from 'next/link'
 import { Loader2, ArrowLeft, Printer } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { LpReportCard, REPORT_CARD_PRINT_CSS, type ReportCardRow, type ReportCardTotals } from '@/components/lp-report-card'
+import { formatAsOf } from '@/lib/report-card-footer'
 
-interface Investor { investorId: string; investorName: string; rows: ReportCardRow[] }
+interface Investor { investorId: string; investorName: string; rows: ReportCardRow[]; asOf: string | null }
 interface Payload {
   fund: { name: string; logo: string | null; address: string | null }
   currency: string
@@ -18,7 +19,6 @@ interface Payload {
   footer: string | null
   asOf: string | null
   investors: Investor[]
-  vehicleDates: { vehicle: string; date: string | null }[]
 }
 
 const add = (a: number | null, b: number | null): number | null => a == null || b == null ? null : a + b
@@ -39,8 +39,8 @@ export default function LiveCardPage() {
 
   const load = useCallback(() => {
     setLoading(true)
-    fetch('/api/lps/live-cards').then(r => (r.ok ? r.json() : null)).then(setData).finally(() => setLoading(false))
-  }, [])
+    fetch(`/api/lps/live-cards?investor=${encodeURIComponent(investorId)}`).then(r => (r.ok ? r.json() : null)).then(setData).finally(() => setLoading(false))
+  }, [investorId])
   useEffect(() => { load() }, [load])
 
   const investor = data?.investors.find(i => i.investorId === investorId)
@@ -72,8 +72,7 @@ export default function LiveCardPage() {
           totals={totalsOf(investor.rows)}
           description={data.description}
           footerNote={data.footer || undefined}
-          asOfFormatted={data.asOf ?? undefined}
-          vehicleDataDates={data.vehicleDates.filter(v => investor.rows.some(r => r.portfolioGroup === v.vehicle))}
+          asOfFormatted={formatAsOf(investor.asOf) ?? undefined}
         />
       )}
     </div>
