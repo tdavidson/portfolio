@@ -523,7 +523,12 @@ export async function generateLiveReport(
   admin: SupabaseClient,
   fundId: string,
   asOf?: string,
-  opts: { entityIds?: string[] } = {},
+  opts: {
+    entityIds?: string[]
+    /** Read each vehicle's whole ledger rather than only its partner-tagged rows. Same rows out;
+     *  here so the tests can show it. */
+    fullLedger?: boolean
+  } = {},
 ): Promise<LiveReport> {
   const [allGroups, links] = await Promise.all([listVehicles(admin, fundId), loadAssociateLinks(admin, fundId)])
   const scope = opts.entityIds ? await vehiclesForEntities(admin, fundId, opts.entityIds, links) : null
@@ -535,7 +540,9 @@ export async function generateLiveReport(
   // One fund-wide read of the per-vehicle lookups (id map, entity names/classes, ownership,
   // capital source, vintage), then thread it through — the per-vehicle loaders no longer each
   // issue their own query for every vehicle. (P1 did the id map; P2 folds in the rest.)
-  const preload = await loadFundPreload(admin, fundId, asOf, scope ? Array.from(scope) : undefined)
+  // Only the partner-tagged ledger rows: LP capital is built from nothing else, and on a big book
+  // they are a small part of it (loadLedgerRowsBatch capitalOnly).
+  const preload = await loadFundPreload(admin, fundId, asOf, scope ? Array.from(scope) : undefined, { capitalOnly: !opts.fullLedger })
 
   const perVehicle = await Promise.all(
     groups.map(async group => {

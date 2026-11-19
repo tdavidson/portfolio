@@ -48,7 +48,9 @@ export interface FundPreload {
   adminFundFiguresByVehicleId?: Map<string, Map<string, FundFiguresOnDate>>
 }
 
-export async function loadFundPreload(admin: SupabaseClient, fundId: string, asOf?: string, groups?: string[]): Promise<FundPreload> {
+/** `capitalOnly`: read only the ledger rows LP capital is built from (loadLedgerRowsBatch), for a
+ *  caller that reports capital and nothing else from the ledger — never a trial balance. */
+export async function loadFundPreload(admin: SupabaseClient, fundId: string, asOf?: string, groups?: string[], opts: { capitalOnly?: boolean } = {}): Promise<FundPreload> {
   const [vehRes, entRes, invRes, periodRes] = await Promise.all([
     (admin as any).from('fund_vehicles').select('id, name, aliases, vintage_year').eq('fund_id', fundId),
     (admin as any).from('lp_entities').select('id, entity_name, partner_class').eq('fund_id', fundId),
@@ -106,7 +108,7 @@ export async function loadFundPreload(admin: SupabaseClient, fundId: string, asO
     ? idMap.values()
     : groups.flatMap(group => { const id = idMap.get(group); return id ? [id] : [] })))
   const [ledgerByVehicleId, positionsByVehicleId, commitmentEventsByVehicleId, openingLinksByVehicleId, adminVehicles] = await Promise.all([
-    loadLedgerRowsBatch(admin, fundId, vehicleIds, asOf),
+    loadLedgerRowsBatch(admin, fundId, vehicleIds, asOf, { capitalOnly: opts.capitalOnly }),
     loadPositionsBatch(admin, fundId, vehicleIds, asOf),
     loadCommitmentEventsBatch(admin, fundId, vehicleIds),
     loadOpeningLinksBatch(admin, fundId, vehicleIds),
