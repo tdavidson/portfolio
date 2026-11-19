@@ -1104,6 +1104,19 @@ export async function previewCloseThrough(
  * it, so this leaves room for the month in flight to finish and the response to go out.
  */
 export const CLOSE_TIME_BUDGET_MS = 240_000
+/** Time kept back from a run's deadline for the run to record the close and go on. */
+const CLOSE_DEADLINE_MARGIN_MS = 20_000
+
+/**
+ * The budget a close gets inside a request that has its own deadline (an approved run): what is
+ * left of it, less a margin, and never more than the close's own budget. The first month always
+ * starts, so a budget of zero still closes one month. @internal Exported for tests.
+ */
+export function closeBudgetWithin(deadline: number | undefined, now: number = Date.now()): number {
+  if (deadline == null) return CLOSE_TIME_BUDGET_MS
+  return Math.max(0, Math.min(CLOSE_TIME_BUDGET_MS, deadline - now - CLOSE_DEADLINE_MARGIN_MS))
+}
+
 /** Headroom kept beyond the slowest month so far before another month is started. */
 const CLOSE_MONTH_MARGIN_MS = 15_000
 

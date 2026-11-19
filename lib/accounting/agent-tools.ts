@@ -43,7 +43,7 @@ import { auditTaxRun, missingAccountsMessage } from './tax-run-audit'
 import { unwrap } from '@/lib/service-outcome'
 import { exportLedgerTextPage, postLedgerText } from './text-ledger-run'
 import { listPeriods } from './periods'
-import { closeThrough, previewCloseThrough } from './close'
+import { closeBudgetWithin, closeThrough, previewCloseThrough } from './close'
 import { cashTransferEntryIds, openingCashBefore, summarizeBankRec, type BankTxnState } from './bank'
 import { accountBalances } from './ledger'
 import type { SupabaseClient as _Sb } from '@supabase/supabase-js'
@@ -126,6 +126,11 @@ export interface AgentToolContext {
    * (lib/agent/report-links.ts). Absent = the configured site origin.
    */
   origin?: string
+  /**
+   * Epoch ms by which the request must be done, when the call runs inside an approved run
+   * (lib/agent/run-action.ts). A close fits its months inside it rather than its own default budget.
+   */
+  deadline?: number
 }
 
 export type AgentToolHandler = (ctx: AgentToolContext, input: any) => Promise<any>
@@ -322,10 +327,10 @@ const HANDLERS: Record<string, AgentToolHandler> = {
   // existing period. An external agent could silently and irreversibly break the books.
   //
   // The close is the only allocation path. There is no second one.
-  close_period: async ({ admin, fundId, portfolioGroup, userId }, input) => {
+  close_period: async ({ admin, fundId, portfolioGroup, userId, deadline }, input) => {
     const through = String(input.periodEnd ?? input.through ?? '')
     if (!through) throw new Error('periodEnd (the date to close through) is required')
-    const result = await closeThrough(admin, fundId, portfolioGroup, userId, through)
+    const result = await closeThrough(admin, fundId, portfolioGroup, userId, through, { budgetMs: closeBudgetWithin(deadline) })
     if ('error' in result) throw new Error(result.error)
     return result
   },

@@ -5,14 +5,14 @@
 // where it stopped, how the checks came out, and Undo for what can be taken back.
 
 import { useEffect, useState } from 'react'
-import { Check, Minus, Undo2, X } from 'lucide-react'
+import { Check, Clock, Minus, Play, Undo2, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 interface RunStepPreview { step: number; tool: string; vehicle: string | null; summary: string }
 interface StepOutcome {
   step: number
   tool: string
-  status: 'applied' | 'failed' | 'skipped'
+  status: 'applied' | 'failed' | 'skipped' | 'pending'
   summary?: string
   error?: string
   undo?: unknown[]
@@ -27,7 +27,10 @@ interface CheckOutcome {
 }
 interface UndoOutcome { step: number; target: { kind: string; id: string }; status: string; message?: string }
 export interface RunResult {
-  run: { steps: StepOutcome[]; checks: CheckOutcome[]; checksFailed: number | null; stoppedAt: number | null; undoable: boolean }
+  run: {
+    steps: StepOutcome[]; checks: CheckOutcome[]; checksFailed: number | null; stoppedAt: number | null; undoable: boolean
+    resumeAt?: number | null; inFlight?: number | null; paused?: { at: string; message: string } | null
+  }
   undo?: { status: 'running' | 'done' | 'partial'; at: string; outcomes?: UndoOutcome[] }
 }
 
@@ -86,6 +89,22 @@ export function RunResultView({ id, result, onChange }: { id: string; result: Ru
     }
   }
 
+  async function continueRun() {
+    setBusy(true)
+    setError(null)
+    try {
+      const res = await fetch(`/api/pending-actions/${id}/approve`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || data.ok === false) { setError(data.error ?? 'Could not continue.'); return }
+      if (isRunResult(data.result)) onChange?.(data.result)
+    } catch {
+      setError('Network error.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const unfinished = run.resumeAt != null && run.stoppedAt == null
   const canUndo = run.undoable && undo?.status !== 'done' && undo?.status !== 'running'
   const notUndoable = run.steps.filter(s => s.status === 'applied' && s.notUndoable)
 
@@ -94,6 +113,13 @@ export function RunResultView({ id, result, onChange }: { id: string; result: Ru
       {run.stoppedAt != null && (
         <p className="rounded-card bg-destructive-subtle text-destructive px-2 py-1">
           Stopped at step {run.stoppedAt}. Steps before it stay applied; nothing after it ran.
+        </p>
+      )}
+      {unfinished && (
+        <p className="rounded-card bg-warning-subtle text-warning px-2 py-1">
+          {run.paused
+            ? run.paused.message
+            : `Applying: step ${run.inFlight ?? run.resumeAt} of ${run.steps.length} is running.`}
         </p>
       )}
       <ol className="space-y-1">
@@ -106,6 +132,7 @@ export function RunResultView({ id, result, onChange }: { id: string; result: Ru
               {s.status === 'applied' && s.summary ? <span className="text-muted-foreground"> · {s.summary}</span> : null}
               {s.status === 'failed' && s.error ? <span className="text-destructive"> · {s.error}</span> : null}
               {s.status === 'skipped' ? <span className="text-muted-foreground"> · not run</span> : null}
+              {s.status === 'pending' ? <span className="text-muted-foreground"> · {s.summary ?? 'not yet run'}</span> : null}
             </span>
           </li>
         ))}
@@ -156,6 +183,11 @@ export function RunResultView({ id, result, onChange }: { id: string; result: Ru
         </div>
       )}
 
+      {unfinished && run.paused && !undo && (
+        <Button size="sm" onClick={continueRun} disabled={busy} className="mr-2">
+          <Play className="h-3.5 w-3.5 mr-1" />{busy ? 'Continuing…' : `Continue from step ${run.resumeAt}`}
+        </Button>
+      )}
       {canUndo && (
         <Button size="sm" variant="outline" onClick={undoRun} disabled={busy}>
           <Undo2 className="h-3.5 w-3.5 mr-1" />{busy ? 'Undoing…' : undo?.status === 'partial' ? 'Retry undo' : 'Undo'}
@@ -166,8 +198,9 @@ export function RunResultView({ id, result, onChange }: { id: string; result: Ru
   )
 }
 
-function StatusIcon({ status }: { status: 'applied' | 'failed' | 'skipped' }) {
+function StatusIcon({ status }: { status: 'applied' | 'failed' | 'skipped' | 'pending' }) {
   if (status === 'applied') return <Check className="h-3.5 w-3.5 text-success" aria-label="applied" />
+  if (status === 'pending') return <Clock className="h-3.5 w-3.5 text-muted-foreground" aria-label="not yet run" />
   if (status === 'failed') return <X className="h-3.5 w-3.5 text-destructive" aria-label="failed" />
   return <Minus className="h-3.5 w-3.5 text-muted-foreground" aria-label="not run" />
 }
