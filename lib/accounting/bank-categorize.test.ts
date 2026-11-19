@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest'
 import { DEFAULT_CHART, GP_ENTITY_CHART, INDIVIDUAL_CHART, MANAGEMENT_COMPANY_CHART } from './chart'
 import {
-  categorizeBankRow, learnedAccount, payeeKey, affiliateNamed, accountForSubtypes,
+  categorizeBankRow, learnedAccount, payeeKey, affiliateNamed, accountForSubtypes, sourceTypeFollowingAccount,
   type ChartAccountRef, type HistoryEntry,
 } from './bank-categorize'
 import { historyFromRows } from './bank-categorize-context'
@@ -219,5 +219,32 @@ describe('historyFromRows', () => {
       { payee: 'slack', inflow: false, accountCode: '5300', chosen: false },
       { payee: 'slack', inflow: false, accountCode: '5300', chosen: true },
     ])
+  })
+})
+
+describe('sourceTypeFollowingAccount — the source type agrees with the account', () => {
+  const acct = (code: string) => (GP_ENTITY_CHART as ChartAccountRef[]).find(a => a.code === code)!
+  const interest = { code: '4300', name: 'Interest income', type: 'income', subtype: 'interest_income' } as ChartAccountRef
+  const expense = { code: '5000', name: 'Operating expenses', type: 'expense', subtype: 'operating_expense' } as ChartAccountRef
+  const receivable = { code: '1300', name: 'Due from LPs', type: 'asset', subtype: 'receivable' } as ChartAccountRef
+  const capital = { code: '3000', name: "Members' capital", type: 'equity', subtype: 'members_capital' } as ChartAccountRef
+
+  it('turns a capital call on an income or expense account into income or an expense', () => {
+    expect(sourceTypeFollowingAccount('capital_call', interest, true)).toBe('income')
+    expect(sourceTypeFollowingAccount('capital_call', expense, true)).toBe('partnership_expense')
+    expect(sourceTypeFollowingAccount('distribution', expense, false)).toBe('partnership_expense')
+    expect(sourceTypeFollowingAccount('capital_call', acct('4000'), true)).toBe('income')
+  })
+
+  it('turns a P&L type on a capital account into a capital movement', () => {
+    expect(sourceTypeFollowingAccount('income', capital, true)).toBe('capital_call')
+    expect(sourceTypeFollowingAccount('partnership_expense', capital, false)).toBe('distribution')
+  })
+
+  it('leaves a capital call settled against a receivable, and choices within the same class', () => {
+    expect(sourceTypeFollowingAccount('capital_call', receivable, true)).toBe('capital_call')
+    expect(sourceTypeFollowingAccount('capital_call', capital, true)).toBe('capital_call')
+    expect(sourceTypeFollowingAccount('management_fee', expense, false)).toBe('management_fee')
+    expect(sourceTypeFollowingAccount('manual', interest, true)).toBe('manual')
   })
 })
