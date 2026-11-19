@@ -128,6 +128,7 @@ export async function saveAdminPull(
     distributions: p.distributions,
     nav: p.nav,
     receivable: p.receivable ?? null,
+    carried_interest: p.carriedInterest ?? null,
     // The fund's net LP-only IRR, which an admin vehicle shows on every LP's row.
     irr: figures.fund.irr,
     source: 'admin',

@@ -10,6 +10,7 @@ const HEADERS: Record<string, string[]> = {
   distributions: ['distributions', 'total distributions', 'distributed'],
   nav: ['nav', 'ending nav', 'net asset value', 'ending capital', 'capital account', 'ending capital balance'],
   receivable: ['receivable', 'call receivable', 'capital call receivable'],
+  carried_interest: ['carried interest', 'carried interest accrued', 'carry'],
 }
 
 /** Split CSV text into rows, honouring quoted fields ("a, b" and doubled quotes). */
@@ -64,7 +65,7 @@ export function positionsFromCsv(text: string): Record<string, string>[] | strin
     const name = (r[col.name] ?? '').trim()
     if (!name || /^(grand )?totals?\b/i.test(name)) continue
     const entry: Record<string, string> = { name }
-    for (const field of ['external_id', 'commitment', 'paid_in', 'distributions', 'nav', 'receivable']) {
+    for (const field of ['external_id', 'commitment', 'paid_in', 'distributions', 'nav', 'receivable', 'carried_interest']) {
       if (col[field] !== undefined) entry[field] = (r[col[field]] ?? '').trim()
     }
     if (!entry.external_id) delete entry.external_id

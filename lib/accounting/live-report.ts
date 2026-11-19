@@ -89,6 +89,8 @@ export interface LiveInvestmentRow extends LiveMetrics {
   reportedBy?: string
   /** Set on a row from an admin-reported vehicle: figures as the administrator states them. */
   adminReported?: true
+  /** An admin-reported row's carried interest, as the administrator states it. */
+  carried_interest?: number | null
 }
 
 // Round the shared ratio to 1e-4 to keep float noise out of the reconciliation compare.
@@ -305,6 +307,7 @@ async function adminReportedRows(
       total_value: r.total_value,
       outstanding_balance: r.outstanding_balance,
       receivable: r.receivable,
+      carried_interest: r.carried_interest,
       dpi: r.dpi,
       rvpi: r.rvpi,
       tvpi: r.tvpi,
@@ -428,6 +431,7 @@ async function applyLookThrough(
         total_value: m.nav == null || m.distributions == null ? null : roundCents(m.nav + m.distributions),
         outstanding_balance: m.paid_in_capital == null ? null : roundCents(m.commitment - m.paid_in_capital),
         receivable: null,
+        carried_interest: null,
         evidence: associateRow.evidence ? {
           ...associateRow.evidence,
           values: { contributions: m.paid_in_capital, distributions: m.distributions, nav: m.nav },

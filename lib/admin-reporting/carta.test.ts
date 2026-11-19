@@ -15,6 +15,7 @@ describe('cartaQueries', () => {
     expect(q.positions).toContain(`fund_id = '${FUND}'`)
     expect(q.positions).toContain(`month_end_date = '2026-06-30'`)
     expect(q.fund).toContain(`fund_uuid = '${FUND}'`)
+    expect(q.carry).toContain(`effective_date <= '2026-06-30'`)
   })
   it('lets nothing but a UUID and a date into the SQL', () => {
     expect(() => cartaQueries("x' or 1=1 --", '2026-06-30')).toThrow(/UUID/)
@@ -43,6 +44,15 @@ describe('cartaFigures', () => {
     // 0.5 from Carta means 0.5%, not 50%.
     expect(f.fund.irr).toBeCloseTo(0.005)
     expect(f.positions[0]).toMatchObject({ externalId: 'p-1', paidIn: 50_000, nav: 60_000 })
+  })
+  it('carries each partner\'s stated carried interest where Carta has one', () => {
+    const input = cartaFigures('2026-06-30', [
+      { partner_uuid: 'gp', partner_name: 'Example GP LLC', cumulative_total_commitment: 1000, cumulative_total_contributions: 1000, cumulative_total_distributions: 500, ending_total_nav: 4000 },
+      { partner_uuid: 'p-1', partner_name: 'Jane Doe', cumulative_total_commitment: 100_000, cumulative_total_contributions: 100_000, cumulative_total_distributions: 0, ending_total_nav: 90_000 },
+    ], [], [{ partner_uuid: 'gp', carried_interest: 3_000 }])
+    const f = cleanAdminFigures(input) as AdminFigures
+    expect(f.positions[0].carriedInterest).toBe(3_000)
+    expect(f.positions[1].carriedInterest).toBeUndefined()
   })
 })
 

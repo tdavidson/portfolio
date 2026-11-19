@@ -36,6 +36,11 @@ export interface AdminPosition {
   nav: number | null
   /** Called but not yet funded, where the administrator states it. */
   receivable?: number | null
+  /**
+   * The carried interest within the partner's account, cumulative to the date, where the
+   * administrator states it: positive on a GP's row, negative where it is charged to an LP.
+   */
+  carriedInterest?: number | null
 }
 
 /** The fund's net LP-only figures on the pull's date, shown on every LP's row. */
@@ -128,6 +133,7 @@ export function cleanAdminFigures(input: any): AdminFigures | string {
       ['distributions', ['distributions']],
       ['nav', ['nav']],
       ['receivable', ['receivable']],
+      ['carriedInterest', ['carried_interest', 'carriedInterest']],
     ] as const) {
       const key = keys.find(k => p?.[k] !== undefined)
       const parsed = parseAmount(key ? p[key] : null)
@@ -139,6 +145,7 @@ export function cleanAdminFigures(input: any): AdminFigures | string {
       externalId, name, ...(lpEntityId ? { lpEntityId } : {}),
       commitment: amounts.commitment, paidIn: amounts.paidIn, distributions: amounts.distributions, nav: amounts.nav,
       ...(amounts.receivable != null ? { receivable: amounts.receivable } : {}),
+      ...(amounts.carriedInterest != null ? { carriedInterest: amounts.carriedInterest } : {}),
     })
   }
 
@@ -288,6 +295,7 @@ export interface StoredAdminPosition {
   distributions: number | null
   nav: number | null
   receivable?: number | null
+  carriedInterest?: number | null
 }
 
 export interface AdminRow {
@@ -301,6 +309,8 @@ export interface AdminRow {
   total_value: number | null
   outstanding_balance: number | null
   receivable: number | null
+  /** The carried interest within the row, as stated; null where the administrator gives none. */
+  carried_interest: number | null
   dpi: number | null
   rvpi: number | null
   tvpi: number | null
@@ -343,6 +353,7 @@ export function adminRows(
       // The unfunded commitment as the card shows it: commitment less paid-in, both as stated.
       outstanding_balance: p.calledCapital == null ? null : round2(commitment - p.calledCapital),
       receivable: p.receivable ?? null,
+      carried_interest: p.carriedInterest ?? null,
       dpi: fund.dpi ?? null,
       rvpi: null,
       tvpi: fund.tvpi ?? null,
@@ -371,16 +382,24 @@ export interface MemberShare {
  * associate's own terms, which the app keeps.
  *
  * The row mixes the associate's own capital with the carry it earned, and the two belong to
- * different people. So the part of it its capital would have earned at the FUND'S stated LP return
- * (paid-in × LP TVPI, of which paid-in × LP DPI distributed) follows ownership, and everything
- * above that (the carry) follows carry points. Commitment and paid-in follow ownership. Nothing
- * the administrator states is changed: the members' figures add back to the row.
+ * different people: the capital part follows ownership, the carry follows carry points. Commitment
+ * and paid-in follow ownership. Nothing the administrator states is changed: the members' figures
+ * add back to the row.
  *
- * Without the fund's LP TVPI and DPI the two parts can't be told apart, so everything follows
- * ownership.
+ * Where the administrator states the carry within the row (`carried_interest`), the split uses it:
+ * the row's total value less the carry is the capital part. Otherwise the capital part is what the
+ * associate's paid-in would have earned at the FUND'S stated LP return (paid-in × LP TVPI). Either
+ * way, the capital part's distributions are paid-in × LP DPI (at most the capital part), and the
+ * rest of it is NAV.
+ *
+ * With neither the carry nor the fund's LP TVPI and DPI the two parts can't be told apart, so
+ * everything follows ownership.
  */
 export function splitAdminRow(
-  row: { commitment: number; paid_in_capital: number | null; distributions: number | null; nav: number | null; tvpi: number | null; dpi: number | null },
+  row: {
+    commitment: number; paid_in_capital: number | null; distributions: number | null; nav: number | null
+    tvpi: number | null; dpi: number | null; carried_interest?: number | null
+  },
   members: LookThroughMember[],
 ): MemberShare[] {
   if (members.length === 0) return []
@@ -395,10 +414,22 @@ export function splitAdminRow(
   const paidIn = row.paid_in_capital ?? 0
   const dist = row.distributions
   const nav = row.nav
-  const canSplit = row.tvpi != null && row.dpi != null
-  // The capital part, capped at what the row holds: a fund return can't hand the capital more than the row has.
-  const capDist = dist == null ? 0 : canSplit ? Math.min(dist, paidIn * (row.dpi as number)) : dist
-  const capNav = nav == null ? 0 : canSplit ? Math.min(nav, Math.max(0, paidIn * ((row.tvpi as number) - (row.dpi as number)))) : nav
+  const d = dist ?? 0
+  const n = nav ?? 0
+  const total = d + n
+  const hasFund = row.tvpi != null && row.dpi != null
+  const statedCarry = row.carried_interest != null ? Math.max(0, row.carried_interest) : null
+  // The capital part of the row's total value, never more than the row holds.
+  const capital = statedCarry != null
+    ? Math.min(total, Math.max(0, total - statedCarry))
+    : hasFund ? Math.min(total, Math.max(0, paidIn * (row.tvpi as number))) : total
+  // Of which distributed: at the fund's LP DPI, or in the row's own proportion without it.
+  let capDist = hasFund
+    ? Math.min(d, capital, Math.max(0, paidIn * (row.dpi as number)))
+    : total > 0 ? d * (capital / total) : 0
+  // The rest is NAV; what NAV can't hold was distributed.
+  const capNav = Math.min(n, capital - capDist)
+  capDist = capital - capNav
 
   const shares = members.map((m, i) => ({
     entity_id: m.lpEntityId,

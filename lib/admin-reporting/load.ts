@@ -59,7 +59,7 @@ export async function loadAdminPositions(
   const rows = await fetchAllRows<any>((from, to) => {
     let q = (admin as any)
       .from('lp_positions')
-      .select('id, vehicle_id, lp_entity_id, as_of_date, commitment, called_capital, distributions, nav, receivable')
+      .select('id, vehicle_id, lp_entity_id, as_of_date, commitment, called_capital, distributions, nav, receivable, carried_interest')
       .eq('fund_id', fundId)
       .in('vehicle_id', vehicleIds)
     if (asOf) q = q.lte('as_of_date', asOf)
@@ -75,6 +75,7 @@ export async function loadAdminPositions(
       distributions: num(r.distributions),
       nav: num(r.nav),
       receivable: num(r.receivable),
+      carriedInterest: num(r.carried_interest),
     })
   }
   return out
