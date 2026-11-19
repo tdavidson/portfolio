@@ -11,7 +11,7 @@ import { vehicleIdByName, type VehicleIdMap } from './vehicle-id'
 import { ACTUAL_BOOK, type LedgerBook } from './books'
 import { MANCO_KIND } from '@/lib/vehicle-kinds'
 import { isExternalBookSource } from './quickbooks/sources'
-import { cachedPostedRows, inCloseCache } from './close-cache'
+import { cachedPostedRows, inCloseCache, memoRows, scopedChart } from './close-cache'
 
 export type SourcedPosting = Posting & { sourceType: string | null; entryId: string; memo: string | null }
 
@@ -159,7 +159,8 @@ export function assembleLoadedLedger(fundId: string, rows: LedgerRows): LoadedLe
 /** Chart-only register landing: no journal history is needed until an account is selected. */
 export async function loadLedgerChart(admin: SupabaseClient, fundId: string, group: string) {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
-  const acctRows = await fetchAllRows<any>((f, t) => admin.from('chart_of_accounts' as any)
+  const scoped = await scopedChart(admin, fundId, vehicleId)
+  const acctRows = scoped ? byId(scoped) : await fetchAllRows<any>((f, t) => admin.from('chart_of_accounts' as any)
     .select('id, code, name, type, subtype, lp_entity_id, company_id')
     .eq('fund_id', fundId).eq('vehicle_id', vehicleId).order('id').range(f, t))
   return assembleLoadedLedger(fundId, { acctRows, entryRows: [], postingRows: [] }).accounts
@@ -201,7 +202,7 @@ export async function loadPostedLedger(
   // rest are read (close-cache.ts). Null outside a close, and for any book but the actual one.
   if (books.length === 1 && books[0] === ACTUAL_BOOK && inCloseCache()) {
     const [acctRows, cached] = await Promise.all([
-      fetchAllRows((f, t) => admin.from('chart_of_accounts' as any).select('id, code, name, type, subtype, lp_entity_id, company_id').eq('fund_id', fundId).eq('vehicle_id', vehicleId).range(f, t)),
+      scopedChart(admin, fundId, vehicleId).then(rows => rows ?? fetchAllRows((f, t) => admin.from('chart_of_accounts' as any).select('id, code, name, type, subtype, lp_entity_id, company_id').eq('fund_id', fundId).eq('vehicle_id', vehicleId).range(f, t))),
       cachedPostedRows(admin, fundId, vehicleId, asOf),
     ])
     if (cached) {
@@ -240,15 +241,25 @@ export async function loadEntityNames(
 ): Promise<Map<string, string>> {
   // Paged: lp_investments holds one row per LP per SNAPSHOT, so a vehicle passes 1000 rows long
   // before it has 1000 partners — and the partners past the cap would vanish from every list.
-  const inv = await fetchAllRows<any>((f, t) => admin.from('lp_investments' as any).select('id, entity_id').eq('fund_id', fundId).eq('portfolio_group', group).order('id').range(f, t))
+  const inv = await vehicleInvestmentIds(admin, fundId, group)
   const entityIds = Array.from(new Set(inv.map(r => r.entity_id)))
   const out = new Map<string, string>()
   if (entityIds.length === 0) return out
 
-  const data = await fetchAllRows<any>((f, t) => admin.from('lp_entities' as any).select('id, entity_name').in('id', entityIds).order('id').range(f, t))
+  const data = await memoRows<any>(admin, `lp-entity-names|${fundId}|${entityIds.join(',')}`, () =>
+    fetchAllRows<any>((f, t) => admin.from('lp_entities' as any).select('id, entity_name').in('id', entityIds).order('id').range(f, t)))
   for (const e of data) out.set(e.id, e.entity_name ?? e.id)
   return out
 }
+
+/** The vehicle's lp_investments (id, entity_id), id order; read once inside a close. */
+function vehicleInvestmentIds(admin: SupabaseClient, fundId: string, group: string): Promise<any[]> {
+  return memoRows<any>(admin, `investment-ids|${fundId}|${group}`, () =>
+    fetchAllRows<any>((f, t) => admin.from('lp_investments' as any).select('id, entity_id').eq('fund_id', fundId).eq('portfolio_group', group).order('id').range(f, t)))
+}
+
+/** Rows in id order, as `.order('id')` returns them (uuids compare the same as strings). */
+const byId = <T extends { id: string }>(rows: T[]): T[] => [...rows].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
 
 /** entity_id → partner class ('lp' | 'gp') for the entities in this vehicle. */
 export async function loadEntityClasses(
@@ -256,7 +267,7 @@ export async function loadEntityClasses(
   fundId: string,
   group: string
 ): Promise<Map<string, string>> {
-  const inv = await fetchAllRows<any>((f, t) => admin.from('lp_investments' as any).select('id, entity_id').eq('fund_id', fundId).eq('portfolio_group', group).order('id').range(f, t))
+  const inv = await vehicleInvestmentIds(admin, fundId, group)
   const ids = Array.from(new Set(inv.map(r => r.entity_id)))
   const out = new Map<string, string>()
   if (ids.length === 0) return out
@@ -287,13 +298,15 @@ export async function loadOwnership(
 ): Promise<Ownership[]> {
   // Paged (one row per LP per snapshot — see loadEntityNames): past the cap, partners dropped out
   // of the allocation basis with no error.
-  const data = await fetchAllRows<any>((f, t) => admin
+  // Inside a close, read once per request (a close asks for the basis every month; nothing in it
+  // writes lp_investments). The reduction runs on every call, so no caller shares a result.
+  const data = await memoRows<any>(admin, `ownership|${fundId}|${group}`, () => fetchAllRows<any>((f, t) => admin
     .from('lp_investments' as any)
     .select('id, entity_id, commitment, paid_in_capital, distributions, snapshot_id, updated_at, lp_snapshots(as_of_date, created_at)')
     .eq('fund_id', fundId)
     .eq('portfolio_group', group)
     .order('id')
-    .range(f, t))
+    .range(f, t)))
   return currentOwnership(data as InvestmentRow[])
 }
 

@@ -16,6 +16,7 @@ import { vehicleIdByName } from './vehicle-id'
 import { fetchAllRows } from './load'
 import { roundCents } from './ledger'
 import { ACTUAL_BOOK } from './books'
+import { scopedChart } from './close-cache'
 
 export interface StrandedCapital {
   /** Postings sitting on a pooled LP capital account. */
@@ -80,7 +81,8 @@ export async function loadStrandedCapital(
   group: string,
 ): Promise<StrandedCapital> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
-  const { data: accounts } = await (admin as any)
+  const scoped = await scopedChart(admin, fundId, vehicleId)
+  const { data: accounts } = scoped ? { data: scoped } : await (admin as any)
     .from('chart_of_accounts')
     .select('id, subtype, lp_entity_id')
     .eq('fund_id', fundId)

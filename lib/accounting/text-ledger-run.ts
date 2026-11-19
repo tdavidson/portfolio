@@ -14,7 +14,7 @@ import { reviewImport, type ImportReview } from './import-review'
 import { ACTUAL_BOOK } from './books'
 import { adoptedEntryIds } from './adoption'
 import { fetchAllRows } from './load'
-import { cachedExportEntries } from './close-cache'
+import { cachedExportEntries, scopedChart } from './close-cache'
 
 /** An adopted manual entry has no source_ref; its export carries this ref instead. */
 const ADOPTED = 'adopted:'
@@ -22,7 +22,9 @@ const CHUNK = 200
 
 async function loadAccounts(admin: SupabaseClient, fundId: string, group: string): Promise<Account[]> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
-  const { data } = await admin.from('chart_of_accounts' as any).select('id, code, name, type, subtype, lp_entity_id').eq('fund_id', fundId).eq('vehicle_id', vehicleId)
+  const { data } = await scopedChart(admin, fundId, vehicleId).then(async rows => rows
+    ? { data: rows }
+    : await admin.from('chart_of_accounts' as any).select('id, code, name, type, subtype, lp_entity_id').eq('fund_id', fundId).eq('vehicle_id', vehicleId))
   return ((data as any[]) ?? []).map(a => ({ id: a.id, fundId, code: a.code, name: a.name, type: a.type as AccountType, subtype: a.subtype ?? null, lpEntityId: a.lp_entity_id ?? null }))
 }
 

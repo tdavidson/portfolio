@@ -57,6 +57,8 @@ interface Scope {
   vehicleKinds: Map<string, Promise<string | null>>
   posted: Map<string, Frozen<any, any>>
   exported: Map<string, Frozen<any, never>>
+  /** Small lists a close re-reads many times a month (chart, closed periods, LP rows), by key. */
+  rows: Map<string, Promise<any[]>>
   stats: CloseCacheStats
 }
 
@@ -82,7 +84,7 @@ function scopeFor(admin: SupabaseClient): Scope | null {
   if (!scopes) return null
   let scope = scopes.get(admin as object)
   if (!scope) {
-    scope = { vehicleIds: new Map(), vehicleKinds: new Map(), posted: new Map(), exported: new Map(), stats: { fullReads: 0, tailReads: 0 } }
+    scope = { vehicleIds: new Map(), vehicleKinds: new Map(), posted: new Map(), exported: new Map(), rows: new Map(), stats: { fullReads: 0, tailReads: 0 } }
     scopes.set(admin as object, scope)
   }
   return scope
@@ -118,6 +120,50 @@ export function memoInScope<T extends string | null>(
   p.catch(() => { if (map.get(key) === p) map.delete(key) })
   return p
 }
+
+/**
+ * Memoize a small list read for the scope, by key. A close posts each allocation entry through the
+ * same checks (the vehicle's chart, its closed periods, the partners on the lines), one round trip
+ * each, dozens of times a month. Whoever writes to a list inside the close drops it (forgetRows),
+ * so the next read is fresh. A failed read is not kept. Outside a scope, just reads.
+ */
+export function memoRows<T>(admin: SupabaseClient, key: string, load: () => Promise<T[]>): Promise<T[]> {
+  const scope = scopeFor(admin)
+  if (!scope) return load()
+  const hit = scope.rows.get(key)
+  if (hit) return hit as Promise<T[]>
+  const p = load()
+  scope.rows.set(key, p)
+  p.catch(() => { if (scope.rows.get(key) === p) scope.rows.delete(key) })
+  return p
+}
+
+/** Drop every memoized list whose key starts with `prefix` (after writing to it). */
+export function forgetRows(admin: SupabaseClient, prefix: string): void {
+  const scope = scopeFor(admin)
+  if (!scope) return
+  for (const k of Array.from(scope.rows.keys())) if (k.startsWith(prefix)) scope.rows.delete(k)
+}
+
+const CHART_COLS = 'id, code, name, type, subtype, lp_entity_id, company_id'
+
+/**
+ * A vehicle's whole chart of accounts, read once per scope (unordered, as the plain reads are), or
+ * null outside a scope or when the read failed: the caller then reads as it always has, with its
+ * own error handling. Callers pick the columns and order they need from these rows.
+ */
+export async function scopedChart(admin: SupabaseClient, fundId: string, vehicleId: string | null): Promise<any[] | null> {
+  if (!vehicleId || !scopeFor(admin)) return null
+  try {
+    return await memoRows(admin, chartKey(fundId, vehicleId), () =>
+      pagedAll<any>((f, t) => admin.from('chart_of_accounts' as any).select(CHART_COLS).eq('fund_id', fundId).eq('vehicle_id', vehicleId).range(f, t)))
+  } catch {
+    return null
+  }
+}
+
+export const chartKey = (fundId: string, vehicleId: string) => `chart|${fundId}|${vehicleId}`
+export const closedPeriodsKey = (fundId: string, vehicleId: string | null) => `closed-periods|${fundId}|${vehicleId}`
 
 function nextDay(iso: string): string {
   const d = new Date(`${iso}T00:00:00Z`)

@@ -6,6 +6,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadPostedLedger } from './load'
 import { vehicleIdByName } from './vehicle-id'
+import { chartKey, forgetRows } from './close-cache'
 import { accountBalances, roundCents } from './ledger'
 
 const COST_CODE = '1100'
@@ -119,6 +120,7 @@ export async function ensureInvestmentAccounts(
       .from('chart_of_accounts' as any)
       .insert(rows)
       .select('id, company_id, subtype')
+    if (vehicleId) forgetRows(admin, chartKey(fundId, vehicleId))
     if (error) throw new Error(error.message)
     for (const a of ((created as any[]) ?? [])) {
       const cur = byCompany.get(a.company_id) ?? {}
