@@ -18,6 +18,7 @@ import {
 import type { Account, JournalEntry, Posting } from './types'
 import { vehicleKindByName } from './vehicle-domain'
 import { vehicleIdByName } from './vehicle-id'
+import { alignBankEntrySourceType } from './bank-source-type'
 
 const BRIDGE_CODE = '3200'
 
@@ -313,6 +314,8 @@ export async function postExistingEntryWithAllocation(
   opts: AdoptOptions & { allocate?: boolean } = {},
 ): Promise<PostedExisting | { error: string }> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
+  // Before the header is read: the allocation below keys off the source type.
+  await alignBankEntrySourceType(admin, fundId, vehicleId, entryId)
   const [{ data: header, error: headerError }, { data: rows, error: rowsError }] = await Promise.all([
     admin.from('journal_entries' as any).select('entry_date, memo, source_type, source_ref, status')
       .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('id', entryId).maybeSingle(),

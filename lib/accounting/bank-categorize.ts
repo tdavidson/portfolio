@@ -284,6 +284,23 @@ export function sourceTypeForAccount(a: ChartAccountRef, inflow: boolean): strin
   return 'manual'
 }
 
+const CAPITAL_MOVEMENT = new Set(['capital_call', 'distribution'])
+const PNL_SOURCE = new Set(['income', 'partnership_expense', 'management_fee', 'organizational_expense'])
+
+/**
+ * The source type a bank entry should carry once its non-cash line is on `a`. Keeps `current`
+ * unless it contradicts the account: a capital call or distribution posted to an income or expense
+ * account (an interest receipt imported as members' capital and re-pointed later), or a P&L type
+ * posted to a partner capital account. Anything else is left alone, so a receipt settled against
+ * Due from LPs stays a capital call and a type someone chose by hand within the same class stands.
+ */
+export function sourceTypeFollowingAccount(current: string, a: ChartAccountRef, inflow: boolean): string {
+  const derived = sourceTypeForAccount(a, inflow)
+  if (CAPITAL_MOVEMENT.has(current) && (a.type === 'income' || a.type === 'expense')) return derived
+  if (PNL_SOURCE.has(current) && CAPITAL_MOVEMENT.has(derived)) return derived
+  return current
+}
+
 // ---------------------------------------------------------------------------
 // The categorizer
 // ---------------------------------------------------------------------------

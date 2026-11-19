@@ -11,7 +11,7 @@ import { RECEIVABLE_CODE, DISTRIBUTION_PAYABLE_CODE } from './chart'
 import { accountIdByCode } from './persist'
 import { vehicleIdByName } from './vehicle-id'
 import { buildCategorizePrompt, parseCategorizations, type Categorization, type TxnToCategorize } from './categorize-ai'
-import { categorizationRecord } from './bank-categorize'
+import { categorizationRecord, sourceTypeFollowingAccount } from './bank-categorize'
 import { categorizedBy } from './bank-categorize-context'
 import { ENTRY_SOURCE_TYPES } from './source-types'
 import { ACTUAL_BOOK } from './books'
@@ -141,8 +141,12 @@ export async function runCategorization(
     const counter = counterPosting((postings as any[]) ?? [], cashId, Number(t.amount))
     if (!counter) continue
 
+    // The model's source type stands unless it contradicts the account it picked (a capital call
+    // on an interest account, say): the account is what the books carry, so the type follows it.
+    const acct = accounts.find(a => a.code === cat.accountCode)
+    const sourceType = acct ? sourceTypeFollowingAccount(cat.sourceType, acct, Number(t.amount) > 0) : cat.sourceType
     await admin.from('journal_postings' as any).update({ account_id: newAccountId }).eq('id', counter.id)
-    await admin.from('journal_entries' as any).update({ source_type: cat.sourceType }).eq('id', t.journal_entry_id).eq('fund_id', fundId)
+    await admin.from('journal_entries' as any).update({ source_type: sourceType }).eq('id', t.journal_entry_id).eq('fund_id', fundId)
     await admin.from('bank_transactions' as any)
       .update({ suggested_account_code: cat.accountCode, raw: { ...(t.raw ?? {}), categorization: categorizationRecord({ by: 'ai', confidence: 'high', reason: 'Suggested by the AI pass' }) } })
       .eq('id', t.id).eq('fund_id', fundId)
