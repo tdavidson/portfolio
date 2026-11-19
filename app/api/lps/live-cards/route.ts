@@ -3,19 +3,20 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertReadAccess } from '@/lib/api-helpers'
 import { generateLiveReport } from '@/lib/accounting/live-report'
-import { lastDataDates } from '@/lib/accounting/lp-positions'
+import { reportedThrough } from '@/lib/report-card-footer'
 import { loadEntityScope } from '@/lib/access/entity-scope'
 import { scopeReportCardRows } from '@/lib/access/lp-scope'
 import { linkedLiveRows } from '@/lib/fund-connections'
 
-// Everything the LIVE report cards need, in one call: fund header, per-investor rows
-// (aggregated across vehicles), and the last-updated date PER VEHICLE.
+// Everything the LIVE report cards need, in one call: fund header and per-investor rows
+// (aggregated across vehicles), each investor with the date their own figures run through.
 //
 // The cards are the live counterpart to the frozen snapshot cards. Same layout
 // (components/lp-report-card), same browser-print path — only the data is live rather than
 // a stored snapshot, so they always reflect the latest posted positions.
 //
-//   GET ?asOf=YYYY-MM-DD (optional) → { fund, currency, asOf, investors[], vehicleDates[] }
+//   GET ?asOf=YYYY-MM-DD (optional) &investor=<id> (optional: one card, built from only the
+//   vehicles that investor holds) → { fund, currency, asOf, investors[{ ..., asOf }] }
 
 const ratio = (n: number | null, d: number): number | null => (n != null && d > 0 ? n / d : null)
 
@@ -32,14 +33,19 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'asOf must be YYYY-MM-DD' }, { status: 400 })
   }
 
-  // The report is built fund-wide. The caller's entities decide WHICH LPs get a card; each card
-  // carries every one of that LP's positions (scopeReportCardRows).
+  // The caller's entities decide WHICH LPs get a card; each card carries every one of that LP's
+  // positions (scopeReportCardRows). With `investor`, only the vehicles that investor holds are
+  // built (generateLiveReport entityIds); without it, the whole fund.
+  const investorParam = req.nextUrl.searchParams.get('investor')
   const scope = await loadEntityScope(admin, gate)
-  const [fullReport, { data: fund }, { data: settings }, { data: ents }] = await Promise.all([
-    generateLiveReport(admin, gate.fundId, asOf),
+  const { data: ents, error: entsError } = await admin.from('lp_entities' as any).select('id, entity_name, investor_id, lp_investors(id, name)').eq('fund_id', gate.fundId)
+  const investorEntityIds = investorParam && !entsError
+    ? ((ents as any[]) ?? []).filter(e => (e.investor_id ?? e.id) === investorParam).map(e => e.id as string)
+    : null
+  const [fullReport, { data: fund }, { data: settings }] = await Promise.all([
+    generateLiveReport(admin, gate.fundId, asOf, investorEntityIds ? { entityIds: investorEntityIds } : {}),
     admin.from('funds' as any).select('name, logo_url, address').eq('id', gate.fundId).maybeSingle(),
     admin.from('fund_settings' as any).select('currency, lp_report_description, lp_report_footer').eq('fund_id', gate.fundId).maybeSingle(),
-    admin.from('lp_entities' as any).select('id, entity_name, investor_id, lp_investors(id, name)').eq('fund_id', gate.fundId),
   ])
 
   const entInfo = new Map<string, { entityName: string; investorId: string; investorName: string }>()
@@ -50,12 +56,14 @@ export async function GET(req: NextRequest) {
 
   const report = fullReport
   const rows = scopeReportCardRows(report.rows, scope.vehicleNames, id => entInfo.get(id)?.investorId ?? id)
+    .filter(r => !investorParam || (entInfo.get(r.entity_id)?.investorId ?? r.entity_id) === investorParam)
 
   // Group rows by investor; build the card row shape.
-  const byInvestor = new Map<string, { investorId: string; investorName: string; rows: any[] }>()
+  const byInvestor = new Map<string, { investorId: string; investorName: string; rows: any[]; evidence: { evidence?: { asOf: string | null } | null }[] }>()
   for (const r of rows) {
     const info = entInfo.get(r.entity_id) ?? { entityName: report.entityNames.get(r.entity_id) ?? r.entity_id, investorId: r.entity_id, investorName: report.entityNames.get(r.entity_id) ?? r.entity_id }
-    const g = byInvestor.get(info.investorId) ?? { investorId: info.investorId, investorName: info.investorName, rows: [] }
+    const g = byInvestor.get(info.investorId) ?? { investorId: info.investorId, investorName: info.investorName, rows: [], evidence: [] }
+    g.evidence.push(r)
     g.rows.push({
       key: `${r.entity_id}-${r.portfolio_group}`,
       entityName: info.entityName,
@@ -79,6 +87,7 @@ export async function GET(req: NextRequest) {
     const g = byInvestor.get(l.investorId)
     if (!g) continue
     const r = l.row
+    g.evidence.push(r)
     g.rows.push({
       key: `${l.fundId}-${r.entity_id}-${r.portfolio_group}`,
       entityName: l.entityName,
@@ -94,12 +103,10 @@ export async function GET(req: NextRequest) {
     })
   }
 
-  const investors = Array.from(byInvestor.values()).sort((a, b) => a.investorName.localeCompare(b.investorName))
-
-  // Per-vehicle last-updated dates — for the footnote, since vehicles report irregularly.
-  const groups = Array.from(new Set(rows.map(r => r.portfolio_group)))
-  const dateMap = await lastDataDates(admin, gate.fundId, groups)
-  const vehicleDates = [...groups.sort().map(g => ({ vehicle: g, date: dateMap.get(g) ?? null })), ...linked.vehicleDates]
+  // Each card's "As of": the latest date that investor's own figures are reported through.
+  const investors = Array.from(byInvestor.values())
+    .map(({ evidence, ...g }) => ({ ...g, asOf: reportedThrough(evidence) ?? report.asOf }))
+    .sort((a, b) => a.investorName.localeCompare(b.investorName))
 
   const logo = (fund as any)?.logo_url
   return NextResponse.json({
@@ -113,6 +120,5 @@ export async function GET(req: NextRequest) {
     footer: (settings as any)?.lp_report_footer ?? null,
     asOf: report.asOf,
     investors,
-    vehicleDates,
   })
 }

@@ -27,7 +27,7 @@ import { reportingIrr, tooNewForIrr } from './reporting-irr'
 import { irrFlowPostings, isIrrFlow } from './irr-flows'
 import type { CapitalEvidence } from './capital-evidence'
 import { loadReportingCapital } from './reporting-capital'
-import { listVehicles, loadOwnership } from './load'
+import { fetchAllRows, listVehicles, loadOwnership } from './load'
 import { lookThroughAccount, associateMembers } from './look-through'
 import { latestPositionIrr } from './lp-positions'
 import { loadFundPreload, vehicleCapitalPreload, commitmentEventsForGroup, type FundPreload } from './fund-preload'
@@ -325,7 +325,7 @@ export interface LiveReport {
   entityNames: Map<string, string>
 }
 
-interface AssociateLink {
+export interface AssociateLink {
   /** The associate vehicle's own name (where its members' books live). */
   associateGroup: string
   /** The vehicle it invests INTO. */
@@ -385,10 +385,11 @@ async function applyLookThrough(
   fundId: string,
   rows: LiveInvestmentRow[],
   asOf?: string,
-  preload?: FundPreload
+  preload?: FundPreload,
+  preloadedLinks?: AssociateLink[],
 ): Promise<LiveInvestmentRow[]> {
   const idMap = preload?.idMap
-  const links = await loadAssociateLinks(admin, fundId)
+  const links = preloadedLinks ?? await loadAssociateLinks(admin, fundId)
   if (links.length === 0) return rows
 
   // Phase 1 — parallel: read each associate's books and compute its member rows. Reads only.
@@ -512,17 +513,29 @@ function ownershipShare(members: { lpEntityId: string; ownershipWeight: number }
  * This is the aggregate report. An LP holding across three vehicles gets three rows, exactly
  * as they would in a stored snapshot — the cross-vehicle roll-up is then done by the same
  * consumer code that already does it for snapshots.
+ *
+ * `entityIds`: a caller that will keep only these entities' rows (one investor's report card).
+ * Only the vehicles they hold — directly, or through an associate/GP vehicle — are built, which
+ * gives those entities exactly the rows the whole-fund build gives them (a vehicle's rows depend
+ * only on that vehicle's books). Rows of other LPs in those vehicles come along; callers filter.
  */
 export async function generateLiveReport(
   admin: SupabaseClient,
   fundId: string,
-  asOf?: string
+  asOf?: string,
+  opts: { entityIds?: string[] } = {},
 ): Promise<LiveReport> {
+  const [allGroups, links] = await Promise.all([listVehicles(admin, fundId), loadAssociateLinks(admin, fundId)])
+  const scope = opts.entityIds ? await vehiclesForEntities(admin, fundId, opts.entityIds, links) : null
+  const groups = scope ? allGroups.filter(g => scope.has(g)) : allGroups
+  // Scoped, the associate links whose vehicle is out of scope cannot touch these entities' rows
+  // (vehiclesForEntities brings in every associate they are a member of, or hold through).
+  const lookThroughLinks = scope ? links.filter(l => scope.has(l.associateGroup)) : links
+
   // One fund-wide read of the per-vehicle lookups (id map, entity names/classes, ownership,
   // capital source, vintage), then thread it through — the per-vehicle loaders no longer each
   // issue their own query for every vehicle. (P1 did the id map; P2 folds in the rest.)
-  const preload = await loadFundPreload(admin, fundId, asOf)
-  const groups = await listVehicles(admin, fundId)
+  const preload = await loadFundPreload(admin, fundId, asOf, scope ? Array.from(scope) : undefined)
 
   const perVehicle = await Promise.all(
     groups.map(async group => {
@@ -537,7 +550,7 @@ export async function generateLiveReport(
   // Look through any associate/GP vehicle: its position in the fund becomes its members'
   // positions. This is what puts a member who invests via the GP entity into the LP report at
   // all — before, they simply weren't in it.
-  const rows = await applyLookThrough(admin, fundId, perVehicle.flatMap(v => v.rows), asOf, preload)
+  const rows = await applyLookThrough(admin, fundId, perVehicle.flatMap(v => v.rows), asOf, preload, lookThroughLinks)
 
   // Members surfaced by the look-through may not be named in any vehicle's roster.
   const missing = rows.map(r => r.entity_id).filter(id => !entityNames.has(id))
@@ -555,5 +568,72 @@ export async function generateLiveReport(
     rows,
     vehicles: perVehicle.map(v => ({ group: v.group, source: v.source, lps: v.rows.length })),
     entityNames,
+  }
+}
+
+/**
+ * Every vehicle (by name) in which any of `entityIds` can have a row: wherever they hold a
+ * commitment, an ownership row, a reported position, carry terms, a per-LP account or a tagged
+ * posting, plus the associate vehicles they hold through and the vehicles those serve.
+ *
+ * Reading a vehicle too many is harmless (its other LPs are filtered out); missing one would drop
+ * a row, so every source a row can come from is asked, and a failed read widens to the whole fund.
+ */
+export async function vehiclesForEntities(
+  admin: SupabaseClient,
+  fundId: string,
+  entityIds: string[],
+  links?: AssociateLink[],
+): Promise<Set<string> | null> {
+  const ids = Array.from(new Set(entityIds))
+  const out = new Set<string>()
+  if (ids.length === 0) return out
+  try {
+    const db = admin as any
+    const byIds = <T>(table: string, cols: string, idCol: string, extra?: (q: any) => any) =>
+      fetchAllRows<T>((f, t) => {
+        let q = db.from(table).select(cols).eq('fund_id', fundId).in(idCol, ids)
+        if (extra) q = extra(q)
+        return q.order('id').range(f, t)
+      })
+    const [vehicles, investments, commitments, positions, terms, accounts, assocLinks] = await Promise.all([
+      fetchAllRows<any>((f, t) => db.from('fund_vehicles').select('id, name').eq('fund_id', fundId).order('id').range(f, t)),
+      byIds<any>('lp_investments', 'portfolio_group', 'entity_id'),
+      byIds<any>('commitment_events', 'vehicle_id', 'lp_entity_id'),
+      byIds<any>('lp_positions', 'vehicle_id', 'lp_entity_id'),
+      byIds<any>('partner_allocation_terms', 'vehicle_id', 'lp_entity_id'),
+      byIds<any>('chart_of_accounts', 'vehicle_id', 'lp_entity_id'),
+      links ? Promise.resolve(links) : loadAssociateLinks(admin, fundId),
+    ])
+    const nameById = new Map<string, string>(vehicles.map((v: any) => [v.id as string, v.name as string]))
+    const addId = (id: string | null | undefined) => { const n = id ? nameById.get(id) : undefined; if (n) out.add(n) }
+    for (const r of investments) if (r.portfolio_group) out.add(r.portfolio_group)
+    for (const rows of [commitments, positions, terms, accounts]) for (const r of rows) addId(r.vehicle_id)
+
+    // A posting can be tagged to an LP on a pooled capital account: ask each remaining vehicle
+    // whether it has one (a single-row probe each, in parallel).
+    const found = new Set(Array.from(out).map(n => vehicles.find((v: any) => v.name === n)?.id).filter(Boolean))
+    const rest = vehicles.filter((v: any) => !found.has(v.id))
+    const probes = await Promise.all(rest.map(async (v: any) => {
+      const { data, error } = await db.from('journal_postings').select('id')
+        .eq('book', 'actual').eq('fund_id', fundId).eq('vehicle_id', v.id).in('lp_entity_id', ids).limit(1)
+      if (error) throw error
+      return ((data as any[]) ?? []).length > 0 ? v.name as string : null
+    }))
+    for (const n of probes) if (n) out.add(n)
+
+    // Associates: a member needs the vehicle the associate serves; the entity that holds the
+    // associate's position needs the associate's own books (its row is replaced by the members').
+    const own = new Set(ids)
+    for (let grew = true; grew;) {
+      grew = false
+      for (const l of assocLinks) {
+        if (!(out.has(l.associateGroup) || own.has(l.entityId))) continue
+        for (const g of [l.associateGroup, l.servesGroup]) if (!out.has(g)) { out.add(g); grew = true }
+      }
+    }
+    return out
+  } catch {
+    return null
   }
 }

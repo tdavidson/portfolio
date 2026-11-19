@@ -15,7 +15,6 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { generateLiveReport, type LiveInvestmentRow } from '@/lib/accounting/live-report'
-import { lastDataDates } from '@/lib/accounting/lp-positions'
 import { carryRecipientIds } from '@/lib/access/carry-visibility'
 import { findExact, suggestPairs, type MatchableInvestor, type Suggestion } from './matching'
 
@@ -373,21 +372,21 @@ export interface LinkedRow {
 export async function linkedLiveRows(
   db: Db,
   opts: { fundId: string; investorIds?: string[]; asOf?: string; omitCarryRecipients?: boolean },
-): Promise<{ rows: LinkedRow[]; vehicleDates: { vehicle: string; date: string | null }[] }> {
+): Promise<{ rows: LinkedRow[] }> {
   const counterparts = await approvedCounterparts(db, opts.fundId, opts.investorIds)
-  if (counterparts.length === 0) return { rows: [], vehicleDates: [] }
+  if (counterparts.length === 0) return { rows: [] }
 
   const byFund = new Map<string, Counterpart[]>()
   for (const cp of counterparts) byFund.set(cp.linkedFundId, [...(byFund.get(cp.linkedFundId) ?? []), cp])
 
   const rows: LinkedRow[] = []
-  const vehicleDates: { vehicle: string; date: string | null }[] = []
   for (const [otherFundId, cps] of byFund) {
     const ourOf = new Map(cps.map(cp => [cp.linkedInvestorId, cp.investorId]))
-    const [report, { data: fund }, { data: ents }] = await Promise.all([
-      generateLiveReport(db, otherFundId, opts.asOf),
+    // Their entities first: the other fund's live report then builds only the vehicles they hold.
+    const { data: ents, error: entsError } = await db.from('lp_entities').select('id, entity_name, investor_id').eq('fund_id', otherFundId).in('investor_id', Array.from(ourOf.keys()))
+    const [report, { data: fund }] = await Promise.all([
+      generateLiveReport(db, otherFundId, opts.asOf, entsError ? {} : { entityIds: ((ents ?? []) as any[]).map(e => e.id as string) }),
       db.from('funds').select('name').eq('id', otherFundId).maybeSingle(),
-      db.from('lp_entities').select('id, entity_name, investor_id').eq('fund_id', otherFundId).in('investor_id', Array.from(ourOf.keys())),
     ])
     const entInfo = new Map(((ents ?? []) as any[]).map(e => [e.id as string, e as { entity_name: string; investor_id: string }]))
     let mine = report.rows.filter(r => entInfo.has(r.entity_id))
@@ -401,9 +400,6 @@ export async function linkedLiveRows(
       const e = entInfo.get(r.entity_id)!
       rows.push({ investorId: ourOf.get(e.investor_id)!, fundId: otherFundId, fundName, entityName: e.entity_name, row: r })
     }
-    const groups = Array.from(new Set(mine.map(r => r.portfolio_group)))
-    const dates = await lastDataDates(db, otherFundId, groups)
-    for (const g of groups.sort()) vehicleDates.push({ vehicle: g, date: dates.get(g) ?? null })
   }
-  return { rows, vehicleDates }
+  return { rows }
 }

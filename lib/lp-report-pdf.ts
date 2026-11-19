@@ -5,7 +5,7 @@ import { sanitizeLetterHtml } from '@/lib/sanitize'
 import { investorText } from '@/lib/lp-letters/internal'
 import { lpRatios } from '@/lib/lp-metrics'
 import { generateLiveReport } from '@/lib/accounting/live-report'
-import { lastDataDates } from '@/lib/accounting/lp-positions'
+import { footerWithoutDate, formatAsOf, reportedThrough } from '@/lib/report-card-footer'
 import { linkedLiveRows } from '@/lib/fund-connections'
 import { documentLetterhead, contactBlock } from '@/lib/vehicle-letterhead'
 import { letterPdfFileName, snapshotPdfFileName } from '@/lib/lps/attachment-names'
@@ -253,8 +253,9 @@ export function buildReportHtml(opts: {
     ? `<p style="font-size:9px;color:#888;margin-top:12px;">Note: ${esc(excludedGroupNames.join(', '))} ${excludedGroupNames.length === 1 ? 'is' : 'are'} excluded from this investor report.</p>`
     : ''
 
-  const defaultFooter = `${asOfFormatted ? `As of ${esc(asOfFormatted)}. ` : ''}% Funded = Paid-In Capital / Commitment &bull; DPI = Distributions / Paid-In Capital &bull; RVPI = Net Asset Balance / Paid-In Capital &bull; TVPI = DPI + RVPI &bull; IRR = Internal Rate of Return. All data is reported net of expenses, including estimated carried interest.`
-  const footer = footerNote ? esc(footerNote) : defaultFooter
+  const definitions = `% Funded = Paid-In Capital / Commitment &bull; DPI = Distributions / Paid-In Capital &bull; RVPI = Net Asset Balance / Paid-In Capital &bull; TVPI = DPI + RVPI &bull; IRR = Internal Rate of Return. All data is reported net of expenses, including estimated carried interest.`
+  const custom = footerWithoutDate(footerNote)
+  const footer = `${asOfFormatted ? `As of ${esc(asOfFormatted)}. ` : ''}${custom ? esc(custom) : definitions}`
 
   const colgroup = `<colgroup>
     <col style="width:19.75%"><col style="width:27.75%">
@@ -540,18 +541,21 @@ export async function generateLiveInvestorReportPdf(
   const { fundId, investorIds } = opts
   if (investorIds.length === 0) return null
 
-  const [report, fundRes, settingsRes, entsRes, investorsRes] = await Promise.all([
-    generateLiveReport(admin, fundId),
-    admin.from('funds').select('name, logo_url, address').eq('id', fundId).maybeSingle(),
-    admin.from('fund_settings').select('currency, lp_report_description, lp_report_footer, theme').eq('fund_id', fundId).maybeSingle(),
-    admin.from('lp_entities').select('id, entity_name, investor_id').eq('fund_id', fundId),
-    admin.from('lp_investors').select('id, name').eq('fund_id', fundId).in('id', investorIds),
-  ])
-
+  // The investor's entities first, so the live report builds only the vehicles they hold.
+  const entsRes = await admin.from('lp_entities').select('id, entity_name, investor_id').eq('fund_id', fundId)
   const entInfo = new Map<string, { entity_name: string; investor_id: string }>(
     ((entsRes.data as any[]) ?? []).map(e => [e.id, { entity_name: e.entity_name, investor_id: e.investor_id }])
   )
   const investorSet = new Set(investorIds)
+  const entityIds = Array.from(entInfo.entries()).filter(([, e]) => investorSet.has(e.investor_id)).map(([id]) => id)
+
+  const [report, fundRes, settingsRes, investorsRes] = await Promise.all([
+    generateLiveReport(admin, fundId, undefined, entsRes.error ? {} : { entityIds }),
+    admin.from('funds').select('name, logo_url, address').eq('id', fundId).maybeSingle(),
+    admin.from('fund_settings').select('currency, lp_report_description, lp_report_footer, theme').eq('fund_id', fundId).maybeSingle(),
+    admin.from('lp_investors').select('id, name').eq('fund_id', fundId).in('id', investorIds),
+  ])
+
   const mine = report.rows.filter((r: any) =>
     investorSet.has(entInfo.get(r.entity_id)?.investor_id ?? '') && (opts.groups == null || opts.groups.includes(r.portfolio_group))
     && !opts.omit?.get(r.portfolio_group)?.has(r.entity_id))
@@ -560,7 +564,7 @@ export async function generateLiveInvestorReportPdf(
   // (lib/fund-connections). Only for a caller who sees every entity: one scoped to some sees those.
   const linked = opts.includeConnected && opts.groups == null
     ? await linkedLiveRows(admin, { fundId, investorIds, omitCarryRecipients: !!opts.omit })
-    : { rows: [], vehicleDates: [] }
+    : { rows: [] }
   for (const l of linked.rows) entInfo.set(`${l.fundId}:${l.row.entity_id}`, { entity_name: l.entityName, investor_id: l.investorId })
   mine.push(...linked.rows.map(l => ({ ...l.row, entity_id: `${l.fundId}:${l.row.entity_id}` })))
   if (mine.length === 0) return null
@@ -588,11 +592,8 @@ export async function generateLiveInvestorReportPdf(
   const letterhead = await documentLetterhead(admin, fundId, fund, mine.map((r: any) => r.portfolio_group as string))
   const currency = settingsRes.data?.currency || 'USD'
 
-  // "As of" = most recent data date across this investor's vehicles.
-  const groups = Array.from(new Set(mine.map((r: any) => r.portfolio_group as string)))
-  const dateMap = await lastDataDates(admin, fundId, groups)
-  const maxDate = [...Array.from(dateMap.values()), ...linked.vehicleDates.map(v => v.date)].filter((d): d is string => !!d).sort().at(-1) ?? report.asOf ?? null
-  const asOfFormatted = maxDate ? new Date(maxDate + 'T00:00:00').toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }) : null
+  // "As of" = the latest date this investor's own figures are reported through.
+  const asOfFormatted = formatAsOf(reportedThrough(mine) ?? report.asOf)
 
   const html = buildReportHtml({
     investorName, rows, totals, excludedGroupNames: [],

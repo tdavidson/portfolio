@@ -8,6 +8,7 @@
 // system font — which is why these read better than the headless-Chrome PDFs.
 
 import { useCurrency, formatCurrency, formatCurrencyFull } from '@/components/currency-context'
+import { footerWithoutDate } from '@/lib/report-card-footer'
 
 export interface ReportCardRow {
   key: string
@@ -47,13 +48,11 @@ export interface ReportCardProps {
   investorName: string
   rows: ReportCardRow[]
   totals: ReportCardTotals
-  /** A full override for the footnote. When set, replaces the default definitions line. */
+  /** The fund's own footnote. Replaces the default definitions line, never the date (a leading
+   *  "As of <date>." saved in it is dropped: lib/report-card-footer). */
   footerNote?: string | null
   /** The report's headline date (e.g. "as of 2026-03-31"). */
   asOfFormatted?: string | null
-  /** Per-vehicle last-updated dates — printed in the footnote, because vehicles report on
-   *  irregular cadences and a single report-wide "as of" would hide that. */
-  vehicleDataDates?: { vehicle: string; date: string | null }[]
   /** Vehicles excluded from this card, noted in the footer. */
   excludedNote?: string[]
 }
@@ -230,19 +229,13 @@ export function LpReportCard(props: ReportCardProps) {
       </div>
 
       <div className="report-footer text-[9px] text-muted-foreground mt-8 pt-3 border-t print:mt-0 print:pt-2">
-        {props.footerNote ? props.footerNote : (
+        {props.asOfFormatted && <>As of {props.asOfFormatted}. </>}
+        {footerWithoutDate(props.footerNote) ?? (
           <>
-            {props.asOfFormatted && <>As of {props.asOfFormatted}. </>}
             % Funded = Paid-In Capital / Commitment &bull; DPI = Distributions / Paid-In Capital &bull; RVPI = Net Asset
             Balance / Paid-In Capital &bull; TVPI = DPI + RVPI &bull; IRR = Internal Rate of Return. All figures are net of
             expenses, including estimated carried interest.
           </>
-        )}
-        {/* Per-vehicle data dates — vehicles report irregularly, so state each one. */}
-        {props.vehicleDataDates && props.vehicleDataDates.length > 0 && (
-          <div className="mt-1">
-            Data last posted: {props.vehicleDataDates.map(v => `${v.vehicle} — ${v.date ?? 'no data'}`).join('; ')}.
-          </div>
         )}
         {props.excludedNote && props.excludedNote.length > 0 && (
           <div className="mt-1">

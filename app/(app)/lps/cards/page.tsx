@@ -13,8 +13,9 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PortfolioGroupFilter } from '@/components/lp-portfolio-group-filter'
 import { LpReportCard, REPORT_CARD_PRINT_CSS, type ReportCardRow, type ReportCardTotals } from '@/components/lp-report-card'
+import { formatAsOf } from '@/lib/report-card-footer'
 
-interface Investor { investorId: string; investorName: string; rows: ReportCardRow[] }
+interface Investor { investorId: string; investorName: string; rows: ReportCardRow[]; asOf: string | null }
 interface Payload {
   fund: { name: string; logo: string | null; address: string | null }
   currency: string
@@ -22,7 +23,6 @@ interface Payload {
   footer: string | null
   asOf: string | null
   investors: Investor[]
-  vehicleDates: { vehicle: string; date: string | null }[]
 }
 
 const add = (a: number | null, b: number | null): number | null => a == null || b == null ? null : a + b
@@ -228,8 +228,7 @@ export default function LiveCardsPage() {
                 totals={totalsOf(rows)}
                 description={data!.description}
                 footerNote={data!.footer || undefined}
-                asOfFormatted={asOfLabel}
-                vehicleDataDates={data!.vehicleDates.filter(v => rows.some(r => r.portfolioGroup === v.vehicle))}
+                asOfFormatted={formatAsOf(inv.asOf) ?? undefined}
                 excludedNote={excluded}
               />
             </div>
