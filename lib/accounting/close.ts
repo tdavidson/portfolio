@@ -1828,7 +1828,11 @@ async function accrueAssociateEconomics(
   const members = associateMembers(ownership.weights, carryWeights)
   if (members.length === 0) return { entryIds: [] }
   const split = lookThroughAccount(associateAccount, members)
-  const ownAccounts = computeCapitalAccounts(own.postings)
+  // Already booked = what earlier markups posted, not the associate's whole capital account: its
+  // OWN income and expenses (bank interest, legal fees) fall in the same buckets, and counting them
+  // would make the markup reverse them.
+  const markupIds = await entriesTouching(admin, fundId, group, [unrealizedInFundId, carryReceivableId])
+  const ownAccounts = computeCapitalAccounts(markupPostings(own.postings, markupIds))
 
   // Carry PAID nets against the own-book carriedInterest bucket, so add it back to recover the
   // amount already accrued (only the carry line has a paid-out counterpart).
@@ -1869,6 +1873,26 @@ async function accrueAssociateEconomics(
     if (result.entryId) entryIds.push(result.entryId)
   }
   return { entryIds }
+}
+
+/**
+ * The capital postings an associate markup has already booked: those on entries that also post to
+ * the markup asset accounts (1550 and 1600, or 1500 on an older chart), plus carry paid out, which
+ * the caller adds back to the carry line. @internal Exported for tests.
+ */
+export function markupPostings<P extends { entryId?: string; sourceType?: string | null }>(postings: P[], markupEntryIds: Set<string>): P[] {
+  const markupTypes = new Set(ASSOCIATE_MARKUP_LINES.map(l => l.sourceType))
+  return postings.filter(p =>
+    p.sourceType === 'carry_distribution' ||
+    (!!p.entryId && markupEntryIds.has(p.entryId) && markupTypes.has(p.sourceType ?? '')))
+}
+
+/** Ids of the entries on this vehicle's books that post to any of these accounts. */
+async function entriesTouching(admin: SupabaseClient, fundId: string, group: string, accountIds: string[]): Promise<Set<string>> {
+  const ids = Array.from(new Set(accountIds))
+  const rows = await fetchAllRows<any>((f, t) => admin.from('journal_postings' as any)
+    .select('id, journal_entry_id').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('portfolio_group', group).in('account_id', ids).order('id').range(f, t))
+  return new Set(rows.map(r => r.journal_entry_id as string))
 }
 
 export interface CloseEntryLine {
