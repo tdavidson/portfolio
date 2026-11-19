@@ -330,7 +330,33 @@ export const STEP_RESERVE_MS = 45_000
  * Steps that are safe to run again after the request died in the middle of them: a close derives
  * its start from the last closed period, so running it again picks up where it stopped.
  */
-const RERUNNABLE_TOOLS = new Set(['close_period'])
+const RERUNNABLE_TOOLS = new Set(['close_period', 'reallocate_vehicle'])
+
+/**
+ * A re-split that stopped for time: where to carry on. Run again from its cursor while time
+ * allows, like a close. Safe to run again after an interruption too: without a cursor it sets the
+ * window's allocations aside and starts over, and from an older cursor it reuses the allocations
+ * the interrupted round already posted.
+ */
+function reallocateRemaining(result: unknown): { cursor: string; remaining: number; message: string } | null {
+  const r = (result ?? {}) as Record<string, any>
+  if (typeof r.remaining !== 'number' || r.remaining <= 0 || typeof r.cursor !== 'string') return null
+  return { cursor: r.cursor, remaining: r.remaining, message: `Re-split paused with ${r.remaining} entries still to go.` }
+}
+
+/** A re-split that ran in rounds: the entries re-split across rounds, and where it stands now. */
+function mergeReallocateResults(prior: unknown, next: unknown): unknown {
+  const a = (prior ?? {}) as Record<string, any>
+  const b = (next ?? {}) as Record<string, any>
+  return { ...b, reallocated: Number(a.reallocated ?? 0) + Number(b.reallocated ?? 0) }
+}
+
+/** The step's input for its next round: a re-split resumes from the cursor its last round returned. */
+function roundInput(step: RunStep, carried: unknown): RunStep {
+  if (step.tool !== 'reallocate_vehicle') return step
+  const cursor = reallocateRemaining(carried)?.cursor
+  return cursor ? { ...step, input: { ...step.input, cursor } } : step
+}
 
 /** The months a close_period result reports as still open, if it stopped for time. */
 function closeRemaining(result: unknown): { from: string; months: number; message: string } | null {
@@ -403,19 +429,21 @@ export async function executeRun(deps: ActionDeps, raw: unknown, opts: ExecuteRu
     try {
       for (;;) {
         await opts.onProgress?.(snapshot(args, outcomes, { resumeAt: i + 1, inFlight: i + 1 }))
-        const result = await runStep({ ...deps, deadline }, step)
+        const result = await runStep({ ...deps, deadline }, roundInput(step, carried))
         const soft = softFailure(result)
         if (soft) throw new Error(soft)
-        const remaining = step.tool === 'close_period' ? closeRemaining(result) : null
+        const remaining = step.tool === 'close_period' ? closeRemaining(result)
+          : step.tool === 'reallocate_vehicle' ? reallocateRemaining(result) : null
         if (remaining) {
-          carried = mergeCloseResults(carried, result)
+          carried = step.tool === 'close_period' ? mergeCloseResults(carried, result) : mergeReallocateResults(carried, result)
           if (deadline - now() >= STEP_RESERVE_MS) continue
           outcomes.set(i + 1, {
             step: i + 1, tool: step.tool, status: 'pending', summary: remaining.message, result: compactResult(carried),
           })
           return pause(args, outcomes, i, opts) as unknown as Record<string, unknown>
         }
-        const final = carried ? mergeCloseResults(carried, result) : result
+        const final = !carried ? result
+          : step.tool === 'reallocate_vehicle' ? mergeReallocateResults(carried, result) : mergeCloseResults(carried, result)
         const undo = undoTargetsFor(step.tool, step.input, final)
         const notUndoable = notUndoableReason(step.tool, undo)
         outcomes.set(i + 1, {

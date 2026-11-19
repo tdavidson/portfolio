@@ -104,6 +104,29 @@ describe('a run with its own clock', () => {
     expect((second.run.steps[0].result as any).closed.map((c: any) => c.id)).toEqual(['p1', 'p2', 'p3'])
   })
 
+  it('runs a re-split again from its cursor while entries remain, and pauses and resumes it with the cursor', async () => {
+    const cursors: (string | undefined)[] = []
+    let round = 0
+    handlers.reallocate_vehicle = (input: any) => {
+      cursors.push(input.cursor)
+      round++
+      clock += 120_000
+      return round < 3
+        ? { reallocated: 10, remaining: 30 - round * 10, cursor: `c${round}`, done: false }
+        : { reallocated: 10, remaining: 0, cursor: null, done: true }
+    }
+    const steps = run([{ tool: 'reallocate_vehicle', input: { from: '2020-01-01' } }, { tool: 'post_entry' }])
+    const first = await executeRun(deps, steps, { now }) as unknown as RunResult
+    expect(first.run.steps.map(s => s.status)).toEqual(['pending', 'pending'])
+    expect(runResumeAt(first)).toBe(1)
+
+    clock = 5_000_000
+    const second = await executeRun(deps, steps, { now, resume: first }) as unknown as RunResult
+    expect(second.run.steps.map(s => s.status)).toEqual(['applied', 'applied'])
+    expect(cursors).toEqual([undefined, 'c1', 'c2'])
+    expect((second.run.steps[0].result as any).reallocated).toBe(30)
+  })
+
   it('re-runs a close whose request died mid-step, but refuses to guess about any other step', async () => {
     handlers.close_period = () => ({ closed: [{ id: 'p1', label: 'M1', netIncome: 0 }] })
     const steps = run([{ tool: 'post_entry' }, { tool: 'close_period', input: { periodEnd: '2026-10-31' } }])
