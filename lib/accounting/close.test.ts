@@ -369,3 +369,13 @@ describe('closing a long span within the time budget', () => {
     expect(result).toEqual({ error: 'Closed January 2026, then failed on February 2026: boom' })
   })
 })
+
+describe('closeBudgetWithin', () => {
+  it('gives a close what is left of a run\'s deadline, less a margin, capped at its own budget', async () => {
+    const { closeBudgetWithin, CLOSE_TIME_BUDGET_MS } = await import('./close')
+    expect(closeBudgetWithin(undefined, 0)).toBe(CLOSE_TIME_BUDGET_MS)
+    expect(closeBudgetWithin(1_000_000, 0)).toBe(CLOSE_TIME_BUDGET_MS)
+    expect(closeBudgetWithin(100_000, 0)).toBe(80_000)
+    expect(closeBudgetWithin(10_000, 0)).toBe(0)
+  })
+})

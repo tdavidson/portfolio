@@ -261,6 +261,62 @@ describe('approving a run', () => {
   })
 })
 
+describe('a run that outlasts one request', () => {
+  it('pauses before the time limit, keeps its progress, and continues under the same approval', async () => {
+    // Each booked entry costs the run 100 seconds of its 240-second budget.
+    let clock = Date.parse('2026-11-19T12:00:00Z')
+    const spy = vi.spyOn(Date, 'now').mockImplementation(() => clock)
+    const books = store.tables.journal_entries
+    const push = books.push.bind(books)
+    books.push = (...rows: any[]) => { clock += 100_000; return push(...rows) }
+    try {
+      const staged = await callTool('stage_run', {
+        title: 'Book three calls', rationale: 'Never booked.',
+        steps: [entry(10), entry(20), entry(30)],
+        expected: [{ kind: 'account_balance', account: '1000', equals: 60 }],
+      })
+      const id = staged.json.pendingActionId
+
+      const first = await approveInApp(id)
+      expect(first.status).toBe(200)
+      // Still approved, holding where it got to, and listed with the runs.
+      expect(row().status).toBe('approved')
+      expect(row().applied_result.run.steps.map((s: any) => s.status)).toEqual(['applied', 'applied', 'pending'])
+      expect(row().applied_result.run).toMatchObject({ resumeAt: 3, paused: { message: expect.stringMatching(/continue from step 3/) } })
+      expect(books).toHaveLength(2)
+      const listed = await callTool('list_runs', {})
+      expect(listed.json.runs.map((r: any) => r.id)).toEqual([id])
+
+      // From the chat, the continue needs no new yes and says so.
+      clock += 600_000
+      const second = await callTool('approve_action', { id })
+      expect(second.isError).toBe(false)
+      expect(row().status).toBe('applied')
+      expect(books).toHaveLength(3)
+      expect(row().applied_result.run.steps.map((s: any) => s.status)).toEqual(['applied', 'applied', 'applied'])
+      expect(row().applied_result.run.checks.map((c: any) => c.passed)).toEqual([true])
+      expect(store.tables.accounting_audit_events.map(e => e.action)).toEqual(['pending_action.stage', 'pending_action.continue', 'pending_action.approve'])
+    } finally {
+      spy.mockRestore()
+      books.push = push
+    }
+  })
+
+  it('refuses to continue a run whose request may still be applying', async () => {
+    const staged = await callTool('stage_run', { title: 'One', rationale: 'Never booked.', steps: [entry(10)] })
+    const id = staged.json.pendingActionId
+    // A request mid-step: approved, progress saved moments ago, no pause.
+    Object.assign(row(), {
+      status: 'approved', updated_at: new Date().toISOString(),
+      applied_result: { run: { steps: [{ step: 1, tool: 'post_entry', status: 'pending' }], checks: [], checksFailed: null, stoppedAt: null, undoable: false, resumeAt: 1, inFlight: 1 } },
+    })
+    const out = await approveInApp(id)
+    expect(out.status).toBe(409)
+    expect(out.body.error).toMatch(/still applying/)
+    expect(store.tables.journal_entries).toHaveLength(0)
+  })
+})
+
 describe('undoing a run', () => {
   it('voids the journal entries it created, and says what it cannot undo', async () => {
     const staged = await callTool('stage_run', {

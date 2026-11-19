@@ -5,7 +5,7 @@ import { mayActOn, stagedAction, type StagedAction } from './staged'
 import { CONFIRM_IN_APP_MESSAGE } from './call-notices'
 import { adminOnlyMessage } from '@/lib/access/admin-only'
 import { AGENT_TOOL_CALL } from '@/lib/agent/tool-call-action'
-import { AGENT_RUN, RunStepError, runArgs, type RunResult } from '@/lib/agent/run-action'
+import { AGENT_RUN, RunStepError, executeRun, runArgs, runResumeAt, type RunResult } from '@/lib/agent/run-action'
 import { undoTargets } from '@/lib/agent/run-undo'
 import { canSeeVehicle, entityCap, writeAccess } from '@/lib/access/scope'
 
@@ -248,6 +248,10 @@ export async function approvePendingAction(
   if (existing.status === 'applied') {
     return { ok: true, replayed: true, result: existing.applied_result, action: actionDto(existing) }
   }
+  // A run that paused for time (or whose request died) continues under its approval.
+  if (existing.status === 'approved' && existing.action_type === AGENT_RUN && runResumeAt(existing.applied_result) != null) {
+    return continueRun(admin, principal, existing, opts)
+  }
   if (existing.status !== 'pending') {
     throw new PendingActionServiceError('Pending action is no longer available.', 409, 'ACTION_NOT_PENDING')
   }
@@ -287,15 +291,104 @@ export async function approvePendingAction(
     throw new PendingActionServiceError('Pending action is already being processed.', 409, 'ACTION_IN_PROGRESS')
   }
 
+  return applyClaimed(admin, principal, claimed as PendingActionRow, execute, opts)
+}
+
+/**
+ * How long a run's saved progress may go unchanged before its request is taken for dead. A live
+ * request saves progress before and after every step; one step can take most of the 300-second
+ * function limit, so anything older than that limit means the request was cut off.
+ */
+const RUN_STALE_MS = 330_000
+
+/**
+ * Continue a run that stopped before its last step, under the approval it already has: it paused
+ * itself before the time limit, or its request died (then only when the step in flight is safe to
+ * run again). Claimed on `updated_at`, so two continues cannot both run it.
+ */
+async function continueRun(admin: SupabaseClient, principal: AnalystPrincipal, existing: PendingActionRow, opts: ApproveOptions) {
+  const prior = existing.applied_result as unknown as RunResult
+  if (prior.undo) {
+    throw new PendingActionServiceError('This run was undone, so it cannot continue. Stage what is still needed as a new run.', 409, 'RUN_UNDONE')
+  }
+  const paused = !!prior.run.paused
+  const age = Date.now() - new Date(existing.updated_at).getTime()
+  if (!paused && age < RUN_STALE_MS) {
+    throw new PendingActionServiceError(
+      'This run is still applying. Check list_runs or the Approvals page in a few minutes.', 409, 'ACTION_IN_PROGRESS',
+    )
+  }
+  if (existing.vehicle_id && entityCap(principal.access, existing.vehicle_id)) {
+    throw new PendingActionServiceError(
+      'You cannot continue this run: your access to its entity does not include changing it. Ask someone with write access there.',
+      403, 'ENTITY_LEVEL',
+    )
+  }
+  const now = new Date().toISOString()
+  const { data: claimed, error } = await (admin as any)
+    .from('pending_actions')
+    .update({ updated_at: now })
+    .eq('id', existing.id)
+    .eq('fund_id', principal.fundId)
+    .eq('status', 'approved')
+    .eq('updated_at', existing.updated_at)
+    .select('*')
+    .maybeSingle()
+  if (error) throw new Error(error.message)
+  if (!claimed) throw new PendingActionServiceError('This run is already being continued.', 409, 'ACTION_IN_PROGRESS')
+  await recordAudit(admin, {
+    fundId: principal.fundId, vehicleId: existing.vehicle_id ?? null, actorId: principal.userId, action: 'pending_action.continue',
+    subjectType: 'pending_action', subjectId: existing.id,
+    details: { actionType: existing.action_type, resumeAt: prior.run.resumeAt ?? null, inFlight: prior.run.inFlight ?? null, paused },
+  })
+  return applyClaimed(admin, principal, claimed as PendingActionRow, null, opts, prior)
+}
+
+/**
+ * Apply a claimed (approved) row and record the outcome. A run saves its progress after every step
+ * and may come back paused (`run.resumeAt`): then the row stays approved, holding where it got to,
+ * and approving it again continues it.
+ */
+async function applyClaimed(
+  admin: SupabaseClient,
+  principal: AnalystPrincipal,
+  existing: PendingActionRow,
+  execute: StagedAction['execute'] | null,
+  opts: ApproveOptions,
+  resume: RunResult | null = null,
+) {
+  const id = existing.id
+  const deps = {
+    admin,
+    fundId: principal.fundId,
+    userId: principal.userId,
+    // Whatever else the action touches resolves only in entities the approver may change.
+    access: writeAccess(principal.access),
+    ...(opts.origin ? { origin: opts.origin } : {}),
+  }
   try {
-    const result = await execute({
-      admin,
-      fundId: principal.fundId,
-      userId: principal.userId,
-      // Whatever else the action touches resolves only in entities the approver may change.
-      access: writeAccess(principal.access),
-      ...(opts.origin ? { origin: opts.origin } : {}),
-    }, existing.args)
+    const result = existing.action_type === AGENT_RUN
+      ? await executeRun(deps, existing.args, {
+        resume,
+        onProgress: async progress => {
+          await (admin as any)
+            .from('pending_actions')
+            .update({ applied_result: progress, updated_at: new Date().toISOString() })
+            .eq('id', id)
+            .eq('fund_id', principal.fundId)
+            .eq('status', 'approved')
+        },
+      })
+      : await execute!(deps, existing.args)
+    if (existing.action_type === AGENT_RUN && runResumeAt(result) != null) {
+      await (admin as any)
+        .from('pending_actions')
+        .update({ applied_result: result, updated_at: new Date().toISOString() })
+        .eq('id', id)
+        .eq('fund_id', principal.fundId)
+        .eq('status', 'approved')
+      return { ok: true, replayed: false, paused: true, result, action: actionDto({ ...existing, applied_result: result }) }
+    }
     const appliedAt = new Date().toISOString()
     const { data: applied, error } = await (admin as any)
       .from('pending_actions')
@@ -380,7 +473,8 @@ export async function listAgentRuns(admin: SupabaseClient, principal: AnalystPri
     .select('*')
     .eq('fund_id', principal.fundId)
     .eq('action_type', AGENT_RUN)
-    .in('status', ['applied', 'failed'])
+    .in('status', ['applied', 'failed', 'approved'])
+    .not('applied_result', 'is', null)
     .order('updated_at', { ascending: false })
     .limit(limit)
   if (error) throw new Error(error.message)
@@ -411,7 +505,9 @@ export async function undoAgentRun(admin: SupabaseClient, principal: AnalystPrin
   }
   authorizeDecision(principal, existing, 'approve')
   const prior = existing.applied_result as unknown as RunResult | null
-  if (!prior?.run || (existing.status !== 'applied' && existing.status !== 'failed')) {
+  // A paused run can be undone too: what it applied so far stays applied until someone continues it.
+  const pausedRun = existing.status === 'approved' && !!prior?.run?.paused
+  if (!prior?.run || (existing.status !== 'applied' && existing.status !== 'failed' && !pausedRun)) {
     throw new PendingActionServiceError('This run has not been applied, so there is nothing to undo.', 409, 'NOTHING_TO_UNDO')
   }
   if (prior.undo?.status === 'done') return { ok: true, replayed: true, action: actionDto(existing) }

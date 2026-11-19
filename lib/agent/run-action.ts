@@ -13,6 +13,10 @@
 // first failure, recording where; then it evaluates the expected checks. Steps are not one database
 // transaction — each tool commits as it goes — so what a run created can be undone where that is
 // safe (lib/agent/run-undo.ts), and the result says which steps cannot be.
+//
+// A run keeps its own clock (executeRun): it saves its progress around every step, starts a step
+// only with time left in the request, and pauses before the function limit instead of being cut
+// off. A paused run stays approved and continues from where it stopped when approved again.
 
 import Ajv, { type ValidateFunction } from 'ajv'
 import addFormats from 'ajv-formats'
@@ -46,7 +50,8 @@ export interface RunArgs {
 export interface StepOutcome {
   step: number
   tool: string
-  status: 'applied' | 'failed' | 'skipped'
+  /** `pending`: not reached yet because the run paused for time; it runs when the run continues. */
+  status: 'applied' | 'failed' | 'skipped' | 'pending'
   summary?: string
   /** The tool's result, whole when small, otherwise its ids and counts. */
   result?: unknown
@@ -67,6 +72,18 @@ export interface RunResult {
     /** The step the run stopped at (1-based), when one failed. */
     stoppedAt: number | null
     undoable: boolean
+    /**
+     * Set while the run is not finished: the step (1-based) it continues from. A run pauses on its
+     * own before the request's time limit would cut it off, and continues under the same approval.
+     */
+    resumeAt?: number | null
+    /**
+     * The step (1-based) that was executing when this progress was saved. Still set on a stored
+     * result means the request died during that step, so whether it applied is unknown.
+     */
+    inFlight?: number | null
+    /** Why the run paused, when it did. */
+    paused?: { at: string; message: string } | null
   }
   undo?: {
     status: 'running' | 'done' | 'partial'
@@ -300,31 +317,118 @@ async function runStep(deps: ActionDeps, step: RunStep): Promise<unknown> {
 }
 
 /**
+ * How long one approval request may keep starting steps. The MCP route and the approve routes run
+ * under a 300-second function limit; this leaves room for the step in flight to finish, the checks
+ * to run and the result to be saved. Before, a run had no clock of its own: each close watched its
+ * own 240 seconds, two of them in one run overran the limit, and the request was killed mid-step
+ * with nothing saved.
+ */
+export const RUN_TIME_BUDGET_MS = 240_000
+/** A new step is started only with at least this much of the run's budget left. */
+export const STEP_RESERVE_MS = 45_000
+/**
+ * Steps that are safe to run again after the request died in the middle of them: a close derives
+ * its start from the last closed period, so running it again picks up where it stopped.
+ */
+const RERUNNABLE_TOOLS = new Set(['close_period'])
+
+/** The months a close_period result reports as still open, if it stopped for time. */
+function closeRemaining(result: unknown): { from: string; months: number; message: string } | null {
+  const r = (result ?? {}) as Record<string, any>
+  return r.remaining && typeof r.remaining.months === 'number' && r.remaining.months > 0 ? r.remaining : null
+}
+
+/** A close step that ran in rounds: every month it closed, across rounds and requests. */
+function mergeCloseResults(prior: unknown, next: unknown): unknown {
+  const a = (prior ?? {}) as Record<string, any>
+  const b = (next ?? {}) as Record<string, any>
+  const closed = [...(Array.isArray(a.closed) ? a.closed : []), ...(Array.isArray(b.closed) ? b.closed : [])]
+  const merged: Record<string, unknown> = { ...b, closed }
+  if (!closeRemaining(b)) delete merged.remaining
+  return merged
+}
+
+export interface ExecuteRunOptions {
+  /** What an earlier request of this same approval did; the run continues from its `resumeAt`. */
+  resume?: RunResult | null
+  /** Called with the run's progress before and after each step, so a request that dies keeps a record. */
+  onProgress?: (progress: RunResult) => Promise<void>
+  now?: () => number
+  budgetMs?: number
+}
+
+/**
  * Apply a run as the approver: each step in order through its tool's own handler, then the checks.
  * Throws RunStepError at the first failed step, carrying the steps applied before it.
+ *
+ * Returns early, with `run.resumeAt` set, when the next step would not fit in the request's time
+ * budget; the approval service keeps the row approved, and approving it again continues from there.
+ * A close that runs out of time partway is run again in the same request while time allows (its
+ * start is derived, so it picks up where it stopped); it counts as applied only once every month
+ * through its date is closed.
  */
-export async function executeRun(deps: ActionDeps, raw: unknown): Promise<Record<string, unknown>> {
+export async function executeRun(deps: ActionDeps, raw: unknown, opts: ExecuteRunOptions = {}): Promise<Record<string, unknown>> {
   const args = requireRun(raw)
-  const steps: StepOutcome[] = []
-  for (const [i, step] of args.steps.entries()) {
+  const now = opts.now ?? Date.now
+  const deadline = now() + (opts.budgetMs ?? RUN_TIME_BUDGET_MS)
+  const prior = opts.resume?.run ?? null
+
+  // Outcomes carried over from earlier requests of this approval, by step number.
+  const outcomes = new Map<number, StepOutcome>()
+  for (const s of prior?.steps ?? []) if (s.status === 'applied') outcomes.set(s.step, s)
+  let start = prior?.resumeAt != null ? prior.resumeAt - 1 : 0
+
+  if (prior?.inFlight != null) {
+    const step = args.steps[prior.inFlight - 1]
+    if (!step || !RERUNNABLE_TOOLS.has(step.tool)) {
+      throw new RunStepError(
+        `Step ${prior.inFlight} of ${args.steps.length} (${step?.tool ?? 'unknown'}) was interrupted while it ran, so it is not known ` +
+        'whether it applied. Check the books for it, then stage what is still needed as a new run.',
+        snapshot(args, outcomes, { stoppedAt: prior.inFlight, inFlight: null }),
+      )
+    }
+    start = prior.inFlight - 1
+  }
+
+  let ranThisRequest = false
+  for (let i = start; i < args.steps.length; i++) {
+    const step = args.steps[i]
+    if (ranThisRequest && deadline - now() < STEP_RESERVE_MS) {
+      return pause(args, outcomes, i, opts) as unknown as Record<string, unknown>
+    }
+    ranThisRequest = true
+    // A close paused partway in an earlier request: its months closed so far carry over.
+    let carried: unknown = prior?.steps.find(s => s.step === i + 1 && s.status === 'pending')?.result ?? null
+
     try {
-      const result = await runStep(deps, step)
-      const soft = softFailure(result)
-      if (soft) throw new Error(soft)
-      const undo = undoTargetsFor(step.tool, step.input, result)
-      const notUndoable = notUndoableReason(step.tool, undo)
-      steps.push({
-        step: i + 1, tool: step.tool, status: 'applied', summary: resultSummary(step.tool, result), result: compactResult(result),
-        undo, ...(notUndoable ? { notUndoable } : {}),
-      })
+      for (;;) {
+        await opts.onProgress?.(snapshot(args, outcomes, { resumeAt: i + 1, inFlight: i + 1 }))
+        const result = await runStep({ ...deps, deadline }, step)
+        const soft = softFailure(result)
+        if (soft) throw new Error(soft)
+        const remaining = step.tool === 'close_period' ? closeRemaining(result) : null
+        if (remaining) {
+          carried = mergeCloseResults(carried, result)
+          if (deadline - now() >= STEP_RESERVE_MS) continue
+          outcomes.set(i + 1, {
+            step: i + 1, tool: step.tool, status: 'pending', summary: remaining.message, result: compactResult(carried),
+          })
+          return pause(args, outcomes, i, opts) as unknown as Record<string, unknown>
+        }
+        const final = carried ? mergeCloseResults(carried, result) : result
+        const undo = undoTargetsFor(step.tool, step.input, final)
+        const notUndoable = notUndoableReason(step.tool, undo)
+        outcomes.set(i + 1, {
+          step: i + 1, tool: step.tool, status: 'applied', summary: resultSummary(step.tool, final), result: compactResult(final),
+          undo, ...(notUndoable ? { notUndoable } : {}),
+        })
+        break
+      }
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e)
-      steps.push({ step: i + 1, tool: step.tool, status: 'failed', error: message })
-      for (let j = i + 1; j < args.steps.length; j++) steps.push({ step: j + 1, tool: args.steps[j].tool, status: 'skipped' })
-      const applied = steps.filter(s => s.status === 'applied').length
-      const result: RunResult = {
-        run: { steps, checks: [], checksFailed: null, stoppedAt: i + 1, undoable: steps.some(s => (s.undo?.length ?? 0) > 0) },
-      }
+      outcomes.set(i + 1, { step: i + 1, tool: step.tool, status: 'failed', error: message })
+      const result = snapshot(args, outcomes, { stoppedAt: i + 1, inFlight: null })
+      const applied = result.run.steps.filter(s => s.status === 'applied').length
       throw new RunStepError(
         `Step ${i + 1} of ${args.steps.length} (${step.tool}) failed: ${message} ` +
         (applied
@@ -333,11 +437,56 @@ export async function executeRun(deps: ActionDeps, raw: unknown): Promise<Record
         result,
       )
     }
+    await opts.onProgress?.(snapshot(args, outcomes, { resumeAt: i + 2 <= args.steps.length ? i + 2 : null, inFlight: null }))
   }
   const checks = await evaluateChecks(deps, args.expected)
   const failed = checks.filter(c => !c.passed).length
-  const result: RunResult = {
-    run: { steps, checks, checksFailed: failed || null, stoppedAt: null, undoable: steps.some(s => (s.undo?.length ?? 0) > 0) },
-  }
+  const result = snapshot(args, outcomes, {})
+  result.run.checks = checks
+  result.run.checksFailed = failed || null
   return result as unknown as Record<string, unknown>
+}
+
+/**
+ * The run as it stands: every step's outcome so far, the rest `pending` (paused or not reached) or
+ * `skipped` (after a failure).
+ */
+function snapshot(
+  args: RunArgs,
+  outcomes: Map<number, StepOutcome>,
+  state: { stoppedAt?: number; resumeAt?: number | null; inFlight?: number | null; paused?: RunResult['run']['paused'] },
+): RunResult {
+  const steps = args.steps.map((step, i) =>
+    outcomes.get(i + 1) ?? { step: i + 1, tool: step.tool, status: state.stoppedAt != null ? 'skipped' as const : 'pending' as const })
+  return {
+    run: {
+      steps,
+      checks: [],
+      checksFailed: null,
+      stoppedAt: state.stoppedAt ?? null,
+      undoable: steps.some(s => (s.undo?.length ?? 0) > 0),
+      ...(state.resumeAt != null ? { resumeAt: state.resumeAt } : {}),
+      ...(state.inFlight != null ? { inFlight: state.inFlight } : {}),
+      ...(state.paused ? { paused: state.paused } : {}),
+    },
+  }
+}
+
+function pause(args: RunArgs, outcomes: Map<number, StepOutcome>, index: number, opts: ExecuteRunOptions): RunResult {
+  const done = [...outcomes.values()].filter(s => s.status === 'applied').length
+  return snapshot(args, outcomes, {
+    resumeAt: index + 1,
+    inFlight: null,
+    paused: {
+      at: new Date((opts.now ?? Date.now)()).toISOString(),
+      message: `Paused before the request's time limit, with ${done} of ${args.steps.length} steps applied. ` +
+        `Approve it again to continue from step ${index + 1}; it runs under the same approval.`,
+    },
+  })
+}
+
+/** Whether a stored run result is a run that has not finished and can continue. */
+export function runResumeAt(result: unknown): number | null {
+  const r = (result as RunResult | null)?.run
+  return r && typeof r.resumeAt === 'number' && r.stoppedAt == null ? r.resumeAt : null
 }

@@ -40,6 +40,12 @@ export interface ActionDeps {
    * back into this deployment (a PDF attachment, publishing notices) uses it. Absent = the site origin.
    */
   origin?: string
+  /**
+   * Epoch ms by which the request applying this must be done, when it runs under a time limit (a
+   * run's own clock, lib/agent/run-action.ts). A step that works in rounds, like a close, fits
+   * itself inside it. Absent = the step's own default budget.
+   */
+  deadline?: number
 }
 
 export interface PendingAction {
