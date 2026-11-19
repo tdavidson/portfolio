@@ -126,6 +126,7 @@ export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
         cost_basis_exited: { type: 'number' },
         proceeds_received: { type: 'number', description: 'Exit: GROSS proceeds, escrow included (not the cash received).' },
         proceeds_escrow: { type: 'number', description: 'Exit: the part of proceeds_received held back in escrow.' },
+        consideration_in_kind: { type: 'number', description: 'Paid in securities, not cash: on an exit the part of the gross paid in shares; on an investment the part of the cost paid with them.' },
         converts_from_txn_id: { type: 'string', description: 'Prior SAFE/note transaction this priced round converts.' },
       },
     },

@@ -47,3 +47,28 @@ export function escrowExceedsGross(t: { transaction_type?: unknown; proceeds_rec
   }
   return null
 }
+
+/**
+ * Why a row's securities-settled consideration doesn't fit, or null. On an exit, cash is the gross
+ * less escrow less what came as shares, so escrow and shares together can't exceed the gross. On a
+ * purchase, the shares can't pay for more than the cost.
+ */
+export function inKindExceeds(t: {
+  transaction_type?: unknown; proceeds_received?: unknown; proceeds_escrow?: unknown
+  investment_cost?: unknown; consideration_in_kind?: unknown
+}): string | null {
+  const inKind = n(t.consideration_in_kind)
+  if (inKind <= 0) return null
+  if (t.transaction_type === 'proceeds') {
+    if (inKind + n(t.proceeds_escrow) - n(t.proceeds_received) > 0.005) {
+      return 'The part paid in shares plus the escrow is larger than the proceeds. Proceeds is the GROSS, '
+        + 'including what came as shares and what is held in escrow.'
+    }
+    return null
+  }
+  if (t.transaction_type === 'investment') {
+    if (inKind - n(t.investment_cost) > 0.005) return 'The part paid in securities is larger than the investment cost.'
+    return null
+  }
+  return 'consideration_in_kind applies only to an exit (proceeds) or a purchase (investment).'
+}

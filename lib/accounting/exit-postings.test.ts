@@ -180,3 +180,31 @@ describe('exitPostings', () => {
     expect(bal(p, 'gain4000')).toBe(-200_000)
   })
 })
+
+describe('exitPostings — an acquisition paid partly in the buyer\'s shares', () => {
+  const IN_KIND: ExitAccounts = { ...ACC, inKindId: 'shares1360' }
+
+  it('books the shares to 1360, not cash, and realizes the gain on the whole consideration', () => {
+    // Cost 400k, marked up 100k. Sold for 1m: 300k cash, 100k escrow, 600k in the buyer's stock.
+    const p = exitPostings(
+      { proceeds: 1_000_000, escrow: 100_000, inKind: 600_000, basis: 400_000, carried: { cost: 400_000, unrealized: 100_000, fx: 0 } },
+      IN_KIND
+    )
+    expect(() => balanced(p)).not.toThrow()
+    expect(bal(p, 'cash')).toBe(300_000)
+    expect(bal(p, 'escrow1350')).toBe(100_000)
+    expect(bal(p, 'shares1360')).toBe(600_000)
+    expect(bal(p, 'gain4000')).toBe(-600_000)
+    expect(bal(p, 'unreal1200')).toBe(-100_000)
+  })
+
+  it('posts no cash line when all of the consideration is shares', () => {
+    const p = exitPostings(
+      { proceeds: 500_000, inKind: 500_000, basis: 200_000, carried: { cost: 200_000, unrealized: 0, fx: 0 } },
+      IN_KIND
+    )
+    expect(p.some(x => x.accountId === 'cash')).toBe(false)
+    expect(bal(p, 'shares1360')).toBe(500_000)
+    expect(bal(p, 'gain4000')).toBe(-300_000)
+  })
+})

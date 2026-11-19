@@ -32,7 +32,7 @@ export const EDITABLE_TXN_FIELDS = [
   'split_ratio',
   // Income the position produced, and acquisition costs capitalised into its basis.
   'income_kind', 'income_settlement', 'income_amount', 'fee_amount',
-  'cost_basis_exited', 'proceeds_received', 'proceeds_escrow',
+  'cost_basis_exited', 'proceeds_received', 'proceeds_escrow', 'consideration_in_kind',
   'proceeds_written_off', 'proceeds_per_share',
   'unrealized_value_change', 'current_share_price',
   'postmoney_valuation', 'ownership_pct', 'latest_postmoney_valuation', 'exit_valuation',
