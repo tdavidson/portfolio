@@ -280,15 +280,19 @@ export async function previewClose(
   // more allocated entries than that used to look as if the rest had never been allocated — and
   // the close allocated them again. Paged, and a failed read refuses the preview rather than
   // reading as "nothing allocated".
+  //
+  // Only the period's entries are asked about: every use below is cut to the period
+  // (postingsInPeriod, which also keeps undated postings), so an allocation row for an entry
+  // outside it changes nothing. A vehicle's whole allocation table runs to tens of thousands of
+  // rows, and reading it page by page was most of each month's close.
+  const periodEntryIds = Array.from(new Set(
+    postingsInPeriod(sourcedPostings, periodStart, periodEnd).map(p => p.entryId),
+  ))
   let allocatedRows: any[]
   let skips: Map<string, string>
   try {
     [allocatedRows, skips] = await Promise.all([
-      vehicleId
-        ? fetchAllRows<any>((from, to) => admin.from('journal_entry_allocations' as any)
-          .select('id, source_entry_id').eq('fund_id', fundId).eq('vehicle_id', vehicleId)
-          .order('id', { ascending: true }).range(from, to))
-        : Promise.resolve([]),
+      vehicleId ? allocationRowsFor(admin, fundId, vehicleId, periodEntryIds) : Promise.resolve([]),
       vehicleId ? loadAllocationSkips(admin, fundId, vehicleId) : Promise.resolve(new Map<string, string>()),
     ])
   } catch (error) {
@@ -2221,4 +2225,36 @@ async function voidCloseEntries(
   if (voidErr) return { error: voidErr.message }
 
   return { count: ids.length }
+}
+
+/** Entries above this many are checked against one full read of the vehicle's allocation rows
+ *  rather than by id, which would take more round trips than the pages. */
+const ALLOCATION_BY_ID_LIMIT = 4000
+
+/**
+ * The allocation rows (id, source_entry_id) whose source is one of `entryIds`: by id, 200 at a
+ * time and a few chunks at once, or, for more entries than that is worth, the whole vehicle's
+ * rows read in pages and cut to them. A failed read throws.
+ */
+async function allocationRowsFor(admin: SupabaseClient, fundId: string, vehicleId: string, entryIds: string[]): Promise<any[]> {
+  if (entryIds.length === 0) return []
+  if (entryIds.length > ALLOCATION_BY_ID_LIMIT) {
+    const wanted = new Set(entryIds)
+    return (await fetchAllRows<any>((from, to) => admin.from('journal_entry_allocations' as any)
+      .select('id, source_entry_id').eq('fund_id', fundId).eq('vehicle_id', vehicleId)
+      .order('id', { ascending: true }).range(from, to))).filter(r => wanted.has(r.source_entry_id))
+  }
+  const chunks: string[][] = []
+  for (let i = 0; i < entryIds.length; i += 200) chunks.push(entryIds.slice(i, i + 200))
+  const out: any[][] = new Array(chunks.length)
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(4, chunks.length) }, async () => {
+    while (next < chunks.length) {
+      const i = next++
+      out[i] = await fetchAllRows<any>((from, to) => admin.from('journal_entry_allocations' as any)
+        .select('id, source_entry_id').eq('fund_id', fundId).eq('vehicle_id', vehicleId).in('source_entry_id', chunks[i])
+        .order('id', { ascending: true }).range(from, to))
+    }
+  }))
+  return out.flat()
 }

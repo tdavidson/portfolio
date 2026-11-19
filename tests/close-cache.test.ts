@@ -59,6 +59,19 @@ describe('a close with the cache writes exactly what a close without it writes',
   })
 })
 
+describe('which entries are already allocated', () => {
+  it('is read for the month being closed, not the whole vehicle', async () => {
+    const m = buildFixture({ months: 24, noisePerMonth: 40, allocatedEvery: 2 })
+    const total = m.tables.journal_entry_allocations.length
+    await closeThrough(m.admin, FUND, GROUP, 'user-1', '2021-10-31', { budgetMs: 1e9 })
+    const io = instrument(m.admin)
+    const r = await closeThrough(io.admin, FUND, GROUP, 'user-1', '2021-11-30', { budgetMs: 1e9 })
+    expect('closed' in r && r.closed).toHaveLength(1)
+    expect(total).toBeGreaterThan(450)
+    expect(io.rowsOf('journal_entry_allocations')).toBeLessThan(total / 10)
+  })
+})
+
 describe('the close preview with the cache', () => {
   it('previews every month exactly as without it', async () => {
     const a = buildFixture({ months: 14, noisePerMonth: 10, allocatedEvery: 4, carry: true })
