@@ -7,6 +7,7 @@ import { loadEntityNames } from '@/lib/accounting/load'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { loadAccessContext } from '@/lib/access/effective'
 import { canSeeVehicle } from '@/lib/access/scope'
+import { setVehicleGpLink } from '@/lib/accounting/gp-links'
 
 // CRUD for `vehicle_gp_links` — the many-to-many "gp_vehicle_id is a GP of served_vehicle_id, as
 // partner lp_entity_id" table. The `?group=` names the SERVED vehicle throughout.
@@ -88,35 +89,9 @@ export async function POST(req: NextRequest) {
   const servedVehicleId = await vehicleIdByName(admin, gate.fundId, group)
   if (!servedVehicleId) return NextResponse.json({ error: 'Vehicle not found' }, { status: 404 })
 
-  const { data: gpVehicle, error: gpError } = await admin
-    .from('fund_vehicles' as any)
-    .select('id')
-    .eq('fund_id', gate.fundId)
-    .eq('id', gpVehicleId)
-    .maybeSingle()
-  if (gpError) return NextResponse.json({ error: gpError.message }, { status: 500 })
-  if (!gpVehicle) return NextResponse.json({ error: 'gpVehicleId is not a vehicle in this fund' }, { status: 400 })
-
-  // The "as which partner" id, if given, must belong to THIS fund — lp_entities is a cross-fund
-  // table, so an unvalidated id could plant a foreign entity on the link.
-  const lpEntityId = body?.lpEntityId ?? null
-  if (lpEntityId) {
-    const { data: ent } = await admin.from('lp_entities' as any).select('id').eq('fund_id', gate.fundId).eq('id', lpEntityId).maybeSingle()
-    if (!ent) return NextResponse.json({ error: 'That partner is not in this fund.' }, { status: 400 })
-  }
-
-  const { error } = await admin
-    .from('vehicle_gp_links' as any)
-    .upsert(
-      {
-        fund_id: gate.fundId,
-        gp_vehicle_id: gpVehicleId,
-        served_vehicle_id: servedVehicleId,
-        lp_entity_id: lpEntityId,
-      },
-      { onConflict: 'gp_vehicle_id,served_vehicle_id' }
-    )
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  // Both ids are checked against this fund in setVehicleGpLink (lp_entities is cross-fund).
+  const refusal = await setVehicleGpLink(admin, gate.fundId, { servedVehicleId, gpVehicleId, lpEntityId: body?.lpEntityId ?? null })
+  if (refusal) return NextResponse.json({ error: refusal }, { status: 400 })
   return NextResponse.json({ ok: true })
 }
 
