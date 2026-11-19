@@ -7,11 +7,11 @@ import { computeCapitalAccounts } from './capital-account'
 describe('markupPostings', () => {
   const postings = [
     // The associate's own legal fee, allocated to a member (no markup asset account on its entry).
-    { entryId: 'own-fee', lpEntityId: 'm1', amount: 2_000, sourceType: 'partnership_expense' },
+    { entryId: 'own-fee', lpEntityId: 'm1', amount: 1_000, sourceType: 'partnership_expense' },
     // Its own bank interest.
     { entryId: 'own-interest', lpEntityId: 'm1', amount: -50, sourceType: 'income' },
     // An earlier close's markup: the member's share of the fund's expenses and carry.
-    { entryId: 'markup-1', lpEntityId: 'm1', amount: 300, sourceType: 'partnership_expense' },
+    { entryId: 'markup-1', lpEntityId: 'm1', amount: 200, sourceType: 'partnership_expense' },
     { entryId: 'markup-2', lpEntityId: 'm1', amount: -10_000, sourceType: 'carried_interest' },
     // A member contribution recorded against the investment account on an older chart.
     { entryId: 'markup-1', lpEntityId: 'm1', amount: -1_000, sourceType: 'contribution' },
