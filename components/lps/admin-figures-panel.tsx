@@ -1,7 +1,8 @@
 'use client'
 
 // The administrator's figures for an admin-reported vehicle (lib/admin-reporting): who keeps the
-// vehicle's books, the pulls saved for it, and a pull (from Carta, or a CSV) checked before saving.
+// vehicle's books, the pulls saved for it, and a pull checked before saving: from any fund
+// administrator's MCP server the app has a built-in pull for, or a CSV.
 // Nothing here recalculates a figure: the preview shows what the administrator states, and what
 // stops a save is only a partner who isn't matched or a figure that is missing.
 
@@ -14,7 +15,8 @@ interface PullSummary {
   id: string; asOf: string; source: string; channel: string; status: 'saved' | 'superseded'
   partners: number; fund: { irr: number | null; tvpi: number | null; dpi: number | null } | null; savedAt: string
 }
-interface State { recordSource: 'books' | 'admin'; provider: 'carta' | 'csv' | 'other' | null; fundRef: string | null; pulls: PullSummary[] }
+interface Administrator { id: string; name: string; builtInPull: boolean }
+interface State { recordSource: 'books' | 'admin'; provider: string | null; fundRef: string | null; administrators: Administrator[]; pulls: PullSummary[] }
 interface Position { externalId: string; name: string; commitment: number | null; paidIn: number | null; distributions: number | null; nav: number | null }
 interface Preview {
   figures: { asOf: string; source: string; positions: Position[]; fund: { irr: number | null; tvpi: number | null; dpi: number | null } }
@@ -41,14 +43,14 @@ export function AdminFiguresPanel({ group, canEdit, onSaved }: { group: string; 
   const [fund, setFund] = useState({ irr: '', tvpi: '', dpi: '' })
   // Setup inputs.
   const [setup, setSetup] = useState(false)
-  const [provider, setProvider] = useState<'carta' | 'csv' | 'other'>('carta')
+  const [provider, setProvider] = useState('')
   const [fundRef, setFundRef] = useState('')
 
   const load = useCallback(() => {
     if (!group) return
     fetch(`/api/accounting/admin-figures?group=${encodeURIComponent(group)}`)
       .then(r => (r.ok ? r.json() : null))
-      .then(d => setState(d ? { recordSource: d.recordSource, provider: d.provider, fundRef: d.fundRef, pulls: d.pulls ?? [] } : null))
+      .then(d => setState(d ? { recordSource: d.recordSource, provider: d.provider, fundRef: d.fundRef, administrators: d.administrators ?? [], pulls: d.pulls ?? [] } : null))
       .catch(() => setState(null))
   }, [group])
   // The view keys this panel by entity, so switching entity starts it fresh.
@@ -70,7 +72,7 @@ export function AdminFiguresPanel({ group, canEdit, onSaved }: { group: string; 
     setBusy(true); setError(null)
     const res = await fetch('/api/accounting/admin-figures', {
       method: 'PUT', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ group, record_source: recordSource, provider, fund_ref: fundRef }),
+      body: JSON.stringify({ group, record_source: recordSource, provider: provider || state?.administrators[0]?.id || 'csv', fund_ref: fundRef }),
     })
     const d = await res.json().catch(() => ({}))
     setBusy(false)
@@ -103,6 +105,10 @@ export function AdminFiguresPanel({ group, canEdit, onSaved }: { group: string; 
   }
 
   if (!state) return null
+  // The vehicle's administrator, when it is one of the deployment's fund-admin MCP servers.
+  const current = state.administrators.find(a => a.id === state.provider) ?? null
+  const chosen = provider || state.administrators[0]?.id || 'csv'
+  const chosenAdmin = state.administrators.find(a => a.id === chosen) ?? null
 
   if (state.recordSource === 'books') {
     if (!canEdit) return null
@@ -122,19 +128,19 @@ export function AdminFiguresPanel({ group, canEdit, onSaved }: { group: string; 
           <div className="flex flex-wrap items-end gap-2">
             <label className="text-xs text-muted-foreground space-y-1">
               <span className="block">Administrator</span>
-              <select value={provider} onChange={e => setProvider(e.target.value as any)} className="h-9 rounded-md border border-input bg-background px-2 text-sm">
-                <option value="carta">Carta</option>
+              <select value={chosen} onChange={e => setProvider(e.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-sm">
+                {state.administrators.map(a => <option key={a.id} value={a.id}>{a.name}</option>)}
                 <option value="csv">CSV export</option>
-                <option value="other">Other</option>
+                <option value="other">Other (figures given by hand)</option>
               </select>
             </label>
-            {provider === 'carta' && (
+            {chosenAdmin && (
               <label className="text-xs text-muted-foreground space-y-1">
-                <span className="block">Carta fund id</span>
-                <Input value={fundRef} onChange={e => setFundRef(e.target.value)} placeholder="00000000-0000-0000-0000-000000000000" className="h-9 w-80" />
+                <span className="block">Fund id at {chosenAdmin.name}{chosenAdmin.builtInPull ? '' : ' (optional)'}</span>
+                <Input value={fundRef} onChange={e => setFundRef(e.target.value)} className="h-9 w-80" />
               </label>
             )}
-            <Button size="sm" onClick={() => saveSetup('admin')} disabled={busy || (provider === 'carta' && !fundRef.trim())}>Save</Button>
+            <Button size="sm" onClick={() => saveSetup('admin')} disabled={busy || (!!chosenAdmin?.builtInPull && !fundRef.trim())}>Save</Button>
             <Button size="sm" variant="ghost" onClick={() => setSetup(false)}>Cancel</Button>
           </div>
         )}
@@ -158,7 +164,7 @@ export function AdminFiguresPanel({ group, canEdit, onSaved }: { group: string; 
         )}
       </div>
       <p className="text-xs text-muted-foreground">
-        The LP cards for this entity show {state.provider === 'carta' ? 'Carta' : 'the administrator'}&apos;s figures as stated: each
+        The LP cards for this entity show {current?.name ?? 'the administrator'}&apos;s figures as stated: each
         partner&apos;s commitment, paid-in, distributions and NAV, and the fund&apos;s net LP-only IRR, TVPI and DPI on every row.
         {latest ? ` Latest saved: ${latest.asOf} (${latest.source}).` : ' Nothing is saved yet.'}
       </p>
@@ -193,9 +199,9 @@ export function AdminFiguresPanel({ group, canEdit, onSaved }: { group: string; 
               <span className="block">As of (quarter end)</span>
               <Input type="date" value={asOf} onChange={e => setAsOf(e.target.value)} className="h-9 w-40" />
             </label>
-            {state.provider === 'carta' ? (
+            {current?.builtInPull ? (
               <Button size="sm" onClick={pull} disabled={busy || !asOf}>
-                {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Download className="h-4 w-4 mr-1" />} Pull from Carta
+                {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Download className="h-4 w-4 mr-1" />} Pull from {current.name}
               </Button>
             ) : (
               <>
@@ -223,7 +229,13 @@ export function AdminFiguresPanel({ group, canEdit, onSaved }: { group: string; 
               </>
             )}
           </div>
-          {state.provider !== 'carta' && (
+          {current && !current.builtInPull && (
+            <p className="text-xs text-muted-foreground">
+              The app has no built-in pull for {current.name} yet. Ask the assistant to pull it: it reads {current.name} with your own
+              connection and stages the figures for approval. Or upload a CSV here.
+            </p>
+          )}
+          {!current?.builtInPull && (
             <p className="text-xs text-muted-foreground">The CSV needs columns Name, Commitment, Paid-in, Distributions and NAV; Partner ID and Receivable are optional.</p>
           )}
         </div>

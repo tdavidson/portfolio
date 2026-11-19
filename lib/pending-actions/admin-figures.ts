@@ -11,6 +11,7 @@ import { resolveVehicle } from '@/lib/accounting/vehicle-resolver'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { previewAdminPull, saveAdminPull, setVehicleRecordSource } from '@/lib/admin-reporting/store'
 import { loadVehicleRecordSource } from '@/lib/admin-reporting/load'
+import { adapterFor, fundAdminServer, MANUAL_SOURCES } from '@/lib/admin-reporting/adapters'
 
 const money = (n: number | null) => (n == null ? '—' : n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 }))
 const explained = (input: { explanation?: string }) => (input?.explanation ? { explanation: String(input.explanation).slice(0, 2000) } : {})
@@ -66,11 +67,16 @@ export async function previewSetVehicleRecordSource(deps: ActionDeps, input: any
   const before = await loadVehicleRecordSource(deps.admin, deps.fundId, vehicle.id)
   const to = input?.record_source
   if (to !== 'books' && to !== 'admin') throw new Error('record_source must be books or admin')
-  if (to === 'admin' && !['carta', 'csv', 'other'].includes(String(input?.provider ?? ''))) throw new Error('provider must be carta, csv or other')
-  if (to === 'admin' && input?.provider === 'carta' && !String(input?.fund_ref ?? '').trim()) throw new Error("fund_ref is required for Carta: the fund's id at Carta")
+  const server = to === 'admin' ? fundAdminServer(String(input?.provider ?? '').trim().toLowerCase()) : null
+  if (to === 'admin' && !server && !(MANUAL_SOURCES as readonly string[]).includes(String(input?.provider ?? ''))) {
+    throw new Error("provider must be a fund administrator's MCP server (admin_pulls lists them), or csv / other")
+  }
+  const adapter = adapterFor(server)
+  const refProblem = adapter ? adapter.checkFundRef(String(input?.fund_ref ?? '').trim()) : null
+  if (refProblem) throw new Error(`fund_ref is needed for ${server!.name} (${adapter!.fundRefHint}). ${refProblem}`)
   return {
     summary: to === 'admin'
-      ? `Report ${vehicle.name} from its administrator's figures (${input.provider})`
+      ? `Report ${vehicle.name} from its administrator's figures (${server?.name ?? input.provider})`
       : `Report ${vehicle.name} from the app's own books`,
     details: {
       vehicle: vehicle.name,

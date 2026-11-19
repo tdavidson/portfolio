@@ -1,4 +1,5 @@
-// Pulling an admin-reported vehicle's figures from Carta, with the asking member's own Carta sign-in.
+// Carta's built-in pull (one adapter of lib/admin-reporting/adapters.ts), run with the asking member's
+// own sign-in to the server the deployment configured for Carta.
 //
 // Carta's MCP server reaches its fund administration warehouse through `read_tool`, which runs a read
 // command by name; `dwh__execute__query` runs one SELECT. Two queries per pull, both for one fund and
@@ -13,10 +14,8 @@
 // back exactly as Carta states them, shaped for cleanAdminFigures. RVPI and the call receivable are
 // not pulled: Carta keeps no LP-only RVPI by quarter, and its receivable is current only.
 
-import type { SupabaseClient } from '@supabase/supabase-js'
-import { getMcpServerForUser } from '@/lib/mcp-client/connections'
 import { callMcpTool, type McpToolsError } from '@/lib/mcp-client/tools'
-import type { FetchLike } from '@/lib/mcp-client/oauth'
+import type { AdminPullAdapter } from './adapters'
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
 const ISO = /^\d{4}-\d{2}-\d{2}$/
@@ -90,37 +89,35 @@ export function cartaFigures(asOf: string, positionRows: Record<string, unknown>
   }
 }
 
-export type CartaPull =
-  | { ok: true; input: ReturnType<typeof cartaFigures>; raw: { positions: Record<string, unknown>[]; fund: Record<string, unknown>[] } }
-  | { ok: false; error: string }
-
-/** Pull one date's figures from Carta with this member's own connection. Writes nothing. */
-export async function pullFromCarta(
-  admin: SupabaseClient, userId: string, fundRef: string, asOf: string, opts: { fetchImpl?: FetchLike } = {},
-): Promise<CartaPull> {
-  let queries: { positions: string; fund: string }
-  try { queries = cartaQueries(fundRef, asOf) } catch (e: any) { return { ok: false, error: e.message } }
-  const server = await getMcpServerForUser(admin, userId, 'carta', opts)
-  if (!server) {
-    return { ok: false, error: 'Connect your Carta account in Settings → Connectors first (an admin turns Carta on for the fund).' }
-  }
-  if (!server.allowedTools?.includes(READ_TOOL)) {
-    return { ok: false, error: "Your Carta connection doesn't offer the read command the pull needs. Reconnect Carta in Settings." }
-  }
-  const run = (sql: string) => callMcpTool(server.url, server.authorizationToken!, READ_TOOL, {
-    name: QUERY_COMMAND,
-    arguments: { sql, format: 'ndjson', response_mode: 'inline' },
-    _instrumentation_v2: { plugins: [], skills: [], surface: 'other' },
-  }, { fetchImpl: opts.fetchImpl })
-  try {
-    const [posText, fundText] = await Promise.all([run(queries.positions), run(queries.fund)])
-    const positions = parseCartaRows(posText)
-    const fund = parseCartaRows(fundText)
-    if (positions.length === 0) {
-      return { ok: false, error: `Carta has no partner figures for that fund at ${asOf}. Check the date is a month end Carta has closed, and the fund id.` }
+/**
+ * Carta's pull, given the member's connection to whichever configured server runs Carta's MCP.
+ * Writes nothing.
+ */
+export const cartaAdapter: AdminPullAdapter = {
+  name: 'Carta',
+  fundRefHint: "Carta's fund UUID",
+  checkFundRef: ref => (UUID.test(ref) ? null : "The vehicle's Carta fund id must be a UUID."),
+  async pull(conn, fundRef, asOf, opts = {}) {
+    let queries: { positions: string; fund: string }
+    try { queries = cartaQueries(fundRef, asOf) } catch (e: any) { return { ok: false, error: e.message } }
+    if (!conn.allowedTools?.includes(READ_TOOL)) {
+      return { ok: false, error: "Your Carta connection doesn't offer the read command the pull needs. Reconnect it in Settings." }
     }
-    return { ok: true, input: cartaFigures(asOf, positions, fund), raw: { positions, fund } }
-  } catch (e) {
-    return { ok: false, error: `Carta didn't answer the pull: ${(e as McpToolsError)?.message ?? 'unknown error'}` }
-  }
+    const run = (sql: string) => callMcpTool(conn.url, conn.authorizationToken!, READ_TOOL, {
+      name: QUERY_COMMAND,
+      arguments: { sql, format: 'ndjson', response_mode: 'inline' },
+      _instrumentation_v2: { plugins: [], skills: [], surface: 'other' },
+    }, { fetchImpl: opts.fetchImpl })
+    try {
+      const [posText, fundText] = await Promise.all([run(queries.positions), run(queries.fund)])
+      const positions = parseCartaRows(posText)
+      const fund = parseCartaRows(fundText)
+      if (positions.length === 0) {
+        return { ok: false, error: `Carta has no partner figures for that fund at ${asOf}. Check the date is a month end Carta has closed, and the fund id.` }
+      }
+      return { ok: true, input: cartaFigures(asOf, positions, fund), raw: { positions, fund } }
+    } catch (e) {
+      return { ok: false, error: `Carta didn't answer the pull: ${(e as McpToolsError)?.message ?? 'unknown error'}` }
+    }
+  },
 }

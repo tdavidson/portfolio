@@ -4,7 +4,8 @@ import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { loadVehicleRecordSource } from '@/lib/admin-reporting/load'
 import { listAdminPulls, previewAdminPull } from '@/lib/admin-reporting/store'
-import { pullFromCarta } from '@/lib/admin-reporting/carta'
+import { adapterFor, fundAdminServer, pullFromAdmin } from '@/lib/admin-reporting/adapters'
+import { fundAdminMcpServers } from '@/lib/mcp-client/servers'
 
 const staged = (name: string): AgentToolHandler => async () => {
   throw new Error(`${name} is always staged for approval; it cannot run directly.`)
@@ -26,6 +27,7 @@ export const ADMIN_REPORTING_HANDLERS: Record<string, AgentToolHandler> = {
     return {
       vehicle: ctx.portfolioGroup,
       ...source,
+      administrators: fundAdminMcpServers().map(s => ({ id: s.id, name: s.name, builtInPull: !!adapterFor(s) })),
       pulls,
       ...(source.recordSource === 'books'
         ? { note: `${ctx.portfolioGroup} keeps its own books. set_vehicle_record_source makes it report its administrator's figures.` }
@@ -39,11 +41,24 @@ export const ADMIN_REPORTING_HANDLERS: Record<string, AgentToolHandler> = {
     if (source.recordSource !== 'admin') {
       throw new Error(`${ctx.portfolioGroup} keeps its own books. Set it to report its administrator's figures first (set_vehicle_record_source).`)
     }
-    if (source.provider !== 'carta') {
-      throw new Error(`${ctx.portfolioGroup}'s administrator has no direct pull. Give its figures to stage_admin_figures as the administrator states them.`)
+    const server = fundAdminServer(source.provider)
+    if (!server) {
+      throw new Error(`${ctx.portfolioGroup}'s figures are given by hand (${source.provider ?? 'no administrator set'}). Give them to stage_admin_figures as the administrator states them.`)
     }
-    if (!ctx.userId) throw new Error('A Carta pull reads with your own Carta connection, so it needs a signed-in member, not a fund key.')
-    const pulled = await pullFromCarta(ctx.admin, ctx.userId, source.fundRef ?? '', String(input?.as_of ?? ''))
+    if (!adapterFor(server)) {
+      // Any administrator with an MCP server can be a source; the app just has no built-in pull for this one.
+      return {
+        vehicle: ctx.portfolioGroup,
+        administrator: server.name,
+        builtInPull: false,
+        fundRef: source.fundRef,
+        next: `Read ${server.name}'s figures for ${input?.as_of ?? 'the date'} with its own MCP tools in this chat${source.fundRef ? ` (the vehicle's id there is ${source.fundRef})` : ''}: ` +
+          "each partner's commitment, paid-in, distributions and NAV, and the fund's net LP-only IRR, TVPI and DPI, exactly as stated. " +
+          `Then call stage_admin_figures with source "${server.name}". Recalculate nothing.`,
+      }
+    }
+    if (!ctx.userId) throw new Error(`A pull reads ${server.name} with your own connection, so it needs a signed-in member, not a fund key.`)
+    const pulled = await pullFromAdmin(ctx.admin, ctx.userId, source.provider, source.fundRef, String(input?.as_of ?? ''))
     if (!pulled.ok) throw new Error(pulled.error)
     const checked = await previewAdminPull(ctx.admin, ctx.fundId, { id: vehicleId, name: ctx.portfolioGroup }, pulled.input)
     if (!checked.ok) throw new Error(checked.error)
@@ -54,8 +69,8 @@ export const ADMIN_REPORTING_HANDLERS: Record<string, AgentToolHandler> = {
       flags: { blocking: flags.blocking, warnings: flags.warnings, changes: flags.changes },
       // Pass exactly this to stage_admin_figures; lp_entity_id is filled in where a partner was matched.
       figures: {
-        ...pulled.input,
-        positions: pulled.input.positions.map((p, i) => ({ ...p, ...(flags.matches[i]?.lpEntityId ? { lp_entity_id: flags.matches[i].lpEntityId } : {}) })),
+        ...(pulled.input as Record<string, any>),
+        positions: ((pulled.input as any).positions as any[]).map((p, i) => ({ ...p, ...(flags.matches[i]?.lpEntityId ? { lp_entity_id: flags.matches[i].lpEntityId } : {}) })),
       },
       next: ready
         ? 'Show the person the totals and the fund figures, then stage_admin_figures with `figures` as given.'

@@ -55,3 +55,27 @@ describe('positionsFromCsv', () => {
     expect(positionsFromCsv('Name,Commitment\nJane,1\n')).toMatch(/paid-in, distributions, nav/)
   })
 })
+
+describe('fund administrators', () => {
+  it('reads any number of administrator servers from the setting, ignoring bad entries', async () => {
+    const { fundAdminServers } = await import('@/lib/mcp-client/servers')
+    const servers = fundAdminServers(JSON.stringify([
+      { id: 'carta', name: 'Carta', url: 'https://mcp.carta.example/mcp', adapter: 'carta' },
+      { id: 'acme-admin', name: 'Acme Fund Services', url: 'https://mcp.acme.example/mcp' },
+      { id: 'insecure', name: 'Plain', url: 'http://mcp.plain.example/mcp' },
+      { id: 'specter', name: 'Taken', url: 'https://x.example/mcp' },
+      { id: 'acme-admin', name: 'Again', url: 'https://y.example/mcp' },
+    ]))
+    expect(servers.map(s => [s.id, s.kind, s.adapter ?? null])).toEqual([
+      ['carta', 'fund_admin', 'carta'],
+      ['acme-admin', 'fund_admin', null],
+    ])
+    expect(fundAdminServers('not json')).toEqual([])
+  })
+
+  it('has a built-in pull only where a server names a known adapter', async () => {
+    const { adapterFor } = await import('./adapters')
+    expect(adapterFor({ id: 'x', name: 'X', url: 'https://x.example', description: '', usedFor: '', kind: 'fund_admin', adapter: 'carta' })?.name).toBe('Carta')
+    expect(adapterFor({ id: 'y', name: 'Y', url: 'https://y.example', description: '', usedFor: '', kind: 'fund_admin' })).toBeNull()
+  })
+})

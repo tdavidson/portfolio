@@ -53,8 +53,12 @@ export const RECORD_SOURCE_PROPERTIES = {
     type: 'string', enum: ['books', 'admin'],
     description: "books = the app's own books (the default). admin = the administrator's figures, shown as stated and never recalculated.",
   },
-  provider: { type: 'string', enum: ['carta', 'csv', 'other'], description: 'Which administrator, for an admin vehicle. carta pulls directly; csv and other take figures given.' },
-  fund_ref: { type: 'string', description: "The vehicle's id at the administrator (Carta's fund UUID). Required for carta." },
+  provider: {
+    type: 'string',
+    description: "Where an admin vehicle's figures come from: the id of a fund administrator's MCP server (admin_pulls lists them), " +
+      'or csv / other for figures given by hand.',
+  },
+  fund_ref: { type: 'string', description: "The vehicle's id at the administrator (for Carta, the fund UUID). Needed where the app has a built-in pull." },
   explanation: { type: 'string', description: 'Why, for the approver.' },
 } as const
 
@@ -62,8 +66,9 @@ export const ADMIN_REPORTING_TOOL_MANIFEST: AgentToolMeta[] = [
   {
     name: 'admin_pulls',
     description:
-      "Whether a vehicle keeps its own books or reports its fund administrator's figures, which administrator, and the " +
-      'pulls saved for it (date, source, partners, the fund\'s net IRR, TVPI and DPI). Writes nothing.',
+      "Whether a vehicle keeps its own books or reports its fund administrator's figures, which administrator, the " +
+      "administrators' MCP servers this deployment lists (any of them can be a vehicle's source), and the pulls saved " +
+      'for it (date, source, partners, the fund\'s net IRR, TVPI and DPI). Writes nothing.',
     scope: 'read',
     accessDomain: 'lp_capital',
     accessFeature: 'lp_tracking',
@@ -72,11 +77,11 @@ export const ADMIN_REPORTING_TOOL_MANIFEST: AgentToolMeta[] = [
   {
     name: 'pull_admin_figures',
     description:
-      "Fetch one date's figures for an admin-reported vehicle from its administrator (Carta, through the caller's own " +
-      "Carta connection): each partner's commitment, paid-in, distributions and NAV, and the fund's net LP-only IRR, TVPI " +
+      "Fetch one date's figures for an admin-reported vehicle from its fund administrator's MCP server, with the caller's " +
+      "own connection there: each partner's commitment, paid-in, distributions and NAV, and the fund's net LP-only IRR, TVPI " +
       'and DPI. Checks only that the pull is complete and that every partner is matched; never recalculates a figure. ' +
-      'Writes nothing: pass the result to stage_admin_figures to save it. For an administrator without a direct pull, ' +
-      'give the figures to stage_admin_figures yourself.',
+      'Writes nothing: pass the result to stage_admin_figures to save it. Where the app has no built-in pull for that ' +
+      "administrator it says so: read the figures with that administrator's own MCP tools in this chat, then stage them.",
     scope: 'read',
     accessDomain: 'lp_capital',
     accessFeature: 'lp_tracking',

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import { Loader2, CheckCircle2, AlertCircle } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { MCP_SERVERS, type McpServerDefinition } from '@/lib/mcp-client/servers'
+import type { McpServerDefinition } from '@/lib/mcp-client/servers'
 
 /**
  * Connect your own account on an outside MCP server (lib/mcp-client/servers.ts).
@@ -33,7 +33,7 @@ const ERRORS: Record<string, string> = {
   token_exchange_failed: 'The service didn’t finish the sign-in. Try again.',
 }
 
-function McpConnectorCard({ server }: { server: McpServerDefinition }) {
+function McpConnectorCard({ server }: { server: Pick<McpServerDefinition, 'id' | 'name' | 'description' | 'usedFor'> }) {
   const [status, setStatus] = useState<Status | null>(null)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<{ ok: boolean; text: string } | null>(null)
@@ -151,7 +151,19 @@ function McpConnectorCard({ server }: { server: McpServerDefinition }) {
   )
 }
 
-/** One card per connector the app knows about. */
+type ServerCard = Pick<McpServerDefinition, 'id' | 'name' | 'description' | 'usedFor'>
+
+/**
+ * One card per connector the app knows about. The list comes from the server: fund administrators'
+ * servers are a server-side setting the browser bundle can't read.
+ */
 export function McpConnectors() {
-  return <>{MCP_SERVERS.map(s => <McpConnectorCard key={s.id} server={s} />)}</>
+  const [servers, setServers] = useState<ServerCard[]>([])
+  useEffect(() => {
+    fetch('/api/settings/connectors')
+      .then(r => (r.ok ? r.json() : { servers: [] }))
+      .then(d => setServers(Array.isArray(d?.servers) ? d.servers : []))
+      .catch(() => setServers([]))
+  }, [])
+  return <>{servers.map(s => <McpConnectorCard key={s.id} server={s} />)}</>
 }

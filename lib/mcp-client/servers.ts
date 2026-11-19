@@ -22,24 +22,53 @@ export interface McpServerDefinition {
   description: string
   /** Where the app uses it, for the Settings card. */
   usedFor: string
+  /** 'fund_admin': a fund administrator's server, which an admin-reported vehicle can pull from. */
+  kind?: 'research' | 'fund_admin'
+  /**
+   * For a fund administrator: which built-in pull reads its figures (lib/admin-reporting/adapters.ts).
+   * Absent = none yet; the assistant pulls with the server's own tools, or a CSV is uploaded.
+   */
+  adapter?: string
 }
 
 /**
- * Carta, for admin-reported vehicles (lib/admin-reporting/carta.ts): a member's own Carta sign-in
- * pulls a vehicle's figures from Carta's fund administration data. Listed only when the deployment
- * sets CARTA_MCP_URL, an operator setting like any other env var, never a member's input.
+ * Fund administrators' MCP servers, for admin-reported vehicles (lib/admin-reporting). Any number,
+ * from the deployment's FUND_ADMIN_MCP_SERVERS setting: a JSON list of { id, name, url }, for example
+ *
+ *   [{"id":"carta","name":"Carta","url":"https://…/mcp","adapter":"carta"},
+ *    {"id":"acme-admin","name":"Acme Fund Services","url":"https://…/mcp"}]
+ *
+ * `adapter` names a built-in pull for that administrator (lib/admin-reporting/adapters.ts); without
+ * one, the server still connects, and the assistant reads it with the server's own tools.
+ *
+ * An operator setting like any other env var, never a member's input, so the reasoning above holds.
+ * A member connects their own account at each one; a vehicle then names the server its figures come
+ * from. Entries that aren't https, or reuse an id, are ignored.
  */
-function cartaServer(): McpServerDefinition[] {
-  const url = process.env.CARTA_MCP_URL?.trim()
-  if (!url || !/^https:\/\//.test(url)) return []
-  return [{
-    id: 'carta',
-    name: 'Carta',
-    url,
-    description: 'Fund administration data: partners\' capital, NAV and the fund\'s net returns for funds Carta administers.',
-    usedFor: 'Pulls the figures for vehicles whose administrator is Carta, for the LP report cards.',
-  }]
+export function fundAdminServers(raw: string | undefined = process.env.FUND_ADMIN_MCP_SERVERS): McpServerDefinition[] {
+  if (!raw?.trim()) return []
+  let list: unknown
+  try { list = JSON.parse(raw) } catch { return [] }
+  if (!Array.isArray(list)) return []
+  const out: McpServerDefinition[] = []
+  for (const e of list) {
+    const id = typeof e?.id === 'string' ? e.id.trim().toLowerCase() : ''
+    const name = typeof e?.name === 'string' ? e.name.trim().slice(0, 80) : ''
+    const url = typeof e?.url === 'string' ? e.url.trim() : ''
+    if (!/^[a-z0-9][a-z0-9_-]{0,39}$/.test(id) || !name || !/^https:\/\/[^\s]+$/.test(url)) continue
+    if (RESERVED_IDS.has(id) || out.some(s => s.id === id)) continue
+    const adapter = typeof e?.adapter === 'string' && /^[a-z0-9_-]{1,40}$/.test(e.adapter) ? e.adapter : undefined
+    out.push({
+      id, name, url, kind: 'fund_admin', ...(adapter ? { adapter } : {}),
+      description: `Fund administration data at ${name}: partners' capital, NAV and the fund's net returns.`,
+      usedFor: `Pulls the figures for vehicles ${name} administers, for the LP report cards.`,
+    })
+  }
+  return out
 }
+
+/** Ids a fund administrator can't take: the built-in servers', and the manual sources'. */
+const RESERVED_IDS = new Set(['specter', 'csv', 'other'])
 
 export const MCP_SERVERS: readonly McpServerDefinition[] = [
   {
@@ -50,9 +79,14 @@ export const MCP_SERVERS: readonly McpServerDefinition[] = [
       'Company, people and investor data: funding rounds, competitors, revenue and headcount signals, team backgrounds.',
     usedFor: 'The diligence assistant can look up a deal’s company, founders and investors in Specter.',
   },
-  ...cartaServer(),
+  ...fundAdminServers(),
 ]
 
 export function getMcpServer(id: string): McpServerDefinition | null {
   return MCP_SERVERS.find(s => s.id === id) ?? null
+}
+
+/** The fund administrators' servers this deployment knows. */
+export function fundAdminMcpServers(): McpServerDefinition[] {
+  return MCP_SERVERS.filter(s => s.kind === 'fund_admin')
 }

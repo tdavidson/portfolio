@@ -14,8 +14,10 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { recordReportedFigures } from '@/lib/accounting/reported-figures'
 import { done, dbFail, fail, type Outcome } from '@/lib/service-outcome'
+import { adapterFor, fundAdminServer, MANUAL_SOURCES } from './adapters'
+import { fundAdminMcpServers } from '@/lib/mcp-client/servers'
 import {
-  ADMIN_PROVIDERS, checkPull, cleanAdminFigures,
+  PROVIDER_ID, checkPull, cleanAdminFigures,
   type AdminFigures, type AdminProvider, type LinkRef, type PartnerRef, type PullChannel, type PullFlags, type RecordSource,
 } from './figures'
 
@@ -191,10 +193,18 @@ export async function setVehicleRecordSource(
   let fundRef: string | null = null
   if (recordSource === 'admin') {
     const p = String(input.provider ?? '').trim().toLowerCase()
-    if (!(ADMIN_PROVIDERS as readonly string[]).includes(p)) return fail(400, `provider must be one of ${ADMIN_PROVIDERS.join(', ')}`)
-    provider = p as AdminProvider
+    const server = fundAdminServer(p)
+    if (!PROVIDER_ID.test(p) || (!server && !(MANUAL_SOURCES as readonly string[]).includes(p))) {
+      const ids = [...fundAdminMcpServers().map(s => s.id), ...MANUAL_SOURCES]
+      return fail(400, `provider must be one of ${ids.join(', ')}: a fund administrator's MCP server, or csv / other for figures given by hand`)
+    }
+    provider = p
     fundRef = typeof input.fundRef === 'string' && input.fundRef.trim() ? input.fundRef.trim().slice(0, 200) : null
-    if (provider === 'carta' && !fundRef) return fail(400, "fund_ref is required for Carta: the fund's id at Carta")
+    const adapter = adapterFor(server)
+    if (adapter) {
+      const problem = adapter.checkFundRef(fundRef ?? '')
+      if (problem) return fail(400, `fund_ref is needed for ${server!.name} (${adapter.fundRefHint}). ${problem}`)
+    }
   }
   const { error } = await (admin as any).from('fund_vehicles')
     .update({ record_source: recordSource, admin_provider: provider, admin_fund_ref: fundRef })

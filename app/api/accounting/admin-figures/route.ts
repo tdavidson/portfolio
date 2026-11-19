@@ -11,13 +11,14 @@ import { rateLimit } from '@/lib/rate-limit'
 import { loadVehicleRecordSource } from '@/lib/admin-reporting/load'
 import { listAdminPulls, previewAdminPull, saveAdminPull, setVehicleRecordSource } from '@/lib/admin-reporting/store'
 import { positionsFromCsv } from '@/lib/admin-reporting/csv'
-import { pullFromCarta } from '@/lib/admin-reporting/carta'
+import { adapterFor, pullFromAdmin } from '@/lib/admin-reporting/adapters'
+import { fundAdminMcpServers } from '@/lib/mcp-client/servers'
 
 // An admin-reported vehicle's administrator figures (lib/admin-reporting).
 //
-//   GET  ?group=…                                   → { recordSource, provider, fundRef, pulls }
+//   GET  ?group=…                                   → { recordSource, provider, fundRef, administrators, pulls }
 //   PUT  { group, record_source, provider?, fund_ref? } → set who keeps the vehicle's books
-//   POST { group, step: 'pull', as_of }              → fetch from Carta with the caller's own sign-in, and check
+//   POST { group, step: 'pull', as_of }              → fetch from the administrator's MCP server with the caller's own sign-in, and check
 //   POST { group, step: 'preview', figures | csv }   → check figures given (or a CSV), save nothing
 //   POST { group, step: 'save', figures, raw? }      → check again and save; the person's click is the confirmation
 //
@@ -51,7 +52,10 @@ export async function GET(req: NextRequest) {
     loadVehicleRecordSource(g.admin, g.gate.fundId, v.vehicle.id),
     listAdminPulls(g.admin, g.gate.fundId, v.vehicle.id),
   ])
-  return NextResponse.json({ vehicle: v.vehicle.name, ...source, pulls })
+  // Any fund administrator's MCP server can be a vehicle's source; builtInPull says whether the app's
+  // own Pull button reads it, or the assistant (or a CSV) does.
+  const administrators = fundAdminMcpServers().map(s => ({ id: s.id, name: s.name, builtInPull: !!adapterFor(s) }))
+  return NextResponse.json({ vehicle: v.vehicle.name, ...source, administrators, pulls })
 }
 
 export async function PUT(req: NextRequest) {
@@ -81,11 +85,10 @@ export async function POST(req: NextRequest) {
 
   const step = body?.step
   if (step === 'pull') {
-    if (source.provider !== 'carta') return NextResponse.json({ error: "This vehicle's administrator has no direct pull. Upload its CSV instead." }, { status: 400 })
     const limited = await rateLimit({ key: `admin-pull:${user.id}`, limit: 20, windowSeconds: 600 })
     if (limited) return limited
-    const pulled = await pullFromCarta(admin, user.id, source.fundRef ?? '', String(body?.as_of ?? ''))
-    if (!pulled.ok) return NextResponse.json({ error: pulled.error }, { status: 502 })
+    const pulled = await pullFromAdmin(admin, user.id, source.provider, source.fundRef, String(body?.as_of ?? ''))
+    if (!pulled.ok) return NextResponse.json({ error: pulled.error }, { status: 'viaAssistant' in pulled ? 400 : 502 })
     const checked = await previewAdminPull(admin, gate.fundId, vehicle, pulled.input)
     return outcomeResponse(checked, value => ({ ...value, raw: pulled.raw }))
   }

@@ -12,8 +12,13 @@
 //
 // Pure: no database or server imports, so the routes, the agent tools and the tests share it.
 
-export const ADMIN_PROVIDERS = ['carta', 'csv', 'other'] as const
-export type AdminProvider = typeof ADMIN_PROVIDERS[number]
+/**
+ * Where an admin vehicle's figures come from: the id of a fund administrator's MCP server this
+ * deployment lists (lib/mcp-client/servers.ts, any administrator), or 'csv' / 'other' for figures
+ * given by hand. See adapters.ts.
+ */
+export type AdminProvider = string
+export const PROVIDER_ID = /^[a-z0-9][a-z0-9_-]{0,39}$/
 export type RecordSource = 'books' | 'admin'
 export type PullChannel = 'app' | 'assistant'
 
