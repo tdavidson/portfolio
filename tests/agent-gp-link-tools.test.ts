@@ -53,7 +53,7 @@ describe('set_gp_link', () => {
     expect(listed.links).toEqual([{ gpVehicle: 'Example Associates', gpVehicleId: 'assoc', partner: 'Jane Doe', partnerId: 'lp-ent' }])
     expect(listed.candidates.map((c: any) => c.id)).toEqual(['assoc'])
 
-    expect(await run('set_gp_link', { gp_vehicle: 'Example Associates', remove: true })).toMatchObject({ removed: true })
+    expect(await run('remove_gp_link', { gp_vehicle: 'Example Associates' })).toMatchObject({ removed: true })
     expect(store.tables.vehicle_gp_links).toHaveLength(0)
   })
 
@@ -64,11 +64,11 @@ describe('set_gp_link', () => {
     expect(store.tables.vehicle_gp_links).toHaveLength(0)
   })
 
-  it('is staged from the assistant, and only removing is admin-only', () => {
+  it('is staged from the assistant, and only remove_gp_link is admin-only', () => {
     const tool = getTool('set_gp_link')!
     expect(shouldStage(tool, { gp_vehicle: 'x' }, { keyId: 'oauth:assistant' })).toBe(true)
     expect(adminOnlyToolLabel('set_gp_link', { gp_vehicle: 'x' })).toBeUndefined()
-    expect(adminOnlyToolLabel('set_gp_link', { gp_vehicle: 'x', remove: true })).toBe('remove a GP link')
+    expect(adminOnlyToolLabel('remove_gp_link', { gp_vehicle: 'x' })).toBe('remove a GP link')
   })
 })
 

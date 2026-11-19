@@ -21,6 +21,18 @@ export function resolvePartner(partners: Map<string, string>, ref: string): stri
   return hits.length === 1 ? hits[0][0] : null
 }
 
+/** The served vehicle and the GP entity a call names, refused when either is missing or hidden. */
+async function resolveLink({ admin, fundId, portfolioGroup, access }: AgentToolContext, input: any) {
+  const servedId = await vehicleIdByName(admin, fundId, portfolioGroup)
+  if (!servedId) throw new Error(`No vehicle named ${portfolioGroup}.`)
+  const ref = String(input?.gp_vehicle ?? '').trim()
+  if (!ref) throw new Error('gp_vehicle is required.')
+  const vehicles = await vehicleNames(admin, fundId)
+  const gpId = vehicles.find(v => v.id === ref)?.id ?? (await vehicleIdByName(admin, fundId, ref))
+  if (!gpId || !canSeeVehicle(access, gpId)) throw new Error(`No entity named ${ref} that you can see.`)
+  return { servedId, gpId, gpName: vehicles.find(v => v.id === gpId)?.name ?? ref }
+}
+
 export const GP_LINK_HANDLERS: Record<string, AgentToolHandler> = {
   gp_links: async ({ admin, fundId, portfolioGroup, access }: AgentToolContext) => {
     const servedId = await vehicleIdByName(admin, fundId, portfolioGroup)
@@ -46,20 +58,9 @@ export const GP_LINK_HANDLERS: Record<string, AgentToolHandler> = {
     }
   },
 
-  set_gp_link: async ({ admin, fundId, portfolioGroup, access }: AgentToolContext, input: any) => {
-    const servedId = await vehicleIdByName(admin, fundId, portfolioGroup)
-    if (!servedId) throw new Error(`No vehicle named ${portfolioGroup}.`)
-    const ref = String(input?.gp_vehicle ?? '').trim()
-    if (!ref) throw new Error('gp_vehicle is required.')
-    const vehicles = await vehicleNames(admin, fundId)
-    const gpId = vehicles.find(v => v.id === ref)?.id ?? (await vehicleIdByName(admin, fundId, ref))
-    if (!gpId || !canSeeVehicle(access, gpId)) throw new Error(`No entity named ${ref} that you can see.`)
-    const gpName = vehicles.find(v => v.id === gpId)?.name ?? ref
-
-    if (input?.remove === true) {
-      const removed = await removeVehicleGpLink(admin, fundId, servedId, gpId)
-      return { vehicle: portfolioGroup, gpVehicle: gpName, removed: removed > 0 }
-    }
+  set_gp_link: async (ctx: AgentToolContext, input: any) => {
+    const { admin, fundId, portfolioGroup } = ctx
+    const { servedId, gpId, gpName } = await resolveLink(ctx, input)
 
     let lpEntityId: string | null = null
     if (input?.partner) {
@@ -75,5 +76,11 @@ export const GP_LINK_HANDLERS: Record<string, AgentToolHandler> = {
     const refusal = await setVehicleGpLink(admin, fundId, { servedVehicleId: servedId, gpVehicleId: gpId, lpEntityId })
     if (refusal) throw new Error(refusal)
     return { vehicle: portfolioGroup, gpVehicle: gpName, partnerId: lpEntityId, linked: true }
+  },
+
+  remove_gp_link: async (ctx: AgentToolContext, input: any) => {
+    const { servedId, gpId, gpName } = await resolveLink(ctx, input)
+    const removed = await removeVehicleGpLink(ctx.admin, ctx.fundId, servedId, gpId)
+    return { vehicle: ctx.portfolioGroup, gpVehicle: gpName, removed: removed > 0 }
   },
 }
