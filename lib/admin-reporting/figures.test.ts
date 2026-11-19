@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { adminRows, checkPull, cleanAdminFigures, parseAmount, parseIrr, parseMultiple, type AdminFigures } from './figures'
+import { adminRows, checkPull, cleanAdminFigures, parseAmount, parseIrr, parseMultiple, splitAdminRow, type AdminFigures } from './figures'
 
 const base = {
   as_of: '2026-06-30',
@@ -100,5 +100,48 @@ describe('adminRows', () => {
     expect(r.asOf).toBe('2026-03-31')
     expect(r.irr).toBeNull()
     expect(r.tvpi).toBeNull()
+  })
+})
+
+describe('splitAdminRow', () => {
+  const row = { commitment: 50_000, paid_in_capital: 50_000, distributions: 975_000, nav: 1_075_000, tvpi: 3, dpi: 1.5 }
+
+  it("gives capital its fund-return share by ownership and the rest by carry points", () => {
+    const [a, b] = splitAdminRow(row, [
+      { lpEntityId: 'a', ownershipWeight: 1, carryWeight: 0 },
+      { lpEntityId: 'b', ownershipWeight: 1, carryWeight: 1 },
+    ])
+    expect(a).toEqual({ entity_id: 'a', commitment: 25_000, paid_in_capital: 25_000, distributions: 37_500, nav: 37_500 })
+    expect(b).toEqual({ entity_id: 'b', commitment: 25_000, paid_in_capital: 25_000, distributions: 937_500, nav: 1_037_500 })
+  })
+
+  it('adds back to the row exactly, and splits by ownership when the fund figures are missing', () => {
+    const shares = splitAdminRow({ ...row, tvpi: null, dpi: null }, [
+      { lpEntityId: 'a', ownershipWeight: 1, carryWeight: 5 },
+      { lpEntityId: 'b', ownershipWeight: 2, carryWeight: 0 },
+    ])
+    expect(shares.reduce((s, x) => s + (x.nav ?? 0), 0)).toBeCloseTo(1_075_000, 2)
+    expect(shares[0].nav).toBeCloseTo(358_333.33, 2)
+  })
+
+  it('uses the carry the administrator states, in place of the fund return', () => {
+    // Total value 2,050,000, of which 1,900,000 stated carry: the capital part is 150,000, and
+    // 75,000 of that (paid-in x DPI) was distributed.
+    const [a, b] = splitAdminRow({ ...row, tvpi: 9, carried_interest: 1_900_000 }, [
+      { lpEntityId: 'a', ownershipWeight: 1, carryWeight: 0 },
+      { lpEntityId: 'b', ownershipWeight: 1, carryWeight: 1 },
+    ])
+    expect(a).toMatchObject({ distributions: 37_500, nav: 37_500 })
+    expect(b).toMatchObject({ distributions: 937_500, nav: 1_037_500 })
+  })
+
+  it('splits stated carry in the row\'s own proportion when the fund figures are missing', () => {
+    const [a] = splitAdminRow({ ...row, tvpi: null, dpi: null, carried_interest: 1_640_000 }, [
+      { lpEntityId: 'a', ownershipWeight: 1, carryWeight: 0 },
+      { lpEntityId: 'b', ownershipWeight: 1, carryWeight: 1 },
+    ])
+    // Capital part 410,000 = 20% of the total, so 20% of each of distributions and NAV, halved.
+    expect(a.distributions).toBeCloseTo(97_500, 2)
+    expect(a.nav).toBeCloseTo(107_500, 2)
   })
 })

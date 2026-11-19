@@ -2,13 +2,16 @@
 // own sign-in to the server the deployment configured for Carta.
 //
 // Carta's MCP server reaches its fund administration warehouse through `read_tool`, which runs a read
-// command by name; `dwh__execute__query` runs one SELECT. Two queries per pull, both for one fund and
+// command by name; `dwh__execute__query` runs one SELECT. Three queries per pull, all for one fund and
 // one date:
 //
 //   FUND_ADMIN.PARTNER_MONTHLY_NAV_CALCULATIONS   each partner's cumulative commitment, contributions,
 //                                                 distributions and ending NAV at the month end
 //   FUND_ADMIN.TEMPORAL_FUND_COHORT_BENCHMARKS    the fund's net LP-only IRR (a percent), TVPI and DPI
 //                                                 for the quarter
+//   FUND_ADMIN.ALLOCATIONS                        each partner's carried interest to the date (the
+//                                                 "Carried interest" buckets of its capital account),
+//                                                 so a GP's row can be split into capital and carry
 //
 // Carta keeps both by date, so any past quarter can be pulled; nothing is scheduled. The figures come
 // back exactly as Carta states them, shaped for cleanAdminFigures. RVPI and the call receivable are
@@ -23,7 +26,7 @@ const READ_TOOL = 'read_tool'
 const QUERY_COMMAND = 'dwh__execute__query'
 
 /** The two SELECTs for one fund and date. Inputs are checked here, so nothing else reaches the SQL. */
-export function cartaQueries(fundRef: string, asOf: string): { positions: string; fund: string } {
+export function cartaQueries(fundRef: string, asOf: string): { positions: string; fund: string; carry: string } {
   if (!UUID.test(fundRef)) throw new Error("The vehicle's Carta fund id must be a UUID.")
   if (!ISO.test(asOf) || Number.isNaN(Date.parse(asOf))) throw new Error('as_of must be a date (YYYY-MM-DD).')
   return {
@@ -34,6 +37,10 @@ export function cartaQueries(fundRef: string, asOf: string): { positions: string
     fund:
       'select net_lp_irr, lp_tvpi, lp_dpi from FUND_ADMIN.TEMPORAL_FUND_COHORT_BENCHMARKS ' +
       `where fund_uuid = '${fundRef}' and performance_quarter_start_date = '${asOf}'`,
+    carry:
+      'select partner_uuid, sum(actual_amount) as carried_interest from FUND_ADMIN.ALLOCATIONS ' +
+      `where fund_uuid = '${fundRef}' and effective_date <= '${asOf}' and allocation_bucket_name ilike 'carried interest%' ` +
+      'group by partner_uuid order by partner_uuid',
   }
 }
 
@@ -65,9 +72,12 @@ export function parseCartaRows(text: string): Record<string, unknown>[] {
   return rows
 }
 
-/** A pull's figures from the two replies, in the shape cleanAdminFigures takes. */
-export function cartaFigures(asOf: string, positionRows: Record<string, unknown>[], fundRows: Record<string, unknown>[]) {
+/** A pull's figures from the replies, in the shape cleanAdminFigures takes. */
+export function cartaFigures(
+  asOf: string, positionRows: Record<string, unknown>[], fundRows: Record<string, unknown>[], carryRows: Record<string, unknown>[] = [],
+) {
   const fund = fundRows[0] ?? {}
+  const carryBy = new Map(carryRows.map(r => [String(r.partner_uuid), r.carried_interest]))
   const irr = fund.net_lp_irr
   return {
     as_of: asOf,
@@ -79,6 +89,7 @@ export function cartaFigures(asOf: string, positionRows: Record<string, unknown>
       paid_in: r.cumulative_total_contributions,
       distributions: r.cumulative_total_distributions,
       nav: r.ending_total_nav,
+      ...(carryBy.get(String(r.partner_uuid)) != null ? { carried_interest: carryBy.get(String(r.partner_uuid)) } : {}),
     })),
     fund: {
       // Carta states the IRR as a percent (6.08 for 6.08%); say so, so a small one isn't read as a fraction.
@@ -98,7 +109,7 @@ export const cartaAdapter: AdminPullAdapter = {
   fundRefHint: "Carta's fund UUID",
   checkFundRef: ref => (UUID.test(ref) ? null : "The vehicle's Carta fund id must be a UUID."),
   async pull(conn, fundRef, asOf, opts = {}) {
-    let queries: { positions: string; fund: string }
+    let queries: ReturnType<typeof cartaQueries>
     try { queries = cartaQueries(fundRef, asOf) } catch (e: any) { return { ok: false, error: e.message } }
     if (!conn.allowedTools?.includes(READ_TOOL)) {
       return { ok: false, error: "Your Carta connection doesn't offer the read command the pull needs. Reconnect it in Settings." }
@@ -109,13 +120,14 @@ export const cartaAdapter: AdminPullAdapter = {
       _instrumentation_v2: { plugins: [], skills: [], surface: 'other' },
     }, { fetchImpl: opts.fetchImpl })
     try {
-      const [posText, fundText] = await Promise.all([run(queries.positions), run(queries.fund)])
+      const [posText, fundText, carryText] = await Promise.all([run(queries.positions), run(queries.fund), run(queries.carry)])
       const positions = parseCartaRows(posText)
       const fund = parseCartaRows(fundText)
+      const carry = parseCartaRows(carryText)
       if (positions.length === 0) {
         return { ok: false, error: `Carta has no partner figures for that fund at ${asOf}. Check the date is a month end Carta has closed, and the fund id.` }
       }
-      return { ok: true, input: cartaFigures(asOf, positions, fund), raw: { positions, fund } }
+      return { ok: true, input: cartaFigures(asOf, positions, fund, carry), raw: { positions, fund, carry } }
     } catch (e) {
       return { ok: false, error: `Carta didn't answer the pull: ${(e as McpToolsError)?.message ?? 'unknown error'}` }
     }

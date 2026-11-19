@@ -33,6 +33,11 @@ export const ADMIN_FIGURES_PROPERTIES = {
         distributions: AMOUNT,
         nav: AMOUNT,
         receivable: { type: 'number', description: 'Called but not yet funded, where stated.' },
+        carried_interest: {
+          type: 'number',
+          description: "The carried interest within the partner's account, cumulative to the date, where stated (positive on the GP's row). " +
+            "Splitting the GP's row across its members uses it to tell their capital from their carry.",
+        },
       },
     },
   },

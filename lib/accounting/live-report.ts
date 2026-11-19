@@ -35,6 +35,7 @@ import { roundCents } from './ledger'
 import { loadVehicleGpLinks } from './gp-links'
 import { vehicleIdByName } from './vehicle-id'
 import { adminVehicleRows, loadVehicleRecordSource } from '@/lib/admin-reporting/load'
+import { splitAdminRow } from '@/lib/admin-reporting/figures'
 
 /** The metric half of an `lp_investments` row — same names, same units. */
 export interface LiveMetrics {
@@ -86,6 +87,10 @@ export interface LiveInvestmentRow extends LiveMetrics {
    * Its IRR, TVPI and DPI are the fund's net LP-only figures for the date, not this LP's own.
    */
   reportedBy?: string
+  /** Set on a row from an admin-reported vehicle: figures as the administrator states them. */
+  adminReported?: true
+  /** An admin-reported row's carried interest, as the administrator states it. */
+  carried_interest?: number | null
 }
 
 // Round the shared ratio to 1e-4 to keep float noise out of the reconciliation compare.
@@ -292,6 +297,7 @@ async function adminReportedRows(
       portfolio_group: group,
       source: 'events' as const,
       evidence,
+      adminReported: true as const,
       ...(r.reportedBy ? { reportedBy: r.reportedBy } : {}),
       commitment: r.commitment,
       called_capital: r.called_capital,
@@ -301,6 +307,7 @@ async function adminReportedRows(
       total_value: r.total_value,
       outstanding_balance: r.outstanding_balance,
       receivable: r.receivable,
+      carried_interest: r.carried_interest,
       dpi: r.dpi,
       rvpi: r.rvpi,
       tvpi: r.tvpi,
@@ -413,6 +420,26 @@ async function applyLookThrough(
 
     const members = associateMembers(basis, carryWeights)
     if (members.length === 0) return { link, associateRow, memberRows: null }
+
+    // The fund reports its administrator's figures: split the associate's row as stated, by the
+    // associate's own terms (lib/admin-reporting/figures.ts splitAdminRow), not the fund's books.
+    if (associateRow.adminReported) {
+      const memberRows: LiveInvestmentRow[] = splitAdminRow(associateRow, members).map(m => ({
+        ...associateRow,
+        ...m,
+        called_capital: m.paid_in_capital,
+        total_value: m.nav == null || m.distributions == null ? null : roundCents(m.nav + m.distributions),
+        outstanding_balance: m.paid_in_capital == null ? null : roundCents(m.commitment - m.paid_in_capital),
+        receivable: null,
+        carried_interest: null,
+        evidence: associateRow.evidence ? {
+          ...associateRow.evidence,
+          values: { contributions: m.paid_in_capital, distributions: m.distributions, nav: m.nav },
+        } : undefined,
+        lookThroughVia: link.associateGroup,
+      }))
+      return { link, associateRow, memberRows }
+    }
 
     // Rebuild the associate's capital account so the look-through can split its BUCKETS —
     // the metric row alone can't, because carry has to follow points while capital follows

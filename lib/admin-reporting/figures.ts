@@ -36,6 +36,11 @@ export interface AdminPosition {
   nav: number | null
   /** Called but not yet funded, where the administrator states it. */
   receivable?: number | null
+  /**
+   * The carried interest within the partner's account, cumulative to the date, where the
+   * administrator states it: positive on a GP's row, negative where it is charged to an LP.
+   */
+  carriedInterest?: number | null
 }
 
 /** The fund's net LP-only figures on the pull's date, shown on every LP's row. */
@@ -128,6 +133,7 @@ export function cleanAdminFigures(input: any): AdminFigures | string {
       ['distributions', ['distributions']],
       ['nav', ['nav']],
       ['receivable', ['receivable']],
+      ['carriedInterest', ['carried_interest', 'carriedInterest']],
     ] as const) {
       const key = keys.find(k => p?.[k] !== undefined)
       const parsed = parseAmount(key ? p[key] : null)
@@ -139,6 +145,7 @@ export function cleanAdminFigures(input: any): AdminFigures | string {
       externalId, name, ...(lpEntityId ? { lpEntityId } : {}),
       commitment: amounts.commitment, paidIn: amounts.paidIn, distributions: amounts.distributions, nav: amounts.nav,
       ...(amounts.receivable != null ? { receivable: amounts.receivable } : {}),
+      ...(amounts.carriedInterest != null ? { carriedInterest: amounts.carriedInterest } : {}),
     })
   }
 
@@ -288,6 +295,7 @@ export interface StoredAdminPosition {
   distributions: number | null
   nav: number | null
   receivable?: number | null
+  carriedInterest?: number | null
 }
 
 export interface AdminRow {
@@ -301,6 +309,8 @@ export interface AdminRow {
   total_value: number | null
   outstanding_balance: number | null
   receivable: number | null
+  /** The carried interest within the row, as stated; null where the administrator gives none. */
+  carried_interest: number | null
   dpi: number | null
   rvpi: number | null
   tvpi: number | null
@@ -343,10 +353,99 @@ export function adminRows(
       // The unfunded commitment as the card shows it: commitment less paid-in, both as stated.
       outstanding_balance: p.calledCapital == null ? null : round2(commitment - p.calledCapital),
       receivable: p.receivable ?? null,
+      carried_interest: p.carriedInterest ?? null,
       dpi: fund.dpi ?? null,
       rvpi: null,
       tvpi: fund.tvpi ?? null,
       irr: fund.irr ?? null,
     }
   })
+}
+
+// ---------------------------------------------------------------------------
+// Look-through: an associate's administrator-stated row in the fund, split across its members
+// ---------------------------------------------------------------------------
+
+export interface LookThroughMember { lpEntityId: string; ownershipWeight: number; carryWeight: number }
+
+export interface MemberShare {
+  entity_id: string
+  commitment: number
+  paid_in_capital: number | null
+  distributions: number | null
+  nav: number | null
+}
+
+/**
+ * Split a GP/associate partner's row, as the administrator states it, across the associate's own
+ * members. The administrator gives one row for the associate; who inside it holds what is the
+ * associate's own terms, which the app keeps.
+ *
+ * The row mixes the associate's own capital with the carry it earned, and the two belong to
+ * different people: the capital part follows ownership, the carry follows carry points. Commitment
+ * and paid-in follow ownership. Nothing the administrator states is changed: the members' figures
+ * add back to the row.
+ *
+ * Where the administrator states the carry within the row (`carried_interest`), the split uses it:
+ * the row's total value less the carry is the capital part. Otherwise the capital part is what the
+ * associate's paid-in would have earned at the FUND'S stated LP return (paid-in × LP TVPI). Either
+ * way, the capital part's distributions are paid-in × LP DPI (at most the capital part), and the
+ * rest of it is NAV.
+ *
+ * With neither the carry nor the fund's LP TVPI and DPI the two parts can't be told apart, so
+ * everything follows ownership.
+ */
+export function splitAdminRow(
+  row: {
+    commitment: number; paid_in_capital: number | null; distributions: number | null; nav: number | null
+    tvpi: number | null; dpi: number | null; carried_interest?: number | null
+  },
+  members: LookThroughMember[],
+): MemberShare[] {
+  if (members.length === 0) return []
+  const norm = (ws: number[]) => {
+    const t = ws.reduce((a, w) => a + Math.max(0, w), 0)
+    return t > 0 ? ws.map(w => Math.max(0, w) / t) : ws.map(() => 0)
+  }
+  const own = norm(members.map(m => m.ownershipWeight))
+  const anyCarry = members.some(m => m.carryWeight > 0)
+  const carry = anyCarry ? norm(members.map(m => m.carryWeight)) : own
+
+  const paidIn = row.paid_in_capital ?? 0
+  const dist = row.distributions
+  const nav = row.nav
+  const d = dist ?? 0
+  const n = nav ?? 0
+  const total = d + n
+  const hasFund = row.tvpi != null && row.dpi != null
+  const statedCarry = row.carried_interest != null ? Math.max(0, row.carried_interest) : null
+  // The capital part of the row's total value, never more than the row holds.
+  const capital = statedCarry != null
+    ? Math.min(total, Math.max(0, total - statedCarry))
+    : hasFund ? Math.min(total, Math.max(0, paidIn * (row.tvpi as number))) : total
+  // Of which distributed: at the fund's LP DPI, or in the row's own proportion without it.
+  let capDist = hasFund
+    ? Math.min(d, capital, Math.max(0, paidIn * (row.dpi as number)))
+    : total > 0 ? d * (capital / total) : 0
+  // The rest is NAV; what NAV can't hold was distributed.
+  const capNav = Math.min(n, capital - capDist)
+  capDist = capital - capNav
+
+  const shares = members.map((m, i) => ({
+    entity_id: m.lpEntityId,
+    commitment: round2(row.commitment * own[i]),
+    paid_in_capital: row.paid_in_capital == null ? null : round2(paidIn * own[i]),
+    distributions: dist == null ? null : round2(capDist * own[i] + (dist - capDist) * carry[i]),
+    nav: nav == null ? null : round2(capNav * own[i] + (nav - capNav) * carry[i]),
+  }))
+  // Put any rounding cent on the largest share so the members add back to the row exactly.
+  for (const k of ['commitment', 'paid_in_capital', 'distributions', 'nav'] as const) {
+    const total = (row as any)[k === 'paid_in_capital' ? 'paid_in_capital' : k] as number | null
+    if (total == null) continue
+    const drift = round2(total - shares.reduce((a, s) => a + ((s[k] as number | null) ?? 0), 0))
+    if (drift === 0) continue
+    const big = shares.reduce((a, b) => (Math.abs((b[k] as number) ?? 0) > Math.abs((a[k] as number) ?? 0) ? b : a))
+    ;(big as any)[k] = round2(((big[k] as number) ?? 0) + drift)
+  }
+  return shares
 }
