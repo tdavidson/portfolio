@@ -7,7 +7,7 @@
 
 import { KEYLESS_HANDLERS } from './keyless-tools'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { PORTFOLIO_TOOL_MANIFEST } from './portfolio-tools-manifest'
+import { PORTFOLIO_TOOL_MANIFEST, RECORDABLE_TXN_TYPES } from './portfolio-tools-manifest'
 import { computeSummary } from '@/lib/investments'
 import { draftEntryForTransaction } from '@/lib/accounting/from-portfolio'
 import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-tools'
@@ -31,7 +31,7 @@ import { unwrap } from '@/lib/service-outcome'
 import { setRoundTerms } from '@/lib/portfolio/round-terms'
 import { formatReportedFigure, recordReportedFigures } from '@/lib/accounting/reported-figures'
 import { fundEconomics } from '@/lib/accounting/fund-economics'
-import { escrowExceedsGross, inKindExceeds } from '@/lib/portfolio/proceeds'
+import { escrowExceedsGross, escrowReceiptError, inKindExceeds } from '@/lib/portfolio/proceeds'
 import { loadReviewForAccess, loadReviewQueue, resolveReview } from '@/lib/review/resolve'
 
 const r2 = (n: number) => Math.round(n * 100) / 100
@@ -537,13 +537,15 @@ export async function executeRecordInvestment(
     if (linkError) throw new Error(linkError)
   }
 
-  const VALID = ['investment', 'unrealized_gain_change', 'proceeds', 'round_info']
+  const VALID: readonly string[] = RECORDABLE_TXN_TYPES
   if (!VALID.includes(input?.transaction_type)) {
     throw new Error(`transaction_type must be one of: ${VALID.join(', ')}`)
   }
   if (!input?.transaction_date) throw new Error('transaction_date is required (YYYY-MM-DD)')
 
   const num = (v: any) => (v == null || v === '' ? null : Number(v))
+  const receiptProblem = escrowReceiptError({ transaction_type: input.transaction_type, proceeds_received: num(input.proceeds_received), proceeds_escrow: num(input.proceeds_escrow), cost_basis_exited: num(input.cost_basis_exited), investment_cost: num(input.investment_cost) })
+  if (receiptProblem) throw new Error(receiptProblem)
   // The column is CHECK-constrained, so map aliases ("note", "SAFE") and refuse anything else
   // here rather than letting the insert fail on the constraint.
   let securityType: string | null = null

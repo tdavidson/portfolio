@@ -12,6 +12,10 @@ import type { AgentToolMeta } from '@/lib/accounting/agent-tools-manifest'
 import { UPLOADED_FILES_SCHEMA } from './upload-tools-manifest'
 import { KEYLESS_TOOL_MANIFEST } from './keyless-tools-manifest'
 
+/** Transaction types the agent tools record, or change a row to. An escrow_receipt is the cash release of
+ * an exit's escrow holdback (Dr cash / Cr 1350); income and split rows have their own tools. */
+export const RECORDABLE_TXN_TYPES = ['investment', 'unrealized_gain_change', 'proceeds', 'escrow_receipt', 'round_info'] as const
+
 const EMPTY_SCHEMA = { type: 'object', properties: {}, additionalProperties: false }
 
 /** Optional vehicle filter — narrows to one vehicle rather than scoping the call to it. */
@@ -198,11 +202,13 @@ export const PORTFOLIO_TOOL_MANIFEST: AgentToolMeta[] = [
   {
     name: 'record_investment',
     description:
-      'Record a portfolio transaction (investment | unrealized_gain_change | proceeds | round_info). ' +
+      'Record a portfolio transaction (investment | unrealized_gain_change | proceeds | escrow_receipt | round_info). ' +
       'Also books the journal entry it implies in that vehicle\'s ledger: a mark (no cash) posts; a purchase, exit or cash income drafts and posts when matched to its bank transaction. ' +
       'For an FX revaluation set valuation_change_source="fx" and supply fx_rate/prior_fx_rate/original_position_value. ' +
       'For an exit, proceeds_received is the GROSS realized (escrow included) and proceeds_escrow the part of it held back: ' +
-      'the entry books gross − escrow to cash, the escrow to 1350 escrow receivable, and gross − cost_basis_exited as realized gain.',
+      'the entry books gross − escrow to cash, the escrow to 1350 escrow receivable, and gross − cost_basis_exited as realized gain. ' +
+      'When that escrow is paid out later, record an escrow_receipt with proceeds_received = the cash released and the exit\'s round_name: ' +
+      'it books Dr cash / Cr 1350 and moves no cost. Anything paid beyond the escrow held is extra gain: record it as proceeds with cost_basis_exited 0.',
     scope: 'write',
     domain: 'portfolio',
     accessFeature: 'investments',
@@ -211,7 +217,7 @@ export const PORTFOLIO_TOOL_MANIFEST: AgentToolMeta[] = [
       properties: {
         company: COMPANY,
         vehicle: { type: 'string', description: 'The vehicle (portfolio_group) the transaction belongs to. Required for it to reach the ledger.' },
-        transaction_type: { type: 'string', enum: ['investment', 'unrealized_gain_change', 'proceeds', 'round_info'] },
+        transaction_type: { type: 'string', enum: [...RECORDABLE_TXN_TYPES] },
         transaction_date: { type: 'string', description: 'ISO date YYYY-MM-DD' },
         round_name: { type: 'string' },
         investment_cost: { type: 'number', description: 'investment: amount invested' },
@@ -255,7 +261,7 @@ export const PORTFOLIO_TOOL_MANIFEST: AgentToolMeta[] = [
         company: COMPANY,
         transaction_id: { type: 'string', description: 'The transaction id, from list_investments.' },
         vehicle: { type: 'string', description: "The transaction's vehicle (portfolio_group)." },
-        transaction_type: { type: 'string', enum: ['investment', 'unrealized_gain_change', 'proceeds', 'round_info'] },
+        transaction_type: { type: 'string', enum: [...RECORDABLE_TXN_TYPES] },
         transaction_date: { type: 'string', description: 'ISO date YYYY-MM-DD' },
         round_name: { type: 'string' },
         notes: { type: 'string' },

@@ -2,6 +2,7 @@ import { FORECASTING_PRINCIPLES } from '@/lib/forecast/principles'
 import type { Domain } from '@/lib/access/domains'
 import type { FeatureKey } from '@/lib/types/features'
 import type { ActionType, ActionDeps, PreviewResult } from './types'
+import { RECORDABLE_TXN_TYPES } from '@/lib/agent/portfolio-tools-manifest'
 import { previewMetricValue, writeMetricValue } from './metric-value'
 import { previewUpdateCompany, executeUpdateCompany } from './company-edit'
 import { UPDATE_COMPANY_DESCRIPTION, UPDATE_COMPANY_PROPERTIES } from '@/lib/agent/holding-tools-manifest'
@@ -106,7 +107,7 @@ export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
     domain: 'portfolio',
     accessFeature: 'investments',
     description:
-      'Record a portfolio transaction (investment | unrealized_gain_change | proceeds | round_info). ' +
+      'Record a portfolio transaction (investment | unrealized_gain_change | proceeds | escrow_receipt | round_info). ' +
       'Drafts the journal entry it implies for review; set converts_from_txn_id to link a SAFE/note conversion.',
     inputSchema: {
       type: 'object',
@@ -114,7 +115,7 @@ export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
       properties: {
         company: { type: 'string', description: 'Company id or name.' },
         vehicle: { type: 'string', description: 'The vehicle (portfolio_group). Required for the ledger draft.' },
-        transaction_type: { type: 'string', enum: ['investment', 'unrealized_gain_change', 'proceeds', 'round_info'] },
+        transaction_type: { type: 'string', enum: [...RECORDABLE_TXN_TYPES] },
         transaction_date: { type: 'string', description: 'YYYY-MM-DD.' },
         round_name: { type: 'string' },
         notes: { type: 'string' },
