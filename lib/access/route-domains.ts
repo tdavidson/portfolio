@@ -232,6 +232,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/reconciliation': { domain: 'lp_capital' },
   'api/accounting/positions': { domain: 'lp_capital', feature: 'lp_tracking' },
   'api/accounting/positions/import': { domain: 'lp_capital', feature: 'lp_tracking' },
+  'api/accounting/admin-figures': { domain: 'lp_capital', feature: 'lp_tracking' },
   'api/lps/entities': { domain: 'lp_capital' },
   'api/lps/entities/profile': { domain: 'lp_capital' },
   // LPs' requests to change their record: read to see, write to decide (re-checked in the handler,
@@ -567,6 +568,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/settings/affinity': { domain: 'portfolio', level: 'any' },
   // A member's own sign-ins to outside MCP servers (lib/mcp-client/servers.ts): their own
   // credential, like the Affinity key. Features that use a connection gate themselves.
+  'api/settings/connectors': { domain: 'portfolio', level: 'any' },
   'api/settings/connectors/[server]': { domain: 'portfolio', level: 'any' },
   'api/settings/connectors/[server]/connect': { domain: 'portfolio', level: 'any' },
   'api/settings/connectors/[server]/callback': { domain: 'portfolio', level: 'any' },

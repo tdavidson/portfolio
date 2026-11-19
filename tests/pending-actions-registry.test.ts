@@ -58,7 +58,7 @@ describe('agent tools that stage a pending action', () => {
     const staged = AGENT_TOOLS.filter(t => t.stagesAs)
     expect(staged.map(t => t.name).sort()).toEqual([
       'issue_capital_call', 'publish_call_notices', 'record_facility_event', 'record_recycling', 'remove_facility_event', 'remove_recycling',
-      'set_credit_facility', 'set_recycling_terms', 'set_waterfall_terms',
+      'set_credit_facility', 'set_recycling_terms', 'set_vehicle_record_source', 'set_waterfall_terms', 'stage_admin_figures',
     ])
     for (const tool of staged) {
       const action = getWriteAction(tool.stagesAs!)!

@@ -62,11 +62,12 @@ export class McpToolsError extends Error {
   }
 }
 
-export async function listMcpTools(url: string, accessToken: string, fetchImpl: FetchLike = fetch): Promise<McpToolInfo[]> {
+/** An initialised session with an MCP server: send a request, get its result. */
+async function openSession(url: string, accessToken: string, fetchImpl: FetchLike) {
   let sessionId: string | null = null
   let nextId = 1
 
-  const post = async (message: Record<string, unknown>): Promise<Response> => {
+  const post = async (message: Record<string, unknown>, timeoutMs = TIMEOUT_MS): Promise<Response> => {
     const headers: Record<string, string> = {
       'Content-Type': 'application/json',
       Accept: 'application/json, text/event-stream',
@@ -79,7 +80,7 @@ export async function listMcpTools(url: string, accessToken: string, fetchImpl: 
         method: 'POST',
         headers,
         body: JSON.stringify(message),
-        signal: AbortSignal.timeout(TIMEOUT_MS),
+        signal: AbortSignal.timeout(timeoutMs),
         redirect: 'error',
       })
     } catch {
@@ -87,9 +88,9 @@ export async function listMcpTools(url: string, accessToken: string, fetchImpl: 
     }
   }
 
-  const call = async (method: string, params: Record<string, unknown>): Promise<Record<string, any>> => {
+  const call = async (method: string, params: Record<string, unknown>, timeoutMs?: number): Promise<Record<string, any>> => {
     const id = nextId++
-    const res = await post({ jsonrpc: '2.0', id, method, params })
+    const res = await post({ jsonrpc: '2.0', id, method, params }, timeoutMs)
     if (!res.ok) throw new McpToolsError(res.status, `The MCP server answered ${method} with HTTP ${res.status}.`)
     sessionId = res.headers.get('mcp-session-id') ?? sessionId
     const reply = parseRpcReply(res.headers.get('content-type'), await res.text(), id)
@@ -104,7 +105,11 @@ export async function listMcpTools(url: string, accessToken: string, fetchImpl: 
     clientInfo: { name: 'portfolio', version: '1.0.0' },
   })
   await post({ jsonrpc: '2.0', method: 'notifications/initialized' })
+  return call
+}
 
+export async function listMcpTools(url: string, accessToken: string, fetchImpl: FetchLike = fetch): Promise<McpToolInfo[]> {
+  const call = await openSession(url, accessToken, fetchImpl)
   const tools: McpToolInfo[] = []
   let cursor: string | undefined
   for (let page = 0; page < 20; page++) {
@@ -116,4 +121,23 @@ export async function listMcpTools(url: string, accessToken: string, fetchImpl: 
     if (!cursor) break
   }
   return tools
+}
+
+/**
+ * Call one tool and return its text content, joined. The app calls a tool itself only where it
+ * reads (an administrator's figures, lib/admin-reporting/carta.ts): the caller passes a name from
+ * the member's read-only list, never a write.
+ */
+export async function callMcpTool(
+  url: string, accessToken: string, name: string, args: Record<string, unknown>,
+  opts: { fetchImpl?: FetchLike; timeoutMs?: number } = {},
+): Promise<string> {
+  const call = await openSession(url, accessToken, opts.fetchImpl ?? fetch)
+  const result = await call('tools/call', { name, arguments: args }, opts.timeoutMs ?? 60_000)
+  const text = (Array.isArray(result.content) ? result.content : [])
+    .filter((c: any) => c?.type === 'text' && typeof c.text === 'string')
+    .map((c: any) => c.text as string)
+    .join('\n')
+  if (result.isError) throw new McpToolsError(null, text.slice(0, 300) || `The MCP server reported an error from ${name}.`)
+  return text
 }

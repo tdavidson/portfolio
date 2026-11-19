@@ -33,6 +33,10 @@ import {
   previewRemoveFacilityEvent, executeRemoveFacilityEvent,
 } from './credit-facility'
 import { CREDIT_FACILITY_PROPERTIES, FACILITY_EVENT_PROPERTIES } from '@/lib/agent/credit-facility-tools-manifest'
+import {
+  previewApplyAdminFigures, executeApplyAdminFigures, previewSetVehicleRecordSource, executeSetVehicleRecordSource,
+} from './admin-figures'
+import { ADMIN_FIGURES_PROPERTIES, RECORD_SOURCE_PROPERTIES } from '@/lib/agent/admin-reporting-tools-manifest'
 
 /**
  * One write action the Analyst may DRAFT. Each maps to the access `domain` (+ optional feature)
@@ -390,6 +394,35 @@ export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
     },
     preview: previewRemoveFacilityEvent as any,
     execute: executeRemoveFacilityEvent as any,
+  },
+  apply_admin_figures: {
+    entity: 'required',
+    // Partners' capital as their administrator states it.
+    domain: 'lp_capital',
+    accessFeature: 'lp_tracking',
+    stageAccess: 'write',
+    description:
+      "Propose saving one date's fund administrator figures for an admin-reported vehicle: each partner's commitment, " +
+      "paid-in, distributions and NAV, and the fund's net LP-only IRR, TVPI and DPI. Shown as stated; nothing is recalculated.",
+    inputSchema: {
+      type: 'object', required: ['vehicle', 'as_of', 'source', 'positions'], additionalProperties: false,
+      properties: { vehicle: { type: 'string' }, ...ADMIN_FIGURES_PROPERTIES },
+    },
+    preview: previewApplyAdminFigures as any,
+    execute: executeApplyAdminFigures as any,
+  },
+  set_vehicle_record_source: {
+    entity: 'required',
+    domain: 'lp_capital',
+    accessFeature: 'lp_tracking',
+    stageAccess: 'write',
+    description: "Propose that a vehicle report its fund administrator's figures instead of the app's own books, or the reverse.",
+    inputSchema: {
+      type: 'object', required: ['vehicle', 'record_source'], additionalProperties: false,
+      properties: { vehicle: { type: 'string' }, ...RECORD_SOURCE_PROPERTIES },
+    },
+    preview: previewSetVehicleRecordSource as any,
+    execute: executeSetVehicleRecordSource as any,
   },
 }
 

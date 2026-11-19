@@ -11,6 +11,7 @@ import { PeriodPicker } from '@/components/accounting/period-picker'
 import { type PeriodPreset } from '@/lib/accounting/statement-period'
 import { AnalystToggleButton } from '@/components/analyst-button'
 import { AnalystPanel } from '@/components/analyst-panel'
+import { AdminFiguresPanel } from '@/components/lps/admin-figures-panel'
 
 // The capital-accounts API returns the full per-LP Row for BOTH producers (ledger and pasted
 // positions), so this surface renders the same table as /funds/[id]/capital-accounts.
@@ -302,6 +303,8 @@ export function LpCapitalView({ isAdmin, canOpenStatement = false, initialVehicl
                   fmt={fmt}
                 />
               )}
+
+              {group && <AdminFiguresPanel key={group} group={group} canEdit={isAdmin} onSaved={load} />}
 
               {isAdmin ? <ImportBox group={group} onImported={load} /> : (
                 <p className="text-xs text-muted-foreground">Capital tracking is admin-edited.</p>

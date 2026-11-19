@@ -24,6 +24,7 @@ export const REPLACEABLE = new Set([
   'create_forecast_plan', 'update_forecast_plan', 'publish_forecast_plan',
   'update_portfolio_construction', 'update_company', 'issue_capital_call',
   'set_waterfall_terms', 'set_recycling_terms', 'set_credit_facility',
+  'apply_admin_figures', 'set_vehicle_record_source',
 ])
 
 /** A draft still waiting in this conversation. */
@@ -38,7 +39,8 @@ export interface OpenProposal {
 /** What a draft is about, beyond its entity: the plan or company it changes, when it names one. */
 export function proposalSubject(args: unknown): string | null {
   const a = (args ?? {}) as Record<string, unknown>
-  for (const key of ['planId', 'companyId', 'callId']) {
+  // as_of: a revised pull for the same vehicle and date replaces the earlier draft; another date doesn't.
+  for (const key of ['planId', 'companyId', 'callId', 'as_of']) {
     if (typeof a[key] === 'string' && a[key]) return `${key}:${a[key]}`
   }
   return null
