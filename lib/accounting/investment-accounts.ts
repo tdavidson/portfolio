@@ -11,6 +11,7 @@
 // value. See plans/spec-ledger-one-writer.md, Definitions.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { scopedChart } from './close-cache'
 
 export interface ChartAccount {
   id: string
@@ -35,6 +36,13 @@ export const isInvestmentAccount = (a: Shape): boolean => investmentKind(a) !== 
 export const isPooledInvestmentAccount = (a: Shape): boolean => isInvestmentAccount(a) && !a.companyId
 
 export async function loadVehicleChart(admin: SupabaseClient, fundId: string, vehicleId: string): Promise<ChartAccount[]> {
+  // Inside a close (every allocation entry is checked for investment lines), the request's chart.
+  const scoped = await scopedChart(admin, fundId, vehicleId)
+  if (scoped) {
+    return [...scoped].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0)).map(a => ({
+      id: a.id, code: a.code, type: a.type, subtype: a.subtype ?? null, companyId: a.company_id ?? null,
+    }))
+  }
   const results: ChartAccount[] = []
   let from = 0
 

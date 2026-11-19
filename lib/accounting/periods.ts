@@ -5,6 +5,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { exportLedgerText } from './text-ledger-run'
 import { vehicleIdByName } from './vehicle-id'
+import { closedPeriodsKey, memoRows } from './close-cache'
 
 export interface PeriodRange {
   period_start: string
@@ -19,6 +20,17 @@ export function dateInAnyClosedPeriod(periods: PeriodRange[], date: string): boo
 /** The closed periods for a vehicle (for the persistEntry lock check). */
 export async function closedPeriodRanges(admin: SupabaseClient, fundId: string, group: string): Promise<PeriodRange[]> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
+  // Inside a close, read once per month: every allocation entry the close posts checks the lock.
+  // The close drops this list whenever it opens or locks a period (closePeriodWithAllocation),
+  // and the database's period-lock trigger refuses a write into a closed period regardless.
+  try {
+    return await memoRows<PeriodRange>(admin, closedPeriodsKey(fundId, vehicleId), async () => {
+      const { data, error } = await admin.from('fiscal_periods' as any).select('period_start, period_end')
+        .eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('status', 'closed')
+      if (error) throw error
+      return ((data as any[]) ?? []).map(p => ({ period_start: p.period_start, period_end: p.period_end }))
+    })
+  } catch { /* read as before */ }
   const { data } = await admin
     .from('fiscal_periods' as any)
     .select('period_start, period_end')

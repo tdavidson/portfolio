@@ -12,10 +12,13 @@ import { vehicleIdByName } from './vehicle-id'
 import type { JournalEntry, Posting } from './types'
 import { ACTUAL_BOOK, type LedgerBook } from './books'
 import { adoptEntry, keptAsDraft, removeAdopted, settleLostRace, type AdoptOptions } from './adoption'
+import { chartKey, forgetRows, memoRows, scopedChart } from './close-cache'
 
 /** code → account_id for the vehicle's chart. */
 export async function accountIdByCode(admin: SupabaseClient, fundId: string, group: string): Promise<Map<string, string>> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
+  const scoped = await scopedChart(admin, fundId, vehicleId)
+  if (scoped) return new Map(scoped.map(a => [a.code as string, a.id as string]))
   const { data } = await admin.from('chart_of_accounts' as any).select('id, code').eq('fund_id', fundId).eq('vehicle_id', vehicleId)
   return new Map(((data as any[]) ?? []).map(a => [a.code as string, a.id as string]))
 }
@@ -28,12 +31,15 @@ export async function ensureCapitalAccounts(
   entityIds: string[]
 ): Promise<Map<string, string>> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
-  const { data: existing } = await admin
-    .from('chart_of_accounts' as any)
-    .select('id, lp_entity_id')
-    .eq('fund_id', fundId)
-    .eq('vehicle_id', vehicleId)
-    .not('lp_entity_id', 'is', null)
+  const scoped = await scopedChart(admin, fundId, vehicleId)
+  const { data: existing } = scoped
+    ? { data: scoped.filter(a => a.lp_entity_id != null) }
+    : await admin
+      .from('chart_of_accounts' as any)
+      .select('id, lp_entity_id')
+      .eq('fund_id', fundId)
+      .eq('vehicle_id', vehicleId)
+      .not('lp_entity_id', 'is', null)
   const map = new Map<string, string>(((existing as any[]) ?? []).map(a => [a.lp_entity_id as string, a.id as string]))
 
   const missing = Array.from(new Set(entityIds)).filter(id => !map.has(id))
@@ -69,6 +75,7 @@ export async function ensureCapitalAccounts(
       lp_entity_id: id,
     }))
     const { error } = await admin.from('chart_of_accounts' as any).upsert(rows, { onConflict: 'fund_id,portfolio_group,code', ignoreDuplicates: true })
+    if (vehicleId) forgetRows(admin, chartKey(fundId, vehicleId))
     if (error) throw error
     const { data: created, error: readError } = await admin.from('chart_of_accounts' as any).select('id, lp_entity_id').eq('fund_id', fundId).eq('vehicle_id', vehicleId).in('lp_entity_id', missing)
     if (readError) throw readError
@@ -302,7 +309,8 @@ export async function validatePostings(
   // report at all.
   //
   // One check here covers the journal route, the agent, and anything written later.
-  const { data: ownAccounts } = await admin
+  const scoped = await scopedChart(admin, fundId, vehicleId)
+  const { data: ownAccounts } = scoped ? { data: scoped } : await admin
     .from('chart_of_accounts' as any)
     .select('id')
     .eq('fund_id', fundId)
@@ -318,11 +326,13 @@ export async function validatePostings(
   // lp_entity_id, but the journal and agent paths don't go through it.
   const lpIds = Array.from(new Set(postings.map(p => p.lpEntityId).filter(Boolean) as string[]))
   if (lpIds.length > 0) {
-    const { data: ents } = await admin
-      .from('lp_entities' as any)
-      .select('id')
-      .eq('fund_id', fundId)
-      .in('id', lpIds)
+    // Inside a close every allocation entry names the same partners: asked once. A failed read
+    // is not kept, and falls through to the read below, as before.
+    const ents = await memoRows<any>(admin, `lp-entity-ids|${fundId}|${[...lpIds].sort().join(',')}`, async () => {
+      const { data, error } = await admin.from('lp_entities' as any).select('id').eq('fund_id', fundId).in('id', lpIds)
+      if (error) throw error
+      return (data as any[]) ?? []
+    }).catch(async () => (await admin.from('lp_entities' as any).select('id').eq('fund_id', fundId).in('id', lpIds)).data)
     const known = new Set(((ents as any[]) ?? []).map(e => e.id as string))
     const strangers = lpIds.filter(id => !known.has(id))
     if (strangers.length > 0) {

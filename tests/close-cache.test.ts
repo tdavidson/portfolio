@@ -11,6 +11,10 @@ import { loadPostedLedger } from '@/lib/accounting/load'
 import { exportLedgerText } from '@/lib/accounting/text-ledger-run'
 import { adoptedEntryIds } from '@/lib/accounting/adoption'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
+import { accountIdByCode, ensureCapitalAccounts } from '@/lib/accounting/persist'
+import { closedPeriodRanges } from '@/lib/accounting/periods'
+import { closePeriodWithAllocation } from '@/lib/accounting/close'
+import { lpCapitalCode } from '@/lib/accounting/chart'
 
 beforeEach(() => {
   // The close stamps closed_at and the bundle's createdAt; pin the clock so two runs can be compared.
@@ -69,6 +73,38 @@ describe('which entries are already allocated', () => {
     expect('closed' in r && r.closed).toHaveLength(1)
     expect(total).toBeGreaterThan(450)
     expect(io.rowsOf('journal_entry_allocations')).toBeLessThan(total / 10)
+  })
+})
+
+describe('small lists a close keeps asking for', () => {
+  it('are read about once a month, not once per entry', async () => {
+    const m = buildFixture({ months: 6, noisePerMonth: 10, allocatedEvery: 3, carry: true })
+    await closeThrough(m.admin, FUND, GROUP, 'user-1', '2020-02-29', { budgetMs: 1e9 })
+    const io = instrument(m.admin)
+    await closeThrough(io.admin, FUND, GROUP, 'user-1', '2020-03-31', { budgetMs: 1e9 })
+    const reads = (t: string) => io.calls.filter(c => c.table === t).length
+    expect(reads('chart_of_accounts')).toBeLessThanOrEqual(4)
+    expect(reads('lp_investments')).toBeLessThanOrEqual(2)
+  })
+
+  it('see an account the close itself creates', async () => {
+    const m = buildFixture({ months: 2 })
+    m.tables.lp_entities.push({ id: 'lp-new', fund_id: FUND, entity_name: 'Example Newco' })
+    await withCloseCache(async () => {
+      expect((await accountIdByCode(m.admin, FUND, GROUP)).has(lpCapitalCode('lp-new'))).toBe(false)
+      await ensureCapitalAccounts(m.admin, FUND, GROUP, ['lp-new'])
+      expect((await accountIdByCode(m.admin, FUND, GROUP)).has(lpCapitalCode('lp-new'))).toBe(true)
+    })
+  })
+
+  it('see a period the close has just locked', async () => {
+    const m = buildFixture({ months: 3, noisePerMonth: 2 })
+    await withCloseCache(async () => {
+      expect(await closedPeriodRanges(m.admin, FUND, GROUP)).toEqual([])
+      const r = await closePeriodWithAllocation(m.admin, FUND, GROUP, 'user-1', '2020-01-01', '2020-01-31')
+      expect('error' in r).toBe(false)
+      expect(await closedPeriodRanges(m.admin, FUND, GROUP)).toEqual([{ period_start: '2020-01-01', period_end: '2020-01-31' }])
+    })
   })
 })
 

@@ -64,6 +64,7 @@ import {
 } from './terms'
 import { exportLedgerText } from './text-ledger-run'
 import { withCloseCache } from './close-cache-scope'
+import { forgetRows } from './close-cache'
 import { isMissingSchema, prepareCloseBundle, storeCloseBundle } from './close-bundle'
 import type { CloseBundle } from '@portfolio/fund-engine'
 import { vehicleIdByName } from './vehicle-id'
@@ -1307,6 +1308,25 @@ export async function closePeriodWithAllocation(
   periodEnd: string,
   label?: string
 ): Promise<{ id: string; entryIds: string[]; netIncome: number } | { error: string }> {
+  // The closed-period list the request keeps for the lock check (periods.ts) goes stale whenever
+  // a month is opened, locked or rolled back here: drop it before and after, whatever happens.
+  forgetRows(admin, 'closed-periods|')
+  try {
+    return await closeOnePeriod(admin, fundId, group, userId, periodStart, periodEnd, label)
+  } finally {
+    forgetRows(admin, 'closed-periods|')
+  }
+}
+
+async function closeOnePeriod(
+  admin: SupabaseClient,
+  fundId: string,
+  group: string,
+  userId: string | null,
+  periodStart: string,
+  periodEnd: string,
+  label?: string
+): Promise<{ id: string; entryIds: string[]; netIncome: number } | { error: string }> {
   const preview = await previewClose(admin, fundId, group, periodStart, periodEnd)
   if ('error' in preview) return preview
 
@@ -1336,6 +1356,7 @@ export async function closePeriodWithAllocation(
     await admin.from('fiscal_periods' as any)
       .update({ status: 'open', label: label ?? null, closed_at: null, closed_by: userId })
       .eq('id', periodId).eq('fund_id', fundId)
+    forgetRows(admin, 'closed-periods|')
 
     // Void anything a PREVIOUS attempt at this period already posted, before we post a new
     // set. Without this, a close that died between posting its entries (step 2) and locking
