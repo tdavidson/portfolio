@@ -970,6 +970,68 @@ export async function checkReadiness(
 }
 
 /** What closing through `endDate` would allocate, month by month. Writes nothing. */
+/**
+ * What a close through `endDate` would cover and whether it may run: the span (from the first
+ * unclosed month), and the readiness blockers and scheduled-entry suggestions for it. Shared by
+ * the preview and the close. The close needs only this, not a preview of every month: on a long
+ * span the month previews alone outlast the request, before any month is closed.
+ */
+async function closeThroughPlan(
+  admin: SupabaseClient,
+  fundId: string,
+  group: string,
+  endDate: string
+): Promise<{ start: string; windows: { start: string; end: string; label: string }[]; readiness: CloseReadiness; suggestedEntries: Awaited<ReturnType<typeof loadCloseEntrySuggestions>> } | { error: string }> {
+  const valid = validateCloseDate(endDate)
+  if ('error' in valid) return valid
+
+  const start = await nextCloseStart(admin, fundId, group)
+  if (!start) return { error: 'Nothing to close — the ledger has no posted entries' }
+  if (start > endDate) {
+    // `start` is where the next close BEGINS. If a period is actually closed, say so;
+    // otherwise the ledger simply has no POSTED entry before `start` — the message must
+    // not claim a close that never happened (a vehicle can have years of DRAFT entries
+    // before its first posted one). Post those drafts to bring them into scope.
+    const closed = await closedPeriodRanges(admin, fundId, group)
+    if (closed.length > 0) {
+      const lastClosed = closed.map(p => p.period_end).sort().pop()!
+      return { error: `Already closed through ${lastClosed} — pick a later date.` }
+    }
+    return { error: `Closing starts at ${start} (the first posted entry) — pick ${start} or later. Anything dated earlier is still a draft; post those entries first to include them.` }
+  }
+
+  const windows = monthWindows(start, endDate)
+
+  // Belt to the date guard's braces. The start is DERIVED from the ledger, so a vehicle whose
+  // first entry is mis-dated (1970, say) could still generate hundreds of windows from a
+  // perfectly reasonable end date — each one a DB round-trip, an insert and a snapshot.
+  if (windows.length > MAX_MONTHS_PER_CLOSE) {
+    return {
+      error:
+        `That would close ${windows.length} months in one go, starting from ${start}. ` +
+        `Close in smaller spans (at most ${MAX_MONTHS_PER_CLOSE} months at a time), or check whether ` +
+        `an entry is mis-dated — the start date is derived from the earliest unclosed entry in the ledger.`,
+    }
+  }
+
+  const readiness = await checkReadiness(admin, fundId, group, start, endDate)
+  const suggestedEntries = await loadCloseEntrySuggestions(admin, fundId, group, start, endDate)
+  const requiredSuggestions = suggestedEntries.filter(entry => entry.required)
+  if (requiredSuggestions.length > 0) {
+    readiness.blockers.push(
+      `${requiredSuggestions.length} required scheduled entr${requiredSuggestions.length === 1 ? 'y is' : 'ies are'} missing. Create and review the draft${requiredSuggestions.length === 1 ? '' : 's'} before closing.`,
+    )
+  }
+  const inferredSuggestions = suggestedEntries.filter(entry => entry.basis === 'recurring_pattern')
+  if (inferredSuggestions.length > 0) {
+    readiness.warnings.push(
+      `${inferredSuggestions.length} recurring entr${inferredSuggestions.length === 1 ? 'y was' : 'ies were'} expected from prior-month patterns but not found in this period. Review the suggested draft${inferredSuggestions.length === 1 ? '' : 's'} or document why they do not recur.`,
+    )
+  }
+
+  return { start, windows, readiness, suggestedEntries }
+}
+
 /** The furthest ahead a close may reach. A close is a period-END activity; closing into the
  *  distant future is never legitimate, and letting it happen is a denial-of-service. */
 const MAX_MONTHS_PER_CLOSE = 120
@@ -1003,37 +1065,9 @@ export async function previewCloseThrough(
   group: string,
   endDate: string
 ): Promise<CloseThroughPreview | { error: string }> {
-  const valid = validateCloseDate(endDate)
-  if ('error' in valid) return valid
-
-  const start = await nextCloseStart(admin, fundId, group)
-  if (!start) return { error: 'Nothing to close — the ledger has no posted entries' }
-  if (start > endDate) {
-    // `start` is where the next close BEGINS. If a period is actually closed, say so;
-    // otherwise the ledger simply has no POSTED entry before `start` — the message must
-    // not claim a close that never happened (a vehicle can have years of DRAFT entries
-    // before its first posted one). Post those drafts to bring them into scope.
-    const closed = await closedPeriodRanges(admin, fundId, group)
-    if (closed.length > 0) {
-      const lastClosed = closed.map(p => p.period_end).sort().pop()!
-      return { error: `Already closed through ${lastClosed} — pick a later date.` }
-    }
-    return { error: `Closing starts at ${start} (the first posted entry) — pick ${start} or later. Anything dated earlier is still a draft; post those entries first to include them.` }
-  }
-
-  const windows = monthWindows(start, endDate)
-
-  // Belt to the date guard's braces. The start is DERIVED from the ledger, so a vehicle whose
-  // first entry is mis-dated (1970, say) could still generate hundreds of windows from a
-  // perfectly reasonable end date — each one a DB round-trip, an insert and a snapshot.
-  if (windows.length > MAX_MONTHS_PER_CLOSE) {
-    return {
-      error:
-        `That would close ${windows.length} months in one go, starting from ${start}. ` +
-        `Close in smaller spans (at most ${MAX_MONTHS_PER_CLOSE} months at a time), or check whether ` +
-        `an entry is mis-dated — the start date is derived from the earliest unclosed entry in the ledger.`,
-    }
-  }
+  const plan = await closeThroughPlan(admin, fundId, group, endDate)
+  if ('error' in plan) return plan
+  const { start, windows, readiness, suggestedEntries } = plan
 
   const months: ClosePreview[] = []
   const warnings: string[] = []
@@ -1070,21 +1104,6 @@ export async function previewCloseThrough(
   }
   const basis = months[0]?.basis ?? 'commitment'
   const mode = months[0]?.mode ?? 'partners'
-  const readiness = await checkReadiness(admin, fundId, group, start, endDate)
-  const suggestedEntries = await loadCloseEntrySuggestions(admin, fundId, group, start, endDate)
-  const requiredSuggestions = suggestedEntries.filter(entry => entry.required)
-  if (requiredSuggestions.length > 0) {
-    readiness.blockers.push(
-      `${requiredSuggestions.length} required scheduled entr${requiredSuggestions.length === 1 ? 'y is' : 'ies are'} missing. Create and review the draft${requiredSuggestions.length === 1 ? '' : 's'} before closing.`,
-    )
-  }
-  const inferredSuggestions = suggestedEntries.filter(entry => entry.basis === 'recurring_pattern')
-  if (inferredSuggestions.length > 0) {
-    readiness.warnings.push(
-      `${inferredSuggestions.length} recurring entr${inferredSuggestions.length === 1 ? 'y was' : 'ies were'} expected from prior-month patterns but not found in this period. Review the suggested draft${inferredSuggestions.length === 1 ? '' : 's'} or document why they do not recur.`,
-    )
-  }
-
   return {
     start,
     end: endDate,
@@ -1163,18 +1182,20 @@ export async function closeThrough(
   const budgetMs = opts.budgetMs ?? CLOSE_TIME_BUDGET_MS
   const startedAt = now()
 
-  const preview = await previewCloseThrough(admin, fundId, group, endDate)
-  if ('error' in preview) return preview
+  // The span and readiness only: each month is previewed again as it closes
+  // (closePeriodWithAllocation), so a preview of every month here would only spend the budget.
+  const plan = await closeThroughPlan(admin, fundId, group, endDate)
+  if ('error' in plan) return plan
 
   // Refuse rather than strand P&L. The preview shows these too, but the check is
   // enforced HERE so it can't be bypassed by calling the API directly.
-  if (preview.readiness.blockers.length > 0) {
-    return { error: `Not ready to close. ${preview.readiness.blockers.join(' ')}` }
+  if (plan.readiness.blockers.length > 0) {
+    return { error: `Not ready to close. ${plan.readiness.blockers.join(' ')}` }
   }
 
   return closeMonthsWithinBudget(
-    monthWindows(preview.start, preview.end),
-    preview.end,
+    plan.windows,
+    endDate,
     w => closePeriodWithAllocation(admin, fundId, group, userId, w.start, w.end, w.label),
     { budgetMs, now, startedAt },
   )
