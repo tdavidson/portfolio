@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { memoInScope } from './close-cache'
 
 /** A resolved name/alias → fund_vehicles.id map for one fund. */
 export type VehicleIdMap = Map<string, string>
@@ -40,6 +41,11 @@ export async function vehicleIdByName(
   idMap?: VehicleIdMap,
 ): Promise<string | null> {
   if (idMap) return idMap.get(name) ?? null
+  // A period close resolves the same name dozens of times a month; inside one, resolve it once.
+  return memoInScope(admin, 'vehicleIds', `${fundId}|${name}`, () => lookupVehicleId(admin, fundId, name))
+}
+
+async function lookupVehicleId(admin: SupabaseClient, fundId: string, name: string): Promise<string | null> {
   const { data, error } = await (admin as any).from('fund_vehicles').select('id').eq('fund_id', fundId).eq('name', name).maybeSingle()
   if (error) throw new Error(`fund_vehicles read failed: ${error.message}`)
   if (data) return data.id as string

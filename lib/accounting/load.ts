@@ -11,6 +11,7 @@ import { vehicleIdByName, type VehicleIdMap } from './vehicle-id'
 import { ACTUAL_BOOK, type LedgerBook } from './books'
 import { MANCO_KIND } from '@/lib/vehicle-kinds'
 import { isExternalBookSource } from './quickbooks/sources'
+import { cachedPostedRows, inCloseCache } from './close-cache'
 
 export type SourcedPosting = Posting & { sourceType: string | null; entryId: string; memo: string | null }
 
@@ -196,6 +197,21 @@ export async function loadPostedLedger(
 ): Promise<LoadedLedger> {
   if (rows) return assembleLoadedLedger(fundId, rows)
   const vehicleId = await vehicleIdByName(admin, fundId, group, idMap)
+  // Inside a period close, the rows dated in closed periods come from the close's cache and only the
+  // rest are read (close-cache.ts). Null outside a close, and for any book but the actual one.
+  if (books.length === 1 && books[0] === ACTUAL_BOOK && inCloseCache()) {
+    const [acctRows, cached] = await Promise.all([
+      fetchAllRows((f, t) => admin.from('chart_of_accounts' as any).select('id, code, name, type, subtype, lp_entity_id, company_id').eq('fund_id', fundId).eq('vehicle_id', vehicleId).range(f, t)),
+      cachedPostedRows(admin, fundId, vehicleId, asOf),
+    ])
+    if (cached) {
+      return assembleLoadedLedger(fundId, {
+        acctRows: acctRows as any[],
+        entryRows: cached.entryRows,
+        postingRows: cached.postingRows,
+      })
+    }
+  }
   // entry_date rides along so the capital-account roll-forward can be scoped to a
   // statement period without a second load.
   // Paginated: a vehicle can hold more than 1000 postings (and a big chart / many entries), which

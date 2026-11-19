@@ -7,7 +7,7 @@ import { allocateAmountCumulatively } from './allocation'
 import { computeCapitalAccounts } from './capital-account'
 import { ACTUAL_BOOK } from './books'
 import { closesToOwnerEquity } from '@/lib/vehicle-kinds'
-import { fetchAllRows, loadPostedLedger, loadEntityNames, loadOwnership } from './load'
+import { fetchAllRows, loadLedgerChart, loadPostedLedger, loadEntityNames, loadOwnership } from './load'
 import { roundCents } from './ledger'
 import { keepsRetainedEarnings } from './statements'
 import { ensureCapitalAccounts, accountIdByCode, persistEntry } from './persist'
@@ -18,6 +18,7 @@ import {
 import type { Account, JournalEntry, Posting } from './types'
 import { vehicleKindByName } from './vehicle-domain'
 import { vehicleIdByName } from './vehicle-id'
+import { inCloseCache } from './close-cache'
 import { alignBankEntrySourceType } from './bank-source-type'
 
 const BRIDGE_CODE = '3200'
@@ -154,16 +155,28 @@ export async function allocatePostedEntry(
     await rollbackGeneratedAllocations(admin, fundId, sourceEntryId)
   }
 
+  // Whether the entry has any P&L to allocate is a question for the chart alone. Inside a period
+  // close, ask it before reading the ledger: the close posts several entries a month with none (each
+  // category's allocation, the carry accrual), and each of them used to read the whole ledger here.
+  const pnlByCategory = (accountById: Map<string, Account>) => {
+    const byCategory = new Map<AllocationCategory, number>()
+    for (const posting of entry.postings) {
+      const account = accountById.get(posting.accountId)
+      if (!account || (account.type !== 'income' && account.type !== 'expense')) continue
+      const category = categoryFor(account)
+      byCategory.set(category, roundCents((byCategory.get(category) ?? 0) - posting.amount))
+    }
+    for (const [category, amount] of Array.from(byCategory)) if (amount === 0) byCategory.delete(category)
+    return byCategory
+  }
+  if (inCloseCache()) {
+    const chart = await loadLedgerChart(admin, fundId, group)
+    if (pnlByCategory(new Map(chart.map(account => [account.id, account]))).size === 0) return { allocationEntryIds: [] }
+  }
+
   const { accounts, capitalPostings } = await loadPostedLedger(admin, fundId, group, entry.entryDate)
   const accountById = new Map(accounts.map(account => [account.id, account]))
-  const byCategory = new Map<AllocationCategory, number>()
-  for (const posting of entry.postings) {
-    const account = accountById.get(posting.accountId)
-    if (!account || (account.type !== 'income' && account.type !== 'expense')) continue
-    const category = categoryFor(account)
-    byCategory.set(category, roundCents((byCategory.get(category) ?? 0) - posting.amount))
-  }
-  for (const [category, amount] of Array.from(byCategory)) if (amount === 0) byCategory.delete(category)
+  const byCategory = pnlByCategory(accountById)
   if (byCategory.size === 0) return { allocationEntryIds: [] }
 
   const kind = await vehicleKindByName(admin, fundId, group)
