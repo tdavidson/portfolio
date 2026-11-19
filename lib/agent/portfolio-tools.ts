@@ -260,9 +260,15 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
       .filter(v => canSeeVehicle(access, v.id))
       .filter(v => !wanted || v.vehicle.toLowerCase() === wanted)
       .map(v => {
-        const f = v.fund
+        // Net to the LPs: LP-class partners only, so the NAV is after the GP's accrued carry and
+        // the multiples match the net LP IRR beside them. The whole fund (every partner, the GP's
+        // carry and commitment included) is the gross-of-carry view, reported separately. Mixing
+        // the two showed a whole-fund TVPI next to a net LP IRR.
+        const f = v.lp
+        const w = v.fund
         const called = f.paidIn == null ? null : r2(f.paidIn)
         const ratio = (x: number | null) => x == null ? null : r2(x)
+        const money = (x: number | null) => x == null ? null : r2(x)
         return {
           vehicle: v.vehicle,
           basis: v.source === 'ledger'
@@ -281,6 +287,15 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
           nav: f.nav == null ? null : r2(f.nav),
           dpi: ratio(f.dpi), rvpi: ratio(f.rvpi), tvpi: ratio(f.tvpi),
           net_lp_irr: v.lp.irr,
+          carry_accrued: r2(v.carryAccrued),
+          whole_fund: {
+            basis: 'Every partner, the GP included: gross of the GP\'s accrued carry.',
+            committed: r2(w.committed),
+            called: money(w.paidIn),
+            distributed: money(w.distributions),
+            nav: money(w.nav),
+            dpi: ratio(w.dpi), rvpi: ratio(w.rvpi), tvpi: ratio(w.tvpi),
+          },
         }
       })
   },

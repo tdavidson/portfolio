@@ -87,8 +87,10 @@ export const PORTFOLIO_TOOL_MANIFEST: AgentToolMeta[] = [
   {
     name: 'fund_performance',
     description:
-      'Fund-level performance per vehicle: committed, called, distributed, NAV, DPI, RVPI, TVPI and the net LP IRR, from the ' +
-      'books as of `as_of` (default: everything posted). `basis` says when a vehicle falls back to imported balances. Also ' +
+      'Fund-level performance per vehicle, net to the LPs (LP-class partners only, after the GP\'s accrued carry): committed, ' +
+      'called, distributed, NAV, DPI, RVPI, TVPI and the net LP IRR, from the ' +
+      'books as of `as_of` (default: everything posted). `whole_fund` is every partner, the GP included, so gross of carry; ' +
+      '`carry_accrued` is the carry accrued to the GP. `basis` says when a vehicle falls back to imported balances. Also ' +
       '`reported`: the latest figures the fund administrator reports, recorded with record_fund_figures, each with its source ' +
       'and date. When both are there, the reported ones are what investors are told.',
     scope: 'read',
