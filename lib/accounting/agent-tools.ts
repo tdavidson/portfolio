@@ -44,6 +44,7 @@ import { unwrap } from '@/lib/service-outcome'
 import { exportLedgerTextPage, postLedgerText } from './text-ledger-run'
 import { listPeriods } from './periods'
 import { closeBudgetWithin, closeThrough, previewCloseThrough } from './close'
+import { reallocateVehicle } from './reallocate'
 import { cashTransferEntryIds, openingCashBefore, summarizeBankRec, type BankTxnState } from './bank'
 import { accountBalances } from './ledger'
 import type { SupabaseClient as _Sb } from '@supabase/supabase-js'
@@ -357,6 +358,20 @@ const HANDLERS: Record<string, AgentToolHandler> = {
     })
     if (!result.ok) throw new Error(result.error)
     return { vehicle: portfolioGroup, ...result.value }
+  },
+
+  // Re-split a vehicle's posted entries under today's partner terms and commitment history
+  // (lib/accounting/reallocate.ts). Admin-only (ADMIN_ONLY_TOOLS): it rewrites every partner's
+  // capital account in the window. Resumable for time: pass back `cursor` while `remaining` > 0.
+  reallocate_vehicle: async ({ admin, fundId, portfolioGroup, userId, deadline }, input) => {
+    const from = dateArg(input, 'from')
+    if (!from) throw new Error('from (the first date to re-split, YYYY-MM-DD) is required')
+    const result = await reallocateVehicle(admin, fundId, portfolioGroup, userId, {
+      from, through: dateArg(input, 'through') ?? null, cursor: input?.cursor ? String(input.cursor) : null,
+      budgetMs: closeBudgetWithin(deadline),
+    })
+    if ('error' in result) throw new Error(result.cursor ? `${result.error} (cursor: ${result.cursor})` : result.error)
+    return result
   },
 
   // Pages instead of truncating: `truncated` + `cursor` when the text would be too large to return.
