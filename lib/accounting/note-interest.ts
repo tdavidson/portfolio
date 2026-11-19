@@ -139,7 +139,8 @@ export function noteAccruals(
   for (const n of notes) {
     const cur = targetByCompany.get(n.companyId) ?? { name: n.companyName, target: 0, converted: 0, keys: new Set<string>() }
     const converted = roundCents(n.convertedInterest ?? 0)
-    const hasConverted = !!n.convertedDate && n.convertedDate <= asOf && converted > 0
+    const linked = (n.conversionKey ?? '').startsWith('note:')
+    const hasConverted = !!n.convertedDate && n.convertedDate <= asOf && (converted > 0 || linked)
     if (hasConverted) {
       // A converted note's interest is what the conversion recorded, not our own estimate: the
       // company's figure is what actually became shares. Count each conversion once.
@@ -231,13 +232,18 @@ export function notesFromRows(rows: any[]): Note[] {
   const byNote = new Map<string, { date: string; interest: number }>()
   const byCompany = new Map<string, { date: string; interest: number }>()
   for (const r of rows) {
-    if (!(Number(r.interest_converted ?? 0) > 0) || !r.transaction_date) continue
+    if (!r.transaction_date) continue
+    // A conversion linked to its note stops that note even when no interest came across (the
+    // holder gave it up): its interest target is then zero. An unlinked row only reads as a
+    // conversion when it records interest.
+    if (!r.converts_from_txn_id && !(Number(r.interest_converted ?? 0) > 0)) continue
+    if (r.converts_from_txn_id && r.transaction_type !== 'investment') continue
     const target = r.converts_from_txn_id ? byNote : byCompany
     const key = (r.converts_from_txn_id ?? r.company_id) as string
     const prev = target.get(key)
     target.set(key, {
       date: !prev || r.transaction_date < prev.date ? r.transaction_date : prev.date,
-      interest: roundCents((prev?.interest ?? 0) + Number(r.interest_converted)),
+      interest: roundCents((prev?.interest ?? 0) + Number(r.interest_converted ?? 0)),
     })
   }
 

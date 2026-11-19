@@ -247,3 +247,17 @@ describe('notesFromRows after an exit', () => {
     expect(noteAccruals(notesFromRows(rows), new Map([['c1', 0]]), '2024-12-31')).toEqual([])
   })
 })
+
+describe('a linked conversion that carries no interest', () => {
+  it('stops the note and reverses its interest', () => {
+    const rows = [
+      { id: 'n1', company_id: 'c1', transaction_type: 'investment', transaction_date: '2024-01-01', round_name: 'Note', investment_cost: 100_000, interest_rate: 0.1 },
+      { id: 'c', company_id: 'c1', transaction_type: 'investment', transaction_date: '2024-12-31', round_name: 'Successor note', investment_cost: 0, interest_converted: 0, converts_from_txn_id: 'n1' },
+    ]
+    const notes = notesFromRows(rows)
+    expect(notes[0].convertedDate).toBe('2024-12-31')
+    const out = noteAccruals(notes, new Map([['c1', 9_000]]), '2025-03-31')
+    expect(out[0].target).toBe(0)
+    expect(out[0].delta).toBe(-9_000)
+  })
+})
