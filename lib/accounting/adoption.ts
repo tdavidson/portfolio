@@ -150,6 +150,9 @@ export async function settleLostRace(admin: SupabaseClient, fundId: string, entr
   return others.length > 0 ? removeAdopted(admin, fundId, mine) : {}
 }
 
+/** Above this many ids, adoptedEntryIds reads the fund's adopted ids in one go instead of in chunks. */
+const ADOPTION_BULK_THRESHOLD = 600
+
 /**
  * Of these entries, the ones some investment transaction was adopted from. THROWS on a failed
  * read, like derivedOwnedIds: "none adopted" would drop the `adopted:` ref from the text export
@@ -158,6 +161,22 @@ export async function settleLostRace(admin: SupabaseClient, fundId: string, entr
  */
 export async function adoptedEntryIds(admin: SupabaseClient, fundId: string, entryIds: string[]): Promise<Set<string>> {
   const out = new Set<string>()
+  // A whole-ledger export (the period-close snapshot) asks about thousands of entries, which in
+  // chunks of 200 is dozens of round trips one after another. Past a few chunks, read every
+  // adopted entry id in the fund once and intersect: the same answer, in a page or two.
+  if (entryIds.length > ADOPTION_BULK_THRESHOLD) {
+    const wanted = new Set(entryIds)
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await admin.from('investment_transactions' as any)
+        .select('id, adopted_entry_id').eq('fund_id', fundId).not('adopted_entry_id', 'is', null)
+        .order('id', { ascending: true }).range(from, from + 999)
+      if (error) throw new Error(`Ownership could not be checked: ${error.message}`)
+      const rows = (data as any[]) ?? []
+      for (const r of rows) if (r.adopted_entry_id && wanted.has(r.adopted_entry_id)) out.add(r.adopted_entry_id)
+      if (rows.length < 1000) break
+    }
+    return out
+  }
   for (let i = 0; i < entryIds.length; i += 200) {
     const { data, error } = await admin.from('investment_transactions' as any)
       .select('adopted_entry_id').eq('fund_id', fundId).in('adopted_entry_id', entryIds.slice(i, i + 200))

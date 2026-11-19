@@ -14,6 +14,7 @@ import { reviewImport, type ImportReview } from './import-review'
 import { ACTUAL_BOOK } from './books'
 import { adoptedEntryIds } from './adoption'
 import { fetchAllRows } from './load'
+import { cachedExportEntries } from './close-cache'
 
 /** An adopted manual entry has no source_ref; its export carries this ref instead. */
 const ADOPTED = 'adopted:'
@@ -36,6 +37,11 @@ export interface LedgerTextRange {
  *  PostgREST's max_rows (1000), and a `.limit(2000)` here used to return only the OLDEST 1000 with
  *  no sign anything was missing — the newest entries simply were not in the export. */
 async function loadExportEntries(admin: SupabaseClient, fundId: string, vehicleId: string | null, range: LedgerTextRange): Promise<any[]> {
+  // Inside a period close, the rows dated in closed periods come from the close's cache (close-cache.ts).
+  if (!range.start) {
+    const cached = await cachedExportEntries(admin, fundId, vehicleId, range.end)
+    if (cached) return cached
+  }
   return fetchAllRows<any>((f, t) => {
     let q = admin
       .from('journal_entries' as any)

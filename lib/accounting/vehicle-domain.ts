@@ -1,6 +1,7 @@
 import { loadGateAccess } from '@/lib/access/request-context'
 import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { memoInScope } from '@/lib/accounting/close-cache'
 import { hasAccess } from '@/lib/access/effective'
 import { isManagementCompany, type VehicleKind } from '@/lib/vehicle-kinds'
 import type { Domain } from '@/lib/access/domains'
@@ -60,12 +61,23 @@ export async function vehicleKindByName(
   fundId: string,
   name: string,
 ): Promise<VehicleKind | null> {
-  const { data } = await (admin as any)
+  // A period close asks for the kind several times a month; inside one, ask once. A lookup that hit
+  // a read error is not kept (it still answers null, as it always has).
+  const failed = Symbol('failed')
+  return memoInScope(admin, 'vehicleKinds', `${fundId}|${name}`, async () => {
+    const r = await lookupVehicleKind(admin, fundId, name)
+    if (r.failed) throw Object.assign(new Error('vehicle kind read failed'), { [failed]: r.kind })
+    return r.kind
+  }).catch(e => (e && failed in e ? e[failed] : null)) as Promise<VehicleKind | null>
+}
+
+async function lookupVehicleKind(admin: SupabaseClient, fundId: string, name: string): Promise<{ kind: VehicleKind | null; failed: boolean }> {
+  const { data, error } = await (admin as any)
     .from('fund_vehicles').select('kind').eq('fund_id', fundId).eq('name', name).maybeSingle()
-  if (data) return (data.kind as VehicleKind) ?? null
-  const { data: alias } = await (admin as any)
+  if (data) return { kind: (data.kind as VehicleKind) ?? null, failed: false }
+  const { data: alias, error: aliasError } = await (admin as any)
     .from('fund_vehicles').select('kind').eq('fund_id', fundId).contains('aliases', [name]).maybeSingle()
-  return ((alias?.kind as VehicleKind) ?? null)
+  return { kind: ((alias?.kind as VehicleKind) ?? null), failed: !!(error || aliasError) }
 }
 
 /** What a gate helper (assertReadAccess / assertWriteAccess / resolveFund) hands back. */

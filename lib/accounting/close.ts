@@ -63,6 +63,7 @@ import {
   type AllocationBasis, type AllocationCategory,
 } from './terms'
 import { exportLedgerText } from './text-ledger-run'
+import { withCloseCache } from './close-cache'
 import { isMissingSchema, prepareCloseBundle, storeCloseBundle } from './close-bundle'
 import type { CloseBundle } from '@portfolio/fund-engine'
 import { vehicleIdByName } from './vehicle-id'
@@ -216,8 +217,12 @@ export async function previewClose(
     return { error: 'This period overlaps an already-closed period — reopen it first' }
   }
 
+  // Read up to the period end only. Nothing the preview computes looks past it: the basis is taken
+  // at the period end, the allocation is the period's own P&L, the gap check looks before the start,
+  // and an entry's allocation status is read from its own lines. Later entries were dead weight on
+  // every month of a re-close.
   const [{ accounts, capitalPostings, sourcedPostings }, owners, names, basis, terms, commitmentEvents, kind] = await Promise.all([
-    loadPostedLedger(admin, fundId, group),
+    loadPostedLedger(admin, fundId, group, periodEnd),
     loadOwnership(admin, fundId, group),
     loadEntityNames(admin, fundId, group),
     loadAllocationBasis(admin, fundId, group),
@@ -1063,6 +1068,18 @@ export async function previewCloseThrough(
   admin: SupabaseClient,
   fundId: string,
   group: string,
+  endDate: string,
+  opts: { /** @internal Off only to compare against uncached reads in tests. */ cache?: boolean } = {}
+): Promise<CloseThroughPreview | { error: string }> {
+  // Each month's preview reads the ledger; inside the cache only the first read is a full one.
+  if (opts.cache === false) return previewCloseThroughUncached(admin, fundId, group, endDate)
+  return withCloseCache(() => previewCloseThroughUncached(admin, fundId, group, endDate))
+}
+
+async function previewCloseThroughUncached(
+  admin: SupabaseClient,
+  fundId: string,
+  group: string,
   endDate: string
 ): Promise<CloseThroughPreview | { error: string }> {
   const plan = await closeThroughPlan(admin, fundId, group, endDate)
@@ -1176,7 +1193,20 @@ export async function closeThrough(
   group: string,
   userId: string | null,
   endDate: string,
-  opts: { budgetMs?: number; now?: () => number } = {}
+  opts: { budgetMs?: number; now?: () => number; /** @internal Off only to compare against uncached reads in tests. */ cache?: boolean } = {}
+): Promise<CloseThroughResult | { error: string }> {
+  // Every month after the first reads only what changed since the last close (close-cache.ts).
+  if (opts.cache !== false) return withCloseCache(() => closeThroughUncached(admin, fundId, group, userId, endDate, opts))
+  return closeThroughUncached(admin, fundId, group, userId, endDate, opts)
+}
+
+async function closeThroughUncached(
+  admin: SupabaseClient,
+  fundId: string,
+  group: string,
+  userId: string | null,
+  endDate: string,
+  opts: { budgetMs?: number; now?: () => number },
 ): Promise<CloseThroughResult | { error: string }> {
   const now = opts.now ?? Date.now
   const budgetMs = opts.budgetMs ?? CLOSE_TIME_BUDGET_MS
