@@ -27,7 +27,6 @@
 //
 // Outside `withCloseCache` nothing here does anything: every loader behaves as it always has.
 
-import { AsyncLocalStorage } from 'node:async_hooks'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { ACTUAL_BOOK } from './books'
 
@@ -66,20 +65,20 @@ export interface CloseCacheStats {
   tailReads: number
 }
 
-const store = new AsyncLocalStorage<WeakMap<object, Scope>>()
+// The request scope itself (an AsyncLocalStorage) lives in close-cache-scope.ts, which only the
+// close imports. This module is reached from code that also ends up in browser bundles (the vehicle
+// lookups), so it must not import `node:async_hooks` itself; until a scope is installed, every
+// hook here reads "no scope" and does nothing.
+type ScopeStore = WeakMap<object, Scope>
+let currentStore: () => ScopeStore | undefined = () => undefined
 
-/**
- * Run `fn` with the close's read cache on. Nested calls share the outer scope. The cache is keyed
- * by the admin client, so it never crosses requests (each request makes its own client) and ends
- * with `fn`.
- */
-export function withCloseCache<T>(fn: () => Promise<T>): Promise<T> {
-  if (store.getStore()) return fn()
-  return store.run(new WeakMap(), fn)
+/** @internal Called once by close-cache-scope.ts to connect the request scope. */
+export function installCloseCacheStore(get: () => ScopeStore | undefined): void {
+  currentStore = get
 }
 
 function scopeFor(admin: SupabaseClient): Scope | null {
-  const scopes = store.getStore()
+  const scopes = currentStore()
   if (!scopes) return null
   let scope = scopes.get(admin as object)
   if (!scope) {
@@ -91,7 +90,7 @@ function scopeFor(admin: SupabaseClient): Scope | null {
 
 /** Whether a close cache scope is active for this client. */
 export function inCloseCache(): boolean {
-  return !!store.getStore()
+  return !!currentStore()
 }
 
 /** How many full and tail ledger reads the current scope made. @internal For tests. */

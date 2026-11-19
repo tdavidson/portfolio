@@ -63,7 +63,7 @@ import {
   type AllocationBasis, type AllocationCategory,
 } from './terms'
 import { exportLedgerText } from './text-ledger-run'
-import { withCloseCache } from './close-cache'
+import { withCloseCache } from './close-cache-scope'
 import { isMissingSchema, prepareCloseBundle, storeCloseBundle } from './close-bundle'
 import type { CloseBundle } from '@portfolio/fund-engine'
 import { vehicleIdByName } from './vehicle-id'
