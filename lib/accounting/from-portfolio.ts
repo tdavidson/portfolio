@@ -34,11 +34,12 @@ import type { JournalEntry, Posting } from './types'
 import { ACTUAL_BOOK } from './books'
 import { computeSummary, sortForRollup } from '@/lib/investments'
 import { txnsForVehicle } from './soi'
-import { proceedsSplit, escrowExceedsGross } from '@/lib/portfolio/proceeds'
+import { proceedsSplit, escrowExceedsGross, inKindExceeds } from '@/lib/portfolio/proceeds'
 import { acquiresHolding } from '@/lib/portfolio/cost-transfer-math'
 
 const CASH = '1000'
 const ESCROW_RECEIVABLE = '1350'
+const IN_KIND_CLEARING = '1360'
 const REALIZED_GAIN = '4000'
 const UNREALIZED_INCOME = '4200'
 const FX_INCOME = '4300'
@@ -165,6 +166,25 @@ export async function retractEntriesForTransaction(
   }
 }
 
+/**
+ * 1360 for this vehicle, created on first use. A chart seeded before it existed would otherwise
+ * refuse every exit paid in shares until someone re-synced it.
+ */
+async function ensureInKindClearing(
+  admin: SupabaseClient, fundId: string, group: string, vehicleId: string, codes: Map<string, string>,
+): Promise<string> {
+  const have = codes.get(IN_KIND_CLEARING)
+  if (have) return have
+  const { data, error } = await admin.from('chart_of_accounts' as any).insert({
+    fund_id: fundId, portfolio_group: group, vehicle_id: vehicleId,
+    code: IN_KIND_CLEARING, name: 'Securities received in exits', type: 'asset', subtype: 'in_kind_consideration',
+  }).select('id').single()
+  if (error || !data) throw new Error(`Couldn't add account ${IN_KIND_CLEARING}: ${error?.message ?? 'no row'}`)
+  const id = (data as any).id as string
+  codes.set(IN_KIND_CLEARING, id)
+  return id
+}
+
 export interface ExitInputs {
   /**
    * GROSS proceeds realized at the exit — the row's `proceeds_received`, escrow included
@@ -177,6 +197,11 @@ export interface ExitInputs {
    * the gain is gross − basis, the same figure the tracker reports.
    */
   escrow?: number
+  /**
+   * The part of the gross the buyer paid in its own shares. Not cash: it lands in 1360 and the
+   * purchase of those shares takes it out. Part of the gross, like escrow.
+   */
+  inKind?: number
   /** Cost basis being retired (always treated as a magnitude). */
   basis: number
   /** What the ledger currently carries for this company. */
@@ -190,6 +215,7 @@ export interface ExitAccounts {
   unrealizedId: string
   fxId: string
   escrowId?: string
+  inKindId?: string
   unrealizedIncomeId?: string
   fxIncomeId?: string
 }
@@ -212,7 +238,9 @@ export interface ExitAccounts {
 export function exitPostings(inputs: ExitInputs, acc: ExitAccounts, currency = 'USD'): Posting[] {
   const gross = roundCents(inputs.proceeds)
   const escrow = roundCents(inputs.escrow ?? 0)
-  const cash = roundCents(gross - escrow)
+  // Shares received count only when there is a 1360 to hold them; the caller refuses otherwise.
+  const inKind = acc.inKindId ? roundCents(inputs.inKind ?? 0) : 0
+  const cash = roundCents(gross - escrow - inKind)
   const basis = Math.abs(roundCents(inputs.basis))
   const { cost: priorCost, unrealized, fx } = inputs.carried
 
@@ -229,16 +257,20 @@ export function exitPostings(inputs: ExitInputs, acc: ExitAccounts, currency = '
   // collected — which is what the tracker reports. Without a 1350 to hold the escrow (a chart seeded
   // before it existed) only the cash is recognized now, and the escrow receipt books the rest as
   // gain when it lands.
-  const consideration = acc.escrowId ? gross : cash
+  const consideration = acc.escrowId ? roundCents(cash + escrow + inKind) : roundCents(cash + inKind)
   const gain = roundCents(consideration - basis)
 
   const postings: Posting[] = [
-    { accountId: acc.cashId, amount: cash, currency, lpEntityId: null },
+    ...(cash !== 0 || inKind === 0 ? [{ accountId: acc.cashId, amount: cash, currency, lpEntityId: null }] : []),
     { accountId: acc.costId, amount: roundCents(-basis), currency, lpEntityId: null },
   ]
   // Dr escrow receivable. It clears when the money lands (the escrow receipt on the holding).
   if (escrow !== 0 && acc.escrowId) {
     postings.push({ accountId: acc.escrowId, amount: escrow, currency, lpEntityId: null })
+  }
+  // Dr shares received. The purchase of those shares, recorded the same day, clears it.
+  if (inKind !== 0 && acc.inKindId) {
+    postings.push({ accountId: acc.inKindId, amount: inKind, currency, lpEntityId: null })
   }
   if (gain !== 0) {
     postings.push({ accountId: acc.gainId, amount: roundCents(-gain), currency, lpEntityId: null })
@@ -628,7 +660,14 @@ export async function buildEntryForTransaction(
     // Acquisition costs capitalise into the position rather than hitting the income statement.
     const cost = roundCents(num(txn.investment_cost) + num((txn as any).fee_amount))
     if (cost === 0) return { skip: skip('The investment has no cost — nothing to book.') }
-    amount = cost
+    // Shares received as consideration in an exit are paid for with those shares, not cash: the
+    // in-kind part comes out of 1360, where the exit put it.
+    const inKind = roundCents(num((txn as any).consideration_in_kind))
+    const inKindProblem = inKindExceeds(txn)
+    if (inKindProblem) return { skip: skip(inKindProblem) }
+    const inKindId = inKind !== 0 ? await ensureInKindClearing(admin, fundId, group, vehicleId, codes) : undefined
+    const paidCash = roundCents(cost - inKind)
+    amount = paidCash
     kind = 'investment'
     entry = {
       fundId,
@@ -637,7 +676,8 @@ export async function buildEntryForTransaction(
       memo: `Investment — ${companyName}${txn.round_name ? ` (${txn.round_name})` : ''}`,
       postings: [
         { accountId: a.costId, amount: cost, currency: 'USD', lpEntityId: null },
-        { accountId: cashId, amount: roundCents(-cost), currency: 'USD', lpEntityId: null },
+        ...(paidCash !== 0 ? [{ accountId: cashId, amount: roundCents(-paidCash), currency: 'USD', lpEntityId: null }] : []),
+        ...(inKind !== 0 && inKindId ? [{ accountId: inKindId, amount: roundCents(-inKind), currency: 'USD', lpEntityId: null }] : []),
       ],
     }
   }
@@ -694,6 +734,10 @@ export async function buildEntryForTransaction(
     if (proceeds === 0 && escrow === 0 && basis === 0) return { skip: skip('The exit has neither proceeds nor cost basis — nothing to book.') }
     const escrowProblem = escrowExceedsGross(txn)
     if (escrowProblem) return { skip: skip(escrowProblem) }
+    const inKind = roundCents(num((txn as any).consideration_in_kind))
+    const inKindProblem = inKindExceeds(txn)
+    if (inKindProblem) return { skip: skip(inKindProblem) }
+    const inKindId = inKind !== 0 ? await ensureInKindClearing(admin, fundId, group, vehicleId, codes) : undefined
 
     // Prefer the company's OWN realized-gain account (4000-<company>) so the ledger keeps which
     // deal produced the gain; fall back to the pooled 4000 for charts seeded before it existed.
@@ -712,14 +756,14 @@ export async function buildEntryForTransaction(
     // A partial exit reverses its share: the fraction of the cost basis being retired.
     const carried = await companyCarrying(admin, fundId, group, vehicleId, a, opts.excludeEntryIds ?? [])
 
-    amount = cash
+    amount = roundCents(cash - inKind)
     kind = 'proceeds'
     entry = {
       fundId,
       entryDate,
       sourceType: 'realized_gain',
       memo: `Exit — ${companyName}${txn.round_name ? ` (${txn.round_name})` : ''}`,
-      postings: exitPostings({ proceeds, escrow, basis, carried }, {
+      postings: exitPostings({ proceeds, escrow, inKind, basis, carried }, {
         cashId,
         gainId,
         costId: a.costId,
@@ -729,6 +773,7 @@ export async function buildEntryForTransaction(
         // recognized, so the entry books the cash only (gross − escrow) rather than posting an
         // unbalanced entry; the receipt books the rest as gain. Re-syncing the chart adds it.
         escrowId: codes.get(ESCROW_RECEIVABLE),
+        inKindId,
         unrealizedIncomeId: codes.get(UNREALIZED_INCOME),
         fxIncomeId: codes.get(FX_INCOME),
       }),

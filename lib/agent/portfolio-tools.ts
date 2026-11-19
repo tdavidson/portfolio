@@ -31,7 +31,7 @@ import { unwrap } from '@/lib/service-outcome'
 import { setRoundTerms } from '@/lib/portfolio/round-terms'
 import { formatReportedFigure, recordReportedFigures } from '@/lib/accounting/reported-figures'
 import { fundEconomics } from '@/lib/accounting/fund-economics'
-import { escrowExceedsGross } from '@/lib/portfolio/proceeds'
+import { escrowExceedsGross, inKindExceeds } from '@/lib/portfolio/proceeds'
 import { loadReviewForAccess, loadReviewQueue, resolveReview } from '@/lib/review/resolve'
 
 const r2 = (n: number) => Math.round(n * 100) / 100
@@ -497,6 +497,8 @@ export interface RecordInvestmentInput {
   proceeds_received?: number | string | null
   /** The part of proceeds_received held back in escrow. */
   proceeds_escrow?: number | string | null
+  /** proceeds: part of the gross paid in the buyer's shares. investment: part of the cost paid with securities from an exit. */
+  consideration_in_kind?: number | string | null
   valuation_change_source?: string
   original_currency?: string
   fx_rate?: number | string | null
@@ -553,6 +555,8 @@ export async function executeRecordInvestment(
   if (rate != null && !(rate >= 0 && rate < 1)) throw new Error('interest_rate is a fraction: 0.06 for 6%.')
   const escrowProblem = escrowExceedsGross({ transaction_type: input.transaction_type, proceeds_received: num(input.proceeds_received), proceeds_escrow: num(input.proceeds_escrow) })
   if (escrowProblem) throw new Error(escrowProblem)
+  const inKindProblem = inKindExceeds({ transaction_type: input.transaction_type, proceeds_received: num(input.proceeds_received), proceeds_escrow: num(input.proceeds_escrow), investment_cost: num(input.investment_cost), consideration_in_kind: num(input.consideration_in_kind) })
+  if (inKindProblem) throw new Error(inKindProblem)
 
   // The registry is the source of truth for entity names; a new name is registered before the row
   // that carries it (the company and import routes already do this).
@@ -576,6 +580,7 @@ export async function executeRecordInvestment(
       cost_basis_exited: num(input.cost_basis_exited),
       proceeds_received: num(input.proceeds_received),
       proceeds_escrow: num(input.proceeds_escrow) ?? 0,
+      consideration_in_kind: num(input.consideration_in_kind) ?? 0,
       valuation_change_source: input.valuation_change_source ?? null,
       original_currency: input.original_currency ?? null,
       fx_rate: num(input.fx_rate),
