@@ -48,6 +48,12 @@ export interface Note {
    * on that note alone; an unlinked one keys on the company. Defaults to the company.
    */
   conversionKey?: string
+  /**
+   * Principal of this note the fund has exited (sold, repaid or written off) by the as-of date,
+   * read from `proceeds` rows' `cost_basis_exited` against the note's round. The exited part earns
+   * nothing: its interest is reversed, and anything actually collected is in the exit's proceeds.
+   */
+  exitedPrincipal?: number
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000
@@ -93,6 +99,18 @@ export function accruedInterest(note: Note, asOf: string): number {
   return roundCents(note.principal * note.rate * (days / 365))
 }
 
+/**
+ * The share of a note's principal still held. A note written off or repaid in full earns nothing,
+ * and its accrued interest comes back out of income: a written-off note's interest will never be
+ * paid, and a repaid note's interest arrives inside the exit's proceeds, which already count it as
+ * gain. A partial exit keeps interest on the part still held.
+ */
+function remainingFraction(n: Note): number {
+  const exited = n.exitedPrincipal ?? 0
+  if (exited <= 0 || n.principal <= 0) return 1
+  return Math.max(0, 1 - exited / n.principal)
+}
+
 export interface NoteAccrual {
   companyId: string
   companyName: string
@@ -121,7 +139,8 @@ export function noteAccruals(
   for (const n of notes) {
     const cur = targetByCompany.get(n.companyId) ?? { name: n.companyName, target: 0, converted: 0, keys: new Set<string>() }
     const converted = roundCents(n.convertedInterest ?? 0)
-    const hasConverted = !!n.convertedDate && n.convertedDate <= asOf && converted > 0
+    const linked = (n.conversionKey ?? '').startsWith('note:')
+    const hasConverted = !!n.convertedDate && n.convertedDate <= asOf && (converted > 0 || linked)
     if (hasConverted) {
       // A converted note's interest is what the conversion recorded, not our own estimate: the
       // company's figure is what actually became shares. Count each conversion once.
@@ -131,7 +150,7 @@ export function noteAccruals(
         cur.converted = roundCents(cur.converted + converted)
       }
     } else {
-      cur.target = roundCents(cur.target + accruedInterest(n, asOf))
+      cur.target = roundCents(cur.target + accruedInterest(n, asOf) * remainingFraction(n))
     }
     targetByCompany.set(n.companyId, cur)
   }
@@ -157,7 +176,7 @@ export function noteAccruals(
  * query. @internal Exported for tests.
  */
 export const NOTE_COLUMNS =
-  'id, company_id, transaction_type, transaction_date, investment_cost, interest_rate, maturity_date, interest_converted, converts_from_txn_id, ' +
+  'id, company_id, transaction_type, transaction_date, investment_cost, interest_rate, maturity_date, interest_converted, converts_from_txn_id, round_name, cost_basis_exited, ' +
   'companies!investment_transactions_company_id_fkey!inner(name)'
 
 /**
@@ -204,23 +223,40 @@ export async function loadNotes(
  * company level, as before, but only against notes issued on or before the conversion: a note
  * issued afterwards can't have been part of it.
  *
+ * A note exited through a `proceeds` row against its round (sold, repaid or written off) stops
+ * earning on the principal exited, and the interest accrued on that part is reversed.
+ *
  * @internal Exported for tests.
  */
 export function notesFromRows(rows: any[]): Note[] {
   const byNote = new Map<string, { date: string; interest: number }>()
   const byCompany = new Map<string, { date: string; interest: number }>()
   for (const r of rows) {
-    if (!(Number(r.interest_converted ?? 0) > 0) || !r.transaction_date) continue
+    if (!r.transaction_date) continue
+    // A conversion linked to its note stops that note even when no interest came across (the
+    // holder gave it up): its interest target is then zero. An unlinked row only reads as a
+    // conversion when it records interest.
+    if (!r.converts_from_txn_id && !(Number(r.interest_converted ?? 0) > 0)) continue
+    if (r.converts_from_txn_id && r.transaction_type !== 'investment') continue
     const target = r.converts_from_txn_id ? byNote : byCompany
     const key = (r.converts_from_txn_id ?? r.company_id) as string
     const prev = target.get(key)
     target.set(key, {
       date: !prev || r.transaction_date < prev.date ? r.transaction_date : prev.date,
-      interest: roundCents((prev?.interest ?? 0) + Number(r.interest_converted)),
+      interest: roundCents((prev?.interest ?? 0) + Number(r.interest_converted ?? 0)),
     })
   }
 
-  return rows
+  // Principal exited per company and round. A proceeds row names the round it sold, not the
+  // transaction, so exits are matched to notes by round and applied oldest note first.
+  const roundKey = (r: any) => `${r.company_id}|${String(r.round_name ?? '').trim().toLowerCase()}`
+  const exitedByRound = new Map<string, number>()
+  for (const r of rows) {
+    if (r.transaction_type !== 'proceeds' || !(Number(r.cost_basis_exited ?? 0) > 0)) continue
+    exitedByRound.set(roundKey(r), roundCents((exitedByRound.get(roundKey(r)) ?? 0) + Number(r.cost_basis_exited)))
+  }
+
+  const notes = rows
     .filter(r =>
       r.transaction_type === 'investment' &&
       r.interest_rate != null &&
@@ -243,6 +279,19 @@ export function notesFromRows(rows: any[]): Note[] {
         convertedDate: conv?.date ?? null,
         convertedInterest: conv?.interest ?? 0,
         conversionKey: linked ? `note:${r.id}` : `company:${r.company_id}`,
+        exitedPrincipal: 0,
+        roundKey: roundKey(r),
       }
     })
+    .sort((a, b) => (a.startDate < b.startDate ? -1 : a.startDate > b.startDate ? 1 : 0))
+
+  for (const n of notes) {
+    const left = exitedByRound.get(n.roundKey) ?? 0
+    if (left <= 0) continue
+    const take = Math.min(left, n.principal)
+    n.exitedPrincipal = roundCents(take)
+    exitedByRound.set(n.roundKey, roundCents(left - take))
+  }
+
+  return notes.map(({ roundKey: _k, ...n }) => n)
 }

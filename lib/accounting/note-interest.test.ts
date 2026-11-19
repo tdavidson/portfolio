@@ -212,3 +212,52 @@ describe('notesFromRows', () => {
     expect(out).toEqual([])
   })
 })
+
+describe('notesFromRows after an exit', () => {
+  const issued = { id: 'n1', company_id: 'c1', transaction_type: 'investment', transaction_date: '2024-01-01', round_name: 'Convertible Note', investment_cost: 100_000, interest_rate: 0.1 }
+
+  it('reverses all interest on a note written off in full', () => {
+    const rows = [issued, { id: 'w', company_id: 'c1', transaction_type: 'proceeds', transaction_date: '2024-12-31', round_name: 'Convertible Note', proceeds_received: 0, cost_basis_exited: 100_000 }]
+    // 1150 holds a year of interest from earlier closes; it all comes back out.
+    const out = noteAccruals(notesFromRows(rows), new Map([['c1', 9_000]]), '2025-06-30')
+    expect(out).toHaveLength(1)
+    expect(out[0].target).toBe(0)
+    expect(out[0].delta).toBe(-9_000)
+  })
+
+  it('keeps interest on the part of a note still held after a partial exit', () => {
+    const rows = [issued, { id: 'p', company_id: 'c1', transaction_type: 'proceeds', transaction_date: '2024-06-30', round_name: 'convertible note ', proceeds_received: 60_000, cost_basis_exited: 50_000 }]
+    const full = accruedInterest(notesFromRows([issued])[0], '2024-12-31')
+    const out = noteAccruals(notesFromRows(rows), new Map([['c1', 0]]), '2024-12-31')
+    expect(out[0].target).toBe(Math.round(full * 50) / 100)
+  })
+
+  it('ignores exits of another round', () => {
+    const rows = [issued, { id: 'x', company_id: 'c1', transaction_type: 'proceeds', transaction_date: '2024-06-30', round_name: 'Series A', proceeds_received: 0, cost_basis_exited: 100_000 }]
+    expect(notesFromRows(rows)[0].exitedPrincipal).toBe(0)
+  })
+
+  it('lets a conversion of the rest decide the interest after a partial exit', () => {
+    const rows = [
+      issued,
+      { id: 'p', company_id: 'c1', transaction_type: 'proceeds', transaction_date: '2024-06-30', round_name: 'Convertible Note', proceeds_received: 60_000, cost_basis_exited: 50_000 },
+      { id: 'c', company_id: 'c1', transaction_type: 'investment', transaction_date: '2024-06-30', investment_cost: 0, interest_converted: 2_500, converts_from_txn_id: 'n1' },
+    ]
+    // The conversion moved its 2,500 out of 1150; nothing further is owed.
+    expect(noteAccruals(notesFromRows(rows), new Map([['c1', 0]]), '2024-12-31')).toEqual([])
+  })
+})
+
+describe('a linked conversion that carries no interest', () => {
+  it('stops the note and reverses its interest', () => {
+    const rows = [
+      { id: 'n1', company_id: 'c1', transaction_type: 'investment', transaction_date: '2024-01-01', round_name: 'Note', investment_cost: 100_000, interest_rate: 0.1 },
+      { id: 'c', company_id: 'c1', transaction_type: 'investment', transaction_date: '2024-12-31', round_name: 'Successor note', investment_cost: 0, interest_converted: 0, converts_from_txn_id: 'n1' },
+    ]
+    const notes = notesFromRows(rows)
+    expect(notes[0].convertedDate).toBe('2024-12-31')
+    const out = noteAccruals(notes, new Map([['c1', 9_000]]), '2025-03-31')
+    expect(out[0].target).toBe(0)
+    expect(out[0].delta).toBe(-9_000)
+  })
+})
