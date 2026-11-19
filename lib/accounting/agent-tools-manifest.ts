@@ -289,6 +289,27 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
     },
   },
   {
+    name: 'reallocate_vehicle',
+    description:
+      'Re-split a vehicle\'s posted entries across its partners again, from a date, under the partner terms and commitment ' +
+      'history as they stand now: after a partner is made fee-exempt, or a secondary transfer is recorded with its real date, ' +
+      'neither of which changes an allocation already made. Every entry in the window that carries a partner allocation is ' +
+      're-split in date order, the same way posting splits it, and its old allocation is replaced. Fund totals do not move; ' +
+      'partners\' capital accounts do. The window must be open: reopen_period from the same date first, and close again ' +
+      'afterwards. Stops for time with `remaining` and a `cursor`: call again with the cursor until remaining is 0, because ' +
+      'until then the entries after the cursor carry no allocation. Admin only.',
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      required: ['from'],
+      properties: {
+        from: { type: 'string', description: 'YYYY-MM-DD: the first entry date to re-split.' },
+        through: { type: 'string', description: 'YYYY-MM-DD: the last entry date to re-split. Default: every later entry.' },
+        cursor: { type: 'string', description: 'The cursor a run that stopped for time returned; resumes it. Leave out to start.' },
+      },
+    },
+  },
+  {
     name: 'reopen_period',
     description:
       'Reopen closed fiscal period(s) so entries can be posted or changed in them: the period named (or every closed period covering ' +

@@ -1758,7 +1758,7 @@ async function accrueCarry(
  * on the associate's books (the GP commit is funded, distributions are received), not performance
  * to mark.
  */
-const ASSOCIATE_MARKUP_LINES: { bucket: keyof CapitalAccount; sourceType: string; label: string }[] = [
+export const ASSOCIATE_MARKUP_LINES: { bucket: keyof CapitalAccount; sourceType: string; label: string }[] = [
   { bucket: 'operatingIncome', sourceType: 'income', label: 'Operating income' },
   { bucket: 'realizedGains', sourceType: 'realized_gain', label: 'Realized gain / (loss)' },
   { bucket: 'unrealizedGains', sourceType: 'valuation', label: 'Unrealized gain / (loss)' },
@@ -1766,7 +1766,20 @@ const ASSOCIATE_MARKUP_LINES: { bucket: keyof CapitalAccount; sourceType: string
   { bucket: 'expenses', sourceType: 'partnership_expense', label: 'Partnership expenses' },
   { bucket: 'fxTranslation', sourceType: 'fx_revaluation', label: 'FX translation' },
   { bucket: 'carriedInterest', sourceType: 'carried_interest', label: 'Carried interest' },
+  // The catch-all. A capital posting whose source type the roll-forward doesn't name (a `manual`
+  // reallocation between partners, say) lands in `unclassified`, and so does the look-through's
+  // rounding drift. Leaving it out meant the associate's stake silently missed its target by that
+  // amount. Booked as `manual`, which buckets back to `unclassified`, so the next close sees it as
+  // already booked (markupPostings) instead of booking it again.
+  { bucket: 'unclassified', sourceType: 'manual', label: 'Other capital adjustments' },
 ]
+
+/**
+ * The roll-forward lines the markup leaves alone on purpose: cash and capital already on the
+ * associate's own books (see above). Every other activity line must be in ASSOCIATE_MARKUP_LINES,
+ * so a new line can't drop out of the markup unnoticed. @internal Exported for tests.
+ */
+export const ASSOCIATE_MARKUP_EXCLUDED: (keyof CapitalAccount)[] = ['contributions', 'distributions', 'transfers']
 
 /**
  * Book, on a GP/associate entity's OWN books, its EQUITY-METHOD share of the fund it is the GP of —

@@ -154,6 +154,8 @@ export const ADMIN_ONLY_TOOLS: Record<string, { label: string; when?: (input: an
   void_entry: { label: HANDLER_CHECKED.voidPostedEntry },
   // Not a destructive tool (always offered), but admin-only like the Periods page's Reopen.
   reopen_period: { label: 'reopen a closed period' },
+  // Rewrites every partner's capital account in its window, like a reopen and re-close.
+  reallocate_vehicle: { label: 're-split a vehicle\'s partner allocations' },
   // As api/accounting/waterfall-terms PUT: the partners' carry terms are the fund's structure. It
   // always stages (stagesAs), so ADMIN_ONLY_ACTIONS below holds its approval to an admin too.
   // tests/three-door-parity.test.ts found a CFO could approve this from chat but not save it on the web.
