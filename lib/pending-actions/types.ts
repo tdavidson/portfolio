@@ -20,6 +20,8 @@ export type ActionType =
   | 'set_credit_facility'
   | 'record_facility_event'
   | 'remove_facility_event'
+  | 'apply_admin_figures'
+  | 'set_vehicle_record_source'
 
 export type PendingActionStatus = 'pending' | 'approved' | 'applied' | 'rejected' | 'failed'
 

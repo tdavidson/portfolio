@@ -33,8 +33,8 @@ create table if not exists public.admin_pulls (
   as_of date not null,
   -- The administrator the figures came from, as the reader names it ("Carta", "CSV upload").
   source text not null check (length(trim(source)) between 1 and 200),
-  -- Which door the pull came through.
-  channel text not null check (channel in ('app', 'mcp', 'api')),
+  -- Which door the pull came through: the app, or an assistant over MCP or the API.
+  channel text not null check (channel in ('app', 'assistant')),
   -- The figures as saved (normalised), and the response or file as it arrived, for tracing.
   figures jsonb not null,
   raw jsonb,

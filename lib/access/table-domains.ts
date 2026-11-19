@@ -248,6 +248,8 @@ export const TABLE_RULES: Record<string, TableRule> = {
   lp_letters: { scope: 'fund', domain: 'lp_relations', feature: 'lp_letters' },
   lp_letter_templates: { scope: 'fund', domain: 'lp_relations', feature: 'lp_letters' },
   lp_letter_shares: { scope: 'fund', domain: 'lp_relations', feature: 'lp_letters' },
+  admin_pulls: { scope: 'service', note: "An administrator's figures saved for an admin-reported vehicle, as they arrived; read and written only by the LP-capital admin-figures route and tools (service role, lib/admin-reporting/store.ts)." },
+  admin_lp_links: { scope: 'service', note: "Which app partner each administrator partner is, per vehicle; read and written only by lib/admin-reporting/store.ts behind the LP-capital gate." },
   vehicle_reported_figures: { scope: 'service', note: "Fund figures another system reports (the administrator's net TVPI, DPI, IRR); read and written only by the fund economics loader, the letter brief and record_fund_figures (service role), behind the accounting gate (lib/accounting/reported-figures.ts)." },
   lp_letter_profiles: { scope: 'service', note: "An entity's letter profile; read and written only by the LP letter routes and tools (service role), which check lp_relations / lp_letters." },
   document_templates: { scope: 'service', note: "A fund's own document templates (LP letters); read and written only by the agent tools, which check lp_relations / lp_letters." },

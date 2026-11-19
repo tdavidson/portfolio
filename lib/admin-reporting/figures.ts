@@ -15,7 +15,7 @@
 export const ADMIN_PROVIDERS = ['carta', 'csv', 'other'] as const
 export type AdminProvider = typeof ADMIN_PROVIDERS[number]
 export type RecordSource = 'books' | 'admin'
-export type PullChannel = 'app' | 'mcp' | 'api'
+export type PullChannel = 'app' | 'assistant'
 
 /** One administrator partner's figures on the pull's date. */
 export interface AdminPosition {

@@ -24,6 +24,23 @@ export interface McpServerDefinition {
   usedFor: string
 }
 
+/**
+ * Carta, for admin-reported vehicles (lib/admin-reporting/carta.ts): a member's own Carta sign-in
+ * pulls a vehicle's figures from Carta's fund administration data. Listed only when the deployment
+ * sets CARTA_MCP_URL, an operator setting like any other env var, never a member's input.
+ */
+function cartaServer(): McpServerDefinition[] {
+  const url = process.env.CARTA_MCP_URL?.trim()
+  if (!url || !/^https:\/\//.test(url)) return []
+  return [{
+    id: 'carta',
+    name: 'Carta',
+    url,
+    description: 'Fund administration data: partners\' capital, NAV and the fund\'s net returns for funds Carta administers.',
+    usedFor: 'Pulls the figures for vehicles whose administrator is Carta, for the LP report cards.',
+  }]
+}
+
 export const MCP_SERVERS: readonly McpServerDefinition[] = [
   {
     id: 'specter',
@@ -33,6 +50,7 @@ export const MCP_SERVERS: readonly McpServerDefinition[] = [
       'Company, people and investor data: funding rounds, competitors, revenue and headcount signals, team backgrounds.',
     usedFor: 'The diligence assistant can look up a deal’s company, founders and investors in Specter.',
   },
+  ...cartaServer(),
 ]
 
 export function getMcpServer(id: string): McpServerDefinition | null {
