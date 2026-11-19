@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest'
-import { accruedInterest, noteAccruals, NOTE_COLUMNS, type Note } from './note-interest'
+import { accruedInterest, noteAccruals, notesFromRows, NOTE_COLUMNS, type Note } from './note-interest'
 
 const note = (over: Partial<Note> = {}): Note => ({
   txnId: 't1',
@@ -170,5 +170,45 @@ describe('NOTE_COLUMNS', () => {
   it('names the company_id foreign key, since transfer_company_id also points at companies', () => {
     expect(NOTE_COLUMNS).toContain('companies!investment_transactions_company_id_fkey')
     expect(NOTE_COLUMNS).not.toMatch(/(^|[ ,])companies!inner\(/)
+  })
+})
+
+describe('notesFromRows', () => {
+  // Two notes in one company: the first converts, the second is issued after the conversion.
+  const rows = [
+    { id: 'n1', company_id: 'c1', transaction_type: 'investment', transaction_date: '2024-01-01', investment_cost: 100_000, interest_rate: 0.1, companies: { name: 'Acme' } },
+    { id: 'conv', company_id: 'c1', transaction_type: 'investment', transaction_date: '2024-07-01', investment_cost: 0, interest_converted: 4_958.9, converts_from_txn_id: 'n1' },
+    { id: 'n2', company_id: 'c1', transaction_type: 'investment', transaction_date: '2025-01-01', investment_cost: 50_000, interest_rate: 0.06, companies: { name: 'Acme' } },
+  ]
+
+  it('stops only the note the conversion names', () => {
+    const notes = notesFromRows(rows)
+    expect(notes.find(n => n.txnId === 'n1')?.convertedDate).toBe('2024-07-01')
+    expect(notes.find(n => n.txnId === 'n2')?.convertedDate).toBeNull()
+  })
+
+  it('accrues a note issued after an earlier note of the same company converted', () => {
+    // n2: 50k at 6% for 365 days = 3,000. n1's converted interest already left 1150.
+    const out = noteAccruals(notesFromRows(rows), new Map([['c1', 0]]), '2025-12-31')
+    expect(out).toHaveLength(1)
+    expect(out[0].delta).toBe(3_000)
+    expect(out[0].target).toBe(4_958.9 + 3_000)
+  })
+
+  it('reads an unlinked conversion against the company, but only for notes issued before it', () => {
+    const unlinked = rows.map(r => (r.id === 'conv' ? { ...r, converts_from_txn_id: null } : r))
+    const notes = notesFromRows(unlinked)
+    expect(notes.find(n => n.txnId === 'n1')?.convertedDate).toBe('2024-07-01')
+    expect(notes.find(n => n.txnId === 'n2')?.convertedDate).toBeNull()
+  })
+
+  it('counts an unlinked conversion once for a company with two converted notes', () => {
+    const both = [
+      { id: 'a', company_id: 'c1', transaction_type: 'investment', transaction_date: '2024-01-01', investment_cost: 100_000, interest_rate: 0.1 },
+      { id: 'b', company_id: 'c1', transaction_type: 'investment', transaction_date: '2024-02-01', investment_cost: 100_000, interest_rate: 0.1 },
+      { id: 'conv', company_id: 'c1', transaction_type: 'investment', transaction_date: '2024-07-01', investment_cost: 0, interest_converted: 9_000 },
+    ]
+    const out = noteAccruals(notesFromRows(both), new Map([['c1', 0]]), '2024-12-31')
+    expect(out).toEqual([])
   })
 })
