@@ -93,7 +93,8 @@ describe('a report built for some entities', () => {
   for (const [name, ids, vehicles] of CASES) {
     it(`gives ${name} exactly the whole-fund rows`, async () => {
       const m = multiVehicleFund()
-      const full = await generateLiveReport(m.admin as any, FUND)
+      // The reference reads every vehicle's whole ledger; the card reads only partner-tagged rows.
+      const full = await generateLiveReport(m.admin as any, FUND, undefined, { fullLedger: true })
       const io = instrument(m.admin)
       const scoped = await generateLiveReport(io.admin as any, FUND, undefined, { entityIds: ids })
       // The associate's holder has no row of its own: its members' rows replace it, in both builds.
@@ -112,16 +113,37 @@ describe('a report built for some entities', () => {
 
   it('at an earlier date too', async () => {
     const m = multiVehicleFund()
-    const full = await generateLiveReport(m.admin as any, FUND, '2020-09-30')
+    const full = await generateLiveReport(m.admin as any, FUND, '2020-09-30', { fullLedger: true })
     const scoped = await generateLiveReport(m.admin as any, FUND, '2020-09-30', { entityIds: ['lp-c', 'lp-x'] })
     expect(rowsOf(scoped.rows, ['lp-c', 'lp-x'])).toEqual(rowsOf(full.rows, ['lp-c', 'lp-x']))
   })
 
+  it('gives every LP the same rows from partner-tagged ledger rows as from the whole ledger', async () => {
+    const m = multiVehicleFund()
+    // A QuickBooks-imported capital call: its cash leg has no partner tag, and decides how the
+    // capital is classified, so it has to be read along with the tagged legs.
+    m.tables.journal_entries.push({ id: 'je-qb', fund_id: FUND, vehicle_id: VEHICLE, portfolio_group: GROUP, book: 'actual', status: 'posted', entry_date: '2020-07-15', memo: 'Deposit', source_type: 'quickbooks', source_ref: null, posted_at: '2020-07-15T12:00:00Z' })
+    m.tables.journal_postings.push(
+      { id: 'jp-qb-1', journal_entry_id: 'je-qb', fund_id: FUND, vehicle_id: VEHICLE, book: 'actual', account_id: 'acct-1000', amount: 20_000, currency: 'USD', lp_entity_id: null },
+      { id: 'jp-qb-2', journal_entry_id: 'je-qb', fund_id: FUND, vehicle_id: VEHICLE, book: 'actual', account_id: 'acct-cap-lp-b', amount: -20_000, currency: 'USD', lp_entity_id: 'lp-b' },
+    )
+    // A draft that must stay out, and an entry dated after the report date.
+    m.tables.journal_entries.push({ id: 'je-draft', fund_id: FUND, vehicle_id: VEHICLE, portfolio_group: GROUP, book: 'actual', status: 'draft', entry_date: '2020-08-01', memo: 'Draft call', source_type: 'capital_call', source_ref: null, posted_at: null })
+    m.tables.journal_postings.push({ id: 'jp-draft', journal_entry_id: 'je-draft', fund_id: FUND, vehicle_id: VEHICLE, book: 'actual', account_id: 'acct-cap-lp-a', amount: -1_000, currency: 'USD', lp_entity_id: 'lp-a' })
+    const sorted = (rows: any[]) => [...rows].sort((a, b) => `${a.portfolio_group}|${a.entity_id}|${a.lookThroughVia ?? ''}`.localeCompare(`${b.portfolio_group}|${b.entity_id}|${b.lookThroughVia ?? ''}`))
+    for (const asOf of [undefined, '2020-07-31']) {
+      const full = await generateLiveReport(m.admin as any, FUND, asOf, { fullLedger: true })
+      const capital = await generateLiveReport(m.admin as any, FUND, asOf)
+      expect(full.rows.length).toBeGreaterThan(5)
+      expect(sorted(capital.rows)).toEqual(sorted(full.rows))
+    }
+  })
+
   it('reads fewer ledger rows than the whole fund', async () => {
     const m = multiVehicleFund()
-    const a = instrument(m.admin); await generateLiveReport(a.admin as any, FUND)
+    const a = instrument(m.admin); await generateLiveReport(a.admin as any, FUND, undefined, { fullLedger: true })
     const b = instrument(m.admin); await generateLiveReport(b.admin as any, FUND, undefined, { entityIds: ['lp-x'] })
-    expect(b.rowsOf('journal_postings')).toBeLessThan(a.rowsOf('journal_postings') * 0.75)
+    expect(b.rowsOf('journal_postings')).toBeLessThan(a.rowsOf('journal_postings') * 0.25)
   })
 
   it('finds a vehicle from a tagged posting alone', async () => {

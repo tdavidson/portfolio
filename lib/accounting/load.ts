@@ -61,7 +61,8 @@ export async function loadLedgerRowsBatch(
   admin: SupabaseClient,
   fundId: string,
   vehicleIds: string[],
-  asOf?: string
+  asOf?: string,
+  opts: { capitalOnly?: boolean } = {},
 ): Promise<Map<string, LedgerRows>> {
   const out = new Map<string, LedgerRows>()
   if (vehicleIds.length === 0) return out
@@ -69,20 +70,64 @@ export async function loadLedgerRowsBatch(
 
   // Paginated: across many vehicles the posting count easily exceeds the PostgREST 1000-row cap;
   // a truncated batch would break the trial balance for whichever vehicles fell past the cut.
-  const [acctRows, entryRows, postingRows] = await Promise.all([
-    fetchAllRows((f, t) => admin.from('chart_of_accounts' as any).select('id, code, name, type, subtype, lp_entity_id, company_id, vehicle_id').eq('fund_id', fundId).in('vehicle_id', vehicleIds).range(f, t)),
-    fetchAllRows((f, t) => {
-      let q = admin.from('journal_entries' as any).select('id, source_type, status, entry_date, memo, vehicle_id').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('vehicle_id', vehicleIds).eq('status', 'posted')
-      if (asOf) q = q.lte('entry_date', asOf)
-      return q.range(f, t)
-    }),
-    fetchAllRows((f, t) => admin.from('journal_postings' as any).select('journal_entry_id, account_id, amount, currency, lp_entity_id, vehicle_id').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('vehicle_id', vehicleIds).range(f, t)),
-  ])
+  const [acctRows, entryRows, postingRows] = opts.capitalOnly
+    ? await loadCapitalRows(admin, fundId, vehicleIds, asOf)
+    : await Promise.all([
+      fetchAllRows((f, t) => admin.from('chart_of_accounts' as any).select('id, code, name, type, subtype, lp_entity_id, company_id, vehicle_id').eq('fund_id', fundId).in('vehicle_id', vehicleIds).range(f, t)),
+      fetchAllRows((f, t) => {
+        let q = admin.from('journal_entries' as any).select('id, source_type, status, entry_date, memo, vehicle_id').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('vehicle_id', vehicleIds).eq('status', 'posted')
+        if (asOf) q = q.lte('entry_date', asOf)
+        return q.range(f, t)
+      }),
+      fetchAllRows((f, t) => admin.from('journal_postings' as any).select('journal_entry_id, account_id, amount, currency, lp_entity_id, vehicle_id').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('vehicle_id', vehicleIds).range(f, t)),
+    ])
 
   for (const r of (acctRows as any[])) out.get(r.vehicle_id)?.acctRows.push(r)
   for (const r of (entryRows as any[])) out.get(r.vehicle_id)?.entryRows.push(r)
   for (const r of (postingRows as any[])) out.get(r.vehicle_id)?.postingRows.push(r)
   return out
+}
+
+/**
+ * The rows LP capital is built from, without the rest of the ledger: the chart, every posting
+ * tagged to a partner (capital accounts and the per-LP receivable carry the tag; expenses, income
+ * and cash do not), the entries those postings belong to, and every split of the externally
+ * sourced ones among them (assembleLoadedLedger reads a QuickBooks entry's whole split to classify
+ * its capital as cash in or out). What assembleLoadedLedger builds from these has the same
+ * capitalPostings, and the same partner-tagged postings, as from the whole ledger; it is not a
+ * trial balance and must not be used as one.
+ */
+async function loadCapitalRows(admin: SupabaseClient, fundId: string, vehicleIds: string[], asOf?: string): Promise<[any[], any[], any[]]> {
+  // Unordered, like the whole-ledger read above: an order the full read doesn't have would change
+  // the order each partner's postings are summed in, and with it the last bit of the figures.
+  const POSTING_COLS = 'id, journal_entry_id, account_id, amount, currency, lp_entity_id, vehicle_id'
+  const [acctRows, tagged] = await Promise.all([
+    fetchAllRows<any>((f, t) => admin.from('chart_of_accounts' as any).select('id, code, name, type, subtype, lp_entity_id, company_id, vehicle_id').eq('fund_id', fundId).in('vehicle_id', vehicleIds).range(f, t)),
+    fetchAllRows<any>((f, t) => admin.from('journal_postings' as any).select(POSTING_COLS).eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('vehicle_id', vehicleIds).not('lp_entity_id', 'is', null).range(f, t)),
+  ])
+  const entryIds = Array.from(new Set(tagged.map(p => p.journal_entry_id as string)))
+  const entryRows = (await byIdChunks(entryIds, ids => fetchAllRows<any>((f, t) => {
+    let q = admin.from('journal_entries' as any).select('id, source_type, status, entry_date, memo, vehicle_id').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('id', ids).eq('status', 'posted')
+    if (asOf) q = q.lte('entry_date', asOf)
+    return q.range(f, t)
+  })))
+  const external = entryRows.filter(e => isExternalBookSource(e.source_type)).map(e => e.id as string)
+  const splits = await byIdChunks(external, ids => fetchAllRows<any>((f, t) =>
+    admin.from('journal_postings' as any).select(POSTING_COLS).eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('journal_entry_id', ids).range(f, t)))
+  const seen = new Set(tagged.map(p => p.id))
+  return [acctRows, entryRows, [...tagged, ...splits.filter(p => !seen.has(p.id))]]
+}
+
+/** Run `load` over `ids` in chunks of 200 (a URL-length-safe IN list), a few at a time. */
+async function byIdChunks<T>(ids: string[], load: (chunk: string[]) => Promise<T[]>): Promise<T[]> {
+  const chunks: string[][] = []
+  for (let i = 0; i < ids.length; i += 200) chunks.push(ids.slice(i, i + 200))
+  const out: T[][] = new Array(chunks.length)
+  let next = 0
+  await Promise.all(Array.from({ length: Math.min(6, chunks.length) }, async () => {
+    while (next < chunks.length) { const i = next++; out[i] = await load(chunks[i]) }
+  }))
+  return out.flat()
 }
 
 /** Assemble a vehicle's LoadedLedger from its raw rows. Pure — the same reduction whether the
