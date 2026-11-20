@@ -28,7 +28,7 @@ import { irrFlowPostings, isIrrFlow } from './irr-flows'
 import type { CapitalEvidence } from './capital-evidence'
 import { loadReportingCapital } from './reporting-capital'
 import { fetchAllRows, listVehicles, loadOwnership } from './load'
-import { lookThroughAccount, associateMembers } from './look-through'
+import { lookThroughAccount, associateMembers, memberLookThroughIrr } from './look-through'
 import { latestPositionIrr } from './lp-positions'
 import { loadFundPreload, vehicleCapitalPreload, commitmentEventsForGroup, type FundPreload } from './fund-preload'
 import { roundCents } from './ledger'
@@ -433,6 +433,9 @@ async function applyLookThrough(
         outstanding_balance: m.paid_in_capital == null ? null : roundCents(m.commitment - m.paid_in_capital),
         receivable: null,
         carried_interest: null,
+        // The member's own multiples from their own split. Copying the associate's would give every
+        // member the same TVPI, though carry follows points and capital follows ownership.
+        ...memberRatios(associateRow, m),
         evidence: associateRow.evidence ? {
           ...associateRow.evidence,
           values: { contributions: m.paid_in_capital, distributions: m.distributions, nav: m.nav },
@@ -445,25 +448,44 @@ async function applyLookThrough(
     // Rebuild the associate's capital account so the look-through can split its BUCKETS —
     // the metric row alone can't, because carry has to follow points while capital follows
     // ownership.
-    const assocAccounts = computeCapitalAccounts(
-      (await loadCapitalPostings(admin, fundId, link.servesGroup, asOf, idMap, preload ? vehicleCapitalPreload(preload, link.servesGroup) : undefined)).postings
-    )
+    const servedPostings = (await loadCapitalPostings(admin, fundId, link.servesGroup, asOf, idMap, preload ? vehicleCapitalPreload(preload, link.servesGroup) : undefined)).postings
+    const assocAccounts = computeCapitalAccounts(servedPostings)
     const assocAccount = assocAccounts.get(link.entityId)
     if (!assocAccount) return { link, associateRow, memberRows: null }
 
+    // The associate's own dated cash flows in the fund, for each member's IRR.
+    const assocFlows = irrFlowPostings(servedPostings)
+      .filter(p => p.lpEntityId === link.entityId && p.entryDate)
+      .map(p => ({ date: new Date(p.entryDate + 'T00:00:00Z'), amount: p.amount }))
+    const irrAsOf = new Date((asOf ?? new Date().toISOString().slice(0, 10)) + 'T00:00:00Z')
+    const shareOf = (part: number, whole: number) => (Math.abs(whole) >= 0.005 ? part / whole : 0)
+
     const exploded = lookThroughAccount(assocAccount, members)
-    const memberRows: LiveInvestmentRow[] = Array.from(exploded.entries()).map(([entityId, account]) => ({
-      entity_id: entityId,
-      portfolio_group: link.servesGroup,
-      source: associateRow.source,
-      lookThroughVia: link.associateGroup,
-      ...deriveMetrics(
-        account,
-        // A member's "commitment" to the fund is their share of the associate's commitment to it.
-        roundCents(associateRow.commitment * ownershipShare(members, entityId)),
-        0
-      ),
-    }))
+    const memberRows: LiveInvestmentRow[] = Array.from(exploded.entries()).map(([entityId, account]) => {
+      // Each member's IRR from their own share of the flows: carry follows points, so a member's
+      // return differs from the associate's and from every other member's.
+      const irr = memberLookThroughIrr(
+        assocFlows,
+        {
+          contributions: shareOf(account.contributions, assocAccount.contributions),
+          distributions: shareOf(account.distributions, assocAccount.distributions),
+        },
+        account.ending, irrAsOf, xirr, tooNewForIrr,
+      )
+      return {
+        entity_id: entityId,
+        portfolio_group: link.servesGroup,
+        source: associateRow.source,
+        lookThroughVia: link.associateGroup,
+        ...deriveMetrics(
+          account,
+          // A member's "commitment" to the fund is their share of the associate's commitment to it.
+          roundCents(associateRow.commitment * ownershipShare(members, entityId)),
+          0,
+          irr,
+        ),
+      }
+    })
     return { link, associateRow, memberRows }
   }))).filter((p): p is Plan => p !== null)
 
@@ -498,6 +520,26 @@ async function applyLookThrough(
   }
 
   return out
+}
+
+/**
+ * A member's DPI, RVPI and TVPI from their share of an administrator-reported associate row. The
+ * administrator states one IRR for the associate, and it is the member's only when their share
+ * is a straight slice of it (same TVPI); otherwise no IRR is shown rather than a wrong one.
+ */
+function memberRatios(
+  associateRow: LiveInvestmentRow,
+  m: { commitment: number; paid_in_capital: number | null; distributions: number | null; nav: number | null },
+): Pick<LiveInvestmentRow, 'dpi' | 'rvpi' | 'tvpi' | 'irr'> {
+  const rr = lpRatios({ commitment: m.commitment, paidIn: m.paid_in_capital, distributions: m.distributions, nav: m.nav })
+  const tvpi = rr.tvpi == null ? null : round4(rr.tvpi)
+  const sameSlice = tvpi != null && associateRow.tvpi != null && Math.abs(tvpi - associateRow.tvpi) < 0.0001
+  return {
+    dpi: rr.dpi == null ? null : round4(rr.dpi),
+    rvpi: rr.rvpi == null ? null : round4(rr.rvpi),
+    tvpi,
+    irr: sameSlice ? associateRow.irr : null,
+  }
 }
 
 function ownershipShare(members: { lpEntityId: string; ownershipWeight: number }[], id: string): number {
