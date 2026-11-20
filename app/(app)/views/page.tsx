@@ -38,16 +38,12 @@ export default function ViewsPage() {
 
   return (
     <div className="p-4 md:p-8">
-      <div className="max-w-4xl space-y-1">
+      <div className="max-w-4xl space-y-2">
         <div className="flex items-center justify-between gap-3">
           <h1 className="text-2xl font-semibold tracking-tight">Views</h1>
-          <Button asChild size="sm"><Link href="/views/new"><Plus /> New view</Link></Button>
+          <Button asChild size="sm" variant="outline" className="text-muted-foreground"><Link href="/views/new"><Plus /> New view</Link></Button>
         </div>
-        <p className="text-sm text-muted-foreground">
-          Screens built on live fund data. Describe one here (&ldquo;NAV, unfunded and the largest positions, filterable by
-          vehicle&rdquo;), or to Claude with the Hemrock connector, check the preview, and save it. Each view loads fresh
-          every time, and everyone sees only the figures their own access allows.
-        </p>
+        <p className="text-sm text-muted-foreground">Build custom views of your portfolio, fund, and limited partner data.</p>
       </div>
       <div className="mt-6 max-w-4xl">
         {error ? (
@@ -55,7 +51,7 @@ export default function ViewsPage() {
         ) : views === null ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading views</div>
         ) : views.length === 0 ? (
-          <EmptyState icon={LayoutGrid} action={<Button asChild><Link href="/views/new"><Plus /> New view</Link></Button>}>
+          <EmptyState icon={LayoutGrid} action={<Button asChild variant="outline" className="text-muted-foreground"><Link href="/views/new"><Plus /> New view</Link></Button>}>
             No views yet. Describe the first one and see it built on your live data.
           </EmptyState>
         ) : (
