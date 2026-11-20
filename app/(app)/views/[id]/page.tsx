@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Loader2, RefreshCw, Sparkles } from 'lucide-react'
+import { ArrowLeft, FileSpreadsheet, FileText, Loader2, RefreshCw, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -62,6 +62,15 @@ export default function CustomViewPage() {
   const payload = data?.payload
   const params = payload?.data.params ?? []
 
+  // The file is built on the server with the same filters, loaded as the viewer again.
+  const exportHref = (format: 'pdf' | 'xlsx') => {
+    const qs = new URLSearchParams({ format })
+    if (vehicle) qs.set('vehicle', vehicle)
+    if (asOf) qs.set('as_of', asOf)
+    try { qs.set('tz', Intl.DateTimeFormat().resolvedOptions().timeZone) } catch { /* the server uses UTC */ }
+    return `/api/views/${encodeURIComponent(id)}/export?${qs}`
+  }
+
   return (
     <div className="p-4 md:p-8 space-y-6">
       <div className="space-y-2">
@@ -106,6 +115,16 @@ export default function CustomViewPage() {
             <Button variant="outline" size="sm" onClick={() => { setLoading(true); load({ vehicle, asOf }) }} disabled={loading}>
               <RefreshCw className={loading ? 'animate-spin' : ''} /> Refresh
             </Button>
+            {data && (
+              <>
+                <Button asChild variant="outline" size="sm" className="text-muted-foreground">
+                  <a href={exportHref('pdf')} target="_blank" rel="noopener"><FileText /> PDF</a>
+                </Button>
+                <Button asChild variant="outline" size="sm" className="text-muted-foreground">
+                  <a href={exportHref('xlsx')}><FileSpreadsheet /> Excel</a>
+                </Button>
+              </>
+            )}
             {data && (
               <Button asChild variant="outline" size="sm">
                 <Link href={`/views/new?from=${encodeURIComponent(id)}`}><Sparkles /> {data.view.kind === 'mine' ? 'Change' : 'Copy and change'}</Link>

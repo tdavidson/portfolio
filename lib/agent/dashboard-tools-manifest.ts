@@ -361,6 +361,26 @@ export const DASHBOARD_TOOL_MANIFEST: DashboardToolMeta[] = [
     },
   },
   {
+    name: 'export_custom_view',
+    description:
+      'Make a saved custom view into a file: a PDF to print or send, or an Excel workbook (a sheet per chart and ' +
+      'table, with real numbers). Returns a download link that works for an hour, for this user only; every block ' +
+      'is loaded as them when the link is opened. Pass the same vehicle and as_of filters the view was opened with.',
+    scope: 'read',
+    domain: 'portfolio',
+    personal: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        view: CUSTOM_REF,
+        format: { type: 'string', enum: ['pdf', 'xlsx'], description: 'pdf (default) or xlsx.' },
+        vehicle: { type: 'string', description: 'The vehicle filter, when the view offers one.' },
+        as_of: { type: 'string', description: 'The as-of date (YYYY-MM-DD), when the view offers one.' },
+      },
+      required: ['view'],
+    },
+  },
+  {
     name: 'delete_custom_view',
     description: 'Delete one of the user\'s own custom views, by id or name. Only call this when the user asks to remove it.',
     scope: 'write',

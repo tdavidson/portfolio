@@ -44,6 +44,8 @@ import { CHART_KINDS, CHART_MAX_POINTS, CHART_UNITS } from '@/lib/mcp-apps/paylo
 import { parseViewSpec, ViewSpecError } from '@/lib/custom-views/spec'
 import { resolveView } from '@/lib/custom-views/resolve'
 import { deleteView, getView, listViews, saveView, viewPath } from '@/lib/custom-views/store'
+import { linkNote, reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
+import { siteOrigin } from '@/lib/site-links'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
@@ -684,6 +686,28 @@ const CUSTOM_VIEW_HANDLERS: Record<string, AgentToolHandler> = {
   get_custom_view_spec: async (ctx: AgentToolContext, input: any) => {
     const view = await getView(ctx.admin, ctx.fundId, requireUser(ctx), input?.view)
     return { id: view.id, name: view.name, kind: view.kind, shared: view.shared, spec: view.spec }
+  },
+
+  // A link, not the file: an MCP result is JSON text. The view is checked now, so a wrong name fails
+  // in the conversation; the document is built when the link is opened, as the member, after their
+  // access is read again (app/api/agent/reports/[token]).
+  export_custom_view: async (ctx: AgentToolContext, input: any) => {
+    const userId = requireUser(ctx)
+    const view = await getView(ctx.admin, ctx.fundId, userId, input?.view)
+    const format = input?.format === undefined || input?.format === null || input?.format === '' ? 'pdf' : String(input.format)
+    if (format !== 'pdf' && format !== 'xlsx') throw new Error('format must be pdf or xlsx')
+    const asOf = input?.as_of ? String(input.as_of) : null
+    if (asOf && !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) throw new Error('as_of must be an ISO date (YYYY-MM-DD)')
+    const { token, expiresAt } = signReportLink({
+      fundId: ctx.fundId, userId, kind: 'custom_view',
+      args: { view: view.id, format, vehicle: input?.vehicle ? String(input.vehicle) : null, as_of: asOf },
+    })
+    return {
+      document: `${view.name} (${format === 'pdf' ? 'PDF' : 'Excel'})`,
+      url: reportLinkUrl(ctx.origin ?? siteOrigin(), token),
+      expires_at: expiresAt,
+      note: linkNote('It opens the file for an hour, and only for this member. If they ask again later, call this tool again rather than re-sharing this link.'),
+    }
   },
 
   delete_custom_view: async (ctx: AgentToolContext, input: any) =>

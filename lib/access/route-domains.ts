@@ -369,6 +369,8 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // (lib/custom-views/resolve.ts), so level 'any' only keeps non-members out.
   'api/views': { domain: 'portfolio', level: 'any' },
   'api/views/[id]': { domain: 'portfolio', level: 'any' },
+  // The same view as a PDF or workbook, every block loaded as the caller (lib/custom-views/document.ts).
+  'api/views/[id]/export': { domain: 'portfolio', level: 'any' },
   // The New view page's builder: the fund's model sees only the catalog's names, and the preview's
   // blocks are checked against the caller as they load.
   'api/views/draft': { domain: 'portfolio', level: 'any' },
