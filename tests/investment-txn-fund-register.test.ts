@@ -8,7 +8,10 @@ vi.mock('@/lib/supabase/server', () => ({ createClient: async () => ({ auth: { g
 vi.mock('@/lib/supabase/admin', () => ({ createAdminClient: () => s.m.admin }))
 vi.mock('@/lib/api-helpers', async (orig) => ({ ...(await orig<any>()), assertWriteAccess: async () => ({ fundId: 'f', userId: 'u', role: 'admin' }) }))
 vi.mock('@/lib/access/entity-scope', () => ({ loadEntityScope: async () => ({ vehicleNames: null, writableNames: null, companyIds: null, access: {} }) }))
-vi.mock('@/lib/accounting/from-portfolio', () => ({ retractEntriesForTransaction: s.retract, draftEntryForTransaction: s.redraft }))
+vi.mock('@/lib/accounting/from-portfolio', () => ({
+  retractEntriesForTransaction: s.retract, draftEntryForTransaction: s.redraft,
+  releaseMarksAfterLastExit: async () => ({ released: false }), exitReleaseWarning: () => undefined,
+}))
 vi.mock('@/lib/activity', () => ({ logActivity: () => {} }))
 import { DELETE, PATCH } from '@/app/api/companies/[id]/investments/[txnId]/route'
 
