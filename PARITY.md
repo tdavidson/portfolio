@@ -202,7 +202,7 @@ Effort is a guess: S is a tool wrapping an existing `lib` function, M needs logi
 | View proposed capital calls (list / one, re-checked) | `/api/accounting/proposed-calls (GET)` | covered | lp_proposed_calls | Closed in feat/lp-portal-tools | - | - |
 | View tax-year state (what a close is waiting on) | `/api/accounting/tax-year (GET)` | gap | - | No reason found | tax_year_status read tool (taxYearState) | S easy-win |
 | View/create/edit/delete letter templates (style guide) | `/api/lp-letters/templates (GET/POST); /templates/[id] (GET/PATCH/DELETE)` | gap | lp_draft_letter (uses template by id) | No reason found; templates can be chosen but not managed | lp_letter_templates list/save tools | S easy-win |
-| Batch export LP report cards as a ZIP of PDFs | `/api/lps/export/pdf (POST)` | partial | lp_report_card_pdf (one investor) | One investor per call; no batch zip | Loop lp_report_card_pdf or add zip report-link kind | S |
+| Batch export LP report cards as a ZIP of PDFs | `/api/lps/export/pdf (POST)` | covered | lp_report_cards_zip | Closed: one build of the live report for the whole batch (lib/lp-report-cards) | - | - |
 | Declare a distribution (lines, carry lines, tiers, character, deductions, imported payments) | `/api/accounting/distributions (POST action=declare)` | partial | allocation(action=distribution) (journal only) | allocation posts per-LP distribution journal lines but creates no distribution register, carry entry, character or notice lines. Admin-only; no staged pending action exists. Likely oversight. | declare_distribution tool, staged (add pending action wrapping declareDistribution) | M |
 | Delete a carry payment | `/api/accounting/gp-economics (DELETE)` | gap | - | Admin-only, destructive | Optional, staged (deleteCarryPayment) | S |
 | Download K-1 workbook for the preparer | `/api/accounting/k1-packages/export (GET)` | partial | tax_package_zip (includes K-1 workbook when final) | Only bundled inside tax package zip and only for a final package; no standalone or draft workbook link | Add report-link kind for buildK1WorkbookForPackage | S |
@@ -491,7 +491,7 @@ Effort is a guess: S is a tool wrapping an existing `lib` function, M needs logi
 | acct-capital-tax | Create an LP entity under an investor | lp_create_entity |
 | acct-capital-tax | Reassign/rename an LP entity | lp_update_entity |
 | acct-capital-tax | Edit an LP entity's profile (tax/contact details) | lp_update_profile |
-| acct-capital-tax | View live LP report cards (per investor) | lp_live_report; lp_report_card_pdf |
+| acct-capital-tax | View live LP report cards (per investor) | lp_live_report; lp_report_card_pdf; lp_report_cards_zip |
 | acct-capital-tax | List vehicles for LP document scoping | list_vehicles |
 | acct-capital-tax | View live LP report | lp_live_report; show_lp_dashboard |
 | acct-capital-tax | List LP letters | lp_letters |

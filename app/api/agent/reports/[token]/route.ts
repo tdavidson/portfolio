@@ -10,6 +10,8 @@ import { customPeriod } from '@/lib/accounting/statement-period'
 import { generateLpStatementPdf } from '@/lib/accounting/lp-statement-pdf'
 import { isStatementBasis } from '@/lib/accounting/statement-basis'
 import { generateInvestorReportPdf, generateLetterPdf, generateLiveInvestorReportPdf } from '@/lib/lp-report-pdf'
+import { buildLiveReportCards } from '@/lib/lp-report-cards'
+import { renderReportCardsZip } from '@/lib/lp-report-cards-zip'
 import { isExpiredReportLink, verifyReportLink, type ReportLinkClaims } from '@/lib/agent/report-links'
 import { SEND_ATTACHMENT_PURPOSE } from '@/lib/agent/remote-pdf'
 import { PERFORMANCE_GROUPINGS, type PerformanceGrouping } from '@/lib/accounting/fund-performance'
@@ -33,7 +35,8 @@ import { ForecastError } from '@/lib/forecast/service'
 import { forecastWorkbookDocument } from '@/lib/forecast/workbook-document'
 
 export const runtime = 'nodejs'
-export const maxDuration = 120
+// 300 for a ZIP of a whole fund's report cards (lp_report_cards); every other document takes far less.
+export const maxDuration = 300
 
 /**
  * GET /api/agent/reports/<token> — the document behind a link an assistant handed over
@@ -76,9 +79,10 @@ export async function GET(req: NextRequest, props: { params: Promise<{ token: st
   if (!(await agentApiEnabled(admin, claims.fundId))) return notFound()
 
   const access = await loadAccessContext(admin, claims.fundId, claims.userId, (membership as { role: string }).role)
-  if (claims.kind !== 'lp_statement' && claims.kind !== 'lp_report_card') return fundDocument(admin, claims, access)
+  if (claims.kind !== 'lp_statement' && claims.kind !== 'lp_report_card' && claims.kind !== 'lp_report_cards') return fundDocument(admin, claims, access)
   if (!hasAccess(access, 'lp_capital', 'read')) return notFound()
   const scope = await entityScopeFor(admin, access)
+  if (claims.kind === 'lp_report_cards') return reportCardsZip(admin, claims, access, scope.vehicleNames)
 
   let result: { pdf: Buffer; fileName: string } | null = null
   try {
@@ -124,6 +128,48 @@ export async function GET(req: NextRequest, props: { params: Promise<{ token: st
   if (!result) return notFound()
 
   return documentResponse({ body: result.pdf, fileName: result.fileName, contentType: 'application/pdf' })
+}
+
+/**
+ * Many investors' live report cards, one PDF each in a ZIP (lp_report_cards_zip). Each card is the
+ * one lp_report_card gives: the member's entities only, and without gp_economics none of the
+ * positions on which the investor receives carry. The fund's report is built once for the batch
+ * (lib/lp-report-cards). `investors` null = every investor the member can see now.
+ */
+async function reportCardsZip(admin: ReturnType<typeof createAdminClient>, claims: ReportLinkClaims, access: AccessContext, groups: string[] | null) {
+  const { fundId } = claims
+  const many = claims.args.investors
+  const investorIds = Array.isArray(many) ? Array.from(new Set(many.map(String))) : null
+  if (investorIds && investorIds.length === 0) return notFound()
+  if (investorIds) {
+    const { data: invs } = await (admin as any).from('lp_investors').select('id').eq('fund_id', fundId).in('id', investorIds)
+    if (((invs ?? []) as unknown[]).length !== investorIds.length) return notFound()
+  }
+  const asOf = typeof claims.args.as_of === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(claims.args.as_of) ? claims.args.as_of : undefined
+  try {
+    let omit: Map<string, Set<string>> | undefined
+    if (!seesIndividualCarry(access)) {
+      const vehicles = groups === null ? await listVehicles(admin, fundId) : groups
+      omit = new Map(await Promise.all(vehicles.map(async g => [g, await carryRecipientIds(admin, fundId, g)] as [string, Set<string>])))
+    }
+    const built = await buildLiveReportCards(admin, fundId, {
+      asOf,
+      investorIds,
+      selectRows: groups === null ? undefined : rows => rows.filter(r => groups.includes(r.portfolio_group)),
+      ...(omit ? { omit } : {}),
+      // Connected funds only for a member who sees every entity, as the single card.
+      includeConnected: groups === null,
+      omitConnectedCarry: !!omit,
+    })
+    if (built.cards.length === 0) return notFound()
+    const label = `LP Report${asOf ? ` ${asOf}` : ''}`
+    const { zip, count } = await renderReportCardsZip(admin, fundId, built.cards, { fileSuffix: label })
+    if (count === 0) return notFound()
+    return documentResponse({ body: zip, fileName: `${label} - Individual PDFs.zip`, contentType: 'application/zip' })
+  } catch (e) {
+    console.error('[agent/reports]', claims.kind, e)
+    return NextResponse.json({ error: 'These documents could not be generated. Try again, or ask for a new link.' }, { status: 500 })
+  }
 }
 
 /**
