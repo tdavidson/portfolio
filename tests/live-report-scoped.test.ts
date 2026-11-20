@@ -188,7 +188,7 @@ describe('an associate whose position is only an administrator import', () => {
   function importedAssociateFund() {
     const m = multiVehicleFund()
     const t = m.tables
-    t.fund_vehicles.find((v: any) => v.id === 'veh-4').record_source = 'admin'
+    t.fund_vehicles.find((v: any) => v.id === 'veh-4')!.record_source = 'admin'
     t.lp_positions.push({ id: 'pos-gp', fund_id: FUND, vehicle_id: 'veh-4', lp_entity_id: 'lp-gp', as_of_date: '2021-03-31', commitment: 10_000, called_capital: 10_000, distributions: 50_000, nav: 150_000, carried_interest: 160_000 })
     // The fund's net LP figures for the quarter: the IRR is the only one the administrator states.
     t.vehicle_reported_figures = (['irr', 'tvpi', 'dpi'] as const).map((metric, i) => ({
