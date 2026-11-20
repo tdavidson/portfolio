@@ -6,6 +6,7 @@ import JSZip from 'jszip'
 import { getChromeConfig, buildReportHtml, computeRow, computeTotals, runPool, type InvestmentRow } from '@/lib/lp-report-pdf'
 import { displayFontOf } from '@/lib/theme'
 import { generateLiveReport } from '@/lib/accounting/live-report'
+import { currentLiveReport } from '@/lib/accounting/live-report-cache'
 import { loadVehicleLetterheads, pickLetterhead, fundLetterhead, loadFundEmail, contactBlock } from '@/lib/vehicle-letterhead'
 
 export const maxDuration = 300
@@ -83,7 +84,7 @@ export async function POST(req: NextRequest) {
 
   if (live) {
     const [report, entsRes] = await Promise.all([
-      generateLiveReport(admin, fundId, safeAsOf),
+      safeAsOf ? generateLiveReport(admin, fundId, safeAsOf) : currentLiveReport(admin, fundId),
       admin.from('lp_entities' as any).select('id, entity_name, investor_id, lp_investors(id, name)').eq('fund_id', fundId),
     ])
     const entInfo = new Map<string, { entity_name: string; investor_id: string; investor_name: string }>()

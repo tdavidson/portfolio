@@ -8,7 +8,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import Link from 'next/link'
-import { Loader2, ArrowLeft, Printer, FileDown, Calendar, Search, X, CheckSquare, Square } from 'lucide-react'
+import { Loader2, ArrowLeft, Printer, FileDown, Calendar, Search, X, CheckSquare, Square, RefreshCw } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { PortfolioGroupFilter } from '@/components/lp-portfolio-group-filter'
@@ -22,6 +22,8 @@ interface Payload {
   description: string | null
   footer: string | null
   asOf: string | null
+  /** When today's figures were built; null for a past date. */
+  refreshedAt?: string | null
   investors: Investor[]
 }
 
@@ -58,9 +60,13 @@ export default function LiveCardsPage() {
   const [printing, setPrinting] = useState(false)
   const [zipping, setZipping] = useState(false)
 
-  const load = useCallback((date: string) => {
+  const load = useCallback((date: string, refresh = false) => {
     setLoading(true)
-    fetch(`/api/lps/live-cards${date ? `?asOf=${date}` : ''}`)
+    const params = new URLSearchParams()
+    if (date) params.set('asOf', date)
+    if (refresh) params.set('refresh', '1')
+    const qs = params.toString()
+    fetch(`/api/lps/live-cards${qs ? `?${qs}` : ''}`)
       .then(r => (r.ok ? r.json() : null))
       .then(setData)
       .finally(() => setLoading(false))
@@ -146,6 +152,15 @@ export default function LiveCardsPage() {
           <label className="text-xs text-muted-foreground flex items-center gap-1"><Calendar className="h-3 w-3" /> As of</label>
           <Input type="date" value={asOf} onChange={e => { setAsOf(e.target.value); setApplied(e.target.value) }} className="h-9 w-40" />
           {applied && <Button size="sm" variant="ghost" onClick={() => { setAsOf(''); setApplied('') }}>Latest</Button>}
+          {!applied && data?.refreshedAt && (
+            <span className="text-xs text-muted-foreground flex items-center gap-1">
+              Figures refreshed {new Date(data.refreshedAt).toLocaleString(undefined, { dateStyle: 'medium', timeStyle: 'short' })}
+              <Button size="sm" variant="ghost" className="h-7 px-2" onClick={() => load('', true)} disabled={loading}>
+                {loading ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
+                <span className="ml-1">Refresh</span>
+              </Button>
+            </span>
+          )}
           <span className="flex-1" />
           {allGroups.length > 1 && (
             <PortfolioGroupFilter
