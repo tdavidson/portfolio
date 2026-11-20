@@ -603,6 +603,8 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
 
   lp_report_card_pdf: async ({ admin, fundId, access, userId, origin }: AgentToolContext, input: any) => {
     if (!userId) throw new Error('Documents are issued to a signed-in member; this credential has no user.')
+    const asOf = input?.as_of == null || input.as_of === '' ? null : String(input.as_of)
+    if (asOf && !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) throw new Error('as_of must be YYYY-MM-DD.')
     const lpScope = await lpToolScope(admin, access)
     const matches = resolveLp(await loadIdentities(admin, fundId, lpScope.entityIds), String(input?.investor ?? ''))
     // One card per group: an investor grouped under a parent is on the parent's card.
@@ -613,10 +615,11 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     }
     const [[investorId, investorName]] = [...investors]
 
-    const { token, expiresAt } = signReportLink({ fundId, userId, kind: 'lp_report_card', args: { investor: investorId } })
+    const { token, expiresAt } = signReportLink({ fundId, userId, kind: 'lp_report_card', args: { investor: investorId, as_of: asOf } })
     return {
       document: 'LP report card (PDF)',
       investor: investorName,
+      as_of: asOf ?? 'current figures',
       // A member who sees only some entities gets a report card of only those.
       vehicles: lpScope.names ?? 'all',
       url: reportLinkUrl(origin ?? siteOrigin(), token),

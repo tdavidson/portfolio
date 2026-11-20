@@ -117,7 +117,10 @@ export async function GET(req: NextRequest, props: { params: Promise<{ token: st
       // The card /lps/cards/<investor> shows: an investor grouped under a parent gives the
       // parent's card, with every investor in the group (lib/lp-report-cards).
       const groups = scope.vehicleNames
+      // The date resolved when the link was made; a link without one is current figures.
+      const asOf = typeof claims.args.as_of === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(claims.args.as_of) ? claims.args.as_of : undefined
       const built = await buildLiveReportCards(admin, claims.fundId, {
+        asOf,
         investorIds: [investor],
         selectRows: groups === null ? undefined : rows => rows.filter(r => groups.includes(r.portfolio_group)),
         ...(omit ? { omit } : {}),
