@@ -8,11 +8,13 @@ import { latestQuotesAsOf } from './quote-read'
  * sheet, the viewer's visible ones for the dashboard — and must never pass one the viewer cannot
  * see: everything here reads with the service role.
  */
-export async function loadPortfolioSheet(admin: SupabaseClient, fundId: string, vehicles: string[]): Promise<PortfolioSheet> {
-  const today = new Date().toISOString().slice(0, 10)
-  // Inception to date: the sheet is "what we hold now", the same rows the schedule reports.
+export async function loadPortfolioSheet(admin: SupabaseClient, fundId: string, vehicles: string[], opts: { asOf?: string } = {}): Promise<PortfolioSheet> {
+  const today = opts.asOf ?? new Date().toISOString().slice(0, 10)
+  // Inception to date: the sheet is "what we hold now", the same rows the schedule reports. With
+  // `asOf`, what was held then (portfolio_summary's as_of).
+  const period: Record<string, string> = opts.asOf ? { asOf: opts.asOf } : { preset: 'itd' }
   const byVehicle = await Promise.all(vehicles.map(async vehicle => {
-    const pkg = await buildStatementPackage(admin, fundId, vehicle, new URLSearchParams({ preset: 'itd' }))
+    const pkg = await buildStatementPackage(admin, fundId, vehicle, new URLSearchParams(period))
     return { vehicle, rows: pkg.payload.scheduleOfInvestments.rows }
   }))
 

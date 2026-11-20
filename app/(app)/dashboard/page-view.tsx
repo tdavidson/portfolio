@@ -6,15 +6,19 @@ import { DashboardNotesLayout, DashboardChatButton, DashboardNotesPanel } from '
 import { AnalystToggleButton } from '@/components/analyst-button'
 import { AnalystPanel } from '@/components/analyst-panel'
 import type { DashboardPageData } from './load'
-import { PortfolioSheetView } from '@/components/portfolio-sheet'
+import { PortfolioSheetView, usePortfolioSheet } from '@/components/portfolio-sheet'
 import { GettingStartedBanner } from '@/components/getting-started-banner'
 import { PendingApprovalsNotice } from '@/components/pending-approvals'
 
-export function DashboardPageView({ companies, entityOptions, initialExcluded, hasSavedSelection, canAdd, isAdmin, userId }: DashboardPageData) {
+export function DashboardPageView({ companies, fundHoldings, entityOptions, initialExcluded, hasSavedSelection, canAdd, isAdmin, userId }: DashboardPageData) {
   // The entity selection drives both the company list and the holdings sheet below it.
   const [excluded, setExcluded] = useState<string[]>(initialExcluded)
   const [hasSaved, setHasSaved] = useState(hasSavedSelection)
   const excludedNames = entityOptions.filter(o => excluded.includes(o.id)).map(o => o.name)
+  const [view, setView] = useState<'cards' | 'table'>('cards')
+  // One sheet fetch for the page: the fund cards take their figures from it, and the tables below
+  // show the rest (digital assets; fund holdings too in the table view, which lists companies only).
+  const sheet = usePortfolioSheet({ exclude: excludedNames })
   return (
     <DashboardNotesLayout userId={userId} isAdmin={isAdmin} companies={companies.map(c => ({ id: c.id, name: c.name }))}>
     <div className="p-4 md:py-8 md:pl-8 md:pr-4" data-page-ready="portfolio" data-metrics-ready="portfolio">
@@ -37,6 +41,10 @@ export function DashboardPageView({ companies, entityOptions, initialExcluded, h
         <div className="flex-1 min-w-0 max-w-page w-full">
           <DashboardCompanies
             companies={companies}
+            fundHoldings={fundHoldings}
+            fundFigures={sheet}
+            view={view}
+            onViewChange={setView}
             canAdd={canAdd}
             entities={{
               options: entityOptions,
@@ -45,10 +53,10 @@ export function DashboardPageView({ companies, entityOptions, initialExcluded, h
               onChange: (next, saved) => { setExcluded(next); setHasSaved(saved) },
             }}
           />
-          {/* Fund holdings and digital assets across the viewer's entities. Companies are the table
-              above, which carries their KPIs; the sheet adds the other two kinds of holding. */}
+          {/* Digital assets across the viewer's entities. Fund holdings are cards in the grid above,
+              beside the companies; the table view lists companies only, so it shows funds here. */}
           <div className="mt-8">
-            <PortfolioSheetView sections={['funds', 'crypto']} exclude={excludedNames} hideWhenEmpty />
+            <PortfolioSheetView sections={view === 'table' ? ['funds', 'crypto'] : ['crypto']} state={sheet} hideWhenEmpty />
           </div>
         </div>
         <DashboardNotesPanel />
