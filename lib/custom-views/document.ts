@@ -31,13 +31,14 @@ export function readerTimeZone(raw: unknown): string {
 
 export async function customViewDocument(
   deps: { admin: SupabaseClient; fundId: string; userId: string; access: AccessContext },
-  input: { view: string; format: ExportFormat; vehicle?: string; as_of?: string; timeZone?: string },
+  input: { view: string; format: ExportFormat; arguments?: Record<string, string | null | undefined>; timeZone?: string },
 ): Promise<ViewDocument> {
   const view = await getView(deps.admin, deps.fundId, deps.userId, input.view)
   const payload = await resolveView(
     { admin: deps.admin, fundId: deps.fundId, userId: deps.userId, access: deps.access },
     view.spec,
-    { vehicle: input.vehicle, as_of: input.as_of },
+    // vehicle, as_of and the view's own filter.* values; anything else is ignored.
+    input.arguments ?? {},
     { id: view.id, name: view.name, url: viewPath(view.id) },
   )
   const timeZone = readerTimeZone(input.timeZone)

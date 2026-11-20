@@ -6,6 +6,7 @@
 // (or, on a host with no fullscreen, when the user expands it in place).
 
 import { h } from './dom'
+import { kpiDelta } from '../../custom-views/delta'
 import { barChart, lineChart, type BarDatum } from './charts'
 import { DASH, fractionPercent, multiple, percent, share, shortDate, titleCase, type Formatters } from './format'
 import { button, dataTable, empty, note, section, segmented, tiles, type Column, type Tile } from './ui'
@@ -222,8 +223,26 @@ function customBlock(b: CustomBlock, ctx: ViewContext): Node | null {
         cell: (r: Record<string, string | number | null>) => f(r[c.key] ?? null),
         sort: (r: Record<string, string | number | null>) => (r[c.key] ?? '') as number | string,
       }
-    }), { caption: b.label, ...(ctx.compact ? { limit: 8 } : {}) }),
+    }), {
+      caption: b.label,
+      ...(ctx.compact ? { limit: 8 } : {}),
+      ...(b.totalsRow ? { footer: columns.map((c, j) => (b.totalsRow![c.key] != null ? customFormat(c.format, ctx.fmt).value(b.totalsRow![c.key]) : j === 0 ? 'Total' : '')) } : {}),
+    }),
       b.truncated ? note('Showing the first rows only.') : null)
+  }
+  if (b.type === 'pivot') {
+    const p = b.pivot
+    if (!p || p.rows.length === 0) return section(b.label, empty('No rows.'))
+    const index = p.rows.map((_, i) => i)
+    return section(b.label, dataTable(index, [
+      { header: p.rowLabel, cell: (i: number) => p.rows[i], sort: (i: number) => p.rows[i] },
+      ...p.columns.map((c, j) => ({ header: c, numeric: true, cell: (i: number) => format(p.cells[i][j]), sort: (i: number) => p.cells[i][j] ?? 0 })),
+      ...(p.rowTotals ? [{ header: 'Total', numeric: true, cell: (i: number) => format(p.rowTotals![i]), sort: (i: number) => p.rowTotals![i] }] : []),
+    ], {
+      caption: b.label,
+      ...(ctx.compact ? { limit: 8 } : {}),
+      ...(p.columnTotals ? { footer: ['Total', ...p.columnTotals.map(v => format(v)), ...(p.rowTotals ? [format(p.grandTotal ?? null)] : [])] } : {}),
+    }))
   }
   return null
 }
@@ -235,6 +254,7 @@ function custom(payload: CustomViewPayload, ctx: ViewContext): Node[] {
 
   // The entity filter re-opens the saved view with the new value; an unsaved preview has no id to
   // re-open, so it shows the figures it was built with.
+  const controls: Node[] = []
   if (id && params.includes('vehicle') && vehicles.length > 1) {
     const select = h('select', {
       class: 'picker', 'aria-label': 'Entity',
@@ -249,13 +269,42 @@ function custom(payload: CustomViewPayload, ctx: ViewContext): Node[] {
       ...vehicles.map(v => h('option', { value: v }, v)),
     ) as HTMLSelectElement
     select.value = vehicles.includes(payload.data.values.vehicle ?? '') ? payload.data.values.vehicle! : ''
-    out.push(h('div', { class: 'filters' }, select))
+    controls.push(select)
   }
+  // The view's own pick filters re-open it the same way. A range filter is set by asking Claude;
+  // the subtitle already says what it is set to.
+  const picks = id ? (payload.data.filters ?? []).filter(f => f.kind === 'pick' && (f.options?.length ?? 0) > 0) : []
+  for (const f of picks) {
+    controls.push((() => {
+      const key = `filter.${f.column}`
+      const select = h('select', {
+        class: 'picker', 'aria-label': f.label,
+        onchange: (e: Event) => {
+          const v = (e.target as HTMLSelectElement).value
+          const args: Record<string, string> = { ...payload.data.values, [key]: v }
+          if (!v) delete args[key]
+          ctx.open('open_custom_view', { view: id, arguments: args }, 'replace')
+        },
+      },
+        h('option', { value: '' }, `All: ${f.label}`),
+        ...(f.options ?? []).map(o => h('option', { value: o }, o)),
+      ) as HTMLSelectElement
+      select.value = f.value?.pick && f.options!.includes(f.value.pick) ? f.value.pick : ''
+      return select
+    })())
+  }
+  if (controls.length) out.push(h('div', { class: 'filters' }, controls))
 
   // Tiles side by side, as the dashboards lead with them; then every other block in order.
   const kpis = blocks.filter(b => b.type === 'kpi' && b.status === 'ok')
   if (kpis.length) {
-    out.push(tiles(kpis.map(b => ({ label: b.label, value: customFormat(b.format, ctx.fmt).value(b.value ?? null), ...(b.sub ? { sub: b.sub } : {}) }))))
+    out.push(tiles(kpis.map(b => {
+      const f = customFormat(b.format, ctx.fmt).value
+      const delta = b.previousLabel ? kpiDelta(b.value, b.previous, b.format, v => f(v)) : null
+      const compare = b.previousLabel ? (delta ? `${delta.text} ${b.previousLabel}` : `No figure ${b.previousLabel.replace(/^vs /, 'for ')}`) : null
+      const sub = [compare, b.sub].filter(Boolean).join(' · ')
+      return { label: b.label, value: f(b.value ?? null), ...(sub ? { sub } : {}) }
+    })))
   }
   const rest = blocks.filter(b => !(b.type === 'kpi' && b.status === 'ok'))
   // The inline card carries the tiles and the first block that loaded; the rest is one tap away.

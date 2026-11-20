@@ -7,7 +7,7 @@ import { CustomViewError, deleteView, getView, viewPath } from '@/lib/custom-vie
 /**
  * One custom view.
  *
- *   GET    ?vehicle=&as_of=  → the view with every block loaded as the caller
+ *   GET    ?vehicle=&as_of=&filter.<column>=  → the view with every block loaded as the caller
  *   DELETE                   → delete it (the owner's own views only)
  *
  * Gated at 'any' in route-domains.ts. The payload straddles domains by design, so every block is
@@ -24,7 +24,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
     const payload = await resolveView(
       { admin: c.admin, fundId: c.fundId, userId: c.userId, access: c.access },
       view.spec,
-      { vehicle: p.get('vehicle') ?? undefined, as_of: p.get('as_of') ?? undefined },
+      // vehicle, as_of and the view's own filter.<column> values; the resolver ignores the rest.
+      Object.fromEntries(p),
       { id: view.id, name: view.name, url: viewPath(view.id) },
     )
     return NextResponse.json({ view: { id: view.id, name: view.name, kind: view.kind, shared: view.shared }, spec: view.spec, payload })

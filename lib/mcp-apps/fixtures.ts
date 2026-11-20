@@ -192,8 +192,9 @@ export const custom: CustomViewPayload = {
   data: {
     id: 'view-1', url: 'https://app.fund.example/views/view-1', description: 'Where the portfolio stands, for the Monday meeting.',
     params: ['vehicle'], values: {}, vehicles: ['Fernhill Fund I', 'Fernhill Fund II'],
+    filters: [{ column: 'stage', label: 'Stage', kind: 'pick', options: ['Seed', 'Series A', 'Series B'] }],
     blocks: [
-      { id: 'fv', type: 'kpi', label: 'Fair value', span: 3, status: 'ok', format: 'currency', value: tf },
+      { id: 'fv', type: 'kpi', label: 'Fair value', span: 3, status: 'ok', format: 'currency', value: tf, previous: Math.round(tf * 0.9), previousLabel: 'vs Jun 30, 2026' },
       { id: 'cost', type: 'kpi', label: 'Cost', span: 3, status: 'ok', format: 'currency', value: tc },
       { id: 'n', type: 'kpi', label: 'Active companies', span: 3, status: 'ok', format: 'number', value: positions.filter(p => p.status === 'active').length },
       { id: 'nav', type: 'kpi', label: 'LP NAV', span: 3, status: 'denied', message: 'Needs access to LP capital.' },
@@ -205,6 +206,15 @@ export const custom: CustomViewPayload = {
         id: 'tbl', type: 'table', label: 'Below cost', span: 6, status: 'ok',
         columns: [{ key: 'company', label: 'Company', format: 'text' }, { key: 'cost', label: 'Cost', format: 'currency' }, { key: 'moic', label: 'MOIC', format: 'multiple' }],
         rows: positions.filter(p => p.fairValue < p.cost).map(p => ({ company: p.company, cost: p.cost, moic: p.moic })),
+        totalsRow: { company: null, cost: positions.filter(p => p.fairValue < p.cost).reduce((s, p) => s + p.cost, 0), moic: null },
+      },
+      {
+        id: 'cross', type: 'pivot', label: 'Fair value by stage and vehicle', span: 12, status: 'ok', format: 'currency',
+        pivot: {
+          rowLabel: 'Stage', rows: ['Seed', 'Series A', 'Series B'], columns: ['Example Fund I', 'Example Fund II'],
+          cells: [[2_000_000, 1_000_000], [1_000_000, 1_500_000], [null, 1_000_000]],
+          rowTotals: [3_000_000, 2_500_000, 1_000_000], columnTotals: [3_000_000, 3_500_000], grandTotal: 6_500_000,
+        },
       },
       {
         id: 'stacked', type: 'bar', label: 'Fair value by stage and vehicle', span: 6, status: 'ok', format: 'currency',

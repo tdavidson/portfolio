@@ -698,9 +698,16 @@ const CUSTOM_VIEW_HANDLERS: Record<string, AgentToolHandler> = {
     if (format !== 'pdf' && format !== 'xlsx') throw new Error('format must be pdf or xlsx')
     const asOf = input?.as_of ? String(input.as_of) : null
     if (asOf && !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) throw new Error('as_of must be an ISO date (YYYY-MM-DD)')
+    // The view's own filters ride along as filter.<column> values, checked when the file is built.
+    const filterArgs: Record<string, string> = {}
+    const raw = input?.arguments && typeof input.arguments === 'object' ? input.arguments as Record<string, unknown> : {}
+    for (const [k, v] of Object.entries(raw)) {
+      if (k.startsWith('filter.') && (typeof v === 'string' || typeof v === 'number') && String(v).length <= 200) filterArgs[k] = String(v)
+    }
+    const vehicle = input?.vehicle ?? raw.vehicle
     const { token, expiresAt } = signReportLink({
       fundId: ctx.fundId, userId, kind: 'custom_view',
-      args: { view: view.id, format, vehicle: input?.vehicle ? String(input.vehicle) : null, as_of: asOf },
+      args: { ...filterArgs, view: view.id, format, vehicle: vehicle ? String(vehicle) : null, as_of: asOf ?? (typeof raw.as_of === 'string' ? raw.as_of : null) },
     })
     return {
       document: `${view.name} (${format === 'pdf' ? 'PDF' : 'Excel'})`,

@@ -63,7 +63,7 @@ describe('parseViewSpec', () => {
   })
 
   it('refuses unknown block types, params and formats', () => {
-    fails({ ...valid, blocks: [{ type: 'html', label: 'X' }] }, /type must be one of: kpi, bar, column, line, area, pie, scatter, combo, waterfall, funnel, table, text/)
+    fails({ ...valid, blocks: [{ type: 'html', label: 'X' }] }, /type must be one of: kpi, bar, column, line, area, pie, scatter, combo, waterfall, funnel, table, pivot, text/)
     fails({ ...valid, params: ['company'] }, /params must be one of: vehicle, as_of/)
     fails({ ...valid, blocks: [{ ...valid.blocks[0], format: 'emoji' }] }, /format must be one of/)
   })
@@ -149,5 +149,31 @@ describe('chart types', () => {
     fails(chart({ type: 'combo', source: byStage, x: 'stage', y: 'cost' }), /y2 must be a column of the result/)
     fails(chart({ type: 'pie', source: byStage, x: 'stage', y: 'fv', series: 'cost' }), /series works on bar, column, line and area/)
     fails(chart({ type: 'column', source: positions({ group_by: ['stage', 'status'], aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] }), x: 'stage', y: 'fv', series: 'status', stack: 'sideways' }), /stack must be one of: stacked, grouped/)
+  })
+})
+
+describe('report features in the spec', () => {
+  const src = (extra: object = {}) => ({ tool: 'query_portfolio', dataset: 'positions', query: { columns: ['company', 'fair_value', 'cost'] }, ...extra })
+
+  it('takes calculated columns as result columns, and refuses a bad formula with its reason', () => {
+    const spec = parseViewSpec({ title: 'T', blocks: [{ type: 'bar', label: 'G', x: 'company', y: 'gain', source: src({ computed: [{ as: 'gain', formula: 'fair_value - cost' }] }) }] })
+    expect(spec.blocks[0]).toMatchObject({ y: 'gain', source: { computed: [{ as: 'gain', formula: 'fair_value - cost' }] } })
+    fails({ title: 'T', blocks: [{ type: 'table', label: 'G', source: src({ computed: [{ as: 'gain', formula: 'fair_value - nav' }] }) }] }, /computed "gain": "nav" is not a column/)
+    fails({ title: 'T', blocks: [{ type: 'table', label: 'G', source: src({ computed: [{ as: 'cost', formula: '1' }] }) }] }, /already a column/)
+  })
+
+  it('checks a pivot\'s three columns and a kpi comparison', () => {
+    const grouped = { tool: 'query_portfolio', dataset: 'positions', query: { group_by: ['status', 'stage'], aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] } }
+    expect(parseViewSpec({ title: 'P', blocks: [{ type: 'pivot', label: 'P', source: grouped, rows: 'status', columns: 'stage', value: 'fv' }] }).blocks[0])
+      .toMatchObject({ type: 'pivot', rows: 'status', columns: 'stage', value: 'fv', format: 'number' })
+    fails({ title: 'P', blocks: [{ type: 'pivot', label: 'P', source: grouped, rows: 'status', columns: 'status', value: 'fv' }] }, /three different columns/)
+    fails({ title: 'K', blocks: [{ type: 'kpi', label: 'K', source: grouped, value: 'fv', compare: 'last_week' }] }, /compare must be one of/)
+  })
+
+  it('keeps filters on dataset columns, a range only on dates or numbers', () => {
+    const spec = parseViewSpec({ title: 'F', filters: ['stage', { column: 'fair_value', kind: 'range', label: 'Fair value' }], blocks: [{ type: 'table', label: 'T', source: src() }] })
+    expect(spec.filters).toEqual([{ column: 'stage', label: 'Stage', kind: 'pick' }, { column: 'fair_value', label: 'Fair value', kind: 'range' }])
+    fails({ title: 'F', filters: ['nope'], blocks: [{ type: 'table', label: 'T', source: src() }] }, /Filter 1/)
+    fails({ title: 'F', filters: [{ column: 'stage', kind: 'range' }], blocks: [{ type: 'table', label: 'T', source: src() }] }, /range needs a date or number/)
   })
 })

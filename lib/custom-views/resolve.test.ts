@@ -172,3 +172,78 @@ describe('chart types', () => {
     expect(walk).toMatchObject({ total: true, points: [{ label: 'Acme', value: 250_000 }, { label: 'Northwind', value: 150_000 }] })
   })
 })
+
+describe('report features', () => {
+  const src = (query: object, extra: object = {}) => ({ tool: 'query_portfolio', dataset: 'positions', query, ...extra })
+
+  it('adds calculated columns, and sorts and limits on them after they exist', async () => {
+    const d = deps({ portfolio: 'read' })
+    const view = parseViewSpec({
+      title: 'Gain', blocks: [{
+        id: 't', type: 'table', label: 'Gain', source: src(
+          { columns: ['company', 'fair_value', 'cost'], order_by: [{ column: 'gain', direction: 'asc' }], limit: 1 },
+          { computed: [{ as: 'gain', formula: 'fair_value - cost' }, { as: 'gain_pct', formula: 'round(gain / cost * 100, 1)' }] },
+        ),
+        columns: ['company', 'gain', { column: 'gain_pct', format: 'percent' }],
+      }],
+    })
+    const [t] = (await resolveView(d.deps, view, {}, { id: null })).data.blocks
+    expect(t.rows).toEqual([{ company: 'Northwind', gain: -50_000, gain_pct: -25 }])
+  })
+
+  it('adds a totals row over the currency and number columns only', async () => {
+    const d = deps({ portfolio: 'read' })
+    const view = parseViewSpec({
+      title: 'T', blocks: [{ id: 't', type: 'table', label: 'T', totals: true, source: src({ columns: ['company', 'fair_value', 'moic'] }) }],
+    })
+    const [t] = (await resolveView(d.deps, view, {}, { id: null })).data.blocks
+    expect(t.totalsRow).toEqual({ company: null, fair_value: 400_000, moic: null })
+  })
+
+  it('cross-tabs a pivot with row, column and grand totals', async () => {
+    const d = deps({ portfolio: 'read' })
+    const view = parseViewSpec({
+      title: 'P', blocks: [{
+        id: 'p', type: 'pivot', label: 'By stage', rows: 'status', columns: 'stage', value: 'fv', format: 'currency',
+        source: src({ group_by: ['status', 'stage'], aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] }),
+      }],
+    })
+    const [p] = (await resolveView(d.deps, view, {}, { id: null })).data.blocks
+    expect(p.pivot).toEqual({
+      rowLabel: 'Status', rows: ['active'], columns: ['Seed', 'Series A'], cells: [[250_000, 150_000]],
+      rowTotals: [400_000], columnTotals: [250_000, 150_000], grandTotal: 400_000,
+    })
+  })
+
+  it('compares a figure with the same figure at an earlier date', async () => {
+    const d = deps({ portfolio: 'read' })
+    d.positions.mockImplementation((async (_ctx: unknown, opts: { as_of?: string }) =>
+      opts.as_of === '2026-06-30' ? POSITIONS.map(p => ({ ...p, fair_value: p.fair_value / 2 })) : POSITIONS) as never)
+    const view = parseViewSpec({
+      title: 'C', params: ['as_of'], blocks: [{
+        id: 'k', type: 'kpi', label: 'FV', format: 'currency', compare: 'prior_quarter', value: 'fv',
+        source: src({ aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] }),
+      }],
+    })
+    const [k] = (await resolveView(d.deps, view, { as_of: '2026-09-30' }, { id: null })).data.blocks
+    expect(k).toMatchObject({ value: 400_000, previous: 200_000, previousLabel: 'vs Jun 30, 2026' })
+  })
+
+  it('offers pick filters from the viewer\'s rows and applies them to every block with the column', async () => {
+    const d = deps({ portfolio: 'read', lp_capital: 'read' })
+    const view = parseViewSpec({
+      title: 'F', filters: [{ column: 'stage' }], blocks: [
+        { id: 'k', type: 'kpi', label: 'FV', format: 'currency', value: 'fv', source: src({ aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] }) },
+        { id: 'l', type: 'table', label: 'LPs', source: { tool: 'query_lps', dataset: 'lp_positions', query: { columns: ['investor', 'nav'] } } },
+      ],
+    })
+    const payload = await resolveView(d.deps, view, { 'filter.stage': 'Seed' }, { id: 'v' })
+    expect(payload.data.filters).toEqual([{ column: 'stage', label: 'Stage', kind: 'pick', options: ['Seed', 'Series A'], value: { pick: 'Seed' } }])
+    expect(payload.data.values).toEqual({ 'filter.stage': 'Seed' })
+    expect(payload.subtitle).toBe('Stage: Seed')
+    const [k, l] = payload.data.blocks
+    expect(k.value).toBe(250_000)
+    // A dataset without the column is left alone.
+    expect(l.rows).toHaveLength(1)
+  })
+})

@@ -14,6 +14,7 @@
 import * as XLSX from 'xlsx'
 import type { CustomBlock, CustomValueFormat, CustomViewPayload } from '@/lib/mcp-apps/payload'
 import { PDF_DISPLAY, PDF_SANS, pdfFontCss } from '@/lib/pdf-fonts'
+import { kpiDelta } from './delta'
 
 export const EXPORT_FORMATS = ['pdf', 'xlsx'] as const
 export type ExportFormat = (typeof EXPORT_FORMATS)[number]
@@ -84,6 +85,7 @@ const SERIES = [
   'hsl(337 70.3% 69.6%)', 'hsl(120 100% 25.7%)', 'hsl(249 48.4% 44.1%)', 'hsl(0 73.5% 58.6%)',
 ]
 const LOSS = 'hsl(0 73.5% 50%)'
+const GAIN = 'hsl(152 60% 30%)'
 const INK = '#111'
 const MUTED = '#666'
 const RULE = '#e5e5e5'
@@ -359,7 +361,22 @@ function tableHtml(block: CustomBlock, currency: string): string {
   const numeric = (f: CustomValueFormat) => f === 'currency' || f === 'number' || f === 'percent' || f === 'multiple'
   return `<table><thead><tr>${columns.map(c => `<th class="${numeric(c.format) ? 'num' : ''}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${
     rows.map(r => `<tr>${columns.map(c => `<td class="${numeric(c.format) ? 'num' : ''}">${esc(formatFigure(r[c.key], c.format, currency))}</td>`).join('')}</tr>`).join('')
-  }</tbody></table>${block.truncated ? '<p class="muted">Showing the first rows only.</p>' : ''}`
+  }${block.totalsRow ? `<tr class="total">${columns.map((c, j) => {
+    const v = block.totalsRow![c.key]
+    return `<td class="${numeric(c.format) ? 'num' : ''}">${esc(v != null ? formatFigure(v, c.format, currency) : j === 0 ? 'Total' : '')}</td>`
+  }).join('')}</tr>` : ''}</tbody></table>${block.truncated ? '<p class="muted">Showing the first rows only.</p>' : ''}`
+}
+
+function pivotHtml(block: CustomBlock, currency: string): string {
+  const p = block.pivot
+  if (!p || p.rows.length === 0) return '<p class="muted">No rows.</p>'
+  const f = (v: number | null | undefined) => esc(formatFigure(v ?? null, block.format, currency))
+  const head = `<tr><th>${esc(p.rowLabel)}</th>${p.columns.map(c => `<th class="num">${esc(c)}</th>`).join('')}${p.rowTotals ? '<th class="num">Total</th>' : ''}</tr>`
+  const body = p.rows.map((r, i) => `<tr><td>${esc(r)}</td>${p.cells[i].map(v => `<td class="num">${f(v)}</td>`).join('')}${p.rowTotals ? `<td class="num strong">${f(p.rowTotals[i])}</td>` : ''}</tr>`).join('')
+  const foot = p.columnTotals
+    ? `<tr class="total"><td>Total</td>${p.columnTotals.map(v => `<td class="num">${f(v)}</td>`).join('')}${p.rowTotals ? `<td class="num">${f(p.grandTotal)}</td>` : ''}</tr>`
+    : ''
+  return `<table><thead>${head}</thead><tbody>${body}${foot}</tbody></table>`
 }
 
 function blockHtml(block: CustomBlock, currency: string): string {
@@ -369,6 +386,7 @@ function blockHtml(block: CustomBlock, currency: string): string {
   if (block.type === 'text') {
     return `<section>${block.label ? `<h2>${esc(block.label)}</h2>` : ''}${String(block.text ?? '').split(/\n\s*\n/).map(p => `<p>${esc(p)}</p>`).join('')}</section>`
   }
+  if (block.type === 'pivot') return `<section><h2>${esc(block.label)}</h2>${pivotHtml(block, currency)}</section>`
   if (block.type !== 'kpi' && block.type !== 'table') {
     const empty = block.type === 'scatter' ? (block.dots ?? []).length === 0 : (block.points ?? []).length === 0
     const draw: Record<string, () => string> = {
@@ -389,13 +407,20 @@ function blockHtml(block: CustomBlock, currency: string): string {
   return ''
 }
 
+function deltaHtml(b: CustomBlock, currency: string): string {
+  if (!b.previousLabel) return ''
+  const d = kpiDelta(b.value, b.previous, b.format, v => formatFigure(v, b.format, currency))
+  if (!d) return `<p class="muted">No figure ${esc(b.previousLabel.replace(/^vs /, 'for '))}</p>`
+  return `<p class="muted"><span class="${d.direction}">${esc(d.text)}</span> ${esc(b.previousLabel)}</p>`
+}
+
 export function viewPdfHtml(payload: CustomViewPayload, meta: ExportMeta): string {
   const currency = payload.branding.currency
   const blocks = payload.data.blocks
   const kpis = blocks.filter(b => b.type === 'kpi')
   const rest = blocks.filter(b => b.type !== 'kpi')
   const tiles = kpis.length === 0 ? '' : `<div class="tiles">${kpis.map(b => b.status === 'ok'
-    ? `<div class="tile"><p class="eyebrow">${esc(b.label)}</p><p class="figure">${esc(formatFigure(b.value ?? null, b.format, currency))}</p>${b.sub ? `<p class="muted">${esc(b.sub)}</p>` : ''}</div>`
+    ? `<div class="tile"><p class="eyebrow">${esc(b.label)}</p><p class="figure">${esc(formatFigure(b.value ?? null, b.format, currency))}</p>${deltaHtml(b, currency)}${b.sub ? `<p class="muted">${esc(b.sub)}</p>` : ''}</div>`
     : `<div class="tile"><p class="eyebrow">${esc(b.label)}</p><p class="muted">${esc(b.message ?? 'Not available.')}</p></div>`).join('')}</div>`
   const byline = [payload.branding.fundName, payload.subtitle, `Read ${meta.readAt}`].filter(Boolean).map(esc).join(' · ')
   return `<!doctype html>
@@ -422,6 +447,9 @@ export function viewPdfHtml(payload: CustomViewPayload, meta: ExportMeta): strin
   .key { width: auto; min-width: 300px; }
   .key td { border: 0; padding: 2px 6px; }
   .key i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+  .total td { font-weight: 600; border-top: 1.5px solid #ccc; border-bottom: 0; }
+  .strong { font-weight: 600; }
+  .up { color: ${GAIN}; } .down { color: ${LOSS}; }
   .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 </style></head><body>
   <h1>${esc(payload.title)}</h1>
@@ -493,15 +521,25 @@ export function viewWorkbook(payload: CustomViewPayload, meta: ExportMeta): Buff
   ]
   const kpis = blocks.filter(b => b.type === 'kpi')
   if (kpis.length) {
-    summary.push(['Figure', 'Value'])
-    for (const b of kpis) summary.push([b.label, b.status === 'ok' ? xlValue(b.value, b.format) : (b.message ?? 'Not available.')])
+    const compared = kpis.some(b => b.previousLabel)
+    summary.push(['Figure', 'Value', ...(compared ? ['Compared with', 'Earlier value', 'Change'] : [])])
+    for (const b of kpis) {
+      const row: XlCell[] = [b.label, b.status === 'ok' ? xlValue(b.value, b.format) : (b.message ?? 'Not available.')]
+      if (compared && b.status === 'ok' && b.previousLabel) {
+        const now = typeof b.value === 'number' ? b.value : null
+        const change = now !== null && b.previous != null ? now - b.previous : null
+        // A percent figure changes by points: written as a fraction like the figure, it reads as one.
+        row.push(b.previousLabel.replace(/^vs /, ''), xlValue(b.previous ?? null, b.format), xlValue(change, b.format))
+      }
+      summary.push(row)
+    }
     summary.push([])
   }
   const notes = blocks.filter(b => b.type === 'text' || b.status !== 'ok')
   for (const b of notes.filter(n => n.type !== 'kpi')) {
     summary.push([b.label || 'Note', b.status === 'ok' ? String(b.text ?? '') : (b.message ?? 'Not available.')])
   }
-  XLSX.utils.book_append_sheet(wb, sheetOf(summary, [40, 22]), sheetName('View', used))
+  XLSX.utils.book_append_sheet(wb, sheetOf(summary, [40, 22, 18, 18, 18]), sheetName('View', used))
 
   for (const b of blocks) {
     if (b.status !== 'ok') continue
@@ -522,6 +560,15 @@ export function viewWorkbook(payload: CustomViewPayload, meta: ExportMeta): Buff
       XLSX.utils.book_append_sheet(wb, sheetOf([['Step', 'Change', 'Running total'], ...rows], [28, 16, 16]), sheetName(b.label, used))
       continue
     }
+    if (b.type === 'pivot') {
+      const p = b.pivot
+      if (!p) continue
+      const head: XlCell[] = [p.rowLabel, ...p.columns, ...(p.rowTotals ? ['Total'] : [])]
+      const rows: XlCell[][] = p.rows.map((r, i) => [r, ...p.cells[i].map(v => xlValue(v, b.format)), ...(p.rowTotals ? [xlValue(p.rowTotals[i], b.format)] : [])])
+      if (p.columnTotals) rows.push(['Total', ...p.columnTotals.map(v => xlValue(v, b.format)), ...(p.rowTotals ? [xlValue(p.grandTotal, b.format)] : [])])
+      XLSX.utils.book_append_sheet(wb, sheetOf([head, ...rows], [28, ...head.slice(1).map(() => 14)]), sheetName(b.label, used))
+      continue
+    }
     if (b.type === 'pie') {
       const total = (b.points ?? []).reduce((s, p) => s + p.value, 0)
       const rows: XlCell[][] = (b.points ?? []).map(p => [p.label, xlValue(p.value, b.format), total ? { v: p.value / total, z: XL_FORMAT.percent! } : null])
@@ -539,6 +586,7 @@ export function viewWorkbook(payload: CustomViewPayload, meta: ExportMeta): Buff
     } else if (b.type === 'table') {
       const columns = b.columns ?? []
       const rows: XlCell[][] = (b.rows ?? []).map(r => columns.map(c => xlValue(r[c.key], c.format)))
+      if (b.totalsRow) rows.push(columns.map((c, j) => (b.totalsRow![c.key] != null ? xlValue(b.totalsRow![c.key], c.format) : j === 0 ? 'Total' : null)))
       XLSX.utils.book_append_sheet(wb, sheetOf([columns.map(c => c.label), ...rows], columns.map(c => (c.format === 'text' ? 28 : 16))), sheetName(b.label, used))
     }
   }

@@ -24,9 +24,12 @@ import { runQuery } from '@/lib/agent/query/engine'
 import { loadBranding } from '@/lib/mcp-apps/branding'
 import type { CustomBlock, CustomValueFormat, CustomViewPayload, DashboardBranding } from '@/lib/mcp-apps/payload'
 import {
-  cleanParams, findDataset, isDataBlock, MAX_SERIES,
-  type ChartBlock, type DataBlock, type TableBlock, type ViewBlock, type ViewParam, type ViewSpec,
+  cleanFilterValues, cleanParams, findDataset, isDataBlock, MAX_SERIES, splitQuery,
+  type ChartBlock, type ComparePeriod, type DataBlock, type FilterValue, type PivotBlock, type TableBlock,
+  type ViewBlock, type ViewFilter, type ViewParam, type ViewSpec,
 } from './spec'
+import { applyComputed } from './formula'
+import type { Column, Filter, QueryResult } from '@/lib/agent/query/engine'
 
 type Row = Record<string, unknown>
 type Loader = (ctx: AgentToolContext, params: DatasetParams) => Promise<Row[]>
@@ -110,14 +113,79 @@ function guessFormat(column: string, sample: unknown): CustomValueFormat {
   return 'text'
 }
 
-async function loadBlock(
-  deps: ResolveDeps,
-  block: DataBlock,
-  values: Partial<Record<ViewParam, string>>,
-  cache: Map<string, Promise<Row[]>>,
-): Promise<CustomBlock> {
+/** The filters a block can take: only those on a column its dataset has. */
+function filterClauses(meta: { columns: Column[] }, filters: ViewFilter[], values: Record<string, FilterValue>): Filter[] {
+  const out: Filter[] = []
+  for (const f of filters) {
+    const v = values[f.column]
+    const col = meta.columns.find(c => c.name === f.column)
+    if (!v || !col) continue
+    if (f.kind === 'pick' && v.pick !== undefined) {
+      out.push({ column: f.column, op: 'eq', value: col.type === 'boolean' ? v.pick === 'Yes' || v.pick === 'true' : v.pick })
+    } else if (f.kind === 'range') {
+      const read = (x: string) => (col.type === 'number' ? Number(x) : x)
+      if (v.from !== undefined && (col.type !== 'number' || Number.isFinite(Number(v.from)))) out.push({ column: f.column, op: 'gte', value: read(v.from) })
+      if (v.to !== undefined && (col.type !== 'number' || Number.isFinite(Number(v.to)))) out.push({ column: f.column, op: 'lte', value: read(v.to) })
+    }
+  }
+  return out
+}
+
+/** The block's query over loaded rows: filters, the engine, calculated columns, then their sort. */
+function runSource(block: DataBlock, meta: { columns: Column[] }, rows: Row[], where: Filter[]): QueryResult {
+  const { engine, post, limit } = splitQuery(block.source)
+  const result = runQuery(rows, meta.columns, { ...engine, where: [...(engine.where ?? []), ...where] })
+  const computed = block.source.computed ?? []
+  if (!computed.length) return result
+  let out = applyComputed(result.rows, computed, result.columns)
+  if (post.length) {
+    const cmp = (a: unknown, b: unknown) => {
+      if (a == null && b == null) return 0
+      if (a == null) return 1
+      if (b == null) return -1
+      return typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b))
+    }
+    out = out.slice().sort((x, y) => {
+      for (const o of post) {
+        const d = cmp(x[o.column], y[o.column]) * (o.direction === 'desc' ? -1 : 1)
+        if (d) return d
+      }
+      return 0
+    })
+    if (limit) out = out.slice(0, limit)
+  }
+  return { ...result, rows: out, columns: [...result.columns, ...computed.map(c => c.as)] }
+}
+
+const ISO = (d: Date) => d.toISOString().slice(0, 10)
+
+/** The same date `months` earlier; a month end stays a month end (Sep 30 → Jun 30). */
+export function shiftDate(iso: string, months: number): string {
+  const d = new Date(`${iso}T00:00:00Z`)
+  const lastOfMonth = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate()
+  const isMonthEnd = d.getUTCDate() === lastOfMonth
+  const target = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() - months, 1))
+  const targetLast = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate()
+  target.setUTCDate(isMonthEnd ? targetLast : Math.min(d.getUTCDate(), targetLast))
+  return ISO(target)
+}
+
+const COMPARE_MONTHS: Record<ComparePeriod, number> = { prior_month: 1, prior_quarter: 3, prior_year: 12 }
+
+interface LoadContext {
+  values: Partial<Record<ViewParam, string>>
+  filters: ViewFilter[]
+  filterValues: Record<string, FilterValue>
+  /** Pick-list options per filter column, gathered from the rows the blocks loaded. */
+  options: Map<string, Set<string>>
+  cache: Map<string, Promise<Row[]>>
+  today: string
+}
+
+async function loadBlock(deps: ResolveDeps, block: DataBlock, lc: LoadContext): Promise<CustomBlock> {
+  const { values, cache } = lc
   const base = { id: block.id, type: block.type, label: block.label, span: block.span }
-  const { tool: toolName, dataset, query } = block.source
+  const { tool: toolName, dataset } = block.source
   const tool = getTool(toolName)
   const meta = findDataset(toolName, dataset)
   if (!tool || !meta) return { ...base, status: 'error', message: `${toolName} ${dataset} is no longer available.` }
@@ -136,31 +204,101 @@ async function loadBlock(
   try {
     // Ledger datasets work on one entity; resolving it checks the viewer may see that entity.
     const portfolioGroup = await resolveVehicleForTool(tool, deps.admin, deps.fundId, values.vehicle, deps.access)
-    const key = JSON.stringify([dataset, portfolioGroup, values.vehicle ?? null, values.as_of ?? null])
-    let rows = cache.get(key)
-    if (!rows) {
-      const loader = (deps.loaders ?? QUERY_LOADERS)[dataset]
-      if (!loader) return { ...base, status: 'error', message: `${dataset} has no loader.` }
-      const ctx: AgentToolContext = { admin: deps.admin, fundId: deps.fundId, portfolioGroup, userId: deps.userId, access: deps.access }
-      rows = loader(ctx, { vehicle: values.vehicle, as_of: values.as_of })
-      cache.set(key, rows)
+    const loader = (deps.loaders ?? QUERY_LOADERS)[dataset]
+    if (!loader) return { ...base, status: 'error', message: `${dataset} has no loader.` }
+    const load = (asOf: string | undefined) => {
+      const key = JSON.stringify([dataset, portfolioGroup, values.vehicle ?? null, asOf ?? null])
+      let rows = cache.get(key)
+      if (!rows) {
+        const ctx: AgentToolContext = { admin: deps.admin, fundId: deps.fundId, portfolioGroup, userId: deps.userId, access: deps.access }
+        rows = loader(ctx, { vehicle: values.vehicle, as_of: asOf })
+        cache.set(key, rows)
+      }
+      return rows
     }
-    const result = runQuery(await rows, meta.columns, query)
+    const loaded = await load(values.as_of)
+    // Pick lists offer the values this viewer's rows hold, before any filter narrows them.
+    for (const f of lc.filters) {
+      if (f.kind !== 'pick' || !meta.columns.some(c => c.name === f.column)) continue
+      const set = lc.options.get(f.column) ?? new Set<string>()
+      for (const r of loaded) {
+        const v = r[f.column]
+        for (const item of Array.isArray(v) ? v : [v]) {
+          if (item === null || item === undefined || item === '' || set.size >= 200) continue
+          set.add(typeof item === 'boolean' ? (item ? 'Yes' : 'No') : String(item))
+        }
+      }
+      lc.options.set(f.column, set)
+    }
+    const where = filterClauses(meta, lc.filters, lc.filterValues)
+    const result = runSource(block, meta, loaded, where)
 
     if (block.type === 'kpi') {
       const first = result.rows[0]
-      return { ...base, status: 'ok', format: block.format, value: first ? cell(first[block.value]) : null, ...(block.sub ? { sub: block.sub } : {}) }
+      const out: CustomBlock = { ...base, status: 'ok', format: block.format, value: first ? cell(first[block.value]) : null, ...(block.sub ? { sub: block.sub } : {}) }
+      if (block.compare) {
+        const at = shiftDate(values.as_of ?? lc.today, COMPARE_MONTHS[block.compare])
+        const prior = runSource(block, meta, await load(at), where).rows[0]
+        const pv = prior ? Number(prior[block.value]) : NaN
+        out.previous = Number.isFinite(pv) ? pv : null
+        out.previousLabel = `vs ${new Date(`${at}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}`
+      }
+      return out
     }
+    if (block.type === 'pivot') return pivotBlock(block, base, result.rows)
     if (block.type !== 'table') return chartBlock(block, base, result.rows)
-    const columns = (block as TableBlock).columns.map(c => ({
+    const table = block as TableBlock
+    const columns = table.columns.map(c => ({
       key: c.column,
       label: c.label ?? humanize(c.column),
       format: c.format ?? guessFormat(c.column, result.rows.find(r => r[c.column] != null)?.[c.column]),
     }))
     const rows2 = result.rows.map(r => Object.fromEntries(columns.map(c => [c.key, cell(r[c.key])])))
-    return { ...base, status: 'ok', columns, rows: rows2, truncated: result.truncated }
+    const totalsRow = table.totals
+      ? Object.fromEntries(columns.map(c => [c.key, c.format === 'currency' || c.format === 'number'
+        ? rows2.reduce((s: number, r) => s + (typeof r[c.key] === 'number' ? (r[c.key] as number) : 0), 0)
+        : null]))
+      : undefined
+    return { ...base, status: 'ok', columns, rows: rows2, truncated: result.truncated, ...(totalsRow ? { totalsRow } : {}) }
   } catch (e) {
     return { ...base, status: 'error', message: (e as Error).message || 'Could not load this block.' }
+  }
+}
+
+/** Pivot columns past this are not a table anyone reads; rows are capped like a chart's. */
+export const MAX_PIVOT_COLUMNS = 24
+
+function pivotBlock(block: PivotBlock, base: Pick<CustomBlock, 'id' | 'type' | 'label' | 'span'>, rows: Row[]): CustomBlock {
+  const rowKeys: string[] = []
+  const colKeys: string[] = []
+  const cells = new Map<string, number>()
+  for (const r of rows) {
+    const v = Number(r[block.value])
+    if (!Number.isFinite(v)) continue
+    const rk = String(cell(r[block.rows]) ?? '—')
+    const ck = String(cell(r[block.columns]) ?? '—')
+    if (!rowKeys.includes(rk)) { if (rowKeys.length >= MAX_CHART_POINTS * 3) continue; rowKeys.push(rk) }
+    if (!colKeys.includes(ck)) { if (colKeys.length >= MAX_PIVOT_COLUMNS) continue; colKeys.push(ck) }
+    const id = JSON.stringify([rk, ck])
+    cells.set(id, (cells.get(id) ?? 0) + v)
+  }
+  // Columns read left to right in order: dates and periods sort as text, which is their order.
+  colKeys.sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
+  const grid = rowKeys.map(rk => colKeys.map(ck => cells.get(JSON.stringify([rk, ck])) ?? null))
+  const totals = block.totals !== false
+  return {
+    ...base, status: 'ok', format: block.format,
+    pivot: {
+      rowLabel: humanize(block.rows),
+      rows: rowKeys,
+      columns: colKeys,
+      cells: grid,
+      ...(totals ? {
+        rowTotals: grid.map(r => r.reduce((s: number, v) => s + (v ?? 0), 0)),
+        columnTotals: colKeys.map((_, j) => grid.reduce((s, r) => s + (r[j] ?? 0), 0)),
+        grandTotal: grid.reduce((s, r) => s + r.reduce((t: number, v) => t + (v ?? 0), 0), 0),
+      } : {}),
+    },
   }
 }
 
@@ -211,19 +349,40 @@ function textBlock(block: ViewBlock & { type: 'text' }): CustomBlock {
 /** Load every block of a view, as the viewer, and lay it out as a payload the renderers draw. */
 export async function resolveView(deps: ResolveDeps, spec: ViewSpec, rawParams: unknown, ref: ViewRef): Promise<CustomViewPayload> {
   const values = cleanParams(spec, rawParams)
-  const cache = new Map<string, Promise<Row[]>>()
+  const filters = spec.filters ?? []
+  const lc: LoadContext = {
+    values,
+    filters,
+    filterValues: cleanFilterValues(spec, rawParams),
+    options: new Map(),
+    cache: new Map(),
+    today: new Date().toISOString().slice(0, 10),
+  }
   const [branding, vehicles, blocks] = await Promise.all([
     (deps.branding ?? (() => loadBranding(deps.admin, deps.fundId)))(),
     spec.params.includes('vehicle') ? viewerVehicles(deps) : Promise.resolve([] as string[]),
-    Promise.all(spec.blocks.map(b => (isDataBlock(b) ? loadBlock(deps, b, values, cache) : Promise.resolve(textBlock(b))))),
+    Promise.all(spec.blocks.map(b => (isDataBlock(b) ? loadBlock(deps, b, lc) : Promise.resolve(textBlock(b))))),
   ])
-  const subtitle = [values.vehicle ?? (spec.params.includes('vehicle') ? 'All vehicles' : null), values.as_of ? `as of ${values.as_of}` : null]
+  // The filters' current values travel as plain params too, so links and exports reopen the same view.
+  const filterArgs: Record<string, string> = {}
+  for (const [column, v] of Object.entries(lc.filterValues)) {
+    if (v.pick) filterArgs[`filter.${column}`] = v.pick
+    if (v.from) filterArgs[`filter.${column}.from`] = v.from
+    if (v.to) filterArgs[`filter.${column}.to`] = v.to
+  }
+  const filterNotes = filters.flatMap(f => {
+    const v = lc.filterValues[f.column]
+    if (!v) return []
+    if (v.pick) return [`${f.label}: ${v.pick}`]
+    return [`${f.label} ${v.from && v.to ? `${v.from} to ${v.to}` : v.from ? `from ${v.from}` : `to ${v.to}`}`]
+  })
+  const subtitle = [values.vehicle ?? (spec.params.includes('vehicle') ? 'All vehicles' : null), values.as_of ? `as of ${values.as_of}` : null, ...filterNotes]
     .filter(Boolean).join(' · ') || null
   return {
     view: 'custom',
     title: ref.name ?? spec.title,
     subtitle,
-    args: { ...(ref.id ? { view: ref.id } : {}), ...values },
+    args: { ...(ref.id ? { view: ref.id } : {}), ...values, ...filterArgs },
     generatedAt: new Date().toISOString(),
     branding,
     data: {
@@ -231,11 +390,27 @@ export async function resolveView(deps: ResolveDeps, spec: ViewSpec, rawParams: 
       url: ref.url ?? null,
       description: spec.description ?? null,
       params: spec.params,
-      values: values as Record<string, string>,
+      values: { ...(values as Record<string, string>), ...filterArgs },
       vehicles,
+      ...(filters.length ? {
+        filters: filters.map(f => ({
+          column: f.column,
+          label: f.label,
+          kind: f.kind,
+          ...(f.kind === 'pick' ? { options: Array.from(lc.options.get(f.column) ?? []).sort((a, b) => a.localeCompare(b, 'en', { numeric: true })) } : {}),
+          ...(f.kind === 'range' ? { input: rangeInput(spec, f.column) } : {}),
+          ...(lc.filterValues[f.column] ? { value: lc.filterValues[f.column] } : {}),
+        })),
+      } : {}),
       blocks,
     },
   }
+}
+
+/** A range filter takes dates when any dataset the view reads holds that column as a date. */
+function rangeInput(spec: ViewSpec, column: string): 'date' | 'number' {
+  const types = spec.blocks.filter(isDataBlock).flatMap(b => (findDataset(b.source.tool, b.source.dataset)?.columns ?? []).filter(c => c.name === column).map(c => c.type))
+  return types.includes('date') ? 'date' : 'number'
 }
 
 /** The entities the viewer may pick: only their own, as the dashboards' entity pickers do. */

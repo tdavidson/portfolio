@@ -136,3 +136,37 @@ describe('every chart type in the PDF', () => {
     expect(XLSX.utils.sheet_to_json(wb.Sheets.Mix, { header: 1 })).toEqual([['Slice', 'Mix', 'Share'], ['A', 75, 0.75], ['B', 25, 0.25]])
   })
 })
+
+describe('report features in the exports', () => {
+  const blocks: CustomViewPayload['data']['blocks'] = [
+    { id: 'k', type: 'kpi', label: 'Fair value', span: 3, status: 'ok', format: 'currency', value: 400_000, previous: 200_000, previousLabel: 'vs Jun 30, 2026' },
+    {
+      id: 't', type: 'table', label: 'Totals', span: 12, status: 'ok',
+      columns: [{ key: 'company', label: 'Company', format: 'text' }, { key: 'fv', label: 'FV', format: 'currency' }],
+      rows: [{ company: 'Acme', fv: 250_000 }, { company: 'Northwind', fv: 150_000 }], totalsRow: { company: null, fv: 400_000 },
+    },
+    {
+      id: 'p', type: 'pivot', label: 'Cross', span: 12, status: 'ok', format: 'currency',
+      pivot: { rowLabel: 'Status', rows: ['active'], columns: ['Seed', 'Series A'], cells: [[250_000, null]], rowTotals: [250_000], columnTotals: [250_000, 0], grandTotal: 250_000 },
+    },
+  ]
+  const p = { ...payload, data: { ...payload.data, blocks } }
+
+  it('prints the change, the totals row and the pivot', () => {
+    const html = viewPdfHtml(p, meta)
+    expect(html).toContain('+$200,000 (+100.0%)')
+    expect(html).toContain('vs Jun 30, 2026')
+    expect(html).toContain('<tr class="total"><td class="">Total</td><td class="num">$400,000</td></tr>')
+    expect(html).toContain('<th class="num">Series A</th>')
+  })
+
+  it('writes them to Excel as numbers', () => {
+    const wb = XLSX.read(viewWorkbook(p, meta), { type: 'buffer' })
+    const view = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets.View, { header: 1 })
+    expect(view).toContainEqual(['Fair value', 400_000, 'Jun 30, 2026', 200_000, 200_000])
+    expect(XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets.Totals, { header: 1 }).at(-1)).toEqual(['Total', 400_000])
+    const cross = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets.Cross, { header: 1 })
+    expect(cross[0]).toEqual(['Status', 'Seed', 'Series A', 'Total'])
+    expect(cross[2]).toEqual(['Total', 250_000, 0, 250_000])
+  })
+})

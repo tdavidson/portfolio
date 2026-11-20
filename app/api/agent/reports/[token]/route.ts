@@ -319,7 +319,7 @@ async function fundDocument(admin: ReturnType<typeof createAdminClient>, claims:
         const format = a.format === 'xlsx' ? 'xlsx' : a.format === 'pdf' ? 'pdf' : null
         if (!a.view || !format) return notFound()
         doc = await customViewDocument({ admin, fundId, userId: claims.userId, access }, {
-          view: a.view, format, vehicle: a.vehicle ?? undefined, as_of: a.as_of ?? undefined,
+          view: a.view, format, arguments: Object.fromEntries(Object.entries(a).filter(([k]) => k !== 'view' && k !== 'format')),
         })
         break
       }

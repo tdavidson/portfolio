@@ -10,7 +10,7 @@ export const runtime = 'nodejs'
 export const maxDuration = 60
 
 /**
- * GET /api/views/<id>/export?format=pdf|xlsx&vehicle=&as_of=&tz=
+ * GET /api/views/<id>/export?format=pdf|xlsx&vehicle=&as_of=&filter.<column>=&tz=
  *
  * The view as a PDF (opens in the tab, to print or save) or an Excel workbook (downloads), with
  * every block loaded as the caller, exactly as GET /api/views/<id> loads it. Gated at 'any' in
@@ -29,7 +29,8 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
   try {
     const doc = await customViewDocument(c, {
       view: id, format,
-      vehicle: p.get('vehicle') ?? undefined, as_of: p.get('as_of') ?? undefined, timeZone: p.get('tz') ?? undefined,
+      arguments: Object.fromEntries(Array.from(p).filter(([k]) => k !== 'format' && k !== 'tz')),
+      timeZone: p.get('tz') ?? undefined,
     })
     return new NextResponse(new Uint8Array(doc.body), {
       headers: {

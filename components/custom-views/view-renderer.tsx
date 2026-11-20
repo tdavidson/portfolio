@@ -9,6 +9,7 @@
 import { Metric } from '@/components/ui/metric'
 import { CustomChart } from './charts'
 import { formatValue } from './format'
+import { kpiDelta } from '@/lib/custom-views/delta'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { cn } from '@/lib/utils'
 import type { CustomBlock, CustomValueFormat, CustomViewPayload } from '@/lib/mcp-apps/payload'
@@ -59,6 +60,15 @@ function TableBlock({ block, currency }: { block: CustomBlock; currency: string 
                   ))}
                 </TableRow>
               ))}
+              {block.totalsRow && (
+                <TableRow className="border-t-2 font-medium hover:bg-transparent">
+                  {columns.map((c, j) => (
+                    <TableCell key={c.key} className={cn(numeric(c.format) && 'text-right tabular-nums')}>
+                      {block.totalsRow![c.key] != null ? formatValue(block.totalsRow![c.key], c.format, currency) : j === 0 ? 'Total' : ''}
+                    </TableCell>
+                  ))}
+                </TableRow>
+              )}
             </TableBody>
           </Table>
         </div>
@@ -68,11 +78,70 @@ function TableBlock({ block, currency }: { block: CustomBlock; currency: string 
   )
 }
 
+function PivotTable({ block, currency }: { block: CustomBlock; currency: string }) {
+  const p = block.pivot
+  const fmt = (v: number | null | undefined) => formatValue(v ?? null, block.format, currency)
+  return (
+    <div className="rounded-card border bg-card">
+      <p className="px-4 pt-4 pb-2 text-sm font-medium">{block.label}</p>
+      {!p || p.rows.length === 0 ? (
+        <p className="px-4 pb-4 text-sm text-muted-foreground">No rows.</p>
+      ) : (
+        <div className="overflow-x-auto">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>{p.rowLabel}</TableHead>
+                {p.columns.map(c => <TableHead key={c} className="text-right">{c}</TableHead>)}
+                {p.rowTotals && <TableHead className="text-right">Total</TableHead>}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {p.rows.map((r, i) => (
+                <TableRow key={r}>
+                  <TableCell>{r}</TableCell>
+                  {p.cells[i].map((v, j) => <TableCell key={j} className="text-right tabular-nums">{fmt(v)}</TableCell>)}
+                  {p.rowTotals && <TableCell className="text-right font-medium tabular-nums">{fmt(p.rowTotals[i])}</TableCell>}
+                </TableRow>
+              ))}
+              {p.columnTotals && (
+                <TableRow className="border-t-2 font-medium hover:bg-transparent">
+                  <TableCell>Total</TableCell>
+                  {p.columnTotals.map((v, j) => <TableCell key={j} className="text-right tabular-nums">{fmt(v)}</TableCell>)}
+                  {p.rowTotals && <TableCell className="text-right tabular-nums">{fmt(p.grandTotal)}</TableCell>}
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function KpiTile({ block, currency }: { block: CustomBlock; currency: string }) {
+  const delta = kpiDelta(block.value, block.previous, block.format, v => formatValue(v, block.format, currency))
+  const sub = delta || block.previousLabel ? (
+    <>
+      {delta && (
+        <span className={cn('tabular-nums', delta.direction === 'up' ? 'text-success' : delta.direction === 'down' ? 'text-destructive' : '')}>
+          {delta.text}
+        </span>
+      )}
+      {block.previousLabel && <span> {delta ? block.previousLabel : `No figure ${block.previousLabel.replace(/^vs /, 'for ')}`}</span>}
+      {block.sub && <span className="block">{block.sub}</span>}
+    </>
+  ) : block.sub
+  return <Metric label={block.label} value={formatValue(block.value, block.format, currency)} sub={sub} />
+}
+
 function Block({ block, currency }: { block: CustomBlock; currency: string }) {
   if (block.status !== 'ok') return <Unavailable block={block} />
   switch (block.type) {
     case 'kpi':
-      return <Metric label={block.label} value={formatValue(block.value, block.format, currency)} sub={block.sub} />
+      return <KpiTile block={block} currency={currency} />
+    case 'pivot':
+      return <PivotTable block={block} currency={currency} />
     case 'table':
       return <TableBlock block={block} currency={currency} />
     case 'text':

@@ -359,7 +359,7 @@ export type CustomChartType = 'bar' | 'column' | 'line' | 'area' | 'pie' | 'scat
 
 export interface CustomBlock {
   id: string
-  type: 'kpi' | CustomChartType | 'table' | 'text'
+  type: 'kpi' | CustomChartType | 'table' | 'pivot' | 'text'
   label: string
   /** Width out of 12. */
   span: number
@@ -370,6 +370,9 @@ export interface CustomBlock {
   /** kpi: the figure (first row of the value column). */
   value?: number | string | null
   sub?: string
+  /** kpi with a comparison: the same figure at the earlier date, and how to name that date. */
+  previous?: number | null
+  previousLabel?: string
   /**
    * bar / line. `value` is the point's total. When the block splits by a series, `series` names
    * them (largest first, at most 8 with the rest as "Other") and each point's `values` holds one
@@ -393,6 +396,29 @@ export interface CustomBlock {
   columns?: { key: string; label: string; format: CustomValueFormat }[]
   rows?: Record<string, string | number | null>[]
   truncated?: boolean
+  /** table with totals: the sum of each currency or number column (null for the others). */
+  totalsRow?: Record<string, number | null>
+  /** pivot: one row per value of the row column, one column per value of the column column. */
+  pivot?: {
+    rowLabel: string
+    rows: string[]
+    columns: string[]
+    cells: (number | null)[][]
+    rowTotals?: number[]
+    columnTotals?: number[]
+    grandTotal?: number
+  }
+}
+
+export interface CustomViewFilter {
+  column: string
+  label: string
+  kind: 'pick' | 'range'
+  /** pick: the values the viewer's rows hold. */
+  options?: string[]
+  /** range: what the from and to boxes take. */
+  input?: 'date' | 'number'
+  value?: { pick?: string; from?: string; to?: string }
 }
 
 export interface CustomViewData {
@@ -406,6 +432,8 @@ export interface CustomViewData {
   values: Record<string, string>
   /** The entities the viewer may pick, when the view offers a vehicle filter. */
   vehicles: string[]
+  /** The view's own filters on result columns, with their choices and current values. */
+  filters?: CustomViewFilter[]
   blocks: CustomBlock[]
 }
 
