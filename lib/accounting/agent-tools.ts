@@ -199,9 +199,12 @@ const HANDLERS: Record<string, AgentToolHandler> = {
     return { rows: rows.map(({ id, ...r }) => ({ lpEntityId: id, ...r })), nav: totalNav(accounts) }
   },
 
-  financial_statements: async ({ admin, fundId, portfolioGroup }) => {
+  financial_statements: async ({ admin, fundId, portfolioGroup }, input) => {
+    // `asOf` strikes every statement at that date: entries after it are left out, so the balances
+    // are the books as they stood then. The income statement runs from inception to that date.
+    const asOf = dateArg(input, 'asOf')
     const [{ accounts, postings, sourcedPostings }, kind] = await Promise.all([
-      loadPostedLedger(admin, fundId, portfolioGroup),
+      loadPostedLedger(admin, fundId, portfolioGroup, asOf),
       vehicleKindByName(admin, fundId, portfolioGroup),
     ])
     return {
@@ -211,7 +214,7 @@ const HANDLERS: Record<string, AgentToolHandler> = {
       // A management company's members have no statements of their own; this is each member's
       // capital roll-forward since inception (lib/accounting/members-capital.ts).
       ...(isManagementCompany(kind)
-        ? { changesInMembersCapital: changesInMembersCapital(accounts, sourcedPostings, { start: null, end: null }) }
+        ? { changesInMembersCapital: changesInMembersCapital(accounts, sourcedPostings, { start: null, end: asOf ?? null }) }
         : {}),
     }
   },
