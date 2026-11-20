@@ -114,7 +114,13 @@ export function carryAccrualInputs(
   gpCommitBearsCarry = false,
   opts?: EconomicsOptions,
 ): CarryAccrualInputs {
-  if (opts?.perLp) capitalPostings = inheritTransferredHistory(capitalPostings)
+  // A transferee steps into the transferor's history on either scope. The whole-fund target only
+  // reads fund totals, which a transfer doesn't move, but the split between LPs weighs each LP's
+  // own profit (NAV + distributed - contributed) and trues up against what it was already charged.
+  // Read as recorded, the buyer's NAV holds the bought balance with none of the seller's capital
+  // behind it, so the buyer is charged carry on gains it never had, and the seller's earlier
+  // charge is handed back to the seller as a residual balance.
+  capitalPostings = inheritTransferredHistory(capitalPostings)
   const recipientIds = new Set(recipients.map(r => r.lpEntityId))
   const carryFree = gpCommitBearsCarry ? new Set<string>() : recipientIds
   const accounts = computeCapitalAccounts(capitalPostings)

@@ -397,9 +397,53 @@ describe('an LP who holds its interest by transfer', () => {
     for (const id of ['lp-a', 'lp-b', 'lp-c', 'lp-d']) expect(ending(resolved, id), id).toBe(ending(b.postings, id))
     const calls = resolved.filter(p => p.sourceType === 'capital_call' && p.lpEntityId === 'lp-d')
     expect(calls.map(p => [p.entryDate, roundCents(-p.amount)])).toEqual([['2020-01-01', 1_000]])
-    // The whole-fund waterfall doesn't resolve transfers, so a vehicle on 'fund' is unchanged.
-    expect(carryAccrualInputs(b.postings, [{ lpEntityId: GP, pct: 100 }], '2025-01-31').contributions)
-      .toEqual(carryAccrualInputs(b.postings, [{ lpEntityId: GP, pct: 100 }], '2025-01-31', false, {}).contributions)
+    // The whole-fund hurdle reads fund totals by date, which a transfer doesn't move.
+    const byDate = (cs: { date: string; amount: number }[]) => {
+      const m = new Map<string, number>()
+      for (const c of cs) m.set(c.date, roundCents((m.get(c.date) ?? 0) + c.amount))
+      return [...m.entries()].sort()
+    }
+    const raw = byDate(b.postings.filter(p => p.sourceType === 'capital_call').map(p => ({ date: p.entryDate!, amount: -p.amount })))
+    expect(byDate(carryAccrualInputs(b.postings, [{ lpEntityId: GP, pct: 100 }], '2025-01-31').contributions)).toEqual(raw)
+  })
+})
+
+describe('an LP who holds its interest by transfer, carry over the whole fund', () => {
+  // LP A and LP B put in 1,000 each in 2020. The fund gains 1,000 and the close charges carry.
+  // In 2023 LP A sells its whole interest to LP C, and the fund gains another 500. On the whole-fund
+  // waterfall the split weighs each LP's own profit and trues up its earlier charge, so LP C has to
+  // carry LP A's history: otherwise LP C is charged on gains it bought, and LP A's charge comes back
+  // to LP A as a balance on an interest it no longer holds.
+  const build = (sell: boolean) => {
+    const b = new Books(terms({ prefRate: 0 }))
+    const first = sell ? 'lp-a' : 'lp-c'
+    b.call('2020-01-01', { [first]: 1_000, 'lp-b': 1_000 })
+    b.mark('2022-06-30', 1_000)
+    b.post('2022-12-31', b.accrual('2022-12-31'), false)
+    if (sell) {
+      const balance = roundCents(-b.postings.filter(p => p.lpEntityId === 'lp-a').reduce((s, p) => s + p.amount, 0))
+      b.postings.push({ entryId: 'xfer-1', lpEntityId: 'lp-a', amount: balance, sourceType: 'transfer', entryDate: '2023-06-30' })
+      b.postings.push({ entryId: 'xfer-1', lpEntityId: 'lp-c', amount: -balance, sourceType: 'transfer', entryDate: '2023-06-30' })
+    }
+    // A gain shared by balance, as the close allocates it.
+    for (const id of ['lp-b', 'lp-c']) b.postings.push({ lpEntityId: id, amount: -250, sourceType: 'unrealized_gain', entryDate: '2023-12-31' })
+    return b
+  }
+  const balance = (b: Books, id: string) => roundCents(-b.postings.filter(p => p.lpEntityId === id).reduce((s, p) => s + p.amount, 0))
+
+  it('charges the buyer as if it had held the interest from the start, and leaves the seller at zero', () => {
+    const sold = build(true)
+    const held = build(false)
+    const got = sold.accrual('2023-12-31')
+    const want = held.accrual('2023-12-31')
+    expect(got.delta).toBeCloseTo(want.delta, 2)
+    for (const id of ['lp-b', 'lp-c']) expect(Math.abs((got.perLp.get(id) ?? 0) - (want.perLp.get(id) ?? 0)), id).toBeLessThanOrEqual(0.01)
+    expect(Math.abs(got.perLp.get('lp-a') ?? 0)).toBeLessThanOrEqual(0.01)
+    sold.post('2023-12-31', got, false)
+    held.post('2023-12-31', want, false)
+    expect(balance(sold, 'lp-a')).toBe(0)
+    expect(Math.abs(balance(sold, 'lp-c') - balance(held, 'lp-c'))).toBeLessThanOrEqual(0.01)
+    expect(Math.abs(balance(sold, 'lp-b') - balance(held, 'lp-b'))).toBeLessThanOrEqual(0.01)
   })
 })
 
