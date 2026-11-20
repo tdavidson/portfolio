@@ -99,6 +99,8 @@ import { WATERFALL_TERMS_TOOL_MANIFEST } from '@/lib/agent/waterfall-terms-tools
 import { WATERFALL_TERMS_HANDLERS } from '@/lib/agent/waterfall-terms-tools'
 import { GP_LINK_TOOL_MANIFEST } from '@/lib/agent/gp-link-tools-manifest'
 import { GP_LINK_HANDLERS } from '@/lib/agent/gp-link-tools'
+import { ALLOCATION_TERMS_TOOL_MANIFEST } from '@/lib/agent/allocation-terms-tools-manifest'
+import { ALLOCATION_TERMS_HANDLERS } from '@/lib/agent/allocation-terms-tools'
 import { RECYCLING_TOOL_MANIFEST } from '@/lib/agent/recycling-tools-manifest'
 import { RECYCLING_HANDLERS } from '@/lib/agent/recycling-tools'
 import { ILPA_TOOL_MANIFEST } from '@/lib/agent/ilpa-tools-manifest'
@@ -654,6 +656,7 @@ export const AGENT_TOOLS: AgentTool[] = [
   ...bindLedger(RECEIPT_TOOL_MANIFEST, RECEIPT_HANDLERS),
   ...bindLedger(WATERFALL_TERMS_TOOL_MANIFEST, WATERFALL_TERMS_HANDLERS),
   ...bindLedger(GP_LINK_TOOL_MANIFEST, GP_LINK_HANDLERS),
+  ...bindLedger(ALLOCATION_TERMS_TOOL_MANIFEST, ALLOCATION_TERMS_HANDLERS),
   ...bindLedger(RECYCLING_TOOL_MANIFEST, RECYCLING_HANDLERS),
   ...bindLedger(ILPA_TOOL_MANIFEST, ILPA_HANDLERS),
   ...bindLedger(CREDIT_FACILITY_TOOL_MANIFEST, CREDIT_FACILITY_HANDLERS),

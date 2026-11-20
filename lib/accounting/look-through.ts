@@ -128,3 +128,38 @@ export function associateMembers(
       : (anyExplicitCarry ? 0 : Math.max(0, basis.get(lpEntityId) ?? 0)),
   }))
 }
+
+/**
+ * A member's IRR on their look-through share of an associate's position.
+ *
+ * A member is not a scaled copy of the associate. Their contributions are their ownership share of
+ * the associate's, but what comes back to them (distributions and NAV) also carries their share of
+ * the carry, which follows points rather than capital. So their IRR differs from the associate's
+ * and from each other member's, and the associate's own IRR must never be copied onto them.
+ *
+ * `flows` are the associate's dated cash flows from its point of view (contributions negative,
+ * distributions positive), without the terminal NAV. Each contribution is scaled by the member's
+ * share of the associate's contributions, each distribution by their share of its distributions,
+ * and the member's own NAV is the terminal value. Null when the member put nothing in (a
+ * carry-only member has no IRR), when the history is too short, or when there is no solution.
+ */
+export function memberLookThroughIrr(
+  flows: { date: Date; amount: number }[],
+  shares: { contributions: number; distributions: number },
+  nav: number,
+  asOf: Date,
+  solve: (flows: { date: Date; amount: number }[]) => number | null,
+  tooNew: (flows: { date: Date }[], asOf: Date) => boolean,
+): number | null {
+  if (!(shares.contributions > 0)) return null
+  const scaled = flows
+    .map(f => ({ date: f.date, amount: f.amount * (f.amount < 0 ? shares.contributions : shares.distributions) }))
+    .filter(f => Math.abs(f.amount) >= 0.005)
+  if (!scaled.some(f => f.amount < 0)) return null
+  if (tooNew(scaled, asOf)) return null
+  if (Math.abs(nav) >= 0.005) scaled.push({ date: asOf, amount: nav })
+  if (scaled.length < 2) return null
+  scaled.sort((a, b) => a.date.getTime() - b.date.getTime())
+  const rate = solve(scaled)
+  return rate == null || !Number.isFinite(rate) ? null : Math.round(rate * 10000) / 10000
+}

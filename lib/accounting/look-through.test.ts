@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vitest'
-import { lookThroughAccount, associateMembers, type AssociateMember } from './look-through'
+import { lookThroughAccount, associateMembers, memberLookThroughIrr, type AssociateMember } from './look-through'
+import { xirr } from '@/lib/xirr'
 import { emptyAccount, type CapitalAccount } from './capital-account'
 
 const acct = (over: Partial<CapitalAccount>): CapitalAccount => {
@@ -149,5 +150,24 @@ describe('associateMembers', () => {
     expect(members.find(m => m.lpEntityId === 'jordan')!.carryWeight).toBe(40.5)
     // Ownership is untouched — only carry defaults change.
     expect(members.find(m => m.lpEntityId === 'robin')!.ownershipWeight).toBe(140_000)
+  })
+})
+
+describe('memberLookThroughIrr', () => {
+  const xirrSolve = (fl: { date: Date; amount: number }[]) => xirr(fl)
+  const never = () => false
+  const asOf = new Date('2026-01-01T00:00:00Z')
+  const flows = [{ date: new Date('2022-01-01T00:00:00Z'), amount: -100_000 }]
+
+  it('gives a member holding carry a higher IRR than a capital-only member', () => {
+    // Both paid half the associate's capital; one also holds the carry, so ends with more NAV.
+    const capitalOnly = memberLookThroughIrr(flows, { contributions: 0.5, distributions: 0 }, 60_000, asOf, xirrSolve, never)
+    const withCarry = memberLookThroughIrr(flows, { contributions: 0.5, distributions: 0 }, 150_000, asOf, xirrSolve, never)
+    expect(capitalOnly).not.toBeNull()
+    expect(withCarry!).toBeGreaterThan(capitalOnly!)
+  })
+
+  it('has no IRR for a carry-only member who put nothing in', () => {
+    expect(memberLookThroughIrr(flows, { contributions: 0, distributions: 0 }, 50_000, asOf, xirrSolve, never)).toBeNull()
   })
 })
