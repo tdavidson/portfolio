@@ -343,7 +343,7 @@ export function computeSetupProgress(facts: SetupFacts): SetupProgress {
       notApplicable: manco,
       detail: onLedger ? plural(v.ledgerInvestmentAccounts ?? 0, 'holding') + ' on the books' : undefined,
       href: entityHref(v, 'status'),
-      cta: 'Put them on the ledger',
+      cta: 'Review and book',
       needs: { key: 'investments', label: 'recorded investments', done: investmentsDone },
     })
   }

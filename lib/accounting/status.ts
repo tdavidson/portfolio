@@ -89,7 +89,7 @@ export async function vehicleStatus(
   const ownerEquity = closesToOwnerEquity(kind)
 
   const [
-    { accounts, postings, capitalPostings },
+    { accounts, postings, capitalPostings, sourcedPostings },
     owners,
     basis,
     { data: entryRows },
@@ -151,12 +151,51 @@ export async function vehicleStatus(
     const observations = await loadPositions(admin, fundId, group)
     const resolved = resolveCapitalEvidence(capitalPostings, observations, undefined, ((periodRows as any[]) ?? [])[0]?.period_end)
     const evidence = Array.from(resolved.evidenceByLp.values())
-    const conflicts = evidence.filter(e => e.conflict).length
+    const entries = Array.from(resolved.evidenceByLp.entries())
+    const conflicted = entries.filter(([, e]) => e.conflict)
     const incomplete = evidence.filter(e => e.missing.length > 0).length
-    const dates = evidence.filter(e => e.basis === 'reported').map(e => e.asOf!).sort()
-    if (conflicts) issues.push({ level: 'warning', title: `${conflicts} imported balance${conflicts === 1 ? '' : 's'} differ from the books`, detail: 'Reports use the books. Review each partner\'s difference from the imported balance, correct the books or the import, and remove the import once it is reconciled.', href: '/funds/capital-accounts', action: 'Reconcile balances' })
+    const reported = entries.filter(([, e]) => e.basis === 'reported')
+    const names = conflicted.length + reported.length > 0
+      ? await partnerNames(admin, fundId, [...conflicted, ...reported].map(([id]) => id))
+      : new Map<string, string>()
+    // The imported balances live on the LP capital page, by date, where they can be compared with
+    // the books and deleted. The entity's capital-accounts page shows neither, so link there.
+    const importsHref = (date: string | undefined) =>
+      `/lps/capital?vehicle=${encodeURIComponent(group)}${date ? `&asOf=${date}` : ''}#history`
+    if (conflicted.length) {
+      const importDates = Array.from(new Set(conflicted.map(([, e]) => e.anchor?.date).filter((d): d is string => !!d))).sort()
+      const date = importDates.at(-1)
+      const when = importDates.length > 1 ? `${importDates[0]} through ${date}` : date ?? 'their import date'
+      const lines = conflicted.slice(0, 3).map(([id, e]) => {
+        const nav = e.anchor?.variance?.nav
+        return `${names.get(id) ?? 'A partner'}${nav ? ` (books ${nav > 0 ? 'higher' : 'lower'} by ${money(nav)})` : ''}`
+      })
+      issues.push({
+        level: 'warning',
+        title: `${conflicted.length} partner${conflicted.length === 1 ? '' : 's'} differ${conflicted.length === 1 ? 's' : ''} from the balances imported for ${when}`,
+        detail: `${lines.join(', ')}${conflicted.length > 3 ? `, and ${conflicted.length - 3} more` : ''}. `
+          + 'Statements and reports use the books, so nothing they show comes from the import. '
+          + 'If the books are right (they were rebuilt or reconciled after the import), delete that import to clear this. '
+          + 'If the import is right, correct the books.',
+        href: importsHref(date),
+        action: 'Compare with the import',
+      })
+    }
     if (incomplete) issues.push({ level: 'warning', title: `${incomplete} incomplete capital position${incomplete === 1 ? '' : 's'}`, detail: 'Missing amounts appear as a dash, including totals that depend on them. Enter the missing contributions, distributions, or NAV.', href: '/funds/capital-accounts', action: 'Review balances' })
-    if (dates.length) issues.push({ level: 'info', title: 'Check limited partner capital accounts', detail: `These balances are dated ${dates[0]}${dates.at(-1) !== dates[0] ? ` through ${dates.at(-1)}` : ''}. A later journal entry does not update their valuation date.`, href: '/funds/capital-accounts', action: 'View balances' })
+    if (reported.length) {
+      const dates = reported.map(([, e]) => e.asOf!).sort()
+      const when = `${dates[0]}${dates.at(-1) !== dates[0] ? ` through ${dates.at(-1)}` : ''}`
+      const who = reported.slice(0, 3).map(([id]) => names.get(id) ?? 'A partner').join(', ')
+      issues.push({
+        level: 'info',
+        title: `${reported.length} partner${reported.length === 1 ? ' reports' : 's report'} imported balances, not the books`,
+        detail: `${who}${reported.length > 3 ? `, and ${reported.length - 3} more` : ''}: no capital activity for ${reported.length === 1 ? 'this partner' : 'these partners'} is on the books, `
+          + `so ${reported.length === 1 ? 'their figures come' : 'their figures come'} from the balances imported for ${when} and stay at that date. `
+          + 'Book their contributions and distributions to report them from the books instead.',
+        href: importsHref(dates.at(-1)),
+        action: 'View the import',
+      })
+    }
   }
 
   if (!bs.check || Math.abs(bs.check) > 0.004) {
@@ -188,7 +227,8 @@ export async function vehicleStatus(
   let backlog: Awaited<ReturnType<typeof backfillDerivedEntries>> | null = null
   if (!manco) {
     try {
-      backlog = await backfillDerivedEntries(admin, fundId, group, null, { dryRun: true })
+      // review: builds each waiting entry, so a row with nothing to book is not counted as waiting.
+      backlog = await backfillDerivedEntries(admin, fundId, group, null, { dryRun: true, review: true })
     } catch (e) {
       console.error('[status] backlog dry run failed', e instanceof Error ? e.message : e)
       issues.push({ level: 'info', title: 'Could not check which investment items are not on the ledger', detail: 'Everything else on this page is current. Reload to check again.' })
@@ -221,9 +261,9 @@ export async function vehicleStatus(
     issues.push({
       level: 'blocker',
       title: `${notOnLedger} investment item${notOnLedger === 1 ? '' : 's'} not on the ledger`,
-      detail: 'The balance sheet and the schedule of investments leave them out until they are booked. Putting them on the ledger books each on its own date, and running it again books nothing twice.',
+      detail: 'The balance sheet and the schedule of investments leave them out until they are booked. Review what each would book and pick which to put on the ledger; each books on its own date.',
       href: '/funds/status#book-investments',
-      action: 'Put them on the ledger',
+      action: 'Review and book',
     })
   } else if (soi.source === 'tracker' && !soiTies(soi)) {
     issues.push({
@@ -256,15 +296,23 @@ export async function vehicleStatus(
     try {
       const review = (await loadEscrowExits(admin, fundId, { vehicles: [group] })).filter(needsReview)
       if (review.length > 0) {
+        // Spell out each exit's two readings in money, so the person can hold it up against the bank
+        // statement, and open the company where the exit is edited (not the investments list).
+        const lines = review.slice(0, 3).map(r => {
+          const bookedCash = r.booked?.cash ?? r.proceedsReceived
+          return `${r.company}, ${r.date ?? 'undated'}${r.roundName ? ` (${r.roundName})` : ''}: the books put ${money(bookedCash)} in cash `
+            + `and ${money(r.proceedsEscrow)} in escrow. If the bank received ${money(bookedCash)}, raise Proceeds to `
+            + `${money(roundCents(bookedCash + r.proceedsEscrow))} (cash stays the same). If it received `
+            + `${money(roundCents(bookedCash - r.proceedsEscrow))}, open the exit and save it to book it again.`
+        })
+        const companyIds = Array.from(new Set(review.map(r => r.companyId)))
         issues.push({
           level: 'warning',
-          title: `${review.length} exit${review.length === 1 ? '' : 's'} with escrow to check against the bank`,
-          detail: `${review.slice(0, 3).map(r => r.company).join(', ')}${review.length > 3 ? `, and ${review.length - 3} more` : ''}. `
-            + 'Proceeds is the gross amount, escrow included, and an exit books the gross less the escrow to cash. These were booked '
-            + 'with Proceeds as the cash received. If the bank received that amount, edit Proceeds to add the escrow back; if it '
-            + 'received the escrow less, re-save the exit to book it again.',
-          href: '/investments',
-          action: 'Review the exits',
+          title: `Check what the bank received for ${review.length} exit${review.length === 1 ? '' : 's'} with escrow`,
+          detail: `${lines.join(' ')}${review.length > 3 ? ` And ${review.length - 3} more.` : ''} `
+            + 'Proceeds means the full price including escrow; these were booked when it meant the cash received.',
+          href: companyIds.length === 1 ? `/companies/${companyIds[0]}?entity=${encodeURIComponent(group)}` : '/investments',
+          action: companyIds.length === 1 ? `Open ${review[0].company}` : 'Open the investments',
         })
       }
     } catch (e) {
@@ -301,14 +349,25 @@ export async function vehicleStatus(
   // tie to and nobody to hold a commitment: every check in this block is about partners, and
   // for those kinds each would fire forever. See lib/vehicle-kinds.ts closesToOwnerEquity.
   if (!ownerEquity && Math.abs(capitalGap) > 0.004) {
+    // Name the postings behind the gap. A posting on a partner's OWN capital account that carries
+    // no partner tag is left out of every capital account (the roll-forward reads the tag), and so
+    // is anything on the pooled account. Either way the fix is to give the posting its partner.
+    const untagged = untaggedCapitalPostings(accounts, sourcedPostings)
+    const owners = untagged.length ? await partnerNames(admin, fundId, untagged.map(u => u.ownerId).filter((id): id is string => !!id)) : new Map<string, string>()
+    const untaggedTotal = roundCents(untagged.reduce((t, u) => t + u.amount, 0))
+    const explains = untagged.length > 0 && Math.abs(roundCents(-untaggedTotal - capitalGap)) < 0.01
+    const list = untagged.slice(0, 4).map(u =>
+      `${u.date ?? 'undated'} ${money(u.amount)} on ${u.ownerId ? `${owners.get(u.ownerId) ?? 'a partner'}'s account` : 'the pooled account'}${u.memo ? ` ("${u.memo.length > 60 ? `${u.memo.slice(0, 57)}…` : u.memo}")` : ''}`)
     issues.push({
       level: 'blocker',
-      title: "Partners' capital doesn't tie to the sum of the partners",
+      title: `${money(capitalGap)} of partners' capital belongs to no partner`,
       detail:
-        `Partners' capital is ${bs.partnersCapital.total.toFixed(2)}, but the individual capital accounts ` +
-        `plus unallocated earnings come to ${reconciled.toFixed(2)} — a gap of ${capitalGap.toFixed(2)}. ` +
-        `Something is booked to partners' capital without being attributed to a partner, so every LP statement understates or overstates. ` +
-        `Look for postings to the pooled capital account (3100/3000) that carry no partner.`,
+        `The balance sheet shows ${money(bs.partnersCapital.total)} of partners' capital, but the partners' own capital accounts ` +
+        `(plus earnings not yet allocated) add up to ${money(reconciled)}, so every LP statement leaves out ${money(capitalGap)}. ` +
+        (untagged.length > 0
+          ? `${untagged.length} posting${untagged.length === 1 ? '' : 's'} on capital accounts carry no partner${explains ? ', which is the whole gap' : ''}: ${list.join('; ')}${untagged.length > 4 ? `; and ${untagged.length - 4} more` : ''}. `
+            + 'Edit each entry and set the partner on its capital line (the partner whose account it is).'
+          : 'Look for capital postings whose partner was removed.'),
       href: '/funds/journal',
       action: 'Open the journal',
     })
@@ -370,4 +429,36 @@ export async function vehicleStatus(
     bank: { total: bank.length, needsAttention: bankNeedsAttention },
     issues,
   }
+}
+
+const money = (n: number) => {
+  const abs = Math.abs(n).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return n < 0 ? `(${abs})` : abs
+}
+
+/** Partner names by lp_entities id, for naming partners in a warning. Missing ids are left out. */
+async function partnerNames(admin: SupabaseClient, fundId: string, ids: string[]): Promise<Map<string, string>> {
+  const unique = Array.from(new Set(ids))
+  if (unique.length === 0) return new Map()
+  const { data } = await admin.from('lp_entities' as any).select('id, entity_name').eq('fund_id', fundId).in('id', unique)
+  return new Map(((data as any[]) ?? []).map(r => [r.id as string, r.entity_name as string]))
+}
+
+export interface UntaggedCapitalPosting { entryId: string; date: string | null; memo: string | null; amount: number; ownerId: string | null }
+
+/**
+ * Postings on LP capital accounts that reach no partner's capital account: on a partner's own
+ * account (3100-<partner>) without the partner tag, or on the pooled LP capital account. Newest
+ * first. `ownerId` is the account's partner, null for the pooled account.
+ */
+export function untaggedCapitalPostings(
+  accounts: { id: string; subtype?: string | null; lpEntityId?: string | null }[],
+  postings: { entryId: string; accountId: string; amount: number; lpEntityId?: string | null; entryDate?: string | null; memo?: string | null }[],
+): UntaggedCapitalPosting[] {
+  const owner = new Map(accounts.filter(a => a.lpEntityId).map(a => [a.id, a.lpEntityId as string]))
+  const pooled = new Set(accounts.filter(a => a.subtype === 'lp_capital' && !a.lpEntityId).map(a => a.id))
+  return postings
+    .filter(p => Math.abs(p.amount) >= 0.005 && ((owner.has(p.accountId) && !p.lpEntityId) || pooled.has(p.accountId)))
+    .map(p => ({ entryId: p.entryId, date: p.entryDate ?? null, memo: p.memo ?? null, amount: roundCents(p.amount), ownerId: owner.get(p.accountId) ?? null }))
+    .sort((a, b) => String(b.date ?? '').localeCompare(String(a.date ?? '')))
 }

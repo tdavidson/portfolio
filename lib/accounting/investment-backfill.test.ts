@@ -1,14 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest'
 import { memoryAdmin } from '@/tests/helpers/memory-admin'
 
-const h = vi.hoisted(() => ({ derive: vi.fn(), post: vi.fn(), link: vi.fn(), adopt: vi.fn() }))
+const h = vi.hoisted(() => ({ derive: vi.fn(), build: vi.fn(), post: vi.fn(), link: vi.fn(), adopt: vi.fn() }))
 vi.mock('./vehicle-id', () => ({ vehicleIdByName: async (_a: any, _f: string, g: string) => { if (g === 'Broken') throw new Error('chart read failed'); return 'v' } }))
 vi.mock('./load', () => ({ listVehiclesWithId: async () => [{ name: 'Broken', id: 'b', kind: 'fund' }, { name: 'Fund I', id: 'v', kind: 'fund' }, { name: 'GP', id: 'g', kind: 'associate' }] }))
-vi.mock('./from-portfolio', async (orig) => ({ ...(await orig<any>()), draftEntryForTransaction: h.derive }))
+vi.mock('./from-portfolio', async (orig) => ({ ...(await orig<any>()), draftEntryForTransaction: h.derive, buildEntryForTransaction: h.build }))
 vi.mock('./continuous-allocation', () => ({ postExistingEntryWithAllocation: h.post }))
 vi.mock('./investment-bank-match', async (orig) => ({ ...(await orig<any>()), linkOpenBankRow: h.link }))
 vi.mock('./adoption', async (orig) => ({ ...(await orig<any>()), adoptEntry: h.adopt }))
-import { backfillDerivedEntries, backfillAllVehicles, countUnderived } from './investment-backfill'
+import { backfillDerivedEntries, backfillAllVehicles, countUnderived, impliesNoEntry } from './investment-backfill'
 
 const chart = [
   { id: 'cash', fund_id: 'f', vehicle_id: 'v', code: '1000', type: 'asset', subtype: 'cash', company_id: null },
@@ -31,6 +31,7 @@ function seed(t: Record<string, any[]>) {
 
 beforeEach(() => {
   h.derive.mockReset().mockResolvedValue({ drafted: true, posted: true, entryId: 'new' })
+  h.build.mockReset().mockResolvedValue({ entry: { postings: [] }, kind: 'investment', amount: 100 })
   h.post.mockReset().mockResolvedValue({ allocationEntryIds: [] })
   h.link.mockReset().mockResolvedValue('b1')
   h.adopt.mockReset().mockResolvedValue({ adoptedIds: ['t-adopted'] })
@@ -243,5 +244,51 @@ describe('countUnderived', () => {
   it('counts what the backfill would derive', async () => {
     const m = seed({ investment_transactions: [txn('a'), txn('b'), txn('c', { adopted_entry_id: 'e' })], journal_entries: [entry('d', { source_ref: 'txn:b' })] })
     expect(await countUnderived(m.admin, 'f', 'v', ['Fund I'])).toBe(1)
+  })
+})
+
+describe('backfillDerivedEntries: review and pick', () => {
+  it('a review lists each item; one with nothing to book is listed apart and not counted as waiting', async () => {
+    const m = seed({ investment_transactions: [txn('a'), txn('b', { transaction_type: 'unrealized_gain_change', unrealized_value_change: 50, transaction_date: '2026-03-01' }), txn('c', { transaction_date: '2026-04-01' })] })
+    h.build.mockImplementation(async (_a: any, _f: string, t: any) => t.id === 'b'
+      ? { skip: { drafted: false, reason: 'The books already carry what this records for Acme — nothing left to book.', nothingToBook: true } }
+      : t.id === 'c' ? { skip: { drafted: false, reason: 'Fund I is missing account 4200 — re-sync the chart of accounts.' } }
+      : { entry: { postings: [] }, kind: 'investment', amount: 100 })
+    const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u', { dryRun: true, review: true })
+    expect(r.toDerive).toBe(2)
+    expect(r.items.map(i => [i.key, i.status])).toEqual([['txn:a', 'book'], ['txn:b', 'nothing'], ['txn:c', 'refused']])
+    expect(r.items[0]).toMatchObject({ company: 'Acme', label: 'Investment', amount: 100 })
+    expect(h.derive).not.toHaveBeenCalled()
+  })
+  it('a plain dry run builds nothing', async () => {
+    const m = seed({ investment_transactions: [txn('a')] })
+    await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u', { dryRun: true })
+    expect(h.build).not.toHaveBeenCalled()
+  })
+  it('select books only the picked items', async () => {
+    const m = seed({ investment_transactions: [txn('a'), txn('b')], journal_entries: [entry('qb')], journal_postings: [line('qb', 'b1100', 100)] })
+    const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u', { select: ['txn:b'] })
+    expect(h.derive.mock.calls.map(c => c[3].id)).toEqual(['b'])
+    expect(h.adopt).not.toHaveBeenCalled()
+    expect(r.posted).toBe(1)
+  })
+  it('a run reports a transaction with nothing to book apart from what the ledger refused', async () => {
+    const m = seed({ investment_transactions: [txn('a')] })
+    h.derive.mockResolvedValueOnce({ drafted: false, reason: 'nothing left to book', nothingToBook: true })
+    const r = await backfillDerivedEntries(m.admin, 'f', 'Fund I', 'u')
+    expect(r.refused).toEqual([])
+    expect(r.nothingToBook).toEqual(['Acme, 2026-02-01: nothing left to book'])
+  })
+})
+
+describe('impliesNoEntry: conversions', () => {
+  const conv = { transaction_type: 'investment', converts_from_txn_id: 'note', investment_cost: 0, interest_converted: 0 }
+  it('a note rolled into another note with no cash, interest or round price books nothing', () => {
+    expect(impliesNoEntry(conv)).toBe(true)
+  })
+  it('converted interest, new cash or a round price each book something', () => {
+    expect(impliesNoEntry({ ...conv, interest_converted: 10 })).toBe(false)
+    expect(impliesNoEntry({ ...conv, investment_cost: 10 })).toBe(false)
+    expect(impliesNoEntry({ ...conv, shares_acquired: 100, share_price: 2 })).toBe(false)
   })
 })

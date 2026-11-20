@@ -28,17 +28,21 @@ interface Position {
   irr: number | null
 }
 
-export function LpCapitalView({ isAdmin, canOpenStatement = false, initialVehicles }: {
+export function LpCapitalView({ isAdmin, canOpenStatement = false, initialVehicles, initialVehicle, initialAsOf }: {
   isAdmin: boolean
   canOpenStatement?: boolean
   initialVehicles?: { id: string | null; name: string }[]
+  /** Open on this vehicle (a link from the entity status page). */
+  initialVehicle?: string
+  /** Open on this stored date's snapshot (the import a status warning is about). */
+  initialAsOf?: string
 }) {
   const currency = useCurrency()
   const fmt = (v: number) => formatCurrencyFull(v, currency)
   const confirm = useConfirm()
 
   const [vehicles, setVehicles] = useState<string[]>(() => initialVehicles?.map(v => v.name) ?? [])
-  const [group, setGroup] = useState<string>(() => initialVehicles?.[0]?.name ?? '')
+  const [group, setGroup] = useState<string>(() => initialVehicle ?? initialVehicles?.[0]?.name ?? '')
   const [acct, setAcct] = useState<AcctResp | null>(null)
   const [positions, setPositions] = useState<Position[]>([])
   const [dates, setDates] = useState<string[]>([]) // most-recent first
@@ -47,7 +51,7 @@ export function LpCapitalView({ isAdmin, canOpenStatement = false, initialVehicl
   const [preset, setPreset] = useState<PeriodPreset>('itd')
   const [start, setStart] = useState('')
   const [end, setEnd] = useState('')
-  const [asOf, setAsOf] = useState('') // report date; '' = Latest
+  const [asOf, setAsOf] = useState(initialAsOf ?? '') // report date; '' = Latest
   const [search, setSearch] = useState('')
   const [delErr, setDelErr] = useState<string | null>(null)
   const [loading, setLoading] = useState(initialVehicles === undefined || initialVehicles.length > 0)
@@ -289,6 +293,7 @@ export function LpCapitalView({ isAdmin, canOpenStatement = false, initialVehicl
               {historyError && <p role="alert" className="text-sm text-muted-foreground">Could not load position history. <button type="button" onClick={load} className="underline">Retry</button></p>}
               {/* The tracked history — one row per stored date; click to view/edit that snapshot. */}
               {dates.length > 0 && (
+                <div id="history">
                 <HistoryTable
                   positions={positions}
                   dates={dates}
@@ -302,6 +307,7 @@ export function LpCapitalView({ isAdmin, canOpenStatement = false, initialVehicl
                   } : undefined}
                   fmt={fmt}
                 />
+                </div>
               )}
 
               {group && <AdminFiguresPanel key={group} group={group} canEdit={isAdmin} onSaved={load} />}

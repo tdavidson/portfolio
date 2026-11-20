@@ -177,6 +177,7 @@ export async function persistEntry(
 
   const postingProblem = await validatePostings(admin, fundId, vehicleId, group, entry.postings)
   if (postingProblem) return { error: postingProblem }
+  entry = { ...entry, postings: await inheritAccountPartner(admin, fundId, vehicleId, entry.postings) }
 
   // ADOPT BEFORE POSTING (plans/spec-ledger-one-writer.md §1). A posted actual-book entry is
   // written as a DRAFT first, its postings next, then any investment lines nobody owns are adopted
@@ -335,6 +336,7 @@ export async function persistEntriesTogether(
   const problems = await Promise.all(entries.map(entry => validatePostings(admin, fundId, vehicleId, group, entry.postings)))
   const bad = problems.findIndex(Boolean)
   if (bad >= 0) return { error: problems[bad]!, entryIndex: bad }
+  entries = await Promise.all(entries.map(async entry => ({ ...entry, postings: await inheritAccountPartner(admin, fundId, vehicleId, entry.postings) })))
 
   // Ids chosen here, so each line can name its header without waiting for the insert to answer.
   const ids = entries.map(() => crypto.randomUUID())
@@ -502,6 +504,23 @@ export async function reviveVoidedEntries(
     return null
   }
   return { entryIds: ids }
+}
+
+/**
+ * A posting on a partner's own capital account (3100-<partner>) that names no partner is given the
+ * account's partner. The capital-account roll-forward reads the posting's partner, not the account's,
+ * so an untagged line on a partner's own account reached nobody: partners' capital stopped tying to
+ * the sum of the partners, and every statement was off by it. A posting that names a partner keeps it.
+ */
+export async function inheritAccountPartner<P extends { accountId: string; lpEntityId?: string | null }>(
+  admin: SupabaseClient, fundId: string, vehicleId: string, postings: P[],
+): Promise<P[]> {
+  if (!postings.some(p => !p.lpEntityId)) return postings
+  const scoped = await scopedChart(admin, fundId, vehicleId)
+  const rows = scoped ?? (((await admin.from('chart_of_accounts' as any).select('id, lp_entity_id')
+    .eq('fund_id', fundId).eq('vehicle_id', vehicleId).not('lp_entity_id', 'is', null)).data as any[]) ?? [])
+  const owner = new Map<string, string>((rows as any[]).filter(a => a.lp_entity_id).map(a => [a.id as string, a.lp_entity_id as string]))
+  return postings.map(p => (!p.lpEntityId && owner.has(p.accountId) ? { ...p, lpEntityId: owner.get(p.accountId)! } : p))
 }
 
 /**

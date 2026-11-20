@@ -61,11 +61,18 @@ export interface LedgerDraftResult {
   vehicle?: string
   /** Why nothing was drafted — always set when `drafted` is false. */
   reason?: string
+  /**
+   * Set when nothing was drafted because the transaction has no ledger effect — not a failure, and
+   * nothing the user can fix. The backfill lists these apart from what the ledger refused.
+   */
+  nothingToBook?: boolean
   /** Something next to the entry went wrong and the user should hear it — see retract-adopted.ts. */
   warning?: string
 }
 
 const skip = (reason: string): LedgerDraftResult => ({ drafted: false, reason })
+/** A skip for a transaction that moves nothing on the books: correct, not a problem to fix. */
+const nothing = (reason: string): LedgerDraftResult => ({ drafted: false, reason, nothingToBook: true })
 
 /** The `source_ref` that ties a journal entry back to the tracker row that drafted it. */
 export const txnRef = (txnId: string) => `txn:${txnId}`
@@ -630,7 +637,7 @@ export async function buildEntryForTransaction(
   // moves the position's value by exactly zero — there is nothing to debit or credit. Booking
   // one would post a balanced pair of zero-value postings and make the tie-out lie.
   if (txn.transaction_type === 'split') {
-    return { skip: skip('A split restates the share count without changing value — no entry to book.') }
+    return { skip: nothing('A split restates the share count without changing value — no entry to book.') }
   }
   if (!group) {
     return { skip: skip(
@@ -639,12 +646,12 @@ export async function buildEntryForTransaction(
     ) }
   }
   if (txn.transaction_type === 'round_info') {
-    return { skip: skip('A round is a price signal, not a fund transaction — no entry to book.') }
+    return { skip: nothing('A round is a price signal, not a fund transaction — no entry to book.') }
   }
   // A cost transfer is booked by the one journal entry it was read from (both its rows are adopted
   // from it); nothing is ever derived from either row.
   if (txn.transaction_type === 'cost_transfer') {
-    return { skip: skip('A cost transfer is booked by its own journal entry — nothing is derived from it.') }
+    return { skip: nothing('A cost transfer is booked by its own journal entry — nothing is derived from it.') }
   }
 
   // EVERY ENTITY HAS A LEDGER (spec §3). A name the registry has never seen is created — every
@@ -724,7 +731,7 @@ export async function buildEntryForTransaction(
       { costId: a.costId, cashId, unrealizedId: a.unrealizedId, accruedInterestId: a.accruedInterestId, unrealizedIncomeId },
     )
     if (postings.length === 0) {
-      return { skip: skip('This conversion carries no new cash, no converted interest, and no change in value — nothing to book.') }
+      return { skip: nothing('This conversion carries no new cash, no converted interest, and no change in value — nothing to book.') }
     }
 
     amount = roundValue
@@ -751,7 +758,7 @@ export async function buildEntryForTransaction(
   else if (txn.transaction_type === 'income') {
     const row = txn as any
     const incomeAmount = roundCents(num(row.income_amount))
-    if (incomeAmount === 0) return { skip: skip('The income has no amount — nothing to book.') }
+    if (incomeAmount === 0) return { skip: nothing('The income has no amount — nothing to book.') }
 
     const incomeCode = row.income_kind === 'dividend' ? DIVIDEND_INCOME : PORTFOLIO_INCOME
     const incomeId = codes.get(incomeCode)
@@ -788,7 +795,7 @@ export async function buildEntryForTransaction(
   else if (txn.transaction_type === 'investment') {
     // Acquisition costs capitalise into the position rather than hitting the income statement.
     const cost = roundCents(num(txn.investment_cost) + num((txn as any).fee_amount))
-    if (cost === 0) return { skip: skip('The investment has no cost — nothing to book.') }
+    if (cost === 0) return { skip: nothing('The investment has no cost — nothing to book.') }
     // Shares received as consideration in an exit are paid for with those shares, not cash: the
     // in-kind part comes out of 1360, where the exit put it.
     const inKind = roundCents(num((txn as any).consideration_in_kind))
@@ -824,7 +831,7 @@ export async function buildEntryForTransaction(
     if (!isFx && delta === 0 && txn.current_share_price != null && num(txn.current_share_price) > 0) {
       delta = (await recordsGap(admin, fundId, group, vehicleId, txn, a, [], opts.excludeEntryIds ?? [])) ?? 0
     }
-    if (delta === 0) return { skip: skip('The valuation did not change — nothing to book.') }
+    if (delta === 0) return { skip: nothing('The valuation did not change — nothing to book.') }
 
     // The whole reason FX has its own accounts: a rate move is not investment
     // performance, and must never land in 1200/4200.
@@ -860,7 +867,7 @@ export async function buildEntryForTransaction(
     // gross − escrow, 1350 the escrow, the gain gross − basis.
     const { gross: proceeds, escrow, cash } = proceedsSplit({ proceeds_received: num(txn.proceeds_received), proceeds_escrow: num(txn.proceeds_escrow) })
     const basis = Math.abs(num(txn.cost_basis_exited))
-    if (proceeds === 0 && escrow === 0 && basis === 0) return { skip: skip('The exit has neither proceeds nor cost basis — nothing to book.') }
+    if (proceeds === 0 && escrow === 0 && basis === 0) return { skip: nothing('The exit has neither proceeds nor cost basis — nothing to book.') }
     const escrowProblem = escrowExceedsGross(txn)
     if (escrowProblem) return { skip: skip(escrowProblem) }
     const inKind = roundCents(num((txn as any).consideration_in_kind))
@@ -916,7 +923,7 @@ export async function buildEntryForTransaction(
   // cash only — the escrow was never recognized — so what arrives now is gain on the exit.
   else if (txn.transaction_type === 'escrow_receipt') {
     const received = roundCents(num(txn.proceeds_received))
-    if (received === 0) return { skip: skip('The escrow receipt has no amount received — nothing to book.') }
+    if (received === 0) return { skip: nothing('The escrow receipt has no amount received — nothing to book.') }
     const escrowId = codes.get(ESCROW_RECEIVABLE)
     const creditId = escrowId ?? a.realizedId ?? codes.get(REALIZED_GAIN)
     if (!creditId) return { skip: skip(`${group} is missing account ${ESCROW_RECEIVABLE} (Escrow receivable).`) }
@@ -957,6 +964,13 @@ export async function buildEntryForTransaction(
       add(unrealizedIncomeId!, roundCents(-gap))
       entry.postings = entry.postings.filter(p => p.amount !== 0)
     }
+  }
+  // The true-up can cancel the entry's own lines exactly: a mark that reverses value an earlier
+  // entry for the same company already took off the books (the books are per company, records per
+  // round), or a purchase the books already carry. Then the books already say what this row says.
+  // Without this the ledger refused it as "Journal entry has no postings", which read as a failure.
+  if (entry.postings.length === 0) {
+    return { skip: nothing(`The books already carry what this records for ${companyName} — nothing left to book.`) }
   }
 
   // Tag the entry with the transaction that produced it. Without this there is no link at
