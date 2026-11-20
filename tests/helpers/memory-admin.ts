@@ -48,6 +48,7 @@ export function memoryAdmin(seed: Record<string, Row[]> = {}, opts: MemoryAdminO
     let mode: 'select' | Op = 'select'
     let payload: any = null
     let ignoreDuplicates = false
+    let onConflict: string[] | null = null
     let cols = '*'
     let returning = false
     let head = false
@@ -85,8 +86,20 @@ export function memoryAdmin(seed: Record<string, Row[]> = {}, opts: MemoryAdminO
       // Now compute matched after before hook, so concurrent writes affect filtering
       const matched = tables[table].filter(r => filters.every(f => f(r)))
       if (mode === 'insert') {
-        const list = (Array.isArray(payload) ? payload : [payload]).map((r: Row) => ({ id: `${table}-${++serial}`, ...r }))
-        const kept: Row[] = []
+        let incoming = (Array.isArray(payload) ? payload : [payload]) as Row[]
+        // An upsert naming its conflict columns updates the row already there, as Postgres does.
+        const merged: Row[] = []
+        if (onConflict) {
+          const cols = onConflict
+          incoming = incoming.filter(r => {
+            const hit = tables[table].find(x => cols.every(c => x[c] === r[c]))
+            if (!hit) return true
+            if (!ignoreDuplicates) { Object.assign(hit, r); merged.push(hit) }
+            return false
+          })
+        }
+        const list = incoming.map((r: Row) => ({ id: `${table}-${++serial}`, ...r }))
+        const kept: Row[] = [...merged]
         for (const r of list) {
           if (violates(table, r) || kept.some(k => (opts.unique ?? []).some(u => u.table === table && u.key(k) != null && u.key(k) === u.key(r)))) {
             if (ignoreDuplicates) continue
@@ -94,7 +107,7 @@ export function memoryAdmin(seed: Record<string, Row[]> = {}, opts: MemoryAdminO
           }
           kept.push(r)
         }
-        tables[table].push(...kept)
+        tables[table].push(...kept.filter(r => !merged.includes(r)))
         return { data: returning ? kept.map(r => ({ ...r })) : null, error: null }
       }
       if (mode === 'update') {
@@ -115,7 +128,11 @@ export function memoryAdmin(seed: Record<string, Row[]> = {}, opts: MemoryAdminO
         return q
       },
       insert: (rows: any) => { mode = 'insert'; payload = rows; return q },
-      upsert: (rows: any, o?: { ignoreDuplicates?: boolean }) => { mode = 'insert'; payload = rows; ignoreDuplicates = !!o?.ignoreDuplicates; return q },
+      upsert: (rows: any, o?: { ignoreDuplicates?: boolean; onConflict?: string }) => {
+        mode = 'insert'; payload = rows; ignoreDuplicates = !!o?.ignoreDuplicates
+        onConflict = o?.onConflict ? o.onConflict.split(',').map(c => c.trim()) : null
+        return q
+      },
       update: (v: Row) => { mode = 'update'; payload = v; return q },
       delete: () => { mode = 'delete'; return q },
       eq: (k: string, v: unknown) => { filters.push(r => r[k] === v); return q },

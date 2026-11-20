@@ -37,7 +37,7 @@ import { holdersAsOf, walletsForEntity } from '@/lib/portfolio/holding-entities'
 import { lotIssues, isLotMethod, type LotMethod } from '@/lib/portfolio/lots'
 import { buildSoiPositions, type SoiCompany } from './soi'
 import { fundCurrency } from './currency'
-import { accountIdByCode, ensureCapitalAccounts, persistEntriesTogether, persistEntry } from './persist'
+import { accountIdByCode, ensureCapitalAccounts, persistEntriesTogether, persistEntry, reviveVoidedEntries } from './persist'
 import { allocateAmountCumulatively } from './allocation'
 import { postingsInPeriod } from './statements'
 import { computeCapitalAccounts, bucketForSourceType, emptyAccount, type CapitalAccount } from './capital-account'
@@ -1428,8 +1428,10 @@ async function closeOnePeriod(
     const entries = ownerCloseEntries(preview.categories, {
       fundId, bridgeId, ownerCapitalId: (ownerAcct as any).id, periodStart, periodEnd, sourceRef, label, ownerNoun: ownerNoun(kind),
     })
-    // Posted together: three writes for the month, not three or four per entry.
-    const result = await persistEntriesTogether(admin, fundId, group, userId, entries)
+    // Posted together: three writes for the month, not three or four per entry, or none when a
+    // re-close finds the same entries its reopen voided (reviveVoidedEntries).
+    const result = await reviveVoidedEntries(admin, fundId, group, sourceRef, entries)
+      ?? await persistEntriesTogether(admin, fundId, group, userId, entries)
     if ('error' in result) {
       await reopenPeriodWithReversal(admin, fundId, group, periodId)
       await admin.from('fiscal_periods' as any).delete().eq('id', periodId).eq('fund_id', fundId)
@@ -1467,7 +1469,11 @@ async function closeOnePeriod(
   // Every category's entry is built before any is written (a missing capital account refuses
   // the month with nothing posted), then they post together: three writes, not three or four each.
   {
-    const result = await persistEntriesTogether(admin, fundId, group, userId, allocationEntries.map(a => a.entry))
+    // A re-close of a month whose allocation has not changed puts back the entries its reopen voided
+    // (reviveVoidedEntries) instead of writing the same lines again.
+    const built = allocationEntries.map(a => a.entry)
+    const result = await reviveVoidedEntries(admin, fundId, group, sourceRef, built)
+      ?? await persistEntriesTogether(admin, fundId, group, userId, built)
     if ('error' in result) {
       // Roll back: void anything already posted and drop the period.
       await reopenPeriodWithReversal(admin, fundId, group, periodId)

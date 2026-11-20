@@ -412,6 +412,99 @@ export async function persistEntriesTogether(
 }
 
 /**
+ * Re-post entries a re-close would otherwise write again, by putting back the voided copies the
+ * reopen left: the same header and lines, flipped from void to posted. Null when that is not
+ * possible for every entry, and the caller then writes them afresh (persistEntriesTogether).
+ *
+ * WHY. Reopening a period voids its close entries and re-closing it posts a new set. When nothing
+ * underneath changed, the new set is line for line the set just voided, so a long re-close wrote
+ * every partner's allocation line again, month after month: most of what it wrote to disk. A
+ * revived entry is one row updated instead of a header and dozens of lines inserted.
+ *
+ * Only an exact match is revived: same source ref, date, memo, source type, currency, and the same
+ * lines (account, amount to the cent, partner), every entry of the set matched to a different
+ * voided entry, or none is. Only balance-sheet entries qualify: an entry with income or expense
+ * lines carries a partner allocation of its own, which is worked out afresh, so it is written
+ * afresh. The checks persistEntry runs (the period lock, the lines) run here too.
+ */
+export async function reviveVoidedEntries(
+  admin: SupabaseClient,
+  fundId: string,
+  group: string,
+  sourceRef: string,
+  entries: JournalEntry[],
+): Promise<{ entryIds: string[] } | null> {
+  if (entries.length === 0 || !sourceRef) return null
+  const vehicleId = await vehicleIdByName(admin, fundId, group)
+  if (!vehicleId) return null
+  if (entries.some(e => (e.sourceRef ?? null) !== sourceRef)) return null
+
+  let currency: string
+  try {
+    currency = await fundCurrency(admin, fundId)
+  } catch {
+    return null
+  }
+  const accountIds = Array.from(new Set(entries.flatMap(e => e.postings.map(p => p.accountId))))
+  const { data: accounts, error: accountsErr } = await admin.from('chart_of_accounts' as any)
+    .select('id, type').eq('fund_id', fundId).eq('vehicle_id', vehicleId).in('id', accountIds)
+  if (accountsErr) return null
+  const typeOf = new Map(((accounts as any[]) ?? []).map(a => [a.id as string, a.type as string]))
+  if (accountIds.some(id => !typeOf.has(id) || typeOf.get(id) === 'income' || typeOf.get(id) === 'expense')) return null
+
+  const { data: voided, error: voidedErr } = await admin.from('journal_entries' as any)
+    .select('id, entry_date, memo, source_type, created_at, journal_postings(account_id, amount, currency, lp_entity_id)')
+    .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).eq('vehicle_id', vehicleId)
+    .eq('source_ref', sourceRef).eq('status', 'void')
+    .order('created_at', { ascending: false }).limit(500)
+  if (voidedErr || !voided) return null
+
+  const cents = (n: unknown) => Number(n).toFixed(2)
+  const lineKey = (accountId: string, amount: unknown, cur: string | null, lp: string | null) => `${accountId}|${cents(amount)}|${cur ?? ''}|${lp ?? ''}`
+  const keyOf = (date: string, memo: string | null, sourceType: string | null, lines: string[]) =>
+    [date, memo ?? '', sourceType ?? 'manual', ...lines.sort()].join('\n')
+  const wanted = entries.map(e => keyOf(e.entryDate, e.memo ?? null, e.sourceType ?? 'manual',
+    e.postings.map(p => lineKey(p.accountId, p.amount, currency, p.lpEntityId ?? null))))
+  const pool = new Map<string, string[]>()
+  for (const v of voided as any[]) {
+    const k = keyOf(v.entry_date, v.memo ?? null, v.source_type ?? 'manual',
+      ((v.journal_postings as any[]) ?? []).map(p => lineKey(p.account_id, p.amount, p.currency ?? null, p.lp_entity_id ?? null)))
+    const list = pool.get(k) ?? []
+    list.push(v.id as string)
+    pool.set(k, list)
+  }
+  const ids: string[] = []
+  for (const k of wanted) {
+    const id = pool.get(k)?.shift()
+    if (!id) return null
+    ids.push(id)
+  }
+
+  for (const entry of entries) {
+    try {
+      assertBalanced({ ...entry, postings: entry.postings.map(p => ({ ...p, currency })) })
+    } catch {
+      return null
+    }
+  }
+  const closed = await closedPeriodRanges(admin, fundId, group)
+  if (entries.some(e => dateInAnyClosedPeriod(closed, e.entryDate))) return null
+  const problems = await Promise.all(entries.map(e => validatePostings(admin, fundId, vehicleId, group, e.postings)))
+  if (problems.some(Boolean)) return null
+
+  const { data: flipped, error: flipErr } = await admin.from('journal_entries' as any)
+    .update({ status: 'posted', posted_at: new Date().toISOString() })
+    .in('id', ids).eq('fund_id', fundId).eq('book', ACTUAL_BOOK).eq('status', 'void').select('id')
+  const back = ((flipped as any[]) ?? []).map(r => r.id as string)
+  if (flipErr || back.length !== ids.length) {
+    // Someone else touched one of them: put back what this flipped and write the set afresh.
+    if (back.length > 0) await admin.from('journal_entries' as any).update({ status: 'void', posted_at: null }).in('id', back).eq('fund_id', fundId)
+    return null
+  }
+  return { entryIds: ids }
+}
+
+/**
  * Why these postings may not be written to this fund's `group` (vehicle `vehicleId`), or null when
  * they may. Shared by every path that writes postings: persistEntry, and editing a draft in place
  * (PUT /api/accounting/journal), which used to insert the body's account and partner ids as given.

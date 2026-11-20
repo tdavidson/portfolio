@@ -72,3 +72,54 @@ describe('posting entries together', () => {
     expect(together(m)).toHaveLength(0)
   })
 })
+
+describe('re-closing a month whose allocation has not changed', () => {
+  it('puts back the voided allocation entries instead of writing them again', async () => {
+    const { closeThrough, reopenThrough } = await import('@/lib/accounting/close')
+    const { loadPostedLedger } = await import('@/lib/accounting/load')
+    const { computeCapitalAccounts } = await import('@/lib/accounting/capital-account')
+    const m = buildFixture({ months: 6, noisePerMonth: 10, allocatedEvery: 3 })
+    const first = await closeThrough(m.admin, FUND, GROUP, 'user-1', '2020-04-30', { budgetMs: 1e9 })
+    expect('error' in first).toBe(false)
+    const capital = async () => {
+      const { capitalPostings } = await loadPostedLedger(m.admin, FUND, GROUP)
+      return Object.fromEntries(Array.from(computeCapitalAccounts(capitalPostings, {}).entries()).map(([id, a]) => [id, a.ending]))
+    }
+    const before = await capital()
+    const closeRefs = (status: string) => m.tables.journal_entries.filter(e => (e.source_ref ?? '').startsWith('close:') && e.status === status && /allocated to partners/.test(e.memo ?? ''))
+    const posted = closeRefs('posted').map(e => e.id).sort()
+    const lines = m.tables.journal_postings.length
+
+    const reopened = await reopenThrough(m.admin, FUND, GROUP, { fromDate: '2020-01-01' })
+    expect('error' in reopened).toBe(false)
+    expect(closeRefs('posted')).toHaveLength(0)
+    const again = await closeThrough(m.admin, FUND, GROUP, 'user-1', '2020-04-30', { budgetMs: 1e9 })
+    expect('error' in again).toBe(false)
+
+    // The same entries are posted again, and none of their lines were written a second time.
+    expect(closeRefs('posted').map(e => e.id).sort()).toEqual(posted)
+    expect(closeRefs('void')).toHaveLength(0)
+    const allocationLines = (ids: Set<string>) => m.tables.journal_postings.filter(p => ids.has(p.journal_entry_id)).length
+    expect(m.tables.journal_postings.length - lines).toBeLessThan(allocationLines(new Set(posted)))
+    expect(await capital()).toEqual(before)
+  })
+
+  it('writes the entries afresh when the allocation changed', async () => {
+    const { closeThrough, reopenThrough } = await import('@/lib/accounting/close')
+    const m = buildFixture({ months: 3, noisePerMonth: 5 })
+    await closeThrough(m.admin, FUND, GROUP, 'user-1', '2020-01-31', { budgetMs: 1e9 })
+    const firstIds = m.tables.journal_entries.filter(e => (e.source_ref ?? '').startsWith('close:') && e.status === 'posted').map(e => e.id)
+    await reopenThrough(m.admin, FUND, GROUP, { fromDate: '2020-01-01' })
+    // A late expense in January, booked straight into the ledger and so not yet allocated, changes
+    // what January's close allocates.
+    m.tables.journal_entries.push({ id: 'late-1', fund_id: FUND, vehicle_id: 'veh-1', portfolio_group: GROUP, book: 'actual', status: 'posted', entry_date: '2020-01-15', memo: 'Late invoice', source_type: 'manual', source_ref: null })
+    m.tables.journal_postings.push(
+      { id: 'late-1a', fund_id: FUND, vehicle_id: 'veh-1', portfolio_group: GROUP, book: 'actual', journal_entry_id: 'late-1', account_id: 'acct-5100', amount: 1_000, currency: 'USD', lp_entity_id: null },
+      { id: 'late-1b', fund_id: FUND, vehicle_id: 'veh-1', portfolio_group: GROUP, book: 'actual', journal_entry_id: 'late-1', account_id: 'acct-1000', amount: -1_000, currency: 'USD', lp_entity_id: null },
+    )
+    await closeThrough(m.admin, FUND, GROUP, 'user-1', '2020-01-31', { budgetMs: 1e9 })
+    const nowIds = m.tables.journal_entries.filter(e => (e.source_ref ?? '').startsWith('close:') && e.status === 'posted').map(e => e.id)
+    expect(nowIds.length).toBeGreaterThan(0)
+    expect(nowIds.some(id => firstIds.includes(id) && /expenses allocated/i.test(m.tables.journal_entries.find(e => e.id === id)?.memo ?? ''))).toBe(false)
+  })
+})
