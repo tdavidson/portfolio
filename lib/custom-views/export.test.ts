@@ -98,3 +98,41 @@ describe('file names and time zones', () => {
     expect(readerTimeZone(undefined)).toBe('UTC')
   })
 })
+
+describe('every chart type in the PDF', () => {
+  const base = { id: 'c', label: 'C', span: 6, status: 'ok' as const, format: 'currency' as const }
+  const points = [{ label: 'A', value: 100 }, { label: 'B', value: -40 }]
+
+  it('draws each type as SVG, and a pie with its key', () => {
+    const html = viewPdfHtml({
+      ...payload,
+      data: {
+        ...payload.data,
+        blocks: [
+          { ...base, id: 'col', type: 'column', points },
+          { ...base, id: 'area', type: 'area', points },
+          { ...base, id: 'pie', type: 'pie', donut: true, points: [{ label: 'Slice A', value: 75 }, { label: 'Slice B', value: 25 }] },
+          { ...base, id: 'sc', type: 'scatter', xFormat: 'number', dots: [{ label: 'Dot A', x: 1, y: 2 }] },
+          { ...base, id: 'combo', type: 'combo', label2: 'Line', points: [{ label: 'Q1', value: 10, value2: 20 }] },
+          { ...base, id: 'wf', type: 'waterfall', total: true, points },
+          { ...base, id: 'fn', type: 'funnel', points: [{ label: 'Top', value: 100 }, { label: 'Bottom', value: 25 }] },
+        ],
+      },
+    }, meta)
+    expect(html.match(/<svg /g)).toHaveLength(7)
+    expect(html).toContain('75.0%')
+    expect(html).toContain('Dot A')
+    expect(html).toContain('$25 (25%)')
+  })
+
+  it('writes a waterfall\'s running total and a pie\'s shares to Excel', () => {
+    const wb = XLSX.read(viewWorkbook({
+      ...payload,
+      data: { ...payload.data, blocks: [{ ...base, id: 'wf', label: 'Walk', type: 'waterfall', total: true, points }, { ...base, id: 'pie', label: 'Mix', type: 'pie', points: [{ label: 'A', value: 75 }, { label: 'B', value: 25 }] }] },
+    }, meta), { type: 'buffer' })
+    const walk = XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets.Walk, { header: 1 })
+    expect(walk.slice(0, 3)).toEqual([['Step', 'Change', 'Running total'], ['A', 100, 100], ['B', -40, 60]])
+    expect([walk[3][0], walk[3][1] ?? null, walk[3][2]]).toEqual(['Total', null, 60])
+    expect(XLSX.utils.sheet_to_json(wb.Sheets.Mix, { header: 1 })).toEqual([['Slice', 'Mix', 'Share'], ['A', 75, 0.75], ['B', 25, 0.25]])
+  })
+})

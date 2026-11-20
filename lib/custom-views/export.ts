@@ -107,7 +107,9 @@ export function barSvg(block: CustomBlock, currency: string): string {
   const points = block.points ?? []
   const names = block.series ?? []
   const plot = CHART_WIDTH - LABEL_WIDTH - VALUE_WIDTH
-  const totals = points.map(p => (names.length ? (p.values ?? []).reduce((s, v) => s + Math.max(0, v), 0) : Math.abs(p.value)))
+  const totals = points.map(p => (!names.length ? Math.abs(p.value)
+    : block.stack === 'grouped' ? Math.max(0, ...(p.values ?? []))
+    : (p.values ?? []).reduce((s, v) => s + Math.max(0, v), 0)))
   const max = Math.max(0, ...totals)
   const scale = (v: number) => (max > 0 ? (Math.max(0, v) / max) * plot : 0)
   const height = points.length * ROW + 4
@@ -115,7 +117,12 @@ export function barSvg(block: CustomBlock, currency: string): string {
     const y = i * ROW + 4
     const label = p.label.length > 28 ? `${p.label.slice(0, 27)}…` : p.label
     let bars = ''
-    if (names.length) {
+    if (names.length && block.stack === 'grouped') {
+      const h = (ROW - 6) / names.length
+      ;(p.values ?? []).forEach((v, j) => {
+        bars += `<rect x="${LABEL_WIDTH}" y="${(y + 3 + j * h).toFixed(1)}" width="${scale(v).toFixed(1)}" height="${Math.max(1, h - 1).toFixed(1)}" fill="${SERIES[j] ?? MUTED}"/>`
+      })
+    } else if (names.length) {
       let x = LABEL_WIDTH
       ;(p.values ?? []).forEach((v, j) => {
         const w = scale(v)
@@ -132,7 +139,7 @@ export function barSvg(block: CustomBlock, currency: string): string {
 }
 
 /** A line per series (or one line), oldest first, with a value axis and the first and last labels. */
-export function lineSvg(block: CustomBlock, currency: string): string {
+export function lineSvg(block: CustomBlock, currency: string, area = false): string {
   const points = block.points ?? []
   const names = block.series ?? []
   const series: number[][] = names.length
@@ -148,18 +155,197 @@ export function lineSvg(block: CustomBlock, currency: string): string {
   const h = height - pad.top - pad.bottom
   const x = (i: number) => pad.left + (points.length > 1 ? (i / (points.length - 1)) * w : w / 2)
   const y = (v: number) => pad.top + h - ((v - lo) / (hi - lo)) * h
-  const ticks = [0, 1, 2, 3, 4].map(k => lo + ((hi - lo) * k) / 4)
-  const grid = ticks.map(t =>
+  const gridOf = () => [0, 1, 2, 3, 4].map(k => lo + ((hi - lo) * k) / 4).map(t =>
     `<line x1="${pad.left}" x2="${CHART_WIDTH - pad.right}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}" stroke="${RULE}"/>` +
     `<text x="${pad.left - 6}" y="${(y(t) + 3).toFixed(1)}" font-size="9" fill="${MUTED}" text-anchor="end">${esc(compact(t, block.format, currency))}</text>`).join('')
+  // An area with a series stacks: each band sits on the running total of the ones before it.
+  const stacked = area && series.length > 1
+  if (stacked) {
+    const tops = points.map((_, i) => series.reduce((sum, vals) => sum + vals[i], 0))
+    hi = Math.max(hi, ...tops)
+  }
+  const floor = series[0].map(() => 0)
   const lines = series.map((vals, j) => {
-    const d = vals.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('')
-    return `<path d="${d}" fill="none" stroke="${SERIES[j] ?? MUTED}" stroke-width="2"/>`
+    const base = stacked ? floor.slice() : series[0].map(() => Math.max(lo, 0))
+    const top = stacked ? vals.map((v, i) => floor[i] + v) : vals
+    const d = top.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join('')
+    if (stacked) top.forEach((v, i) => { floor[i] = v })
+    if (!area) return `<path d="${d}" fill="none" stroke="${SERIES[j] ?? MUTED}" stroke-width="2"/>`
+    const back = base.map((v, i) => `L${x(base.length - 1 - i).toFixed(1)},${y(base[base.length - 1 - i]).toFixed(1)}`).join('')
+    return `<path d="${d}${back}Z" fill="${SERIES[j] ?? MUTED}" fill-opacity="${stacked ? 0.6 : 0.2}" stroke="none"/>` +
+      `<path d="${d}" fill="none" stroke="${SERIES[j] ?? MUTED}" stroke-width="2"/>`
   }).join('')
   const step = Math.max(1, Math.ceil(points.length / 8))
   const labels = points.map((p, i) => (i % step === 0 || i === points.length - 1)
     ? `<text x="${x(i).toFixed(1)}" y="${height - 6}" font-size="9" fill="${MUTED}" text-anchor="middle">${esc(p.label)}</text>` : '').join('')
-  return `${names.length ? legend(names) : ''}<svg xmlns="http://www.w3.org/2000/svg" width="${CHART_WIDTH}" height="${height}" viewBox="0 0 ${CHART_WIDTH} ${height}" font-family="${esc(PDF_SANS)}">${grid}${lines}${labels}</svg>`
+  return `${names.length ? legend(names) : ''}<svg xmlns="http://www.w3.org/2000/svg" width="${CHART_WIDTH}" height="${height}" viewBox="0 0 ${CHART_WIDTH} ${height}" font-family="${esc(PDF_SANS)}">${gridOf()}${lines}${labels}</svg>`
+}
+
+/** Vertical axes shared by the column, combo and waterfall charts. */
+function frame(lo: number, hi: number, format: CustomValueFormat | undefined, currency: string, right?: { lo: number; hi: number; format: CustomValueFormat | undefined }) {
+  const pad = { top: 10, right: right ? 64 : 12, bottom: 34, left: 64 }
+  const height = 240
+  const w = CHART_WIDTH - pad.left - pad.right
+  const h = height - pad.top - pad.bottom
+  if (hi === lo) hi = lo + 1
+  const y = (v: number) => pad.top + h - ((v - lo) / (hi - lo)) * h
+  const r = right && (right.hi === right.lo ? { ...right, hi: right.lo + 1 } : right)
+  const y2 = (v: number) => (r ? pad.top + h - ((v - r.lo) / (r.hi - r.lo)) * h : 0)
+  const grid = [0, 1, 2, 3, 4].map(k => {
+    const t = lo + ((hi - lo) * k) / 4
+    const t2 = r ? r.lo + ((r.hi - r.lo) * k) / 4 : 0
+    return `<line x1="${pad.left}" x2="${CHART_WIDTH - pad.right}" y1="${y(t).toFixed(1)}" y2="${y(t).toFixed(1)}" stroke="${RULE}"/>` +
+      `<text x="${pad.left - 6}" y="${(y(t) + 3).toFixed(1)}" font-size="9" fill="${MUTED}" text-anchor="end">${esc(compact(t, format, currency))}</text>` +
+      (r ? `<text x="${CHART_WIDTH - pad.right + 6}" y="${(y(t) + 3).toFixed(1)}" font-size="9" fill="${MUTED}">${esc(compact(t2, r.format, currency))}</text>` : '')
+  }).join('')
+  return { pad, height, w, h, y, y2, grid }
+}
+
+const svgOpen = (height: number) => `<svg xmlns="http://www.w3.org/2000/svg" width="${CHART_WIDTH}" height="${height}" viewBox="0 0 ${CHART_WIDTH} ${height}" font-family="${esc(PDF_SANS)}">`
+const short = (s: string, n = 14) => (s.length > n ? `${s.slice(0, n - 1)}…` : s)
+
+function categoryLabels(labels: string[], x: (i: number) => number, baseline: number): string {
+  const step = Math.max(1, Math.ceil(labels.length / 12))
+  return labels.map((l, i) => (i % step === 0 ? `<text x="${x(i).toFixed(1)}" y="${baseline}" font-size="9" fill="${MUTED}" text-anchor="middle">${esc(short(l))}</text>` : '')).join('')
+}
+
+/** Vertical bars; with a series, stacked or side by side. */
+export function columnSvg(block: CustomBlock, currency: string): string {
+  const points = block.points ?? []
+  const names = block.series ?? []
+  const grouped = names.length > 0 && block.stack === 'grouped'
+  const vals = (p: (typeof points)[number]) => (names.length ? names.map((_, i) => p.values?.[i] ?? 0) : [p.value])
+  const extent = points.flatMap(p => (grouped || !names.length ? vals(p) : [vals(p).reduce((s, v) => s + Math.max(0, v), 0), vals(p).reduce((s, v) => s + Math.min(0, v), 0)]))
+  const f = frame(Math.min(0, ...extent), Math.max(0, ...extent), block.format, currency)
+  const band = f.w / Math.max(1, points.length)
+  const bw = band * 0.7
+  const x = (i: number) => f.pad.left + band * i + band / 2
+  const bars = points.map((p, i) => {
+    const v = vals(p)
+    if (grouped) {
+      const each = bw / v.length
+      return v.map((n, j) => `<rect x="${(x(i) - bw / 2 + j * each).toFixed(1)}" y="${Math.min(f.y(n), f.y(0)).toFixed(1)}" width="${Math.max(1, each - 1).toFixed(1)}" height="${Math.abs(f.y(n) - f.y(0)).toFixed(1)}" fill="${SERIES[j] ?? MUTED}"/>`).join('')
+    }
+    let up = 0
+    let down = 0
+    return v.map((n, j) => {
+      const from = n >= 0 ? up : down
+      const to = from + n
+      if (n >= 0) up = to; else down = to
+      const color = names.length ? (SERIES[j] ?? MUTED) : n < 0 ? LOSS : SERIES[0]
+      return `<rect x="${(x(i) - bw / 2).toFixed(1)}" y="${Math.min(f.y(from), f.y(to)).toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.abs(f.y(to) - f.y(from)).toFixed(1)}" fill="${color}"/>`
+    }).join('')
+  }).join('')
+  return `${names.length ? legend(names) : ''}${svgOpen(f.height)}${f.grid}${bars}${categoryLabels(points.map(p => p.label), x, f.height - 18)}</svg>`
+}
+
+/** Bars of y on the left axis, a line of y2 on the right. */
+export function comboSvg(block: CustomBlock, currency: string): string {
+  const points = block.points ?? []
+  const v1 = points.map(p => p.value)
+  const v2 = points.map(p => p.value2 ?? 0)
+  const f = frame(Math.min(0, ...v1), Math.max(0, ...v1), block.format, currency, { lo: Math.min(0, ...v2), hi: Math.max(0, ...v2), format: block.format2 })
+  const band = f.w / Math.max(1, points.length)
+  const x = (i: number) => f.pad.left + band * i + band / 2
+  const bars = v1.map((n, i) => `<rect x="${(x(i) - band * 0.35).toFixed(1)}" y="${Math.min(f.y(n), f.y(0)).toFixed(1)}" width="${(band * 0.7).toFixed(1)}" height="${Math.abs(f.y(n) - f.y(0)).toFixed(1)}" fill="${SERIES[0]}"/>`).join('')
+  const d = v2.map((n, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${f.y2(n).toFixed(1)}`).join('')
+  return `${legend([block.label, block.label2 ?? 'Line'])}${svgOpen(f.height)}${f.grid}${bars}<path d="${d}" fill="none" stroke="${SERIES[1]}" stroke-width="2"/>${categoryLabels(points.map(p => p.label), x, f.height - 18)}</svg>`
+}
+
+/** Each step floats from the running total; the last bar is the total. */
+export function waterfallSvg(block: CustomBlock, currency: string): string {
+  const steps: { label: string; from: number; to: number; kind: 'up' | 'down' | 'total' }[] = []
+  let running = 0
+  for (const p of block.points ?? []) {
+    steps.push({ label: p.label, from: running, to: running + p.value, kind: p.value < 0 ? 'down' : 'up' })
+    running += p.value
+  }
+  if (block.total !== false) steps.push({ label: 'Total', from: 0, to: running, kind: 'total' })
+  const all = steps.flatMap(s => [s.from, s.to])
+  const f = frame(Math.min(0, ...all), Math.max(0, ...all), block.format, currency)
+  const band = f.w / Math.max(1, steps.length)
+  const x = (i: number) => f.pad.left + band * i + band / 2
+  const bars = steps.map((s, i) => {
+    const color = s.kind === 'total' ? INK : s.kind === 'down' ? LOSS : SERIES[0]
+    return `<rect x="${(x(i) - band * 0.35).toFixed(1)}" y="${Math.min(f.y(s.from), f.y(s.to)).toFixed(1)}" width="${(band * 0.7).toFixed(1)}" height="${Math.max(1, Math.abs(f.y(s.to) - f.y(s.from))).toFixed(1)}" fill="${color}"/>`
+  }).join('')
+  return `${svgOpen(f.height)}${f.grid}${bars}${categoryLabels(steps.map(s => s.label), x, f.height - 18)}</svg>`
+}
+
+/** Slices of a disc (or a ring), with a key of names, shares and figures beside it. */
+export function pieSvg(block: CustomBlock, currency: string): string {
+  const points = (block.points ?? []).filter(p => p.value > 0)
+  const total = points.reduce((s, p) => s + p.value, 0)
+  const size = 200
+  const cx = size / 2
+  const r = size / 2 - 4
+  const inner = block.donut ? r * 0.58 : 0
+  let angle = -Math.PI / 2
+  const pt = (rad: number, a: number) => `${(cx + rad * Math.cos(a)).toFixed(2)},${(cx + rad * Math.sin(a)).toFixed(2)}`
+  const slices = points.map((p, i) => {
+    const sweep = total > 0 ? (p.value / total) * Math.PI * 2 : 0
+    const a0 = angle
+    const a1 = angle + Math.min(sweep, Math.PI * 2 - 1e-4)
+    angle += sweep
+    const large = a1 - a0 > Math.PI ? 1 : 0
+    const d = inner > 0
+      ? `M${pt(r, a0)}A${r},${r} 0 ${large} 1 ${pt(r, a1)}L${pt(inner, a1)}A${inner},${inner} 0 ${large} 0 ${pt(inner, a0)}Z`
+      : `M${cx},${cx}L${pt(r, a0)}A${r},${r} 0 ${large} 1 ${pt(r, a1)}Z`
+    return `<path d="${d}" fill="${SERIES[i] ?? MUTED}" stroke="#fff" stroke-width="1"/>`
+  }).join('')
+  const key = `<table class="key">${points.map((p, i) =>
+    `<tr><td><i style="background:${SERIES[i] ?? MUTED}"></i>${esc(p.label)}</td><td class="num muted">${total > 0 ? ((p.value / total) * 100).toFixed(1) : '0.0'}%</td><td class="num">${esc(formatFigure(p.value, block.format, currency))}</td></tr>`).join('')}</table>`
+  return `<div class="pie">${`<svg xmlns="http://www.w3.org/2000/svg" width="${size}" height="${size}" viewBox="0 0 ${size} ${size}">${slices}</svg>`}${key}</div>`
+}
+
+/** One dot per row at (x, y). */
+export function scatterSvg(block: CustomBlock, currency: string): string {
+  const dots = block.dots ?? []
+  const xs = dots.map(d => d.x)
+  const ys = dots.map(d => d.y)
+  const pad = { top: 10, right: 12, bottom: 26, left: 64 }
+  const height = 260
+  const w = CHART_WIDTH - pad.left - pad.right
+  const h = height - pad.top - pad.bottom
+  let [xlo, xhi] = [Math.min(0, ...xs), Math.max(...xs)]
+  let [ylo, yhi] = [Math.min(0, ...ys), Math.max(...ys)]
+  if (xhi <= xlo) xhi = xlo + 1
+  if (yhi <= ylo) yhi = ylo + 1
+  const x = (v: number) => pad.left + ((v - xlo) / (xhi - xlo)) * w
+  const y = (v: number) => pad.top + h - ((v - ylo) / (yhi - ylo)) * h
+  const grid = [0, 1, 2, 3, 4].map(k => {
+    const ty = ylo + ((yhi - ylo) * k) / 4
+    const tx = xlo + ((xhi - xlo) * k) / 4
+    return `<line x1="${pad.left}" x2="${CHART_WIDTH - pad.right}" y1="${y(ty).toFixed(1)}" y2="${y(ty).toFixed(1)}" stroke="${RULE}"/>` +
+      `<text x="${pad.left - 6}" y="${(y(ty) + 3).toFixed(1)}" font-size="9" fill="${MUTED}" text-anchor="end">${esc(compact(ty, block.format, currency))}</text>` +
+      `<text x="${x(tx).toFixed(1)}" y="${height - 8}" font-size="9" fill="${MUTED}" text-anchor="${k === 4 ? 'end' : k === 0 ? 'start' : 'middle'}">${esc(compact(tx, block.xFormat, currency))}</text>`
+  }).join('')
+  const marks = dots.map(d => `<circle cx="${x(d.x).toFixed(1)}" cy="${y(d.y).toFixed(1)}" r="3.5" fill="${SERIES[0]}" fill-opacity="0.8"><title>${esc(d.label)}</title></circle>`).join('')
+  // With few enough dots, name them, so the printed page can be read without hovering.
+  // Names on the right half sit to the left of their dot, so none runs off the page.
+  const names = dots.length <= 20 ? dots.map(d => {
+    const right = x(d.x) > pad.left + w / 2
+    return `<text x="${(x(d.x) + (right ? -6 : 6)).toFixed(1)}" y="${(y(d.y) + 3).toFixed(1)}" font-size="8.5" fill="${INK}" text-anchor="${right ? 'end' : 'start'}">${esc(short(d.label, 20))}</text>`
+  }).join('') : ''
+  return `${svgOpen(height)}${grid}${marks}${names}</svg>`
+}
+
+/** Stages as centred bars, each with its figure and its share of the first stage. */
+export function funnelSvg(block: CustomBlock, currency: string): string {
+  const points = block.points ?? []
+  const max = Math.max(0, ...points.map(p => p.value))
+  const first = points[0]?.value ?? 0
+  const plot = CHART_WIDTH - LABEL_WIDTH - VALUE_WIDTH - 40
+  const height = points.length * 26 + 4
+  const rows = points.map((p, i) => {
+    const y = i * 26 + 4
+    const w = max > 0 ? Math.max(2, (Math.max(0, p.value) / max) * plot) : 0
+    const share = i > 0 && first > 0 ? ` (${((p.value / first) * 100).toFixed(0)}%)` : ''
+    return `<text x="0" y="${y + 14}" font-size="10" fill="${INK}">${esc(short(p.label, 28))}</text>` +
+      `<rect x="${(LABEL_WIDTH + (plot - w) / 2).toFixed(1)}" y="${y + 2}" width="${w.toFixed(1)}" height="18" rx="2" fill="${SERIES[0]}" fill-opacity="${(1 - Math.min(i, 6) * 0.1).toFixed(2)}"/>` +
+      `<text x="${CHART_WIDTH}" y="${y + 14}" font-size="10" fill="${INK}" text-anchor="end" style="font-variant-numeric:tabular-nums">${esc(formatFigure(p.value, block.format, currency) + share)}</text>`
+  }).join('')
+  return `${svgOpen(height)}${rows}</svg>`
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -183,9 +369,20 @@ function blockHtml(block: CustomBlock, currency: string): string {
   if (block.type === 'text') {
     return `<section>${block.label ? `<h2>${esc(block.label)}</h2>` : ''}${String(block.text ?? '').split(/\n\s*\n/).map(p => `<p>${esc(p)}</p>`).join('')}</section>`
   }
-  if (block.type === 'bar' || block.type === 'line') {
-    const body = (block.points ?? []).length === 0 ? '<p class="muted">Nothing to chart.</p>'
-      : block.type === 'bar' ? barSvg(block, currency) : lineSvg(block, currency)
+  if (block.type !== 'kpi' && block.type !== 'table') {
+    const empty = block.type === 'scatter' ? (block.dots ?? []).length === 0 : (block.points ?? []).length === 0
+    const draw: Record<string, () => string> = {
+      bar: () => barSvg(block, currency),
+      column: () => columnSvg(block, currency),
+      line: () => lineSvg(block, currency),
+      area: () => lineSvg(block, currency, true),
+      pie: () => pieSvg(block, currency),
+      scatter: () => scatterSvg(block, currency),
+      combo: () => comboSvg(block, currency),
+      waterfall: () => waterfallSvg(block, currency),
+      funnel: () => funnelSvg(block, currency),
+    }
+    const body = empty ? '<p class="muted">Nothing to chart.</p>' : (draw[block.type]?.() ?? '')
     return `<section class="keep"><h2>${esc(block.label)}</h2>${body}</section>`
   }
   if (block.type === 'table') return `<section><h2>${esc(block.label)}</h2>${tableHtml(block, currency)}</section>`
@@ -221,6 +418,10 @@ export function viewPdfHtml(payload: CustomViewPayload, meta: ExportMeta): strin
   th { font-weight: 600; text-align: left; padding: 4px 6px; border-bottom: 1.5px solid #ccc; color: #555; }
   td { padding: 4px 6px; border-bottom: 1px solid #eee; }
   tr { break-inside: avoid; }
+  .pie { display: flex; gap: 24px; align-items: center; }
+  .key { width: auto; min-width: 300px; }
+  .key td { border: 0; padding: 2px 6px; }
+  .key i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
   .num { text-align: right; font-variant-numeric: tabular-nums; white-space: nowrap; }
 </style></head><body>
   <h1>${esc(payload.title)}</h1>
@@ -304,9 +505,32 @@ export function viewWorkbook(payload: CustomViewPayload, meta: ExportMeta): Buff
 
   for (const b of blocks) {
     if (b.status !== 'ok') continue
-    if (b.type === 'bar' || b.type === 'line') {
+    if (b.type === 'scatter') {
+      const rows: XlCell[][] = (b.dots ?? []).map(d => [d.label, xlValue(d.x, b.xFormat), xlValue(d.y, b.format)])
+      XLSX.utils.book_append_sheet(wb, sheetOf([['Point', 'X', 'Y'], ...rows], [28, 16, 16]), sheetName(b.label, used))
+      continue
+    }
+    if (b.type === 'combo') {
+      const rows: XlCell[][] = (b.points ?? []).map(p => [p.label, xlValue(p.value, b.format), xlValue(p.value2 ?? 0, b.format2)])
+      XLSX.utils.book_append_sheet(wb, sheetOf([['Item', b.label, b.label2 ?? 'Line'], ...rows], [28, 16, 16]), sheetName(b.label, used))
+      continue
+    }
+    if (b.type === 'waterfall') {
+      let running = 0
+      const rows: XlCell[][] = (b.points ?? []).map(p => { running += p.value; return [p.label, xlValue(p.value, b.format), xlValue(running, b.format)] })
+      if (b.total !== false) rows.push(['Total', null, xlValue(running, b.format)])
+      XLSX.utils.book_append_sheet(wb, sheetOf([['Step', 'Change', 'Running total'], ...rows], [28, 16, 16]), sheetName(b.label, used))
+      continue
+    }
+    if (b.type === 'pie') {
+      const total = (b.points ?? []).reduce((s, p) => s + p.value, 0)
+      const rows: XlCell[][] = (b.points ?? []).map(p => [p.label, xlValue(p.value, b.format), total ? { v: p.value / total, z: XL_FORMAT.percent! } : null])
+      XLSX.utils.book_append_sheet(wb, sheetOf([['Slice', b.label, 'Share'], ...rows], [28, 16, 12]), sheetName(b.label, used))
+      continue
+    }
+    if (b.type !== 'kpi' && b.type !== 'table' && b.type !== 'text') {
       const names = b.series ?? []
-      const head: XlCell[] = [b.type === 'line' ? 'Period' : 'Item', ...(names.length ? [...names, 'Total'] : [b.label])]
+      const head: XlCell[] = [b.type === 'line' || b.type === 'area' ? 'Period' : 'Item', ...(names.length ? [...names, 'Total'] : [b.label])]
       const rows: XlCell[][] = (b.points ?? []).map(p => [
         p.label,
         ...(names.length ? [...names.map((_, i) => xlValue(p.values?.[i] ?? 0, b.format)), xlValue(p.value, b.format)] : [xlValue(p.value, b.format)]),

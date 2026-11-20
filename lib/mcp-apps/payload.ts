@@ -354,9 +354,12 @@ export type CustomValueFormat = 'currency' | 'number' | 'percent' | 'multiple' |
  * the viewer cannot read is `denied` and carries no rows, so one view can serve colleagues with
  * different access without failing for any of them.
  */
+/** The chart blocks a custom view can draw (lib/custom-views/spec.ts CHART_TYPES). */
+export type CustomChartType = 'bar' | 'column' | 'line' | 'area' | 'pie' | 'scatter' | 'combo' | 'waterfall' | 'funnel'
+
 export interface CustomBlock {
   id: string
-  type: 'kpi' | 'bar' | 'line' | 'table' | 'text'
+  type: 'kpi' | CustomChartType | 'table' | 'text'
   label: string
   /** Width out of 12. */
   span: number
@@ -372,8 +375,20 @@ export interface CustomBlock {
    * them (largest first, at most 8 with the rest as "Other") and each point's `values` holds one
    * figure per series, in that order: bars stack them, a line chart draws one line each.
    */
-  points?: { label: string; value: number; values?: number[] }[]
+  points?: { label: string; value: number; values?: number[]; value2?: number }[]
   series?: string[]
+  /** bar / column with a series: stacked (default) or side by side. */
+  stack?: 'stacked' | 'grouped'
+  /** pie: drawn as a ring. */
+  donut?: boolean
+  /** waterfall: ends with a total bar. */
+  total?: boolean
+  /** combo: the line's name and format (its figures are each point's value2). */
+  label2?: string
+  format2?: CustomValueFormat
+  /** scatter: one dot per row, and the format of x. */
+  dots?: { label: string; x: number; y: number }[]
+  xFormat?: CustomValueFormat
   /** table */
   columns?: { key: string; label: string; format: CustomValueFormat }[]
   rows?: Record<string, string | number | null>[]

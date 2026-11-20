@@ -215,6 +215,26 @@ export const custom: CustomViewPayload = {
           { label: 'Series B', value: 1_000_000, values: [0, 1_000_000] },
         ],
       },
+      {
+        id: 'mix', type: 'pie', label: 'Fair value by sector', span: 6, status: 'ok', format: 'currency', donut: true,
+        points: [{ label: 'Software', value: 12_000_000 }, { label: 'Health', value: 8_000_000 }, { label: 'Energy', value: 4_000_000 }, { label: 'Other', value: 3_190_000 }],
+      },
+      {
+        id: 'walk', type: 'waterfall', label: 'NAV walk this quarter', span: 6, status: 'ok', format: 'currency', total: true,
+        points: [{ label: 'Opening NAV', value: 25_000_000 }, { label: 'Calls', value: 2_000_000 }, { label: 'Distributions', value: -1_500_000 }, { label: 'Marks', value: 1_690_000 }],
+      },
+      {
+        id: 'calls', type: 'combo', label: 'Calls', span: 12, status: 'ok', format: 'currency', label2: 'NAV', format2: 'currency',
+        points: [{ label: '2026-Q1', value: 1_000_000, value2: 22_000_000 }, { label: '2026-Q2', value: 1_500_000, value2: 24_000_000 }, { label: '2026-Q3', value: 500_000, value2: 27_190_000 }],
+      },
+      {
+        id: 'dots', type: 'scatter', label: 'MOIC against invested', span: 6, status: 'ok', format: 'multiple', xFormat: 'currency',
+        dots: positions.slice(0, 10).map(p => ({ label: p.company, x: p.cost, y: p.moic ?? 0 })),
+      },
+      {
+        id: 'pipe', type: 'funnel', label: 'Deals by stage', span: 6, status: 'ok', format: 'number',
+        points: [{ label: 'Sourced', value: 120 }, { label: 'First call', value: 48 }, { label: 'Diligence', value: 14 }, { label: 'Invested', value: 4 }],
+      },
       { id: 'note', type: 'text', label: '', span: 12, status: 'ok', text: 'Figures load live each time the view opens.' },
     ],
   },

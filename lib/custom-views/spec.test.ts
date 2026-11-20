@@ -63,7 +63,7 @@ describe('parseViewSpec', () => {
   })
 
   it('refuses unknown block types, params and formats', () => {
-    fails({ ...valid, blocks: [{ type: 'html', label: 'X' }] }, /type must be one of: kpi, bar, line, table, text/)
+    fails({ ...valid, blocks: [{ type: 'html', label: 'X' }] }, /type must be one of: kpi, bar, column, line, area, pie, scatter, combo, waterfall, funnel, table, text/)
     fails({ ...valid, params: ['company'] }, /params must be one of: vehicle, as_of/)
     fails({ ...valid, blocks: [{ ...valid.blocks[0], format: 'emoji' }] }, /format must be one of/)
   })
@@ -117,5 +117,37 @@ describe('cleanParams', () => {
 
   it('refuses a date that is not a real day', () => {
     expect(() => cleanParams(spec, { as_of: '2026-02-31' })).toThrow(/real date/)
+  })
+})
+
+describe('chart types', () => {
+  const chart = (block: Record<string, unknown>) => ({ title: 'Charts', blocks: [{ label: 'C', format: 'currency', ...block }] })
+  const byStage = positions({ group_by: ['stage'], aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }, { fn: 'sum', column: 'cost', as: 'cost' }] })
+
+  it('accepts every chart type with its own options', () => {
+    const spec = parseViewSpec({
+      title: 'Charts',
+      blocks: [
+        { type: 'column', label: 'A', source: positions({ group_by: ['stage', 'status'], aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] }), x: 'stage', y: 'fv', series: 'status', stack: 'grouped' },
+        { type: 'area', label: 'B', source: byStage, x: 'stage', y: 'fv' },
+        { type: 'pie', label: 'C', source: byStage, x: 'stage', y: 'fv', donut: true },
+        { type: 'scatter', label: 'D', source: positions({ columns: ['company', 'cost', 'moic'] }), x: 'cost', y: 'moic', point_label: 'company', x_format: 'currency', format: 'multiple' },
+        { type: 'combo', label: 'E', source: byStage, x: 'stage', y: 'cost', y2: 'fv', format2: 'currency' },
+        { type: 'waterfall', label: 'F', source: byStage, x: 'stage', y: 'fv', total: false },
+        { type: 'funnel', label: 'G', source: byStage, x: 'stage', y: 'fv' },
+      ],
+    })
+    expect(spec.blocks.map(b => b.type)).toEqual(['column', 'area', 'pie', 'scatter', 'combo', 'waterfall', 'funnel'])
+    expect(spec.blocks[0]).toMatchObject({ series: 'status', stack: 'grouped' })
+    expect(spec.blocks[2]).toMatchObject({ donut: true })
+    expect(spec.blocks[3]).toMatchObject({ point_label: 'company', x_format: 'currency' })
+    expect(spec.blocks[4]).toMatchObject({ y2: 'fv', format2: 'currency' })
+    expect(spec.blocks[5]).toMatchObject({ total: false })
+  })
+
+  it('needs y2 on a combo, and series only where it means something', () => {
+    fails(chart({ type: 'combo', source: byStage, x: 'stage', y: 'cost' }), /y2 must be a column of the result/)
+    fails(chart({ type: 'pie', source: byStage, x: 'stage', y: 'fv', series: 'cost' }), /series works on bar, column, line and area/)
+    fails(chart({ type: 'column', source: positions({ group_by: ['stage', 'status'], aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] }), x: 'stage', y: 'fv', series: 'status', stack: 'sideways' }), /stack must be one of: stacked, grouped/)
   })
 })

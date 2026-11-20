@@ -145,3 +145,30 @@ describe('chart series', () => {
     expect(points[0].value).toBe(55_000)
   })
 })
+
+describe('chart types', () => {
+  const run = async (block: Record<string, unknown>) => {
+    const d = deps({ portfolio: 'read' })
+    const spec = parseViewSpec({ title: 'T', blocks: [{ label: 'C', format: 'currency', ...block }] })
+    return (await resolveView(d.deps, spec, {}, { id: null })).data.blocks[0]
+  }
+  const byCompany = { tool: 'query_portfolio', dataset: 'positions', query: { columns: ['company', 'cost', 'fair_value', 'moic'] } }
+
+  it('draws a scatter as one dot per row, named by point_label', async () => {
+    const b = await run({ type: 'scatter', source: byCompany, x: 'cost', y: 'moic', point_label: 'company', x_format: 'currency', format: 'multiple' })
+    expect(b).toMatchObject({ status: 'ok', xFormat: 'currency', dots: [{ label: 'Acme', x: 100_000, y: 2.5 }, { label: 'Northwind', x: 200_000, y: 0.75 }] })
+  })
+
+  it('pairs a combo\'s bars and line, and names the line', async () => {
+    const b = await run({ type: 'combo', source: byCompany, x: 'company', y: 'cost', y2: 'fair_value' })
+    expect(b.points).toEqual([{ label: 'Acme', value: 100_000, value2: 250_000 }, { label: 'Northwind', value: 200_000, value2: 150_000 }])
+    expect(b.label2).toBe('Fair value')
+  })
+
+  it('orders pie slices largest first and keeps waterfall steps in order with a total', async () => {
+    const pie = await run({ type: 'pie', source: byCompany, x: 'company', y: 'cost', donut: true })
+    expect(pie).toMatchObject({ donut: true, points: [{ label: 'Northwind', value: 200_000 }, { label: 'Acme', value: 100_000 }] })
+    const walk = await run({ type: 'waterfall', source: byCompany, x: 'company', y: 'fair_value' })
+    expect(walk).toMatchObject({ total: true, points: [{ label: 'Acme', value: 250_000 }, { label: 'Northwind', value: 150_000 }] })
+  })
+})

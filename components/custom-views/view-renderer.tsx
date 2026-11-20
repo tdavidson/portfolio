@@ -6,12 +6,10 @@
  * loaded as the viewer, or marked as not available to them.
  */
 
-import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, XAxis, YAxis } from 'recharts'
 import { Metric } from '@/components/ui/metric'
-import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
-import { ChartCard, EmptyPlot, HUE } from '@/components/fund-chart-kit'
+import { CustomChart } from './charts'
+import { formatValue } from './format'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
-import { formatCurrencyAxis, formatCurrencyFull } from '@/components/currency-context'
 import { cn } from '@/lib/utils'
 import type { CustomBlock, CustomValueFormat, CustomViewPayload } from '@/lib/mcp-apps/payload'
 
@@ -23,29 +21,6 @@ const SPAN: Record<number, string> = {
   12: 'md:col-span-12',
 }
 
-function formatValue(v: number | string | null | undefined, format: CustomValueFormat | undefined, currency: string): string {
-  if (v == null || v === '') return '—'
-  if (typeof v === 'string') {
-    if (format === 'date' && /^\d{4}-\d{2}-\d{2}/.test(v)) {
-      return new Date(`${v.slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
-    }
-    return v
-  }
-  // Negatives in accounting parentheses everywhere, as every figure in the app is.
-  const paren = (s: string) => (v < 0 ? `(${s})` : s)
-  switch (format) {
-    case 'currency': return formatCurrencyFull(v, currency)
-    case 'percent': return paren(`${Math.abs(v).toFixed(1)}%`)
-    case 'multiple': return `${v.toFixed(2)}x`
-    case 'text': return String(v)
-    default: return paren(Math.abs(v).toLocaleString('en-US', { maximumFractionDigits: 2 }))
-  }
-}
-
-function axisFormatter(format: CustomValueFormat | undefined, currency: string) {
-  return (v: number) => (format === 'currency' ? formatCurrencyAxis(v, currency) : formatValue(v, format, currency))
-}
-
 function Unavailable({ block }: { block: CustomBlock }) {
   return (
     <div className="rounded-card border border-dashed bg-card p-4">
@@ -54,99 +29,6 @@ function Unavailable({ block }: { block: CustomBlock }) {
         {block.message ?? 'Not available.'}
       </p>
     </div>
-  )
-}
-
-// One colour per series, from the categorical palette (the same eight slots every theme defines).
-const SERIES_FILL = [1, 2, 3, 4, 5, 6, 7, 8].map(n => `hsl(var(--cat-${n}))`)
-
-/** A chart split by a series: stacked bars, or one line per series, with a legend. */
-function SeriesChart({ block, currency }: { block: CustomBlock; currency: string }) {
-  const names = block.series ?? []
-  const fmt = (v: number) => formatValue(v, block.format, currency)
-  const tick = axisFormatter(block.format, currency)
-  // Recharts reads each series by key; s0, s1… keep a series called "label" or "value" from colliding.
-  const data = (block.points ?? []).map(p => {
-    const row: Record<string, string | number> = { label: p.label }
-    names.forEach((_, i) => { row[`s${i}`] = p.values?.[i] ?? 0 })
-    return row
-  })
-  const tooltip = <ChartTooltip formatter={(val: any, name: any) => [fmt(val as number), name]} content={<ChartTooltipContent />} />
-  const legend = <ChartLegend verticalAlign="top" align="left" content={<ChartLegendContent />} />
-  if (block.type === 'bar') {
-    const height = Math.max(180, Math.min(data.length, 30) * 28 + 56)
-    return (
-      <ChartCard title={block.label}>
-        <ChartContainer height={height}>
-          <BarChart data={data} layout="vertical" margin={{ top: 4, right: 12, bottom: 0, left: 4 }}>
-            <CartesianGrid horizontal={false} />
-            <XAxis type="number" tick={{ fontSize: 11 }} className="tabular-nums" tickLine={false} axisLine={false} tickFormatter={tick} />
-            <YAxis type="category" dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={120} interval={0} />
-            {tooltip}
-            {legend}
-            {names.map((name, i) => (
-              <Bar key={i} dataKey={`s${i}`} name={name} stackId="stack" fill={SERIES_FILL[i] ?? HUE.muted} stroke={HUE.surface} strokeWidth={1} isAnimationActive={false} />
-            ))}
-          </BarChart>
-        </ChartContainer>
-      </ChartCard>
-    )
-  }
-  return (
-    <ChartCard title={block.label}>
-      <ChartContainer height={240}>
-        <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-          <CartesianGrid vertical={false} />
-          <XAxis dataKey="label" tick={{ fontSize: 11 }} className="tabular-nums" tickLine={false} axisLine={false} interval="preserveStartEnd" />
-          <YAxis tick={{ fontSize: 11 }} className="tabular-nums" tickLine={false} axisLine={false} width={64} tickFormatter={tick} />
-          {tooltip}
-          {legend}
-          {names.map((name, i) => (
-            <Line key={i} type="monotone" dataKey={`s${i}`} name={name} stroke={SERIES_FILL[i] ?? HUE.muted} strokeWidth={2} dot={false} isAnimationActive={false} />
-          ))}
-        </LineChart>
-      </ChartContainer>
-    </ChartCard>
-  )
-}
-
-function ChartBlock({ block, currency }: { block: CustomBlock; currency: string }) {
-  const points = block.points ?? []
-  const fmt = (v: number) => formatValue(v, block.format, currency)
-  const tick = axisFormatter(block.format, currency)
-  if (points.length === 0) return <ChartCard title={block.label}><EmptyPlot label="Nothing to chart." /></ChartCard>
-  if (block.series?.length) return <SeriesChart block={block} currency={currency} />
-  if (block.type === 'bar') {
-    // Horizontal bars: category labels read in full, and one series takes one colour.
-    const height = Math.max(160, Math.min(points.length, 30) * 28 + 24)
-    return (
-      <ChartCard title={block.label}>
-        <ChartContainer height={height}>
-          <BarChart data={points} layout="vertical" margin={{ top: 4, right: 12, bottom: 0, left: 4 }}>
-            <CartesianGrid horizontal={false} />
-            <XAxis type="number" tick={{ fontSize: 11 }} className="tabular-nums" tickLine={false} axisLine={false} tickFormatter={tick} />
-            <YAxis type="category" dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={120} interval={0} />
-            <ChartTooltip formatter={(val: any) => [fmt(val as number), block.label]} content={<ChartTooltipContent />} />
-            <Bar dataKey="value" radius={2} isAnimationActive={false}>
-              {points.map((p, i) => <Cell key={i} fill={p.value < 0 ? 'hsl(var(--destructive))' : HUE.chart1} />)}
-            </Bar>
-          </BarChart>
-        </ChartContainer>
-      </ChartCard>
-    )
-  }
-  return (
-    <ChartCard title={block.label}>
-      <ChartContainer height={220}>
-        <LineChart data={points} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
-          <CartesianGrid vertical={false} />
-          <XAxis dataKey="label" tick={{ fontSize: 11 }} className="tabular-nums" tickLine={false} axisLine={false} interval="preserveStartEnd" />
-          <YAxis tick={{ fontSize: 11 }} className="tabular-nums" tickLine={false} axisLine={false} width={64} tickFormatter={tick} />
-          <ChartTooltip formatter={(val: any) => [fmt(val as number), block.label]} content={<ChartTooltipContent />} />
-          <Line type="monotone" dataKey="value" stroke={HUE.chart1} strokeWidth={2} dot={false} isAnimationActive={false} />
-        </LineChart>
-      </ChartContainer>
-    </ChartCard>
   )
 }
 
@@ -191,9 +73,6 @@ function Block({ block, currency }: { block: CustomBlock; currency: string }) {
   switch (block.type) {
     case 'kpi':
       return <Metric label={block.label} value={formatValue(block.value, block.format, currency)} sub={block.sub} />
-    case 'bar':
-    case 'line':
-      return <ChartBlock block={block} currency={currency} />
     case 'table':
       return <TableBlock block={block} currency={currency} />
     case 'text':
@@ -205,6 +84,8 @@ function Block({ block, currency }: { block: CustomBlock; currency: string }) {
           ))}
         </div>
       )
+    default:
+      return <CustomChart block={block} currency={currency} />
   }
 }
 

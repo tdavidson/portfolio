@@ -25,7 +25,7 @@ import { loadBranding } from '@/lib/mcp-apps/branding'
 import type { CustomBlock, CustomValueFormat, CustomViewPayload, DashboardBranding } from '@/lib/mcp-apps/payload'
 import {
   cleanParams, findDataset, isDataBlock, MAX_SERIES,
-  type DataBlock, type TableBlock, type ViewBlock, type ViewParam, type ViewSpec,
+  type ChartBlock, type DataBlock, type TableBlock, type ViewBlock, type ViewParam, type ViewSpec,
 } from './spec'
 
 type Row = Record<string, unknown>
@@ -50,6 +50,8 @@ export interface ViewRef {
 
 /** Points per chart, after the query's own limit. More than this is not a chart anyone reads. */
 export const MAX_CHART_POINTS = 60
+/** Dots per scatter: a scatter is read as a cloud, so it can carry more. */
+export const MAX_SCATTER_POINTS = 500
 
 /**
  * Long rows (one per x and series) as one point per x with a figure per series. Series are ordered
@@ -149,16 +151,7 @@ async function loadBlock(
       const first = result.rows[0]
       return { ...base, status: 'ok', format: block.format, value: first ? cell(first[block.value]) : null, ...(block.sub ? { sub: block.sub } : {}) }
     }
-    if ((block.type === 'bar' || block.type === 'line') && block.series) {
-      return { ...base, status: 'ok', format: block.format, ...pivotSeries(result.rows, block.x, block.y, block.series) }
-    }
-    if (block.type === 'bar' || block.type === 'line') {
-      const points = result.rows
-        .map(r => ({ label: String(cell(r[block.x]) ?? '—'), value: Number(r[block.y]) }))
-        .filter(p => Number.isFinite(p.value))
-        .slice(0, MAX_CHART_POINTS)
-      return { ...base, status: 'ok', format: block.format, points }
-    }
+    if (block.type !== 'table') return chartBlock(block, base, result.rows)
     const columns = (block as TableBlock).columns.map(c => ({
       key: c.column,
       label: c.label ?? humanize(c.column),
@@ -169,6 +162,46 @@ async function loadBlock(
   } catch (e) {
     return { ...base, status: 'error', message: (e as Error).message || 'Could not load this block.' }
   }
+}
+
+const humanLabel = (column: string) => humanize(column)
+
+/** A chart block's figures, shaped for its type. Rows past MAX_CHART_POINTS are left off. */
+function chartBlock(block: ChartBlock, base: Pick<CustomBlock, 'id' | 'type' | 'label' | 'span'>, rows: Row[]): CustomBlock {
+  const ok = { ...base, status: 'ok' as const, format: block.format }
+  const label = (r: Row) => String(cell(r[block.x]) ?? '—')
+  if (block.series) {
+    return { ...ok, ...(block.stack ? { stack: block.stack } : {}), ...pivotSeries(rows, block.x, block.y, block.series) }
+  }
+  if (block.type === 'scatter') {
+    const dots = rows
+      .map((r, i) => ({ label: block.point_label ? String(cell(r[block.point_label]) ?? '—') : `Point ${i + 1}`, x: Number(r[block.x]), y: Number(r[block.y]) }))
+      .filter(d => Number.isFinite(d.x) && Number.isFinite(d.y))
+      .slice(0, MAX_SCATTER_POINTS)
+    return { ...ok, dots, xFormat: block.x_format ?? 'number' }
+  }
+  if (block.type === 'combo') {
+    const points = rows
+      .map(r => ({ label: label(r), value: Number(r[block.y]), value2: Number(r[block.y2!]) }))
+      .filter(p => Number.isFinite(p.value) || Number.isFinite(p.value2))
+      .map(p => ({ label: p.label, value: Number.isFinite(p.value) ? p.value : 0, value2: Number.isFinite(p.value2) ? p.value2 : 0 }))
+      .slice(0, MAX_CHART_POINTS)
+    return { ...ok, points, label2: humanLabel(block.y2!), format2: block.format2 ?? block.format }
+  }
+  let points = rows
+    .map(r => ({ label: label(r), value: Number(r[block.y]) }))
+    .filter(p => Number.isFinite(p.value))
+    .slice(0, MAX_CHART_POINTS)
+  if (block.type === 'pie') {
+    // Shares of a total: negative slices have no meaning, and past eight the smallest fold together.
+    const positive = points.filter(p => p.value > 0).sort((a, b) => b.value - a.value)
+    points = positive.length > MAX_SERIES
+      ? [...positive.slice(0, MAX_SERIES - 1), { label: 'Other', value: positive.slice(MAX_SERIES - 1).reduce((s, p) => s + p.value, 0) }]
+      : positive
+    return { ...ok, points, ...(block.donut ? { donut: true } : {}) }
+  }
+  if (block.type === 'waterfall') return { ...ok, points, total: block.total !== false }
+  return { ...ok, points }
 }
 
 function textBlock(block: ViewBlock & { type: 'text' }): CustomBlock {

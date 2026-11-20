@@ -131,13 +131,43 @@ function customBlock(b: CustomBlock, ctx: ViewContext): Node | null {
     return h('div', { class: 'section' }, ...(b.label ? [h('p', { class: 'eyebrow' }, b.label)] : []),
       ...String(b.text ?? '').split(/\n\s*\n/).map(p => h('p', null, p)))
   }
-  if (b.type === 'bar' || b.type === 'line') {
+  // The chart card has bars and single lines; the other chart types are drawn with those, and a
+  // scatter as its figures. The app and the PDF draw each type in full.
+  if (b.type === 'scatter') {
+    const dots = b.dots ?? []
+    if (dots.length === 0) return section(b.label, empty('Nothing to chart.'))
+    const fx = customFormat(b.xFormat, ctx.fmt).value
+    return section(b.label, dataTable(dots, [
+      { header: 'Point', cell: d => d.label },
+      { header: 'X', numeric: true, cell: d => fx(d.x), sort: d => d.x },
+      { header: 'Y', numeric: true, cell: d => format(d.y), sort: d => d.y },
+    ], { caption: b.label }))
+  }
+  if (b.type === 'pie' || b.type === 'funnel' || b.type === 'waterfall' || b.type === 'combo') {
+    let points = b.points ?? []
+    if (points.length === 0) return section(b.label, empty('Nothing to chart.'))
+    if (b.type === 'waterfall' && b.total !== false) points = [...points, { label: 'Total', value: points.reduce((s, p) => s + p.value, 0) }]
+    const total = points.reduce((s, p) => s + Math.max(0, p.value), 0)
+    const format2 = customFormat(b.format2, ctx.fmt).value
+    const data: BarDatum[] = points.map(p => ({
+      label: p.label,
+      value: Math.abs(p.value),
+      valueLabel: b.type === 'pie' && total > 0 ? `${((p.value / total) * 100).toFixed(1)}%` : b.format === 'currency' ? ctx.fmt.compact(p.value) : format(p.value),
+      tooltip: [
+        { value: format(p.value), label: b.label },
+        ...(b.type === 'combo' ? [{ value: format2(p.value2 ?? 0), label: b.label2 ?? 'Line' }] : []),
+      ],
+      ...(p.value < 0 ? { tone: 'loss' as const } : {}),
+    }))
+    return section(b.label, barChart(data, { valueName: b.label, ariaLabel: `${b.label} by ${points.length} categories` }))
+  }
+  if (b.type === 'bar' || b.type === 'column' || b.type === 'line' || b.type === 'area') {
     const points = b.points ?? []
     if (points.length === 0) return section(b.label, empty('Nothing to chart.'))
     const names = b.series ?? []
     if (names.length) {
       const color = (i: number) => `hsl(var(--cat-${i + 1}))`
-      if (b.type === 'bar') {
+      if (b.type === 'bar' || b.type === 'column') {
         const data: BarDatum[] = points.map(p => ({
           label: p.label,
           value: Math.max(0, p.values?.reduce((sum, v) => sum + Math.max(0, v), 0) ?? 0),
@@ -158,7 +188,7 @@ function customBlock(b: CustomBlock, ctx: ViewContext): Node | null {
         ...names.map((name, i) => ({ header: name, numeric: true, cell: (p: (typeof points)[number]) => format(p.values?.[i] ?? 0), sort: (p: (typeof points)[number]) => p.values?.[i] ?? 0 })),
       ], { caption: b.label }))
     }
-    if (b.type === 'bar') {
+    if (b.type === 'bar' || b.type === 'column') {
       const data: BarDatum[] = points.map(p => ({
         label: p.label,
         value: Math.max(0, p.value),

@@ -15,7 +15,10 @@ import { QueryError, runQuery, type QuerySpec } from '@/lib/agent/query/engine'
 
 export const SPEC_VERSION = 1
 
-export const BLOCK_TYPES = ['kpi', 'bar', 'line', 'table', 'text'] as const
+export const CHART_TYPES = ['bar', 'column', 'line', 'area', 'pie', 'scatter', 'combo', 'waterfall', 'funnel'] as const
+export type ChartType = (typeof CHART_TYPES)[number]
+
+export const BLOCK_TYPES = ['kpi', ...CHART_TYPES, 'table', 'text'] as const
 export type BlockType = (typeof BLOCK_TYPES)[number]
 
 export const VALUE_FORMATS = ['currency', 'number', 'percent', 'multiple', 'date', 'text'] as const
@@ -58,13 +61,38 @@ export interface KpiBlock extends BlockBase {
   sub?: string
 }
 
+/**
+ * Every chart: x is the category, period or slice column and y the measure, except a scatter,
+ * where x and y are both numbers and `point_label` names each dot.
+ *
+ * - bar (horizontal) and column (vertical) compare categories; line and area follow time.
+ * - pie shows shares of one total (donut: true draws a ring). At most 8 slices; the rest are "Other".
+ * - scatter plots one dot per row at (x, y), e.g. MOIC against holding period.
+ * - combo draws y as bars and y2 as a line on its own axis on the right, e.g. calls and NAV.
+ * - waterfall reads y as changes and draws each step from the running total, then the total.
+ * - funnel draws each stage's y as a centred bar, widest first, e.g. deals by pipeline stage.
+ */
 export interface ChartBlock extends BlockBase {
-  type: 'bar' | 'line'
+  type: ChartType
   source: BlockSource
-  /** The category (bar) or period (line) column. */
+  /** The category, period or slice column (a number column for a scatter). */
   x: string
   /** The measure column. */
   y: string
+  /** combo: the line's measure, on the right axis. */
+  y2?: string
+  /** combo: the line's format. */
+  format2?: ValueFormat
+  /** scatter: the column that names each dot. */
+  point_label?: string
+  /** scatter: the format of x. */
+  x_format?: ValueFormat
+  /** bar and column with a series: stacked (default) or side by side. area with a series always stacks. */
+  stack?: 'stacked' | 'grouped'
+  /** pie: a ring rather than a disc. */
+  donut?: boolean
+  /** waterfall: end with a bar for the total (default true). */
+  total?: boolean
   /**
    * Optional: a result column that splits the measure into one series per value (stage, vehicle,
    * sector). Bars stack the series; a line chart draws one line per series. The query groups by
@@ -226,19 +254,30 @@ function cleanBlock(raw: unknown, index: number, seen: Set<string>): ViewBlock {
     }
   }
 
-  if (type === 'bar' || type === 'line') {
+  if ((CHART_TYPES as readonly string[]).includes(type)) {
+    const chart = type as ChartType
     const x = resultColumn(raw.x, resultColumns, where, 'x')
     const y = resultColumn(raw.y, resultColumns, where, 'y')
-    let series: string | undefined
-    if (raw.series !== undefined && raw.series !== null && raw.series !== '') {
-      series = resultColumn(raw.series, resultColumns, where, 'series')
+    const given = (v: unknown) => v !== undefined && v !== null && v !== ''
+    const out: ChartBlock = { ...base, type: chart, source, x, y, format: pick(raw.format, VALUE_FORMATS, `${where}: format`, 'number') }
+    if (given(raw.series)) {
+      if (!['bar', 'column', 'line', 'area'].includes(chart)) throw new ViewSpecError(`${where}: series works on bar, column, line and area charts.`)
+      const series = resultColumn(raw.series, resultColumns, where, 'series')
       if (series === x || series === y) throw new ViewSpecError(`${where}: series must be a different column from x and y.`)
+      out.series = series
+      if (given(raw.stack)) out.stack = pick(raw.stack, ['stacked', 'grouped'] as const, `${where}: stack`)
     }
-    return {
-      ...base, type, source, x, y,
-      ...(series ? { series } : {}),
-      format: pick(raw.format, VALUE_FORMATS, `${where}: format`, 'number'),
+    if (chart === 'combo') {
+      out.y2 = resultColumn(raw.y2, resultColumns, where, 'y2')
+      out.format2 = pick(raw.format2, VALUE_FORMATS, `${where}: format2`, out.format)
     }
+    if (chart === 'scatter') {
+      if (given(raw.point_label)) out.point_label = resultColumn(raw.point_label, resultColumns, where, 'point_label')
+      out.x_format = pick(raw.x_format, VALUE_FORMATS, `${where}: x_format`, 'number')
+    }
+    if (chart === 'pie' && raw.donut === true) out.donut = true
+    if (chart === 'waterfall' && raw.total === false) out.total = false
+    return out
   }
 
   // table
@@ -254,7 +293,7 @@ function cleanBlock(raw: unknown, index: number, seen: Set<string>): ViewBlock {
     if (entry.format !== undefined) col.format = pick(entry.format, VALUE_FORMATS, `${where}: column ${i + 1} format`)
     return col
   })
-  return { ...base, type, source, columns }
+  return { ...base, type: 'table' as const, source, columns }
 }
 
 /**
