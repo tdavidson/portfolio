@@ -238,8 +238,9 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // LPs' requests to change their record: read to see, write to decide (re-checked in the handler,
   // where an authorized-user request is also admin-only).
   'api/lps/change-requests': { domain: 'lp_capital' },
-  'api/lps/export/excel': { domain: 'lp_capital' },
-  'api/lps/export/pdf': { domain: 'lp_capital' },
+  // POSTs, but neither changes anything: read, like the report cards they export.
+  'api/lps/export/excel': { domain: 'lp_capital', level: { POST: 'read' } },
+  'api/lps/export/pdf': { domain: 'lp_capital', level: { POST: 'read' } },
   'api/lps/import': { domain: 'lp_capital' },
   'api/lps/investments': { domain: 'lp_capital' },
   'api/lps/investor-groups': { domain: 'lp_capital' },

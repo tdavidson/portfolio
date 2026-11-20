@@ -4,6 +4,8 @@ import { generateLiveReport } from '@/lib/accounting/live-report'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { rateLimit } from '@/lib/rate-limit'
+import { loadEntityScope } from '@/lib/access/entity-scope'
+import { scopeReportCardRows } from '@/lib/access/lp-scope'
 import * as XLSX from 'xlsx'
 
 // ---------------------------------------------------------------------------
@@ -23,9 +25,11 @@ export async function POST(req: NextRequest) {
     .maybeSingle() as { data: { fund_id: string; role: string } | null }
 
   if (!membership) return NextResponse.json({ error: 'No fund found' }, { status: 403 })
-  if (membership.role !== 'admin') return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
 
+  // Gated on lp_capital read (lib/access/route-domains.ts), like the PDF export and the report
+  // cards; a member who sees only some entities gets only the LPs in them (below).
   const admin = createAdminClient()
+  const scope = await loadEntityScope(admin, { fundId: membership.fund_id, userId: user.id, role: membership.role })
 
   // Rate limit: 20 per 5 minutes per user
   const limited = await rateLimit({ key: `lp-export:${user.id}`, limit: 20, windowSeconds: 300 })
@@ -72,6 +76,7 @@ export async function POST(req: NextRequest) {
     investments = report.rows.map(r => {
       const info = entInfo.get(r.entity_id)
       return {
+        entity_id: r.entity_id,
         portfolio_group: r.portfolio_group,
         commitment: r.commitment,
         paid_in_capital: r.paid_in_capital,
@@ -87,6 +92,11 @@ export async function POST(req: NextRequest) {
     const { data } = await investmentsQuery.order('portfolio_group') as any
     investments = data ?? []
   }
+
+  // The caller's entities decide which LPs are listed; each listed LP keeps all of its rows, as on
+  // the report cards (scopeReportCardRows).
+  const investorOfEntity = new Map<string, string>(investments.map(inv => [inv.entity_id, inv.lp_entities?.lp_investors?.id ?? '']))
+  investments = scopeReportCardRows(investments, scope.vehicleNames, e => investorOfEntity.get(e) ?? '')
 
   // Group investments by investor
   const byInvestor = new Map<string, any[]>()
@@ -106,6 +116,8 @@ export async function POST(req: NextRequest) {
     const emptyRow = { Investor: '', Entity: '', 'Portfolio Group': '', Commitment: '', 'Paid-In Capital': '', Distributions: '', 'Net Asset Balance': '', 'Total Value': '', '% Funded': '', DPI: '', RVPI: '', TVPI: '', IRR: '' }
 
     if (invs.length === 0) {
+      // An LP outside the caller's entities is left out, not listed empty.
+      if (scope.vehicleNames !== null) continue
       rows.push({ ...emptyRow, Investor: investor.name })
       continue
     }
