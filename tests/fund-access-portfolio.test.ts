@@ -29,10 +29,10 @@ import { AREAS, RECORD_AREAS as SPEC_RECORD_AREAS, STANDARD_AREAS } from '@/spec
 const SWITCH = { everyone: 'everyone', admins: 'admin', off: 'off' } as const
 
 /**
- * Areas Portfolio defines beyond the standard ones, which the spec allows (engine/areas.ts), and
- * the fund default each is seeded with. Vectors never name them, so the adapter gives each its
- * shipped default: `records` is seeded at write for every fund (20261120230000), which is what
- * lets the record vectors' readers file.
+ * Areas Portfolio defines beyond the standard ones, which the spec allows (engine/areas.ts).
+ * Vectors never name them. `records` is the switch above the spec's record rules: members start at
+ * none and an admin grants it. The adapter gives every party that grant, so the vectors test the
+ * spec's area and entity rules underneath it; records.test.ts covers the switch itself.
  */
 const PORTFOLIO_ONLY_AREAS: Partial<Record<Domain, AccessLevel>> = { records: 'write' }
 
@@ -48,8 +48,8 @@ function toAccess(v: Vector): AccessContext {
   const caps = Object.fromEntries((list ?? []).filter(e => e.cap).map(e => [e.id, e.cap!]))
   return {
     fundId: 'f1', userId: 'u1', role, features,
-    grants: (v.party.grants ?? {}) as Partial<Record<Domain, AccessLevel>>,
-    defaults: { ...PORTFOLIO_ONLY_AREAS, ...(v.fund.defaults ?? {}) } as Partial<Record<Domain, AccessLevel>>,
+    grants: { ...PORTFOLIO_ONLY_AREAS, ...(v.party.grants ?? {}) } as Partial<Record<Domain, AccessLevel>>,
+    defaults: (v.fund.defaults ?? {}) as Partial<Record<Domain, AccessLevel>>,
     vehicles: role === 'admin' || !list
       ? { all: true, ids: [] }
       : { all: false, ids: list.map(e => e.id), ...(Object.keys(caps).length ? { caps } : {}) },

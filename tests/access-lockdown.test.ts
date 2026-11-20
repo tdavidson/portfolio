@@ -243,10 +243,7 @@ describe('role presets', () => {
 
   it('give an auditor read on every financial area, propose on the books, and write on none', () => {
     const auditor = getPreset('auditor')!
-    // Records aside: filing a session record (their review) is the fund's note, and changes nothing.
-    const { records, ...data } = auditor.grants
-    expect(records).toBe('write')
-    expect(Object.values(data)).not.toContain('write')
+    expect(Object.values(auditor.grants)).not.toContain('write')
     // Proposed audit adjustments: drafts someone with write posts or rejects.
     expect(auditor.grants.accounting).toBe('propose')
     for (const d of ['lp_capital', 'gp_economics', 'management_company', 'tax', 'lp_relations', 'compliance'] as const) {
@@ -258,8 +255,7 @@ describe('role presets', () => {
 
   it('let a tax preparer change only the Tax area, and actually hold it', () => {
     const tax = getPreset('tax')!
-    // Records aside: every preset files session records, which change no fund data.
-    const writes = Object.entries(tax.grants).filter(([d, l]) => l === 'write' && d !== 'records').map(([d]) => d)
+    const writes = Object.entries(tax.grants).filter(([, l]) => l === 'write').map(([d]) => d)
     expect(writes).toEqual(['tax'])
     const resolved = ctx(tax.grants)
     expect(effectiveAccess(resolved, 'tax')).toBe('write')

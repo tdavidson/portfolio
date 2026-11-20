@@ -274,8 +274,8 @@ export const DOMAIN_META: Record<Domain, DomainMeta> = {
      * admin can keep the page and the record tools away from a member who reads accounting, or give
      * an auditor read on accounting and write here so they can file their journal review.
      *
-     * No `defaultFrom`: until 20261120230000 seeds the fund defaults, members resolve to none here
-     * and see no records, which is the safe side. Admins are unaffected.
+     * Members start at none (20261120230000 seeds every fund's default at none, and no `defaultFrom`
+     * means the same before it is applied); an admin grants it per person. Admins always have it.
      */
   },
   admin: {
