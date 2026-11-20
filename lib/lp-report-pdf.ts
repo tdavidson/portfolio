@@ -4,7 +4,7 @@ import { displayFontOf } from '@/lib/theme'
 import { sanitizeLetterHtml } from '@/lib/sanitize'
 import { investorText } from '@/lib/lp-letters/internal'
 import { lpRatios } from '@/lib/lp-metrics'
-import { generateLiveReport } from '@/lib/accounting/live-report'
+import { currentLiveReport } from '@/lib/accounting/live-report-cache'
 import { footerWithoutDate, formatAsOf, reportedThrough } from '@/lib/report-card-footer'
 import { linkedLiveRows } from '@/lib/fund-connections'
 import { documentLetterhead, contactBlock } from '@/lib/vehicle-letterhead'
@@ -541,16 +541,16 @@ export async function generateLiveInvestorReportPdf(
   const { fundId, investorIds } = opts
   if (investorIds.length === 0) return null
 
-  // The investor's entities first, so the live report builds only the vehicles they hold.
+  // The investor's entities, to pick their rows out of the stored whole-fund report.
   const entsRes = await admin.from('lp_entities').select('id, entity_name, investor_id').eq('fund_id', fundId)
   const entInfo = new Map<string, { entity_name: string; investor_id: string }>(
     ((entsRes.data as any[]) ?? []).map(e => [e.id, { entity_name: e.entity_name, investor_id: e.investor_id }])
   )
   const investorSet = new Set(investorIds)
-  const entityIds = Array.from(entInfo.entries()).filter(([, e]) => investorSet.has(e.investor_id)).map(([id]) => id)
 
   const [report, fundRes, settingsRes, investorsRes] = await Promise.all([
-    generateLiveReport(admin, fundId, undefined, entsRes.error ? {} : { entityIds }),
+    // The stored whole-fund report while it is current (live-report-cache); rows are filtered below.
+    currentLiveReport(admin, fundId),
     admin.from('funds').select('name, logo_url, address').eq('id', fundId).maybeSingle(),
     admin.from('fund_settings').select('currency, lp_report_description, lp_report_footer, theme').eq('fund_id', fundId).maybeSingle(),
     admin.from('lp_investors').select('id, name').eq('fund_id', fundId).in('id', investorIds),

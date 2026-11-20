@@ -15,6 +15,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
 import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-tools'
 import { fetchAllRows, listVehicles } from '@/lib/accounting/load'
+import { currentLiveReport } from '@/lib/accounting/live-report-cache'
 import { resolveVehicle as resolveSharedVehicle } from '@/lib/accounting/vehicle-resolver'
 import { entityScopeFor } from '@/lib/access/entity-scope'
 import { scopeLiveReport, visibleLpEntityIds } from '@/lib/access/lp-scope'
@@ -227,7 +228,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     if (asOf && !ISO_DATE.test(asOf)) throw new Error('as_of must be an ISO date (YYYY-MM-DD)')
 
     const lp = await lpToolScope(admin, access)
-    const report = scopeLiveReport(await generateLiveReport(admin, fundId, asOf), lp.names)
+    const report = scopeLiveReport(asOf ? await generateLiveReport(admin, fundId, asOf) : await currentLiveReport(admin, fundId), lp.names)
     const identities = await loadIdentities(admin, fundId, lp.entityIds)
 
     let rows: LiveInvestmentRow[] = report.rows

@@ -28,7 +28,7 @@ export async function loadVendorPayments(
       .not('vendor_id', 'is', null)
       .gte('entry_date', start)
       .lte('entry_date', end)
-      .range(f, t)),
+      .order('id').range(f, t)),
     admin.from('chart_of_accounts' as any).select('id').eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('subtype', 'cash'),
     listVendors(admin, fundId),
   ])

@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertReadAccess } from '@/lib/api-helpers'
 import { generateLiveReport } from '@/lib/accounting/live-report'
+import { currentLiveReport } from '@/lib/accounting/live-report-cache'
 import { reportedThrough } from '@/lib/report-card-footer'
 import { loadEntityScope } from '@/lib/access/entity-scope'
 import { scopeReportCardRows } from '@/lib/access/lp-scope'
@@ -43,7 +44,11 @@ export async function GET(req: NextRequest) {
     ? ((ents as any[]) ?? []).filter(e => (e.investor_id ?? e.id) === investorParam).map(e => e.id as string)
     : null
   const [fullReport, { data: fund }, { data: settings }] = await Promise.all([
-    generateLiveReport(admin, gate.fundId, asOf, investorEntityIds ? { entityIds: investorEntityIds } : {}),
+    // Today's figures come from the stored report while nothing has changed since it was built
+    // (live-report-cache); `refresh=1` rebuilds it. A past date is built as before.
+    asOf
+      ? generateLiveReport(admin, gate.fundId, asOf, investorEntityIds ? { entityIds: investorEntityIds } : {})
+      : currentLiveReport(admin, gate.fundId, { refresh: req.nextUrl.searchParams.get('refresh') === '1' }),
     admin.from('funds' as any).select('name, logo_url, address').eq('id', gate.fundId).maybeSingle(),
     admin.from('fund_settings' as any).select('currency, lp_report_description, lp_report_footer').eq('fund_id', gate.fundId).maybeSingle(),
   ])
@@ -119,6 +124,8 @@ export async function GET(req: NextRequest) {
     description: (settings as any)?.lp_report_description ?? null,
     footer: (settings as any)?.lp_report_footer ?? null,
     asOf: report.asOf,
+    // When today's figures were built; null for a past date, which is always built fresh.
+    refreshedAt: 'computedAt' in report ? report.computedAt : null,
     investors,
   })
 }

@@ -96,7 +96,7 @@ export async function loadK1Year(
       .in('book', ['actual', 'tax'])
       .eq('fund_id', fundId)
       .eq('vehicle_id', vehicleId)
-      .range(from, to),
+      .order('id').range(from, to),
   )
 
   const posted = postingRows.filter(r => r.journal_entries?.status === 'posted')
@@ -329,7 +329,7 @@ async function loadRealizedGainSplit(
       .from('investment_transactions' as any)
       .select('*')
       .eq('fund_id', fundId)
-      .range(from, to),
+      .order('id').range(from, to),
   ), group)
 
   const byCompany = new Map<string, any[]>()
@@ -405,7 +405,7 @@ async function loadQualifiedDividends(
       .eq('fund_id', fundId)
       .eq('portfolio_group', group)
       .in('company_id', companyIds)
-      .range(from, to),
+      .order('id').range(from, to),
   )
   const lotsByCompany = new Map<string, { acquired: string; units: number }[]>()
   for (const t of acquisitions) {

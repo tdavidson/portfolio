@@ -318,12 +318,27 @@ export interface AdminRow {
 }
 
 const round2 = (n: number) => Math.round(n * 100) / 100
+const round4 = (n: number) => Math.round(n * 10000) / 10000
+
+/**
+ * Fill in whichever of DPI, RVPI and TVPI the administrator left out, from the other two:
+ * TVPI = DPI + RVPI. This is an identity, not a calculation of the app's own, so a figure derived
+ * this way says exactly what the administrator's two figures already say (Carta, for one, gives
+ * TVPI and DPI but no RVPI). A ratio the administrator did give is never replaced.
+ */
+export function backfillMultiples<T extends { dpi: number | null; rvpi: number | null; tvpi: number | null }>(m: T): T {
+  const { dpi, rvpi, tvpi } = m
+  if (rvpi == null && tvpi != null && dpi != null) return { ...m, rvpi: round4(tvpi - dpi) }
+  if (dpi == null && tvpi != null && rvpi != null) return { ...m, dpi: round4(tvpi - rvpi) }
+  if (tvpi == null && dpi != null && rvpi != null) return { ...m, tvpi: round4(dpi + rvpi) }
+  return m
+}
 
 /**
  * An admin vehicle's report rows on a date: each LP's latest stored position on or before it, with
  * the fund's net LP-only IRR, TVPI and DPI for THAT position's date (a figure as of another date is
- * not the quarter's, so it is never borrowed). RVPI stays blank: administrators keep no LP-only RVPI
- * by quarter, and working it out would be a calculation of the app's own.
+ * not the quarter's, so it is never borrowed). A multiple the administrator leaves out is filled in
+ * from the other two (backfillMultiples): Carta keeps no LP-only RVPI, so it is TVPI less DPI.
  *
  * `fundByDate` maps a date to the fund figures recorded for it.
  */
@@ -341,7 +356,7 @@ export function adminRows(
   return Array.from(latest.values()).map(p => {
     const fund = fundByDate.get(p.asOfDate) ?? {}
     const commitment = p.commitment ?? 0
-    return {
+    return backfillMultiples({
       entity_id: p.lpEntityId,
       asOf: p.asOfDate,
       commitment,
@@ -358,7 +373,7 @@ export function adminRows(
       rvpi: null,
       tvpi: fund.tvpi ?? null,
       irr: fund.irr ?? null,
-    }
+    })
   })
 }
 

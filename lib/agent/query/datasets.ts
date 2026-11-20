@@ -60,7 +60,7 @@ const kpis: Loader = async (ctx) => {
   const { data: cos } = await q
   const names = new Map(((cos ?? []) as any[]).map(c => [c.id, c.name]))
   if (names.size === 0) return []
-  const metrics = await fetchAllRows<any>((f, t) => db.from('metrics').select('id, name, unit, company_id').in('company_id', [...names.keys()]).range(f, t))
+  const metrics = await fetchAllRows<any>((f, t) => db.from('metrics').select('id, name, unit, company_id').in('company_id', [...names.keys()]).order('id').range(f, t))
   const byId = new Map(metrics.map(m => [m.id, m]))
   if (byId.size === 0) return []
   const values: any[] = []
@@ -68,7 +68,7 @@ const kpis: Loader = async (ctx) => {
   for (let i = 0; i < ids.length; i += 200) {
     const chunk = ids.slice(i, i + 200)
     values.push(...await fetchAllRows<any>((f, t) => db.from('metric_values')
-      .select('metric_id, period_label, period_year, period_quarter, period_month, value_number, value_text').in('metric_id', chunk).range(f, t)))
+      .select('metric_id, period_label, period_year, period_quarter, period_month, value_number, value_text').in('metric_id', chunk).order('id').range(f, t)))
   }
   return values.map(v => {
     const m = byId.get(v.metric_id)
@@ -132,13 +132,13 @@ const journalLines: Loader = async (ctx, p) => {
   const vehicleId = await vehicleIdByName(ctx.admin, ctx.fundId, group)
   if (!vehicleId) throw new Error(`Unknown vehicle "${group}"`)
   const [accounts, entries, postings, ents] = await Promise.all([
-    fetchAllRows<any>((f, t) => db.from('chart_of_accounts').select('id, code, name, type').eq('fund_id', ctx.fundId).eq('vehicle_id', vehicleId).range(f, t)),
+    fetchAllRows<any>((f, t) => db.from('chart_of_accounts').select('id, code, name, type').eq('fund_id', ctx.fundId).eq('vehicle_id', vehicleId).order('id').range(f, t)),
     fetchAllRows<any>((f, t) => {
       let q = db.from('journal_entries').select('id, entry_date, memo, source_type').eq('book', ACTUAL_BOOK).eq('fund_id', ctx.fundId).eq('vehicle_id', vehicleId).eq('status', 'posted')
       if (p.as_of) q = q.lte('entry_date', p.as_of)
-      return q.range(f, t)
+      return q.order('id').range(f, t)
     }),
-    fetchAllRows<any>((f, t) => db.from('journal_postings').select('journal_entry_id, account_id, amount, lp_entity_id').eq('book', ACTUAL_BOOK).eq('fund_id', ctx.fundId).eq('vehicle_id', vehicleId).range(f, t)),
+    fetchAllRows<any>((f, t) => db.from('journal_postings').select('journal_entry_id, account_id, amount, lp_entity_id').eq('book', ACTUAL_BOOK).eq('fund_id', ctx.fundId).eq('vehicle_id', vehicleId).order('id').range(f, t)),
     db.from('lp_entities').select('id, entity_name').eq('fund_id', ctx.fundId),
   ])
   // What each carry recipient earns is GP economics, as on capital_accounts.
