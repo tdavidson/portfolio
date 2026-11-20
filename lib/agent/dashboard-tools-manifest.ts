@@ -64,7 +64,9 @@ const CUSTOM_SPEC = {
 
 const CUSTOM_ARGS = {
   type: 'object',
-  description: 'Optional filter values, for the params the view offers: { vehicle?, as_of? (YYYY-MM-DD) }.',
+  description:
+    'Optional filter values, for what the view offers: { vehicle?, as_of? (YYYY-MM-DD) } and, for each of the ' +
+    'view\'s own filters, "filter.<column>": a value (pick) or "filter.<column>.from" / ".to" (range).',
 }
 
 const CUSTOM_REF = { type: 'string', description: 'The view id or its name, as list_custom_views returns them.' }
@@ -279,16 +281,37 @@ export const DASHBOARD_TOOL_MANIFEST: DashboardToolMeta[] = [
     name: 'preview_custom_view',
     description:
       'Build a custom view the user describes ("NAV, unfunded and the ten largest positions, filterable by vehicle") ' +
-      'and show it live, before saving. Write a spec: { title, description?, params?: ["vehicle","as_of"], blocks: [...] }. ' +
+      'and show it live, before saving. Write a spec: { title, description?, params?: ["vehicle","as_of"], filters?, blocks: [...] }. ' +
       'Blocks come from a fixed set: ' +
-      'kpi { label, source, value, format, sub? } shows the first row of one result column; ' +
-      'bar | line { label, source, x, y, format } charts one measure (line: oldest first); ' +
-      'table { label, source, columns?: [{ column, label?, format? }] }; ' +
+      'kpi { label, source, value, format, sub?, compare? } shows the first row of one result column; compare ' +
+      '(prior_month, prior_quarter or prior_year) loads the same figure at that earlier date and shows the change; ' +
+      'trend { source, x, y } adds a sparkline under it; kpi { label, formula, format } instead works out a figure from ' +
+      'other kpi blocks by id, across datasets ("nav / fair_value"; ids of letters, digits and _); gauge { label, source, ' +
+      'value, format, max | max_column, target? } is a dial of value against a maximum; ' +
+      'charts { type, label, source, x, y, format }: bar (horizontal) and column (vertical) compare categories, line ' +
+      'and area follow time (oldest first), pie shows shares (donut: true for a ring; 8 slices at most), scatter ' +
+      'plots numeric x against numeric y per row (point_label names each dot, x_format formats x), combo draws y as ' +
+      'bars and y2 as a line on a right axis (format2), waterfall reads y as changes and ends with a total ' +
+      '(total: false to leave it off), funnel draws stages as centred bars. bar, column, line and area take series ' +
+      '(a result column such as stage or vehicle, grouped by alongside x), or measures (more result columns beside y, ' +
+      'each its own series, side by side unless stack: "stacked"): bars and columns stack a series, or stack: ' +
+      '"grouped" sets it side by side; lines draw one line per value; areas stack; ' +
+      'table { label, source, columns?: [{ column, label?, format? }], totals? } (totals: true adds a row summing ' +
+      'each currency and number column; subtotal_by groups rows with a subtotal per group; a column may set tone: ' +
+      '"sign" or "scale" for conditional colour and link: "company" to open the company, which needs company_id in the ' +
+      'result); pivot { label, source, rows, columns, value, format, totals? } cross-tabs ' +
+      'value by two result columns (say company by vehicle, or account by quarter), with row and column totals ' +
+      'unless totals: false, and heatmap (the same fields) shades each cell by its value; ' +
       'text { text } is plain copy. Every data block has span (3, 4, 6, 8 or 12 of 12) and ' +
-      'source { tool, dataset, query }: tool is one of the query tools (query_portfolio, query_lps, query_deals, ' +
-      'query_diligence, query_ledger), dataset and columns are theirs, and query is what you would pass that tool ' +
-      '(columns, where, group_by, aggregates, order_by, limit). value, x, y and table columns name RESULT columns ' +
-      '(an aggregate is named by its "as"). format is currency, number, percent, multiple, date or text. Never put ' +
+      'source { tool, dataset, query }: tool is one of the query tools (query_portfolio, query_lps, query_funds, ' +
+      'query_deals, query_diligence, query_ledger), dataset and columns are theirs, and query is what you would pass that tool ' +
+      '(columns, where, group_by, aggregates, order_by, limit). value, x, y, y2, series, point_label and table columns name RESULT columns ' +
+      '(an aggregate is named by its "as"). A source may add computed: [{ as, formula }], calculated columns over ' +
+      'its result columns: numbers, column names, + - * /, parentheses and abs, min, max, round (say ' +
+      '"nav / called" as "tvpi"); a later one may use an earlier one, order_by may sort on one, and dividing by ' +
+      'zero gives no value. filters: up to 6 { column, label?, kind?: "pick" | "range" } on dataset columns, offered ' +
+      'above the view and applied to every block whose dataset has that column (a pick lists the values; a range ' +
+      'takes from/to dates or numbers). format is currency, number, percent, multiple, date or text. Never put ' +
       'figures in the spec: every block loads live, as the person viewing it. If the spec is wrong the error names ' +
       'what is allowed; fix it and preview again. Then offer to save it with save_custom_view.',
     scope: 'read',
@@ -355,6 +378,27 @@ export const DASHBOARD_TOOL_MANIFEST: DashboardToolMeta[] = [
     inputSchema: {
       type: 'object',
       properties: { view: CUSTOM_REF },
+      required: ['view'],
+    },
+  },
+  {
+    name: 'export_custom_view',
+    description:
+      'Make a saved custom view into a file: a PDF to print or send, or an Excel workbook (a sheet per chart and ' +
+      'table, with real numbers). Returns a download link that works for an hour, for this user only; every block ' +
+      'is loaded as them when the link is opened. Pass the same vehicle, as_of and filter values the view was opened with.',
+    scope: 'read',
+    domain: 'portfolio',
+    personal: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        view: CUSTOM_REF,
+        format: { type: 'string', enum: ['pdf', 'xlsx'], description: 'pdf (default) or xlsx.' },
+        vehicle: { type: 'string', description: 'The vehicle filter, when the view offers one.' },
+        as_of: { type: 'string', description: 'The as-of date (YYYY-MM-DD), when the view offers one.' },
+        arguments: CUSTOM_ARGS,
+      },
       required: ['view'],
     },
   },

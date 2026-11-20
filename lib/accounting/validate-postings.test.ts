@@ -26,9 +26,12 @@ describe('validatePostings — every leg on this entity\'s accounts, every partn
   })
 
   it('editing a draft runs the same checks before writing postings', () => {
-    const src = readFileSync(join(__dirname, '../../app/api/accounting/journal/route.ts'), 'utf8')
-    const put = src.slice(src.indexOf('export async function PUT'), src.indexOf('export async function POST'))
-    expect(put.indexOf('validatePostings(')).toBeGreaterThan(-1)
-    expect(put.indexOf('validatePostings(')).toBeLessThan(put.indexOf(".from('journal_postings' as any).insert("))
+    // The journal's PUT and edit_draft_entry both edit through lib/accounting/journal-edit.ts.
+    const route = readFileSync(join(__dirname, '../../app/api/accounting/journal/route.ts'), 'utf8')
+    const put = route.slice(route.indexOf('export async function PUT'), route.indexOf('export async function POST'))
+    expect(put).toContain('editDraftEntry(')
+    const edit = readFileSync(join(__dirname, 'journal-edit.ts'), 'utf8')
+    expect(edit.indexOf('validatePostings(')).toBeGreaterThan(-1)
+    expect(edit.indexOf('validatePostings(')).toBeLessThan(edit.indexOf(".from('journal_postings' as any).insert("))
   })
 })

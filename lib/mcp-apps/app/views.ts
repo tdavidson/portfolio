@@ -6,6 +6,8 @@
 // (or, on a host with no fullscreen, when the user expands it in place).
 
 import { h } from './dom'
+import { kpiDelta } from '../../custom-views/delta'
+import { gaugeShare, maxMagnitude, shadeAlpha, shadeOf, signOf } from '../../custom-views/tone'
 import { barChart, lineChart, type BarDatum } from './charts'
 import { DASH, fractionPercent, multiple, percent, share, shortDate, titleCase, type Formatters } from './format'
 import { button, dataTable, empty, note, section, segmented, tiles, type Column, type Tile } from './ui'
@@ -131,10 +133,66 @@ function customBlock(b: CustomBlock, ctx: ViewContext): Node | null {
     return h('div', { class: 'section' }, ...(b.label ? [h('p', { class: 'eyebrow' }, b.label)] : []),
       ...String(b.text ?? '').split(/\n\s*\n/).map(p => h('p', null, p)))
   }
-  if (b.type === 'bar' || b.type === 'line') {
+  // The chart card has bars and single lines; the other chart types are drawn with those, and a
+  // scatter as its figures. The app and the PDF draw each type in full.
+  if (b.type === 'scatter') {
+    const dots = b.dots ?? []
+    if (dots.length === 0) return section(b.label, empty('Nothing to chart.'))
+    const fx = customFormat(b.xFormat, ctx.fmt).value
+    return section(b.label, dataTable(dots, [
+      { header: 'Point', cell: d => d.label },
+      { header: 'X', numeric: true, cell: d => fx(d.x), sort: d => d.x },
+      { header: 'Y', numeric: true, cell: d => format(d.y), sort: d => d.y },
+    ], { caption: b.label }))
+  }
+  if (b.type === 'pie' || b.type === 'funnel' || b.type === 'waterfall' || b.type === 'combo') {
+    let points = b.points ?? []
+    if (points.length === 0) return section(b.label, empty('Nothing to chart.'))
+    if (b.type === 'waterfall' && b.total !== false) points = [...points, { label: 'Total', value: points.reduce((s, p) => s + p.value, 0) }]
+    const total = points.reduce((s, p) => s + Math.max(0, p.value), 0)
+    const format2 = customFormat(b.format2, ctx.fmt).value
+    const data: BarDatum[] = points.map(p => ({
+      label: p.label,
+      value: Math.abs(p.value),
+      valueLabel: b.type === 'pie' && total > 0 ? `${((p.value / total) * 100).toFixed(1)}%` : b.format === 'currency' ? ctx.fmt.compact(p.value) : format(p.value),
+      tooltip: [
+        { value: format(p.value), label: b.label },
+        ...(b.type === 'combo' ? [{ value: format2(p.value2 ?? 0), label: b.label2 ?? 'Line' }] : []),
+      ],
+      ...(p.value < 0 ? { tone: 'loss' as const } : {}),
+    }))
+    return section(b.label, barChart(data, { valueName: b.label, ariaLabel: `${b.label} by ${points.length} categories` }))
+  }
+  if (b.type === 'bar' || b.type === 'column' || b.type === 'line' || b.type === 'area') {
     const points = b.points ?? []
     if (points.length === 0) return section(b.label, empty('Nothing to chart.'))
-    if (b.type === 'bar') {
+    const names = b.series ?? []
+    if (names.length) {
+      const color = (i: number) => `hsl(var(--cat-${i + 1}))`
+      // Side by side is not a stack (called plus distributed is no total), and this bundle only
+      // stacks, so grouped bars read as their figures.
+      if ((b.type === 'bar' || b.type === 'column') && b.stack !== 'grouped') {
+        const data: BarDatum[] = points.map(p => ({
+          label: p.label,
+          value: Math.max(0, p.values?.reduce((sum, v) => sum + Math.max(0, v), 0) ?? 0),
+          valueLabel: b.format === 'currency' ? ctx.fmt.compact(p.value) : format(p.value),
+          tooltip: names.map((name, i) => ({ value: format(p.values?.[i] ?? 0), label: name })),
+          segments: names.map((_, i) => ({ value: p.values?.[i] ?? 0, color: color(i) })),
+        }))
+        return section(b.label, barChart(data, {
+          valueName: b.label,
+          ariaLabel: `${b.label} by ${points.length} categories, split by ${names.length} series`,
+          series: names.map((name, i) => ({ name, color: color(i) })),
+        }))
+      }
+      // A line per series (or grouped bars) needs a plot this bundle does not have; the figures are
+      // every value at once, in a table with one column per series.
+      return section(b.label, dataTable(points, [
+        { header: b.type === 'bar' || b.type === 'column' ? 'Item' : 'Period', cell: p => p.label },
+        ...names.map((name, i) => ({ header: name, numeric: true, cell: (p: (typeof points)[number]) => format(p.values?.[i] ?? 0), sort: (p: (typeof points)[number]) => p.values?.[i] ?? 0 })),
+      ], { caption: b.label }))
+    }
+    if (b.type === 'bar' || b.type === 'column') {
       const data: BarDatum[] = points.map(p => ({
         label: p.label,
         value: Math.max(0, p.value),
@@ -159,17 +217,78 @@ function customBlock(b: CustomBlock, ctx: ViewContext): Node | null {
     const columns = b.columns ?? []
     const rows = b.rows ?? []
     if (rows.length === 0) return section(b.label, empty('No rows.'))
-    return section(b.label, dataTable(rows, columns.map(c => {
+    // Rows keep their index, so links and subtotals find theirs; subtotal rows are interleaved
+    // and the table then keeps the order it was given (sorting would scatter them).
+    type R = { i: number; sub?: { label: string; values: Record<string, number | null> } }
+    const ordered: R[] = []
+    rows.forEach((_, i) => {
+      ordered.push({ i })
+      const st = b.subtotals?.find(x => x.after === i)
+      if (st) ordered.push({ i, sub: st })
+    })
+    const ranges = Object.fromEntries(columns.filter(c => c.tone === 'scale').map(c => [c.key, maxMagnitude(rows.map(r => r[c.key]))]))
+    return section(b.label, dataTable(ordered, columns.map((c, j) => {
       const f = customFormat(c.format, ctx.fmt).value
       const numeric = c.format !== 'text' && c.format !== 'date'
       return {
         header: c.label,
         numeric,
-        cell: (r: Record<string, string | number | null>) => f(r[c.key] ?? null),
-        sort: (r: Record<string, string | number | null>) => (r[c.key] ?? '') as number | string,
+        cell: (r: R): string | Node => {
+          if (r.sub) return h('strong', null, r.sub.values[c.key] != null ? f(r.sub.values[c.key]) : j === 0 ? `${r.sub.label} subtotal` : '')
+          const v = rows[r.i][c.key] ?? null
+          const text = f(v)
+          const target = b.links?.[r.i]?.[c.key]
+          if (target?.startsWith('company:')) {
+            return h('button', { type: 'button', class: 'th-sort', onclick: () => ctx.open(VIEW_TOOL.company, { company: target.slice(8) }, 'push') }, text)
+          }
+          const sign = c.tone === 'sign' ? signOf(v) : null
+          const shade = c.tone === 'scale' ? shadeOf(v, ranges[c.key] ?? 0) : null
+          if (!sign && !shade) return text
+          return h('span', {
+            style: {
+              ...(sign ? { color: `hsl(var(${sign === 'gain' ? '--success' : '--destructive'}))` } : {}),
+              ...(shade ? { background: `hsl(var(${shade.negative ? '--destructive' : '--cat-1'}) / ${shadeAlpha(shade)})`, padding: '0 4px', borderRadius: '3px' } : {}),
+            },
+          }, text)
+        },
+        ...(b.subtotals?.length ? {} : { sort: (r: R) => (rows[r.i][c.key] ?? '') as number | string }),
       }
-    }), { caption: b.label, ...(ctx.compact ? { limit: 8 } : {}) }),
+    }), {
+      caption: b.label,
+      ...(ctx.compact ? { limit: 8 } : {}),
+      ...(b.totalsRow ? { footer: columns.map((c, j) => (b.totalsRow![c.key] != null ? customFormat(c.format, ctx.fmt).value(b.totalsRow![c.key]) : j === 0 ? 'Total' : '')) } : {}),
+    }),
       b.truncated ? note('Showing the first rows only.') : null)
+  }
+  if (b.type === 'gauge') {
+    const share = gaugeShare(typeof b.value === 'number' ? b.value : null, b.gaugeMax)
+    return tiles([{
+      label: b.label,
+      value: format(b.value ?? null),
+      sub: [`of ${format(b.gaugeMax ?? null)}`, b.target !== undefined ? `target ${format(b.target)}` : null].filter(Boolean).join(' · '),
+      meter: share,
+    }])
+  }
+  if (b.type === 'pivot' || b.type === 'heatmap') {
+    const p = b.pivot
+    if (!p || p.rows.length === 0) return section(b.label, empty('No rows.'))
+    const index = p.rows.map((_, i) => i)
+    const heat = b.type === 'heatmap' ? maxMagnitude(p.cells.flat()) : 0
+    return section(b.label, dataTable(index, [
+      { header: p.rowLabel, cell: (i: number) => p.rows[i], sort: (i: number) => p.rows[i] },
+      ...p.columns.map((c, j) => ({
+        header: c, numeric: true, sort: (i: number) => p.cells[i][j] ?? 0,
+        cell: (i: number): string | Node => {
+          const sh = heat ? shadeOf(p.cells[i][j], heat) : null
+          return sh ? h('span', { style: { background: `hsl(var(${sh.negative ? '--destructive' : '--cat-1'}) / ${shadeAlpha(sh)})`, padding: '0 4px', borderRadius: '3px' } }, format(p.cells[i][j])) : format(p.cells[i][j])
+        },
+      })),
+      ...(p.rowTotals ? [{ header: 'Total', numeric: true, cell: (i: number) => format(p.rowTotals![i]), sort: (i: number) => p.rowTotals![i] }] : []),
+    ], {
+      caption: b.label,
+      ...(ctx.compact ? { limit: 8 } : {}),
+      ...(p.columnTotals ? { footer: ['Total', ...p.columnTotals.map(v => format(v)), ...(p.rowTotals ? [format(p.grandTotal ?? null)] : [])] } : {}),
+    }))
   }
   return null
 }
@@ -181,6 +300,7 @@ function custom(payload: CustomViewPayload, ctx: ViewContext): Node[] {
 
   // The entity filter re-opens the saved view with the new value; an unsaved preview has no id to
   // re-open, so it shows the figures it was built with.
+  const controls: Node[] = []
   if (id && params.includes('vehicle') && vehicles.length > 1) {
     const select = h('select', {
       class: 'picker', 'aria-label': 'Entity',
@@ -195,13 +315,46 @@ function custom(payload: CustomViewPayload, ctx: ViewContext): Node[] {
       ...vehicles.map(v => h('option', { value: v }, v)),
     ) as HTMLSelectElement
     select.value = vehicles.includes(payload.data.values.vehicle ?? '') ? payload.data.values.vehicle! : ''
-    out.push(h('div', { class: 'filters' }, select))
+    controls.push(select)
   }
+  // The view's own pick filters re-open it the same way. A range filter is set by asking Claude;
+  // the subtitle already says what it is set to.
+  const picks = id ? (payload.data.filters ?? []).filter(f => f.kind === 'pick' && (f.options?.length ?? 0) > 0) : []
+  for (const f of picks) {
+    controls.push((() => {
+      const key = `filter.${f.column}`
+      const select = h('select', {
+        class: 'picker', 'aria-label': f.label,
+        onchange: (e: Event) => {
+          const v = (e.target as HTMLSelectElement).value
+          const args: Record<string, string> = { ...payload.data.values, [key]: v }
+          if (!v) delete args[key]
+          ctx.open('open_custom_view', { view: id, arguments: args }, 'replace')
+        },
+      },
+        h('option', { value: '' }, `All: ${f.label}`),
+        ...(f.options ?? []).map(o => h('option', { value: o }, o)),
+      ) as HTMLSelectElement
+      select.value = f.value?.pick && f.options!.includes(f.value.pick) ? f.value.pick : ''
+      return select
+    })())
+  }
+  if (controls.length) out.push(h('div', { class: 'filters' }, controls))
 
   // Tiles side by side, as the dashboards lead with them; then every other block in order.
   const kpis = blocks.filter(b => b.type === 'kpi' && b.status === 'ok')
   if (kpis.length) {
-    out.push(tiles(kpis.map(b => ({ label: b.label, value: customFormat(b.format, ctx.fmt).value(b.value ?? null), ...(b.sub ? { sub: b.sub } : {}) }))))
+    out.push(tiles(kpis.map(b => {
+      const f = customFormat(b.format, ctx.fmt).value
+      const delta = b.previousLabel ? kpiDelta(b.value, b.previous, b.format, v => f(v)) : null
+      const compare = b.previousLabel ? (delta ? `${delta.text} ${b.previousLabel}` : `No figure ${b.previousLabel.replace(/^vs /, 'for ')}`) : null
+      // The tile has no plot; a trend reads as its first and last figure.
+      const trend = b.spark && b.spark.length > 1
+        ? `${f(b.spark[0].value)} at ${b.spark[0].label} → ${f(b.spark[b.spark.length - 1].value)}`
+        : null
+      const sub = [compare, b.sub, trend].filter(Boolean).join(' · ')
+      return { label: b.label, value: f(b.value ?? null), ...(sub ? { sub } : {}) }
+    })))
   }
   const rest = blocks.filter(b => !(b.type === 'kpi' && b.status === 'ok'))
   // The inline card carries the tiles and the first block that loaded; the rest is one tap away.

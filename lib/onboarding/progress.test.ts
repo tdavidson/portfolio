@@ -2,7 +2,7 @@ import { describe, it, expect } from 'vitest'
 import {
   computeSetupProgress,
   primaryVehicle,
-  progressCounts,
+  parseSkippedSteps,
   type SetupFacts,
   type SetupAbilities,
   type SetupVehicleFacts,
@@ -247,19 +247,38 @@ describe('computeSetupProgress — product and access filtering', () => {
   })
 })
 
-describe('progressCounts', () => {
-  it('drops skipped, unfinished steps from the total', () => {
-    const p = computeSetupProgress(facts())
-    const base = progressCounts(p)
-    expect(base.total).toBe(p.total)
-    const skipped = progressCounts(p, new Set(['forecast', 'senders']))
-    expect(skipped.total).toBe(p.total - 2)
+describe('skipped steps', () => {
+  it('drops skipped, unfinished steps from the total and flags them', () => {
+    const base = computeSetupProgress(facts())
+    const p = computeSetupProgress({ ...facts(), skipped: ['forecast', 'senders'] })
+    expect(p.total).toBe(base.total - 2)
+    expect(p.skipped).toBe(2)
+    expect(step({ ...facts(), skipped: ['forecast'] }, 'forecast')?.skipped).toBe(true)
   })
 
   it('never lets a skip un-count a step that is done', () => {
-    const p = computeSetupProgress(facts({}, { postedEntries: 1 }))
-    const c = progressCounts(p, new Set(['open_books']))
-    expect(c.done).toBe(p.done)
+    const f = facts({}, { postedEntries: 1 })
+    const p = computeSetupProgress({ ...f, skipped: ['open_books'] })
+    expect(p.done).toBe(computeSetupProgress(f).done)
+    expect(step({ ...f, skipped: ['open_books'] }, 'open_books')?.skipped).toBeUndefined()
+  })
+
+  it('is complete once every applicable step is done or skipped', () => {
+    const f = facts()
+    const open = computeSetupProgress(f).sections.flatMap(s => s.steps).filter(s => s.status !== 'done' && s.status !== 'not_applicable')
+    expect(computeSetupProgress(f).complete).toBe(false)
+    const all = computeSetupProgress({ ...f, skipped: open.map(s => s.key) })
+    expect(all.complete).toBe(true)
+    // Leaving one out keeps it open.
+    expect(computeSetupProgress({ ...f, skipped: open.slice(1).map(s => s.key) }).complete).toBe(false)
+  })
+})
+
+describe('parseSkippedSteps', () => {
+  it('keeps known step keys once and ignores anything else', () => {
+    expect(parseSkippedSteps({ checklist_skipped: ['forecast', 'forecast', 'nope', 3] })).toEqual(['forecast'])
+    expect(parseSkippedSteps(null)).toEqual([])
+    expect(parseSkippedSteps({ skipped: ['inbound'] })).toEqual([])
   })
 })
 

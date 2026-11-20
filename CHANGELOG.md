@@ -2,11 +2,35 @@
 
 ## Unreleased
 
+### Records has its own access right
+- **A Records row in the access grid.** Read lets a member see records and use `list_records` and `read_record`; write lets them file one on the page or with `file_to_record`. The area check still applies underneath, so a record is shown only to someone who can read its area and see its entity. Before, anyone who could read an area could read and file records there.
+- **Members start without it.** Every fund's default for Records is none, and no preset includes it. An admin grants it per person in the access grid. Admins always have it.
+- **Records moved down the sidebar**, below Usage, and it appears only for people with read on Records.
+- Migration, additive: `20261120230000_records_access_right.sql` (seeds Records at none for every fund and for new funds). Members see no records before it is applied either.
+
+### Status-page warnings say what to do
+- **Review before booking.** "Put them on the ledger" is now *Review and book*: it lists each investment item a run would book (date, company, what it books, amount), you tick the ones to book, and only those are booked (`backfill` takes `select`; a dry run with `review` builds each entry without writing it, up to 100).
+- **Nothing to book is not "waiting".** A transaction with no ledger effect (a conversion with no cash, interest or round price; a mark the records true-up cancels to zero postings) is no longer counted as not on the ledger, and is listed apart as needing no action. Before, the ledger refused the second as "Journal entry has no postings", and both kept the warning and the button up forever.
+- **Exits with escrow.** The warning shows, per exit, what the books put in cash and in escrow and what to change for each reading of the bank statement, and opens the company where the exit is edited.
+- **Imported balances.** The warnings name the partners whose books differ from an import, by how much and on which date, say that statements use the books, and open that import on the LP capital page (`/lps/capital?vehicle=&asOf=`), where it can be compared and deleted.
+- **Partners' capital that reaches no partner.** The warning names the postings behind the gap (a line on a partner's own capital account with no partner tag, or anything on the pooled account). A new posting on a partner's own capital account now takes that partner automatically.
+
+### Edit a draft entry from Claude and ChatGPT
+- **`edit_draft_entry`** is the entry form's Save on a draft: it replaces the draft's lines (account by code or id, signed amount, and each line's partner) and, optionally, its date, memo, reference, payee or adjusting flag. With `unpost_entry` and `post_drafts` it closes the loop the journal already had: unpost, correct, post again.
+- **The same checks as the form.** `PUT /api/accounting/journal` and the tool now run one function (`lib/accounting/journal-edit.ts`): drafts only, accounts and partners from this entity, balanced, no closed period, investments write when a derived draft gives up its transaction, and a proposer only on their own proposals. The three-door parity test pairs the route and the tool.
+- **It stays a draft.** From a chat it runs at once, like `post_entry` with `status: 'draft'`; posting it is `post_drafts`, which stages. A memo or reference the tool leaves out is kept; the entry form is unchanged.
+
 ### LP report cards in bulk
 - **One build for a whole batch.** The live report cards' ZIP of PDFs (LP Reports → Individual PDFs) builds the fund's live report once and cuts every investor's card from it (`lib/lp-report-cards.ts`; the PDFs in `lib/lp-report-cards-zip.ts`), on the stored report when it is current. The on-screen batch reads the same builder.
 - **The ZIP matches the cards on screen.** Each PDF now carries the investor's own "As of" (the latest date their figures run through), their positions in connected funds, and only the investors the member's entities allow, exactly as `/lps/cards/<investor>`. Before, it printed one fund-wide date and left connected funds out.
 - **From Claude and ChatGPT.** `lp_report_cards_zip` returns a one-hour link to a ZIP of report cards for the investors named, or every investor the member can see. Opening it re-checks access the way `lp_report_card_pdf` does (LP capital, entities, carry without GP economics).
 - The single card is unchanged.
+
+### Custom views: charts, report features, data and export
+- **Charts:** stacked and grouped bars, vertical columns, area, pie and donut, scatter, combo (bars and a line on a second axis), waterfall, funnel, heatmap, gauge, and sparklines in KPI tiles. A chart can also draw several measures side by side.
+- **Report features:** totals and subtotal rows, pivot tables, calculated columns (a small arithmetic language with no code), KPIs worked out from other tiles across data sets, KPI changes against the prior month, quarter or year, conditional colour (sign or scale), click-through from a table to the company, and filters on the page (pick lists and from/to ranges).
+- **Export:** each view prints to PDF and exports to Excel, with real numbers and number formats, from the app (PDF and Excel buttons) or from Claude (`export_custom_view`, a one-hour link).
+- **Data:** `query_funds` (fund performance per vehicle, monthly P&L and cash, the forecast) and `capital_accounts` on `query_lps`, for views and for the query tools.
 
 ### Custom views (prototype)
 - **Describe a screen, get it built on live data.** Ask Claude over the MCP connector for a view ("NAV, unfunded and the largest positions, filterable by vehicle"). It writes a spec of blocks from a fixed set (KPI tiles, bar and line charts, tables, text), each bound to a query dataset (`query_portfolio`, `query_lps`, `query_deals`, `query_diligence`, `query_ledger`), and `preview_custom_view` draws it in the conversation with current figures. `save_custom_view` keeps it; `open_custom_view`, `list_custom_views`, `get_custom_view_spec` and `delete_custom_view` do the rest.

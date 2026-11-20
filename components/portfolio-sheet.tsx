@@ -14,7 +14,35 @@ import type { PortfolioSheet, SheetRow } from '@/lib/portfolio/sheet'
  * `group` set: that entity's sheet (no page passes it today; the API serves it). Omitted: the viewer's aggregate across
  * every entity they can see (`/dashboard`). The server decides which entities; this only renders.
  */
-export function PortfolioSheetView({ group, exclude, sections = ['companies', 'funds', 'crypto'], hideWhenEmpty = false }: {
+export interface PortfolioSheetData { vehicles: string[]; vehicleId?: string | null; sheet: PortfolioSheet }
+export interface PortfolioSheetState { data: PortfolioSheetData | null; error: string | null }
+
+/**
+ * Fetch the sheet: one entity's (`group`) or the viewer's aggregate minus `exclude`. A page that
+ * shows the sheet's rows in more than one place (the dashboard's fund cards and its tables) calls
+ * this once and passes the result to each, so the sheet is built once.
+ */
+export function usePortfolioSheet({ group, exclude, enabled = true }: { group?: string; exclude?: string[]; enabled?: boolean }): PortfolioSheetState {
+  const [data, setData] = useState<PortfolioSheetData | null>(null)
+  const [error, setError] = useState<string | null>(null)
+
+  // Entity names can hold commas, so each is its own `exclude` parameter.
+  const excludeKey = group ? '' : new URLSearchParams((exclude ?? []).map(e => ['exclude', e])).toString()
+  useEffect(() => {
+    if (!enabled) return
+    let live = true
+    const qs = group ? `?group=${encodeURIComponent(group)}` : excludeKey ? `?${excludeKey}` : ''
+    fetch(`/api/portfolio/sheet${qs}`)
+      .then(async r => (r.ok ? r.json() : Promise.reject((await r.json().catch(() => ({}))).error ?? 'Could not load the portfolio.')))
+      .then(d => { if (live) { setData(d); setError(null) } })
+      .catch(e => { if (live) setError(String(e)) })
+    return () => { live = false }
+  }, [group, excludeKey, enabled])
+
+  return { data, error }
+}
+
+export function PortfolioSheetView({ group, exclude, sections = ['companies', 'funds', 'crypto'], hideWhenEmpty = false, state }: {
   group?: string
   /** Aggregate only: entity names to leave out (the dashboard's entity picker). */
   exclude?: string[]
@@ -23,21 +51,13 @@ export function PortfolioSheetView({ group, exclude, sections = ['companies', 'f
   hideWhenEmpty?: boolean
   /** Which sections to show — the dashboard keeps its own company table and shows the rest. */
   sections?: ('companies' | 'funds' | 'crypto')[]
+  /** An already-fetched sheet (usePortfolioSheet), so the page fetches it once. */
+  state?: PortfolioSheetState
 }) {
   const currency = useCurrency()
   const fmt = (v: number) => formatCurrencyPrice(v, currency)
-  const [data, setData] = useState<{ vehicles: string[]; vehicleId?: string | null; sheet: PortfolioSheet } | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  // Entity names can hold commas, so each is its own `exclude` parameter.
-  const excludeKey = group ? '' : new URLSearchParams((exclude ?? []).map(e => ['exclude', e])).toString()
-  useEffect(() => {
-    const qs = group ? `?group=${encodeURIComponent(group)}` : excludeKey ? `?${excludeKey}` : ''
-    fetch(`/api/portfolio/sheet${qs}`)
-      .then(async r => (r.ok ? r.json() : Promise.reject((await r.json().catch(() => ({}))).error ?? 'Could not load the portfolio.')))
-      .then(setData)
-      .catch(e => setError(String(e)))
-  }, [group, excludeKey])
+  const own = usePortfolioSheet({ group, exclude, enabled: !state })
+  const { data, error } = state ?? own
 
   if (error) return hideWhenEmpty ? null : <p className="text-sm text-destructive">{error}</p>
   if (!data) return hideWhenEmpty ? null : <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Loading the portfolio…</div>

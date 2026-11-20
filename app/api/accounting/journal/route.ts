@@ -7,40 +7,24 @@ import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { dbError } from '@/lib/api-error'
-import { persistEntry, validatePostings } from '@/lib/accounting/persist'
-import { assertBalanced } from '@/lib/accounting/ledger'
-import { closedPeriodRanges, dateInAnyClosedPeriod } from '@/lib/accounting/periods'
+import { persistEntry } from '@/lib/accounting/persist'
 import { fundCurrency } from '@/lib/accounting/currency'
 import { resolvePeriod, customPeriod, type PeriodPreset } from '@/lib/accounting/statement-period'
 import type { JournalEntry, Posting } from '@/lib/accounting/types'
 import { vendorInFund } from '@/lib/accounting/vendors'
 import { ACTUAL_BOOK, isLedgerBook, type LedgerBook } from '@/lib/accounting/books'
-import { owningTransactions, planRelease, deleteOwners } from '@/lib/accounting/ownership'
+import { owningTransactions } from '@/lib/accounting/ownership'
 import { changeEntryState } from '@/lib/accounting/journal-state'
+import { editDraftEntry } from '@/lib/accounting/journal-edit'
 import { loadMayTouchInvestments, NEEDS_INVESTMENTS_WRITE } from '@/lib/accounting/investment-access'
 import { loadGateAccess } from '@/lib/access/request-context'
 import { isProposer, markProposed, proposerChangeProblem, PROPOSER_REFUSAL } from '@/lib/accounting/proposals'
-
-// A database failure after the owning transactions were already deleted: still generic to the
-// client, but it must say what is gone.
-function failedAfterRelease(error: { message: string }, context: string, released: { removed: unknown[]; unlinked: string[] }) {
-  console.error(`[${context}]`, error.message)
-  return NextResponse.json(
-    { error: 'An unexpected error occurred.', removedTransactions: released.removed, unlinkedRegisterRows: released.unlinked },
-    { status: 500 },
-  )
-}
 
 // The postings are stamped in the fund's currency; when it cannot be read, nothing is written.
 function currencyUnread(e: unknown) {
   console.error('[accounting-journal-currency]', e instanceof Error ? e.message : e)
   return NextResponse.json({ error: "The fund's currency could not be read, so nothing was saved. Try again." }, { status: 500 })
 }
-
-// Void, unpost, edit and reverse of an OWNED entry delete its investment transactions; posting can
-// adopt new ones. A caller without investments write may still do all of it to entries that touch
-// no transaction (lib/accounting/investment-access.ts).
-const investmentsDenied = () => NextResponse.json({ error: NEEDS_INVESTMENTS_WRITE }, { status: 403 })
 
 // GET — the vehicle's journal entries with postings, or a single entry via ?id=.
 export async function GET(req: NextRequest) {
@@ -144,7 +128,8 @@ async function withProposers<T extends { id: string }>(admin: ReturnType<typeof 
 }
 
 // PUT — replace a DRAFT entry's postings (and date/memo). Posted entries are
-// immutable; reverse or void them instead.
+// immutable; reverse or void them instead. The edit itself is lib/accounting/journal-edit.ts,
+// shared with the edit_draft_entry tool.
 export async function PUT(req: NextRequest) {
   const supabase = await createClient()
   const admin = createAdminClient()
@@ -158,77 +143,12 @@ export async function PUT(req: NextRequest) {
   if (group instanceof NextResponse) return group
   const vehicleId = await vehicleIdByName(admin, gate.fundId, group)
 
-  const { id, entryDate, memo, postings } = body
-  if (!id || !Array.isArray(postings) || postings.length === 0) {
-    return NextResponse.json({ error: 'id and at least one posting are required' }, { status: 400 })
-  }
-  // A proposer (the `propose` level, not write) edits only their own proposals, while still drafts.
-  if (isProposer(await loadGateAccess(admin, gate), vehicleId)) {
-    const problem = await proposerChangeProblem(admin, { fundId: gate.fundId, entryId: String(id), userId: user.id })
-    if (problem) return NextResponse.json({ error: problem }, { status: 403 })
-  }
-
-  const { data: existing } = await admin
-    .from('journal_entries' as any)
-    .select('id, status, entry_date, source_type, source_ref')
-    .eq('book', ACTUAL_BOOK)
-    .eq('id', id).eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId)
-    .maybeSingle()
-  if (!existing) return NextResponse.json({ error: 'Entry not found' }, { status: 404 })
-  if ((existing as any).status !== 'draft') return NextResponse.json({ error: 'Only draft entries can be edited — reverse or void a posted entry.' }, { status: 400 })
-  // The source type is kept unless the caller sets it: editing a bank-drafted capital call must
-  // not silently turn it into a "manual" entry that the roll-forward files under Other.
-  const sourceType: string = typeof body.sourceType === 'string' && body.sourceType ? body.sourceType : ((existing as any).source_type ?? 'manual')
-  const reference = typeof body.reference === 'string' && body.reference.trim() ? body.reference.trim().slice(0, 80) : null
-  // The payee. Absent leaves it alone; null clears it; an id must be one of this fund's vendors.
-  const vendorPatch = 'vendorId' in body ? { vendor_id: await vendorInFund(admin, gate.fundId, body.vendorId) } : {}
-
-  // The fund's currency, never a client-supplied one. The ledger is denominated in a single
-  // currency by design (see lib/accounting/currency.ts); accepting `p.currency` from the body
-  // would let a posting balance against the wrong denomination.
-  let currency: string
-  try { currency = await fundCurrency(admin, gate.fundId) } catch (e) { return currencyUnread(e) }
-  const normalized: Posting[] = postings.map((p: any) => ({ accountId: p.accountId, amount: Number(p.amount), currency, lpEntityId: p.lpEntityId ?? null }))
-  if (normalized.some(p => !p.accountId || !Number.isFinite(p.amount))) {
-    return NextResponse.json({ error: 'Each posting needs an accountId and a numeric amount' }, { status: 400 })
-  }
-  // The same account and partner checks as a new entry (persistEntry): a leg on another entity's
-  // account would drop out of every statement, and a partner from elsewhere would be booked here.
-  if (!vehicleId) return NextResponse.json({ error: 'Entry not found' }, { status: 404 })
-  const postingProblem = await validatePostings(admin, gate.fundId, vehicleId, group, normalized)
-  if (postingProblem) return NextResponse.json({ error: postingProblem }, { status: 400 })
-  const newDate = entryDate || (existing as any).entry_date
-  const entry: JournalEntry = { fundId: gate.fundId, entryDate: newDate, memo: memo ?? null, sourceType, postings: normalized }
-  try { assertBalanced(entry) } catch (e) { return NextResponse.json({ error: (e as Error).message }, { status: 400 }) }
-
-  const closed = await closedPeriodRanges(admin, gate.fundId, group)
-  if (dateInAnyClosedPeriod(closed, newDate) || dateInAnyClosedPeriod(closed, (existing as any).entry_date)) {
-    return NextResponse.json({ error: 'That date falls in a closed period — reopen it to edit.' }, { status: 400 })
-  }
-
-  // A derived draft (the allocation-failure fallback) edited by hand no longer says what its
-  // transaction says: delete the transaction, and the edited lines are adopted when it posts.
-  const plan = await planRelease(admin, gate.fundId, existing as any)
-  if ('error' in plan) return NextResponse.json({ error: plan.error, removedTransactions: [], unlinkedRegisterRows: [] }, { status: 400 })
-  if (plan.removed.length > 0 && !(await loadMayTouchInvestments(admin, gate, user.id))) return investmentsDenied()
-  const releaseFailed = await deleteOwners(admin, gate.fundId, existing as any, plan)
-  if (releaseFailed) return NextResponse.json({ error: releaseFailed.error, removedTransactions: releaseFailed.removed, unlinkedRegisterRows: releaseFailed.unlinked }, { status: 400 })
-  const released = plan
-
-  // Insert the new postings first, then drop the old ones — so a failure never
-  // leaves the entry without lines.
-  const { data: oldRows } = await admin.from('journal_postings' as any).select('id').eq('book', ACTUAL_BOOK).eq('journal_entry_id', id)
-  const oldIds = ((oldRows as any[]) ?? []).map(r => r.id)
-  const { error: insErr } = await admin.from('journal_postings' as any).insert(
-    normalized.map(p => ({ fund_id: gate.fundId, portfolio_group: group, vehicle_id: vehicleId, journal_entry_id: id, account_id: p.accountId, amount: p.amount, currency: p.currency, lp_entity_id: p.lpEntityId ?? null }))
-  )
-  if (insErr) return failedAfterRelease(insErr, 'accounting-journal-update', released)
-  if (oldIds.length) await admin.from('journal_postings' as any).delete().in('id', oldIds)
-  const adjustingPatch = typeof body.adjusting === 'boolean' ? { adjusting: body.adjusting } : {}
-  await admin.from('journal_entries' as any).update({ entry_date: newDate, memo: memo ?? null, source_type: sourceType, reference, ...adjustingPatch, ...vendorPatch }).eq('id', id).eq('fund_id', gate.fundId)
-
-  const { data: full } = await admin.from('journal_entries' as any).select('*, journal_postings(*)').eq('id', id).eq('book', ACTUAL_BOOK).single()
-  return NextResponse.json({ ...((full ?? { id }) as object), removedTransactions: released.removed, unlinkedRegisterRows: released.unlinked })
+  const out = await editDraftEntry(admin, {
+    fundId: gate.fundId, userId: user.id,
+    proposing: isProposer(await loadGateAccess(admin, gate), vehicleId),
+    mayTouchInvestments: () => loadMayTouchInvestments(admin, gate, user.id),
+  }, group, vehicleId, body)
+  return NextResponse.json(out.body, { status: out.status })
 }
 
 // POST — create a balanced journal entry with its postings.

@@ -361,14 +361,16 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // Fund-of-funds holdings and their register. Portfolio, not accounting: an underlying fund
   // is a holding, and confirming a register row posts through the same investments path.
   'api/portfolio/sheet': { domain: 'portfolio' },
-  // Fund records: a record's domain is the area the request names, and lib/records/areas.ts checks
-  // read on it in the handler, as the record tools do. Level 'any' only keeps non-members out.
-  'api/records': { domain: 'portfolio', level: 'any' },
+  // Fund records: read on Records to list or open, write to file. The record's own area (which the
+  // request names) is checked in the handler by lib/records/areas.ts, as the record tools do.
+  'api/records': { domain: 'records' },
   // Custom views (lib/custom-views): a member's own list, like a saved dashboard. Every block of a
   // view is checked against its dataset's gate and the caller's entities when it loads
   // (lib/custom-views/resolve.ts), so level 'any' only keeps non-members out.
   'api/views': { domain: 'portfolio', level: 'any' },
   'api/views/[id]': { domain: 'portfolio', level: 'any' },
+  // The same view as a PDF or workbook, every block loaded as the caller (lib/custom-views/document.ts).
+  'api/views/[id]/export': { domain: 'portfolio', level: 'any' },
   // The New view page's builder: the fund's model sees only the catalog's names, and the preview's
   // blocks are checked against the caller as they load.
   'api/views/draft': { domain: 'portfolio', level: 'any' },
@@ -530,7 +532,8 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/onboarding/inbound-email': { domain: 'admin' },
   'api/onboarding/postmark': { domain: 'admin' },
   'api/onboarding/senders': { domain: 'admin' },
-  // The setup-progress count for the getting-started banner; admin-only, re-checked in-handler.
+  // The setup-progress count for the getting-started banner and sidebar (GET) and fund-wide step
+  // skips (PATCH); admin-only, re-checked in-handler.
   'api/onboarding/progress': { domain: 'admin' },
   'api/usage': { domain: 'admin' },
   'api/test-claude-key': { domain: 'admin' },

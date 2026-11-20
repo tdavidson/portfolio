@@ -29,6 +29,8 @@ export interface BarDatum {
   onActivate?: () => void
   /** Below the reference (a multiple under 1.0x): drawn in the loss colour, said in the tooltip. */
   tone?: 'loss'
+  /** Stacked parts of `value`, left to right, each in its legend colour. */
+  segments?: { value: number; color: string }[]
 }
 
 export interface BarOptions {
@@ -36,6 +38,8 @@ export interface BarOptions {
   valueName: string
   referenceName?: string
   ariaLabel: string
+  /** Legend for stacked bars: one entry per segment colour. */
+  series?: { name: string; color: string }[]
 }
 
 export function barChart(data: BarDatum[], options: BarOptions): HTMLElement {
@@ -52,7 +56,10 @@ export function barChart(data: BarDatum[], options: BarOptions): HTMLElement {
     },
       h('div', { class: 'bar-label', title: d.label }, d.label),
       h('div', { class: 'bar-track' },
-        h('div', { class: d.tone === 'loss' ? 'bar-fill bar-fill-loss' : 'bar-fill', style: { width: width(d.value) } }),
+        d.segments
+          ? h('div', { class: 'bar-stack', style: { width: width(d.value) } },
+              d.segments.filter(sg => sg.value > 0).map(sg => h('div', { class: 'bar-seg', style: { flexGrow: String(sg.value), background: sg.color } })))
+          : h('div', { class: d.tone === 'loss' ? 'bar-fill bar-fill-loss' : 'bar-fill', style: { width: width(d.value) } }),
         typeof d.reference === 'number' && d.reference > 0
           ? h('div', { class: 'bar-tick', style: { left: width(d.reference) } })
           : null,
@@ -77,6 +84,10 @@ export function barChart(data: BarDatum[], options: BarOptions): HTMLElement {
   })
 
   return h('div', { class: 'chart' },
+    options.series?.length
+      ? h('div', { class: 'legend' }, options.series.map(sr =>
+          h('span', { class: 'legend-item' }, h('span', { class: 'swatch swatch-bar', style: { background: sr.color } }), sr.name)))
+      : null,
     options.referenceName
       ? h('div', { class: 'legend' },
           h('span', { class: 'legend-item' }, h('span', { class: 'swatch swatch-bar' }), options.valueName),

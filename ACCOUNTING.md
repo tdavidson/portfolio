@@ -44,8 +44,8 @@ an entity has to bring onto them.
    Allocation terms, or the LP data the entity was built from). A fund with no partner commitments
    cannot allocate, so posting an income or expense entry is refused until it has them.
 3. **Investment history already in the tracker.** Open the entity's status page (**Entities → the
-   entity → Admin**): it says how many investment items have not reached the ledger. *Put them on the
-   ledger* adopts any matching entries already there and posts the missing ones on their own dates; it
+   entity → Admin**): it says how many investment items are not on the ledger yet. *Review and book* lists
+   what each would book, lets you pick which, then adopts any matching entries already there and posts the missing ones on their own dates; it
    is safe to run again. The entity index can do it for every entity at once.
 
 Every page scopes to one entity — chosen with the switcher in the header.

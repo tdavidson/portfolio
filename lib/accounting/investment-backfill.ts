@@ -13,7 +13,7 @@
 // reads the carrying value earlier entries put there. See plans/spec-ledger-one-writer.md §1.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { draftEntryForTransaction, txnRef } from './from-portfolio'
+import { buildEntryForTransaction, draftEntryForTransaction, txnRef } from './from-portfolio'
 import { postExistingEntryWithAllocation } from './continuous-allocation'
 import { vehicleIdByName } from './vehicle-id'
 import { readAll } from './bank-quickbooks-match'
@@ -26,6 +26,31 @@ import { listVehiclesWithId } from './load'
 const TXN_REF_PREFIX = txnRef('')
 const REVERSAL_PREFIX = 'reversal:'
 const CHUNK = 200
+/**
+ * A review builds each pending transaction's entry without writing it, a few reads apiece. Past this
+ * many pending rows (a first run over years of history) the items are listed unchecked instead.
+ */
+export const REVIEW_BUILD_CAP = 100
+
+/** One thing a run would put on the ledger, as the review lists it. */
+export interface BackfillItem {
+  /** Stable key a run is told to book: `txn:<id>`, `adopt:<entryId>` or `draft:<entryId>`. */
+  key: string
+  action: 'derive' | 'adopt' | 'post'
+  company: string
+  date: string
+  /** What the entry is, in words: "Investment", "Mark", "Exit", "Journal entry \"memo\"" … */
+  label: string
+  /** The entry's headline amount, when the review built it. */
+  amount: number | null
+  /**
+   * book: will be booked. nothing: the transaction moves nothing on the books, so there is nothing
+   * to book and nothing to do. refused: the ledger would refuse it (reason says why). unchecked:
+   * past REVIEW_BUILD_CAP, not built — booked or reported when the run reaches it.
+   */
+  status: 'book' | 'nothing' | 'refused' | 'unchecked'
+  reason?: string
+}
 
 export interface BackfillResult {
   /** Posted entries on investment accounts that no transaction owns — what a run would adopt. */
@@ -44,6 +69,13 @@ export interface BackfillResult {
   linked: number
   /** Everything the ledger refused — an unreadable entry, a closed period — by name. */
   refused: string[]
+  /** Transactions a run found to have no ledger effect, by name. Not failures; nothing to do. */
+  nothingToBook: string[]
+  /**
+   * Dry run with `review`: every item a run would touch, each with what would happen to it. Items
+   * with status 'nothing' are not counted in toDerive: they are not waiting for anything.
+   */
+  items: BackfillItem[]
   /**
    * Companies carried by BOTH sides: unowned posted entries on their investment accounts AND
    * tracker rows not yet posted to the ledger (no entry, or a derived entry still a draft). An
@@ -56,7 +88,7 @@ export interface BackfillResult {
 }
 
 export const emptyBackfillResult = (): BackfillResult =>
-  ({ toAdopt: 0, toDerive: 0, alreadyDerived: 0, toPost: 0, adopted: 0, posted: 0, linked: 0, refused: [], conflicted: [] })
+  ({ toAdopt: 0, toDerive: 0, alreadyDerived: 0, toPost: 0, adopted: 0, posted: 0, linked: 0, refused: [], nothingToBook: [], items: [], conflicted: [] })
 
 const n = (v: unknown) => { const x = Number(v); return Number.isFinite(x) ? x : 0 }
 const chunks = <T,>(xs: T[]) => Array.from({ length: Math.ceil(xs.length / CHUNK) }, (_, i) => xs.slice(i * CHUNK, (i + 1) * CHUNK))
@@ -70,6 +102,11 @@ export function impliesNoEntry(t: any): boolean {
   // A mark recorded as a share price books the change in value that price implies.
   if (t.transaction_type === 'unrealized_gain_change') return n(t.unrealized_value_change) === 0 && n(t.fx_value_change) === 0 && !(n(t.current_share_price) > 0)
   if (t.transaction_type === 'investment' && !t.converts_from_txn_id) return n(t.investment_cost) + n(t.fee_amount) === 0
+  // A conversion with no new cash, no converted interest and no round price carries the source's
+  // basis across unchanged (a note rolled into another note): there is nothing to debit or credit.
+  if (t.transaction_type === 'investment' && t.converts_from_txn_id) {
+    return n(t.investment_cost) === 0 && n(t.interest_converted) === 0 && !(n(t.shares_acquired) > 0 && n(t.share_price) > 0)
+  }
   if (t.transaction_type === 'income') return n(t.income_amount) === 0
   if (t.transaction_type === 'escrow_receipt') return n(t.proceeds_received) === 0
   return false
@@ -184,10 +221,28 @@ async function unownedInvestmentEntries(admin: SupabaseClient, fundId: string, v
     .sort((a, b) => `${a.entry_date}${a.id}`.localeCompare(`${b.entry_date}${b.id}`))
 }
 
+const KIND_LABEL: Record<string, string> = {
+  investment: 'Investment', valuation: 'Mark', fx_revaluation: 'FX revaluation', proceeds: 'Exit', conversion: 'Conversion', income: 'Income',
+}
+const TYPE_LABEL: Record<string, string> = {
+  investment: 'Investment', unrealized_gain_change: 'Mark', proceeds: 'Exit', escrow_receipt: 'Escrow receipt', income: 'Income',
+}
+const txnLabel = (t: any) => (t.transaction_type === 'investment' && t.converts_from_txn_id ? 'Conversion' : TYPE_LABEL[t.transaction_type] ?? 'Transaction')
+  + (t.round_name ? ` (${t.round_name})` : '')
+const entryLabel = (e: any) => `Journal entry${e.memo ? ` "${e.memo}"` : ''}`
+const entryAmount = (e: any) => Math.round(((e.journal_postings ?? []) as any[]).reduce((s, p) => s + Math.max(0, n(p.amount)), 0) * 100) / 100
+
 export async function backfillDerivedEntries(
   admin: SupabaseClient, fundId: string, group: string, userId: string | null,
-  opts: { dryRun?: boolean } = {},
+  /**
+   * dryRun: count, write nothing. review (with dryRun): also list every item, building each pending
+   * transaction's entry to say whether it would book, has nothing to book, or would be refused.
+   * select: book only these item keys (BackfillItem.key); omitted, everything waiting is booked.
+   */
+  opts: { dryRun?: boolean; review?: boolean; select?: string[] } = {},
 ): Promise<BackfillResult> {
+  const selected = opts.select ? new Set(opts.select) : null
+  const wanted = (key: string) => !selected || selected.has(key)
   const out = emptyBackfillResult()
   const vehicleId = await vehicleIdByName(admin, fundId, group)
   if (!vehicleId) return out
@@ -252,8 +307,14 @@ export async function backfillDerivedEntries(
     )
   }
   out.toAdopt = toAdopt.length
-  if (!opts.dryRun) {
+  if (opts.dryRun && opts.review) {
     for (const e of toAdopt) {
+      const cos = Array.from(entryCompanies(e)).map(c => nameOf.get(c) ?? 'Investment').sort().join(', ')
+      out.items.push({ key: `adopt:${e.id}`, action: 'adopt', company: cos || group, date: e.entry_date, label: entryLabel(e), amount: entryAmount(e), status: 'book' })
+    }
+  }
+  if (!opts.dryRun) {
+    for (const e of toAdopt.filter(e => wanted(`adopt:${e.id}`))) {
       const r = await adoptEntry(admin, fundId, {
         entryId: e.id, vehicleId, entryDate: e.entry_date, memo: e.memo ?? null, sourceRef: e.source_ref ?? null,
         postings: (e.journal_postings ?? []).map((p: any) => ({ accountId: p.account_id, amount: Number(p.amount) })),
@@ -278,17 +339,59 @@ export async function backfillDerivedEntries(
   out.toDerive = pending.length
   out.alreadyDerived = alreadyDerived
   out.toPost = drafts.length
-  if (opts.dryRun) return out
+  if (opts.dryRun) {
+    if (opts.review) {
+      // Build each entry without writing it. Each is built against the books as they stand, so when
+      // several wait for one company a later one's amount can move once the earlier ones post; the
+      // run builds each again at its turn.
+      const build = pending.length <= REVIEW_BUILD_CAP
+      let nothingCount = 0
+      for (const t of pending) {
+        const company = nameOf.get(t.company_id) ?? 'Investment'
+        const item: BackfillItem = { key: txnRef(t.id), action: 'derive', company, date: t.transaction_date, label: txnLabel(t), amount: null, status: 'unchecked' }
+        if (build) {
+          try {
+            const b = await buildEntryForTransaction(admin, fundId, { ...t, portfolio_group: group }, company)
+            if ('skip' in b) {
+              item.status = b.skip.nothingToBook ? 'nothing' : 'refused'
+              item.reason = b.skip.reason
+            } else {
+              item.status = 'book'
+              item.amount = b.amount
+              item.label = `${KIND_LABEL[b.kind ?? ''] ?? txnLabel(t)}${t.round_name ? ` (${t.round_name})` : ''}`
+            }
+          } catch (err) {
+            item.status = 'refused'
+            item.reason = err instanceof Error ? err.message : 'Could not build the entry.'
+          }
+        }
+        if (item.status === 'nothing') nothingCount++
+        out.items.push(item)
+      }
+      // Nothing waits on a row with no ledger effect: it is not "not on the ledger".
+      out.toDerive -= nothingCount
+      for (const e of drafts) {
+        const t = txnOf(e)
+        out.items.push({
+          key: `draft:${e.id}`, action: 'post', company: t ? nameOf.get(t.company_id) ?? 'Investment' : group, date: e.entry_date,
+          label: t ? `${txnLabel(t)}, drafted earlier` : 'Draft entry', amount: null,
+          status: t ? 'book' : 'refused', ...(t ? {} : { reason: 'Belongs to a transaction that no longer exists — void it from the journal.' }),
+        })
+      }
+    }
+    return out
+  }
 
-  for (const t of pending) {
+  for (const t of pending.filter(t => wanted(txnRef(t.id)))) {
     const name = nameOf.get(t.company_id) ?? 'Investment'
     const r = await draftEntryForTransaction(admin, fundId, userId, { ...t, portfolio_group: group }, name)
     if (r.drafted && r.posted) out.posted++
+    else if (r.nothingToBook) out.nothingToBook.push(`${name}, ${t.transaction_date}: ${r.reason}`)
     else if (r.reason) out.refused.push(`${name}, ${t.transaction_date}: ${r.reason}`)
   }
 
   // 3. Post what waits, and link the bank row that paid it.
-  for (const e of drafts) {
+  for (const e of drafts.filter(e => wanted(`draft:${e.id}`))) {
     const t = txnOf(e)
     if (!t) { out.refused.push(`Draft entry of ${e.entry_date} belongs to a transaction that no longer exists — void it from the journal.`); continue }
     const r = await postExistingEntryWithAllocation(admin, fundId, group, userId, e.id)
@@ -301,7 +404,7 @@ export async function backfillDerivedEntries(
 
 /** Every vehicle the caller can see (management companies excluded by listVehiclesWithId; GP entities hold no investments). */
 export async function backfillAllVehicles(
-  admin: SupabaseClient, fundId: string, userId: string | null, visible: string[] | null, opts: { dryRun?: boolean } = {},
+  admin: SupabaseClient, fundId: string, userId: string | null, visible: string[] | null, opts: { dryRun?: boolean; review?: boolean } = {},
 ): Promise<{ vehicle: string; result: BackfillResult }[]> {
   const vehicles = (await listVehiclesWithId(admin, fundId))
     .filter(v => v.kind !== 'associate' && (!visible || visible.includes(v.name)))

@@ -127,7 +127,7 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
   // LP identities + commitments — the lp_capital tier, not plain bookkeeping.
   { name: 'list_entities', description: 'List LP entities with committed capital.', scope: 'read', accessDomain: 'lp_capital', inputSchema: EMPTY_SCHEMA },
   { name: 'capital_accounts', description: 'Per-LP capital-account roll-forward (beginning, contributions, distributions, fees, gains, ending) plus fund NAV.', scope: 'read', accessDomain: 'lp_capital', inputSchema: EMPTY_SCHEMA },
-  { name: 'financial_statements', description: 'Trial balance, balance sheet, and income statement derived from posted entries. For a management company, also each member\'s capital roll-forward since inception (changesInMembersCapital).', scope: 'read', inputSchema: EMPTY_SCHEMA },
+  { name: 'financial_statements', description: 'Trial balance, balance sheet, and income statement derived from posted entries. For a management company, also each member\'s capital roll-forward since inception (changesInMembersCapital). Pass asOf (YYYY-MM-DD) for the books as they stood on that date; the income statement then runs from inception to it. Default: today.', scope: 'read', inputSchema: { type: 'object', properties: { asOf: { type: 'string', description: 'ISO date (YYYY-MM-DD); strike the statements as of that date' } }, additionalProperties: false } },
   {
     name: 'list_journal',
     description: 'List journal entries with their postings, newest first, one page at a time. Returns { rows, total, hasMore, nextCursor }: when hasMore is true the list is INCOMPLETE — call again with cursor = nextCursor before drawing any conclusion from the whole journal.',
@@ -672,6 +672,47 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
         allocate: { type: 'boolean', description: 'default true; false skips the partner allocation' },
         book: { type: 'string', enum: ['actual', 'tax'], description: "default 'actual'. 'tax' posts tax-book drafts (an outside journal's tax-routed entries): no partner allocation, refused in a closed tax year" },
       },
+    },
+  },
+  {
+    name: 'edit_draft_entry',
+    description:
+      "Edit a DRAFT journal entry (the entry form's Save on a draft): replace its lines, and optionally its date, memo, reference, payee or adjusting flag. " +
+      'postings is the WHOLE entry, every line, not a patch: each line names its account (accountCode, or accountId as list_journal returns it), a signed amount ' +
+      '(debit positive, credit negative; the lines must sum to zero) and, for a line on a partner\'s capital, the partner (lpEntityId, from list_entities; null for none). ' +
+      'Read the entry with list_journal first and send back every line, changed or not. A memo or reference left out stays as it is; null clears it. ' +
+      'Refused for a posted entry (unpost it with unpost_entry first), in a closed period, or for an account or partner that is not this entity\'s. ' +
+      'If the draft was derived from an investment transaction, that transaction is deleted and the edited lines are adopted when the draft is posted. ' +
+      'It stays a draft: post it with post_drafts (ids: [entry_id]). From someone who can only propose, only their own proposals can be edited.',
+    scope: 'write',
+    proposable: true,
+    inputSchema: {
+      type: 'object',
+      required: ['entry_id', 'postings'],
+      properties: {
+        entry_id: { type: 'string', description: 'The draft entry id, from list_journal or proposed_entries.' },
+        entryDate: { type: 'string', description: 'ISO date YYYY-MM-DD; default: keep the current date' },
+        memo: { type: ['string', 'null'] },
+        reference: { type: ['string', 'null'], description: 'up to 80 characters' },
+        vendorId: { type: ['string', 'null'], description: "the payee: one of the fund's vendors; null clears it; leave out to keep it" },
+        adjusting: { type: 'boolean', description: 'mark as an adjusting entry; leave out to keep it' },
+        sourceType: { type: 'string', description: 'leave out to keep the current source type' },
+        postings: {
+          type: 'array',
+          minItems: 1,
+          items: {
+            type: 'object',
+            required: ['amount'],
+            properties: {
+              accountCode: { type: 'string', description: "this entity's account code" },
+              accountId: { type: 'string', description: 'the account id, as list_journal returns it; used when accountCode is not given' },
+              amount: { type: 'number', description: 'signed: debit positive, credit negative' },
+              lpEntityId: { type: ['string', 'null'], description: 'the partner this line belongs to (an LP entity id); null or left out for none' },
+            },
+          },
+        },
+      },
+      additionalProperties: false,
     },
   },
   {

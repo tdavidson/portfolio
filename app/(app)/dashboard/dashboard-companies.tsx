@@ -7,12 +7,14 @@ import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { DashboardTable } from './dashboard-table'
 import { AddCompanyButton } from '@/components/add-company-button'
-import { useCurrency, getCurrencySymbol } from '@/components/currency-context'
+import { useCurrency, getCurrencySymbol, formatCurrency as formatCompactCurrency } from '@/components/currency-context'
 import { EntityPicker } from './entity-picker'
 import { companyInSelection, type EntityOption } from '@/lib/dashboard/entity-selection'
 import { isNewCompany } from '@/lib/investments'
 import { searchCompanies } from '@/lib/dashboard/company-search'
 import { useAppNavigate } from '@/components/app-runtime'
+import type { PortfolioSheetState } from '@/components/portfolio-sheet'
+import type { SheetRow } from '@/lib/portfolio/sheet'
 
 interface ActiveMetric {
   id: string
@@ -46,8 +48,28 @@ interface Company {
   unrealizedValue: number | null
 }
 
+/** A fund holding (companies.holding_type = 'fund'): a card in the same grid as the companies. */
+interface FundHolding {
+  id: string
+  name: string
+  status: string
+  createdAt?: string | null
+  tags: string[]
+  aliases?: string[]
+  portfolioGroup: string[] | null
+  /** First capital call, in the viewer's entities. */
+  firstInvestmentDate: string | null
+}
+
+type GridItem = (Company & { kind: 'company' }) | (FundHolding & { kind: 'fund' })
+
 interface Props {
   companies: Company[]
+  fundHoldings?: FundHolding[]
+  /** The portfolio sheet the page fetched: a fund card's NAV, multiple and commitment. */
+  fundFigures?: PortfolioSheetState
+  view: 'cards' | 'table'
+  onViewChange: (view: 'cards' | 'table') => void
   canAdd?: boolean
   /** The entity selection, held by the page so the holdings sheet follows it too. */
   entities: {
@@ -87,8 +109,7 @@ function formatCurrency(v: number): string {
   return neg ? `(${str})` : str
 }
 
-export function DashboardCompanies({ companies, canAdd, entities }: Props) {
-  const [view, setView] = useState<'cards' | 'table'>('cards')
+export function DashboardCompanies({ companies, fundHoldings = [], fundFigures, view, onViewChange: setView, canAdd, entities }: Props) {
   const [statusFilter, setStatusFilter] = useState<string>('active')
   const [sortMode, setSortMode] = useState<SortMode>('investDate')
   const [alphaSortAsc, setAlphaSortAsc] = useState(true)
@@ -97,11 +118,17 @@ export function DashboardCompanies({ companies, canAdd, entities }: Props) {
   const navigate = useAppNavigate()
   const searching = query.trim() !== ''
 
+  // Companies and fund holdings in one list, so a fund sorts, filters and searches like a company.
+  const items = useMemo<GridItem[]>(() => [
+    ...companies.map(c => ({ ...c, kind: 'company' as const })),
+    ...fundHoldings.map(f => ({ ...f, kind: 'fund' as const })),
+  ], [companies, fundHoldings])
+
   const filtered = useMemo(() => {
-    // A search is for getting to one company fast, so it looks past the status and entity filters:
+    // A search is for getting to one holding fast, so it looks past the status and entity filters:
     // an exited company, or one held only by an entity left out of the picker, is still found.
-    if (searching) return searchCompanies(query, companies)
-    let result = companies
+    if (searching) return searchCompanies(query, items)
+    let result = items
     if (statusFilter) {
       result = result.filter(c => c.status === statusFilter)
     }
@@ -109,9 +136,9 @@ export function DashboardCompanies({ companies, canAdd, entities }: Props) {
       result = result.filter(c => companyInSelection(c.portfolioGroup, entities.options, entities.excluded))
     }
     return result
-  }, [companies, statusFilter, entities.options, entities.excluded, searching, query])
+  }, [items, statusFilter, entities.options, entities.excluded, searching, query])
 
-  function sortCompanies(list: Company[]) {
+  function sortCompanies(list: GridItem[]) {
     if (sortMode === 'alpha') {
       return [...list].sort((a, b) =>
         alphaSortAsc ? a.name.localeCompare(b.name) : b.name.localeCompare(a.name)
@@ -137,7 +164,7 @@ export function DashboardCompanies({ companies, canAdd, entities }: Props) {
   return (
     <div>
       {/* Filter bar */}
-      {companies.length > 0 && (
+      {items.length > 0 && (
         <div className="flex items-center gap-2 flex-wrap mb-4">
           {canAdd && <AddCompanyButton />}
           <div className="relative w-full sm:w-56">
@@ -150,8 +177,8 @@ export function DashboardCompanies({ companies, canAdd, entities }: Props) {
                 if (e.key === 'Enter' && sortedFiltered[0]) { e.preventDefault(); navigate(`/companies/${sortedFiltered[0].id}`) }
                 else if (e.key === 'Escape' && query) { e.preventDefault(); setQuery('') }
               }}
-              placeholder="Search companies…"
-              aria-label="Search portfolio companies"
+              placeholder="Search portfolio…"
+              aria-label="Search portfolio companies and funds"
               autoComplete="off"
               spellCheck={false}
               className="h-8 w-full rounded-md border border-input bg-background pl-8 pr-7 text-xs placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring [&::-webkit-search-cancel-button]:hidden"
@@ -235,7 +262,7 @@ export function DashboardCompanies({ companies, canAdd, entities }: Props) {
 
       {filtered.length === 0 ? (
         <div className="rounded-card border border-dashed p-12 text-center space-y-3">
-          {companies.length === 0 ? (
+          {items.length === 0 ? (
             <>
               <p className="text-muted-foreground">No portfolio companies yet.</p>
               {canAdd && <div className="flex justify-center"><AddCompanyButton /></div>}
@@ -247,19 +274,28 @@ export function DashboardCompanies({ companies, canAdd, entities }: Props) {
           )}
         </div>
       ) : view === 'table' ? (
-        <DashboardTable
-          companyIds={sortedFiltered.map(c => c.id)}
-          grouped={null}
-        />
+        // The table carries company KPIs; fund holdings are listed in the funds table below it.
+        sortedFiltered.some(c => c.kind === 'company') ? (
+          <DashboardTable
+            companyIds={sortedFiltered.filter(c => c.kind === 'company').map(c => c.id)}
+            grouped={null}
+          />
+        ) : null
       ) : (
-        <CompanyGrid companies={sortedFiltered} />
+        <CompanyGrid items={sortedFiltered} fundFigures={fundFigures} />
       )}
     </div>
   )
 }
 
-function CompanyGrid({ companies }: { companies: Company[] }) {
+function CompanyGrid({ items, fundFigures }: { items: GridItem[]; fundFigures?: PortfolioSheetState }) {
   const fundCurrency = useCurrency()
+  const fundRows = useMemo(() => {
+    const byId = new Map<string, SheetRow>()
+    for (const r of fundFigures?.data?.sheet.funds ?? []) if (r.companyId) byId.set(r.companyId, r)
+    return byId
+  }, [fundFigures])
+  const figuresPending = !!fundFigures && !fundFigures.data && !fundFigures.error
   // Get display metrics for a company: cash first, then first non-cash
   const getSelectedMetrics = (c: Company): [ActiveMetric | null, ActiveMetric | null] => {
     const cashMetric = c.activeMetrics.find(m => m.name.toLowerCase() === 'cash' || /\bcash\b/i.test(m.name)) ?? null
@@ -273,7 +309,10 @@ function CompanyGrid({ companies }: { companies: Company[] }) {
 
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
-      {companies.map((c) => {
+      {items.map((c) => {
+        if (c.kind === 'fund') {
+          return <FundCard key={c.id} fund={c} row={fundRows.get(c.id) ?? null} pending={figuresPending} currency={fundCurrency} />
+        }
         const isExited = c.status === 'exited' || c.status === 'written-off'
 
         return (
@@ -375,3 +414,51 @@ function ExitedMetricDisplay({ company }: { company: Company }) {
   )
 }
 
+
+/**
+ * A fund holding's card, in the company cards' layout: its NAV and multiple where a company shows
+ * two metrics, and its commitment where a company shows when it last reported. The figures are the
+ * portfolio sheet's (the schedule of investments), summed over the entities in the picker.
+ */
+function FundCard({ fund, row, pending, currency }: { fund: FundHolding; row: SheetRow | null; pending: boolean; currency: string }) {
+  const pctCalled = row && row.commitment > 0 ? Math.round((row.called / row.commitment) * 100) : null
+  const value = (text: string) => pending
+    ? <div className="h-7 w-16 rounded-md bg-muted animate-pulse" />
+    : <div className="text-xl font-semibold tabular-nums truncate">{text}</div>
+  const footer = row
+    ? [
+        row.commitment > 0 ? `Committed ${formatCompactCurrency(row.commitment, currency)}` : null,
+        pctCalled != null ? `${pctCalled}% called` : null,
+        row.navAsOf ? `NAV as of ${formatShortDate(row.navAsOf)}` : null,
+      ].filter(Boolean).join(' · ')
+    : fund.firstInvestmentDate
+      ? `First call: ${formatShortDate(fund.firstInvestmentDate)}`
+      : ''
+
+  return (
+    <Link
+      href={`/companies/${fund.id}`}
+      className="rounded-card border bg-card p-4 hover:bg-accent/50 transition-colors"
+    >
+      <div className="flex items-center justify-between gap-2 mb-1">
+        <span className="font-medium text-sm truncate">{fund.name}</span>
+        <Badge variant="outline" className="shrink-0 text-[10px] font-normal text-muted-foreground px-1.5 py-0">Fund</Badge>
+      </div>
+      <div className="grid grid-cols-2 gap-3 mt-3">
+        <div className="min-w-0">
+          <div className="text-[10px] text-muted-foreground truncate mb-0.5">NAV</div>
+          {value(row ? formatCompactCurrency(row.fairValue, currency) : '\u2014')}
+        </div>
+        <div className="min-w-0">
+          <div className="text-[10px] text-muted-foreground truncate mb-0.5">TVPI</div>
+          {value(row?.moic != null ? `${row.moic.toFixed(2)}x` : '\u2014')}
+        </div>
+      </div>
+      {footer && <div className="text-[10px] text-muted-foreground mt-2 truncate">{footer}</div>}
+    </Link>
+  )
+}
+
+function formatShortDate(iso: string): string {
+  return new Date(`${iso.slice(0, 10)}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+}

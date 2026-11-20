@@ -31,6 +31,10 @@ These are ranked by how often they block a chat- or script-driven workflow, not 
 7. **Team and access.** Per-area access grants, approving join requests, feature visibility and removing an authorized sender are all app-only. `setup_fund` only adds; removing a member (`remove_member`) needs `AGENT_DESTRUCTIVE_ACTIONS=true`.
 8. **Diligence finishing.** No tool exports the memo, runs the partner Q&A interview, deletes or reclassifies a data-room document, or replaces the checklist.
 
+## Closed with edit_draft_entry
+
+- `edit_draft_entry`: the entry form's Save on a draft (`PUT /api/accounting/journal`). The route's body moved to `lib/accounting/journal-edit.ts` and both call it, so a draft's lines, accounts, amounts, memo and each line's partner can be corrected over MCP with the same checks. With `unpost_entry` and `post_drafts` the journal's unpost, edit, re-post loop is now on every door.
+
 ## Closed in claude/exception-tools
 
 The exception work automation leaves behind. Each tool calls the page's own function, moved into `lib/` where it lived in a route, so a rule added there reaches chat too.
@@ -145,7 +149,7 @@ Effort is a guess: S is a tool wrapping an existing `lib` function, M needs logi
 | Book per-LP opening capital balances (cutover entry) | `opening-balances(POST)` | partial | post_entry (manual equivalent) | no dedicated tool; logic inline in route (capital accounts ensured, offset 1000) | move to lib/accounting/opening-balances.ts + tool | M |
 | Download chart of accounts CSV | `chart/export(GET)` | partial | list_accounts | data available, no file | none needed (agent gets JSON) | - |
 | Download statement workpaper (.xlsx) | `statements/export(GET)` | gap | - | no reason found; file download | report-link tool like financial_statements_pdf | S |
-| Edit a DRAFT entry (date, memo, lines, payee) | `journal(PUT)` | gap | - | no reason found - likely oversight (agent can only void+recreate, and void is also missing) | update_draft_entry tool; extract PUT body into lib (journal-edit.ts) and call it | M |
+| Edit a DRAFT entry (date, memo, lines, partner per line, payee) | `journal(PUT)` | covered | edit_draft_entry | PUT body moved to lib/accounting/journal-edit.ts; the route and the tool both call it | - | - |
 | Export journal as CSV / XLSX / QuickBooks-layout CSV | `journal/export(GET)` | partial | list_journal; export_ledger_text | no file/link; QuickBooks layout not available | report-link style download URL (like financial_statements_pdf) | S |
 | Forecast export CSV / XLSX model | `forecast/export(GET)` | covered | forecast_workbook (XLSX via signed link); forecast_series (data, incl. balance sheet) | CSV not offered as a file; the JSON is the same data | - | - |
 | Ignore a bank row (voids its entry; reason if posted) | `bank(POST action=ignore)` | gap | - | no reason found - likely oversight (posted-row ignore voids books, could be staged) | ignore_bank_transaction tool; move inline logic into bank-actions.ts | M |

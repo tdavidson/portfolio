@@ -3,6 +3,8 @@
 import { useCallback, useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import Link from 'next/link'
+import { ListChecks } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { DefaultsEditor } from './memo-agent/defaults/editor'
 import { LedgerAgentAccess } from '@/components/ledger-agent-access'
 import { DefaultMetricsSettings } from '@/components/settings/default-metrics-settings'
@@ -123,9 +125,21 @@ export default function SettingsPage() {
   return (
     <div className="p-4 md:p-8">
       <div className="mb-6 space-y-1">
-        <div className="flex items-center justify-between">
+        <div className="flex items-center justify-between gap-2">
           <h1 className="text-2xl font-semibold tracking-tight">Settings</h1>
-          <AnalystToggleButton />
+          <div className="flex items-center gap-2">
+            {/* The way back to the setup checklist once it has left the sidebar (every step done
+                or skipped). Admin-only, like the sidebar entry. */}
+            {settings.isAdmin && (
+              <Button asChild variant="outline" size="sm" className="gap-1.5 h-8 py-2 text-muted-foreground hover:text-foreground">
+                <Link href="/getting-started">
+                  <ListChecks className="h-3.5 w-3.5" />
+                  Getting started
+                </Link>
+              </Button>
+            )}
+            <AnalystToggleButton />
+          </div>
         </div>
         <p className="text-sm text-muted-foreground">Configure your fund, integrations, and team preferences</p>
       </div>

@@ -11,11 +11,15 @@
 // replays as known blocks over known columns, or fails one block with a clear message.
 
 import { QUERY_CATALOG, type DatasetMeta } from '@/lib/agent/query/catalog'
-import { QueryError, runQuery, type QuerySpec } from '@/lib/agent/query/engine'
+import { MAX_ROWS, QueryError, runQuery, type OrderBy, type QuerySpec } from '@/lib/agent/query/engine'
+import { FormulaError, MAX_COMPUTED, parseFormula, type Computed } from './formula'
 
 export const SPEC_VERSION = 1
 
-export const BLOCK_TYPES = ['kpi', 'bar', 'line', 'table', 'text'] as const
+export const CHART_TYPES = ['bar', 'column', 'line', 'area', 'pie', 'scatter', 'combo', 'waterfall', 'funnel'] as const
+export type ChartType = (typeof CHART_TYPES)[number]
+
+export const BLOCK_TYPES = ['kpi', 'gauge', ...CHART_TYPES, 'table', 'pivot', 'heatmap', 'text'] as const
 export type BlockType = (typeof BLOCK_TYPES)[number]
 
 export const VALUE_FORMATS = ['currency', 'number', 'percent', 'multiple', 'date', 'text'] as const
@@ -38,13 +42,38 @@ export const MAX_TABLE_COLUMNS = 12
 export class ViewSpecError extends Error {}
 
 export interface BlockSource {
-  /** A query tool: query_portfolio, query_lps, query_deals, query_diligence, query_ledger. */
+  /** A query tool: query_portfolio, query_lps, query_funds, query_deals, query_diligence, query_ledger. */
   tool: string
   dataset: string
   query: QuerySpec
+  /**
+   * Calculated columns, added to each result row in order: arithmetic over result columns
+   * (formula.ts), e.g. { "as": "gain", "formula": "fair_value - cost" }. They can be charted,
+   * shown, sorted by (order_by) and used by later formulas.
+   */
+  computed?: Computed[]
 }
 
-export interface TableColumn { column: string; label?: string; format?: ValueFormat }
+/** Period comparisons a KPI tile can show: the same figure as of an earlier date. */
+export const COMPARE_PERIODS = ['prior_month', 'prior_quarter', 'prior_year'] as const
+export type ComparePeriod = (typeof COMPARE_PERIODS)[number]
+
+/** A page-level filter: a pick list of a column's values, or a from/to range on a date or number. */
+export interface ViewFilter { column: string; label: string; kind: 'pick' | 'range' }
+export const MAX_FILTERS = 6
+
+export const COLUMN_TONES = ['sign', 'scale'] as const
+export type ColumnTone = (typeof COLUMN_TONES)[number]
+
+export interface TableColumn {
+  column: string
+  label?: string
+  format?: ValueFormat
+  /** Conditional colour: sign (losses red, gains green) or scale (shaded by size within the column). */
+  tone?: ColumnTone
+  /** Click through: each cell opens that company (the result must carry company_id). */
+  link?: 'company'
+}
 
 interface BlockBase { id: string; label: string; span: BlockSpan }
 
@@ -56,23 +85,109 @@ export interface KpiBlock extends BlockBase {
   format: ValueFormat
   /** Fine print under the figure. */
   sub?: string
+  /** Show the change from the same figure as of an earlier date. */
+  compare?: ComparePeriod
+  /** A sparkline under the figure: y over x (oldest first) from its own query. */
+  trend?: { source: BlockSource; x: string; y: string }
+  formula?: undefined
 }
 
-export interface ChartBlock extends BlockBase {
-  type: 'bar' | 'line'
+/**
+ * A figure worked out from other tiles' figures, which may come from different datasets: NAV
+ * from the LP data over fair value from the portfolio, say. `formula` names other kpi blocks by
+ * id (formula.ts arithmetic). It loads nothing itself.
+ */
+export interface FormulaKpiBlock extends BlockBase {
+  type: 'kpi'
+  formula: string
+  format: ValueFormat
+  sub?: string
+  source?: undefined
+}
+
+/** A dial: the first row of `value` against a maximum, a number or another result column. */
+export interface GaugeBlock extends BlockBase {
+  type: 'gauge'
   source: BlockSource
-  /** The category (bar) or period (line) column. */
+  value: string
+  format: ValueFormat
+  max?: number
+  max_column?: string
+  /** A mark on the dial, such as a target. */
+  target?: number
+}
+
+/**
+ * Every chart: x is the category, period or slice column and y the measure, except a scatter,
+ * where x and y are both numbers and `point_label` names each dot.
+ *
+ * - bar (horizontal) and column (vertical) compare categories; line and area follow time.
+ * - pie shows shares of one total (donut: true draws a ring). At most 8 slices; the rest are "Other".
+ * - scatter plots one dot per row at (x, y), e.g. MOIC against holding period.
+ * - combo draws y as bars and y2 as a line on its own axis on the right, e.g. calls and NAV.
+ * - waterfall reads y as changes and draws each step from the running total, then the total.
+ * - funnel draws each stage's y as a centred bar, widest first, e.g. deals by pipeline stage.
+ */
+export interface ChartBlock extends BlockBase {
+  type: ChartType
+  source: BlockSource
+  /** The category, period or slice column (a number column for a scatter). */
   x: string
-  /** The measure column. One measure per chart. */
+  /** The measure column. */
   y: string
+  /** combo: the line's measure, on the right axis. */
+  y2?: string
+  /** combo: the line's format. */
+  format2?: ValueFormat
+  /** scatter: the column that names each dot. */
+  point_label?: string
+  /** scatter: the format of x. */
+  x_format?: ValueFormat
+  /** bar and column with a series: stacked (default) or side by side. area with a series always stacks. */
+  stack?: 'stacked' | 'grouped'
+  /** pie: a ring rather than a disc. */
+  donut?: boolean
+  /** waterfall: end with a bar for the total (default true). */
+  total?: boolean
+  /**
+   * Optional: a result column that splits the measure into one series per value (stage, vehicle,
+   * sector). Bars stack the series; a line chart draws one line per series. The query groups by
+   * both x and series, so each row is one (x, series) pair.
+   */
+  series?: string
+  /**
+   * bar, column, line and area: more measures beside y, each drawn as its own series (called and
+   * distributed by quarter, say). Not with series.
+   */
+  measures?: string[]
   format: ValueFormat
 }
+
+/** Series per chart. The rest are folded into "Other", so a legend stays readable. */
+export const MAX_SERIES = 8
 
 export interface TableBlock extends BlockBase {
   type: 'table'
   source: BlockSource
   /** Which result columns to show, in order. Default: every result column. */
   columns: TableColumn[]
+  /** A totals row: the sum of each currency or number column. */
+  totals?: boolean
+  /** Group the rows by this result column, with a subtotal row after each group. */
+  subtotal_by?: string
+}
+
+/** A cross-tab: one row per `rows` value, one column per `columns` value, `value` in each cell. */
+export interface PivotBlock extends BlockBase {
+  /** heatmap: the same cross-tab, each cell shaded by its value. */
+  type: 'pivot' | 'heatmap'
+  source: BlockSource
+  rows: string
+  columns: string
+  value: string
+  format: ValueFormat
+  /** Row and column totals (default true). */
+  totals?: boolean
 }
 
 export interface TextBlock extends BlockBase {
@@ -81,8 +196,8 @@ export interface TextBlock extends BlockBase {
   text: string
 }
 
-export type ViewBlock = KpiBlock | ChartBlock | TableBlock | TextBlock
-export type DataBlock = KpiBlock | ChartBlock | TableBlock
+export type ViewBlock = KpiBlock | FormulaKpiBlock | GaugeBlock | ChartBlock | TableBlock | PivotBlock | TextBlock
+export type DataBlock = KpiBlock | GaugeBlock | ChartBlock | TableBlock | PivotBlock
 
 export interface ViewSpec {
   spec_version: number
@@ -90,10 +205,29 @@ export interface ViewSpec {
   description?: string
   /** Which parameters the view offers as filters. */
   params: ViewParam[]
+  /** Page-level filters on columns, applied to every block whose dataset has the column. */
+  filters?: ViewFilter[]
   blocks: ViewBlock[]
 }
 
-export const isDataBlock = (b: ViewBlock): b is DataBlock => b.type !== 'text'
+/**
+ * The query the engine runs for a source, and what is left for after the calculated columns are
+ * added: a sort on a calculated column, and the limit that has to wait for that sort.
+ */
+export function splitQuery(source: BlockSource): { engine: QuerySpec; post: OrderBy[]; limit?: number } {
+  const names = new Set((source.computed ?? []).map(c => c.as))
+  const order = source.query.order_by ?? []
+  if (!order.some(o => names.has(o.column))) return { engine: source.query, post: [] }
+  const { order_by: _order, limit, ...rest } = source.query
+  return {
+    engine: { ...rest, order_by: order.filter(o => !names.has(o.column)), limit: MAX_ROWS },
+    post: order,
+    ...(limit ? { limit } : {}),
+  }
+}
+
+export const isDataBlock = (b: ViewBlock): b is DataBlock => b.type !== 'text' && !(b.type === 'kpi' && b.formula !== undefined)
+export const isFormulaBlock = (b: ViewBlock): b is FormulaKpiBlock => b.type === 'kpi' && b.formula !== undefined
 
 // ---------------------------------------------------------------------------------------------
 // Catalog lookups
@@ -157,6 +291,19 @@ function cleanQuery(raw: unknown): QuerySpec {
   return out
 }
 
+function cleanComputed(raw: unknown, where: string): Computed[] {
+  if (raw === undefined || raw === null) return []
+  if (!Array.isArray(raw)) throw new ViewSpecError(`${where}: computed must be a list of { as, formula }.`)
+  if (raw.length > MAX_COMPUTED) throw new ViewSpecError(`${where}: at most ${MAX_COMPUTED} computed columns.`)
+  return raw.map((c: unknown, i: number) => {
+    if (!isObject(c)) throw new ViewSpecError(`${where}: computed ${i + 1} must be { as, formula }.`)
+    const as = typeof c.as === 'string' ? c.as.trim() : ''
+    if (!/^[a-z_][a-z0-9_]{0,39}$/i.test(as)) throw new ViewSpecError(`${where}: computed ${i + 1} needs "as": a short name of letters, digits and _.`)
+    if (typeof c.formula !== 'string') throw new ViewSpecError(`${where}: computed "${as}" needs a formula.`)
+    return { as, formula: c.formula.trim() }
+  })
+}
+
 function cleanSource(raw: unknown, where: string): { source: BlockSource; resultColumns: string[] } {
   if (!isObject(raw)) throw new ViewSpecError(`${where}: source is required ({ tool, dataset, query }).`)
   const tool = typeof raw.tool === 'string' ? raw.tool : ''
@@ -169,16 +316,34 @@ function cleanSource(raw: unknown, where: string): { source: BlockSource; result
     throw new ViewSpecError(`${where}: ${tool} has no dataset "${dataset}". Datasets: ${QUERY_CATALOG[tool].map(d => d.name).join(', ')}.`)
   }
   const query = cleanQuery(raw.query)
+  const computed = cleanComputed(raw.computed, where)
+  const source: BlockSource = { tool, dataset, query, ...(computed.length ? { computed } : {}) }
   let resultColumns: string[]
   try {
     // The engine over no rows checks every column, filter op, aggregate and sort, and names the
     // columns the result will have, without loading anything.
-    resultColumns = runQuery([], meta.columns, query).columns
+    resultColumns = runQuery([], meta.columns, splitQuery(source).engine).columns
   } catch (e) {
     if (e instanceof QueryError) throw new ViewSpecError(`${where}: ${e.message}`)
     throw e
   }
-  return { source: { tool, dataset, query }, resultColumns }
+  for (const c of computed) {
+    if (resultColumns.includes(c.as)) throw new ViewSpecError(`${where}: computed "${c.as}" is already a column of the result.`)
+    try {
+      parseFormula(c.formula, resultColumns)
+    } catch (e) {
+      if (e instanceof FormulaError) throw new ViewSpecError(`${where}: computed "${c.as}": ${e.message}`)
+      throw e
+    }
+    resultColumns = [...resultColumns, c.as]
+  }
+  return { source, resultColumns }
+}
+
+function cleanTrend(raw: unknown, where: string): { source: BlockSource; x: string; y: string } {
+  if (!isObject(raw)) throw new ViewSpecError(`${where} must be { source, x, y }.`)
+  const { source, resultColumns } = cleanSource(raw.source, where)
+  return { source, x: resultColumn(raw.x, resultColumns, where, 'x'), y: resultColumn(raw.y, resultColumns, where, 'y') }
 }
 
 function resultColumn(raw: unknown, columns: string[], where: string, what: string): string {
@@ -204,7 +369,32 @@ function cleanBlock(raw: unknown, index: number, seen: Set<string>): ViewBlock {
     return { ...base, type, text: cleanText(raw.text, MAX_TEXT, `${where}: text`)! }
   }
 
+  if (type === 'kpi' && raw.formula !== undefined && raw.formula !== null && raw.formula !== '') {
+    // Checked against the other tiles once every block is read (parseViewSpec).
+    if (typeof raw.formula !== 'string') throw new ViewSpecError(`${where}: formula must be text.`)
+    const sub = oneLine(raw.sub, MAX_LABEL, `${where}: sub`, false)
+    return { ...base, type: 'kpi' as const, formula: raw.formula.trim(), format: pick(raw.format, VALUE_FORMATS, `${where}: format`, 'number'), ...(sub ? { sub } : {}) }
+  }
+
   const { source, resultColumns } = cleanSource(raw.source, where)
+
+  if (type === 'gauge') {
+    const value = raw.value === undefined && resultColumns.length === 1 ? resultColumns[0] : resultColumn(raw.value, resultColumns, where, 'value')
+    const format = pick(raw.format, VALUE_FORMATS, `${where}: format`, 'number')
+    const number = (v: unknown, what: string) => {
+      const n = Number(v)
+      if (v === undefined || v === null || v === '' || !Number.isFinite(n)) throw new ViewSpecError(`${where}: ${what} must be a number.`)
+      return n
+    }
+    const out: GaugeBlock = { ...base, type: 'gauge', source, value, format }
+    if (raw.max_column !== undefined && raw.max_column !== null && raw.max_column !== '') out.max_column = resultColumn(raw.max_column, resultColumns, where, 'max_column')
+    else if (raw.max !== undefined) out.max = number(raw.max, 'max')
+    else if (format === 'percent') out.max = 100
+    else throw new ViewSpecError(`${where}: a gauge needs max (a number) or max_column (a result column).`)
+    if (out.max !== undefined && out.max <= 0) throw new ViewSpecError(`${where}: max must be above zero.`)
+    if (raw.target !== undefined && raw.target !== null && raw.target !== '') out.target = number(raw.target, 'target')
+    return out
+  }
 
   if (type === 'kpi') {
     const value = raw.value === undefined && resultColumns.length === 1
@@ -214,15 +404,57 @@ function cleanBlock(raw: unknown, index: number, seen: Set<string>): ViewBlock {
       ...base, type, source, value,
       format: pick(raw.format, VALUE_FORMATS, `${where}: format`, 'number'),
       ...(oneLine(raw.sub, MAX_LABEL, `${where}: sub`, false) ? { sub: oneLine(raw.sub, MAX_LABEL, `${where}: sub`, false) } : {}),
+      ...(raw.compare !== undefined && raw.compare !== null && raw.compare !== '' ? { compare: pick(raw.compare, COMPARE_PERIODS, `${where}: compare`) } : {}),
+      ...(raw.trend !== undefined && raw.trend !== null ? { trend: cleanTrend(raw.trend, `${where}: trend`) } : {}),
     }
   }
 
-  if (type === 'bar' || type === 'line') {
+  if ((CHART_TYPES as readonly string[]).includes(type)) {
+    const chart = type as ChartType
+    const x = resultColumn(raw.x, resultColumns, where, 'x')
+    const y = resultColumn(raw.y, resultColumns, where, 'y')
+    const given = (v: unknown) => v !== undefined && v !== null && v !== ''
+    const out: ChartBlock = { ...base, type: chart, source, x, y, format: pick(raw.format, VALUE_FORMATS, `${where}: format`, 'number') }
+    if (given(raw.series)) {
+      if (!['bar', 'column', 'line', 'area'].includes(chart)) throw new ViewSpecError(`${where}: series works on bar, column, line and area charts.`)
+      const series = resultColumn(raw.series, resultColumns, where, 'series')
+      if (series === x || series === y) throw new ViewSpecError(`${where}: series must be a different column from x and y.`)
+      out.series = series
+      if (given(raw.stack)) out.stack = pick(raw.stack, ['stacked', 'grouped'] as const, `${where}: stack`)
+    }
+    if (given(raw.measures)) {
+      if (!['bar', 'column', 'line', 'area'].includes(chart)) throw new ViewSpecError(`${where}: measures work on bar, column, line and area charts.`)
+      if (out.series) throw new ViewSpecError(`${where}: use series or measures, not both.`)
+      if (!Array.isArray(raw.measures)) throw new ViewSpecError(`${where}: measures must be a list of result columns.`)
+      const measures = Array.from(new Set(raw.measures.map((m: unknown, i: number) => resultColumn(m, resultColumns, where, `measure ${i + 1}`)))).filter(m => m !== y && m !== x)
+      if (measures.length + 1 > MAX_SERIES) throw new ViewSpecError(`${where}: at most ${MAX_SERIES} measures with y.`)
+      if (measures.length) {
+        out.measures = measures
+        if (given(raw.stack)) out.stack = pick(raw.stack, ['stacked', 'grouped'] as const, `${where}: stack`)
+      }
+    }
+    if (chart === 'combo') {
+      out.y2 = resultColumn(raw.y2, resultColumns, where, 'y2')
+      out.format2 = pick(raw.format2, VALUE_FORMATS, `${where}: format2`, out.format)
+    }
+    if (chart === 'scatter') {
+      if (given(raw.point_label)) out.point_label = resultColumn(raw.point_label, resultColumns, where, 'point_label')
+      out.x_format = pick(raw.x_format, VALUE_FORMATS, `${where}: x_format`, 'number')
+    }
+    if (chart === 'pie' && raw.donut === true) out.donut = true
+    if (chart === 'waterfall' && raw.total === false) out.total = false
+    return out
+  }
+
+  if (type === 'pivot' || type === 'heatmap') {
+    const rows = resultColumn(raw.rows, resultColumns, where, 'rows')
+    const columns = resultColumn(raw.columns, resultColumns, where, 'columns')
+    const value = resultColumn(raw.value, resultColumns, where, 'value')
+    if (new Set([rows, columns, value]).size < 3) throw new ViewSpecError(`${where}: rows, columns and value must be three different columns.`)
     return {
-      ...base, type, source,
-      x: resultColumn(raw.x, resultColumns, where, 'x'),
-      y: resultColumn(raw.y, resultColumns, where, 'y'),
+      ...base, type, source, rows, columns, value,
       format: pick(raw.format, VALUE_FORMATS, `${where}: format`, 'number'),
+      ...(raw.totals === false ? { totals: false } : {}),
     }
   }
 
@@ -237,9 +469,17 @@ function cleanBlock(raw: unknown, index: number, seen: Set<string>): ViewBlock {
     const lbl = oneLine(entry.label, MAX_LABEL, `${where}: column ${i + 1} label`, false)
     if (lbl) col.label = lbl
     if (entry.format !== undefined) col.format = pick(entry.format, VALUE_FORMATS, `${where}: column ${i + 1} format`)
+    if (entry.tone !== undefined && entry.tone !== null && entry.tone !== '') col.tone = pick(entry.tone, COLUMN_TONES, `${where}: column ${i + 1} tone`)
+    if (entry.link !== undefined && entry.link !== null && entry.link !== '') {
+      col.link = pick(entry.link, ['company'] as const, `${where}: column ${i + 1} link`)
+      if (!resultColumns.includes('company_id')) throw new ViewSpecError(`${where}: column ${i + 1} links to the company, so the query must return company_id (add it to columns or group_by).`)
+    }
     return col
   })
-  return { ...base, type, source, columns }
+  const subtotalBy = raw.subtotal_by !== undefined && raw.subtotal_by !== null && raw.subtotal_by !== ''
+    ? resultColumn(raw.subtotal_by, resultColumns, where, 'subtotal_by')
+    : undefined
+  return { ...base, type: 'table' as const, source, columns, ...(raw.totals === true ? { totals: true } : {}), ...(subtotalBy ? { subtotal_by: subtotalBy } : {}) }
 }
 
 /**
@@ -260,7 +500,49 @@ export function parseViewSpec(raw: unknown): ViewSpec {
   if (input.blocks.length > MAX_BLOCKS) throw new ViewSpecError(`A view can have at most ${MAX_BLOCKS} blocks.`)
   const seen = new Set<string>()
   const blocks = input.blocks.map((b, i) => cleanBlock(b, i, seen))
-  return { spec_version: SPEC_VERSION, title, ...(description ? { description } : {}), params, blocks }
+  // A formula tile names other tiles by id; only tiles that load a figure can be named.
+  const tiles = blocks.filter((b): b is KpiBlock => b.type === 'kpi' && b.formula === undefined).map(b => b.id)
+  blocks.forEach((b, i) => {
+    if (!isFormulaBlock(b)) return
+    try {
+      parseFormula(b.formula, tiles)
+    } catch (e) {
+      if (e instanceof FormulaError) {
+        throw new ViewSpecError(`Block ${i + 1}: formula: ${e.message.replace('a column of the result', 'the id of another kpi block')}${tiles.length ? '' : ' Give the tiles it uses ids made of letters, digits and _.'}`)
+      }
+      throw e
+    }
+  })
+  const filters = cleanFilters(input.filters, blocks)
+  return { spec_version: SPEC_VERSION, title, ...(description ? { description } : {}), params, ...(filters.length ? { filters } : {}), blocks }
+}
+
+/** A filter must name a column of at least one block's dataset; a range needs a date or number column. */
+function cleanFilters(raw: unknown, blocks: ViewBlock[]): ViewFilter[] {
+  if (raw === undefined || raw === null) return []
+  if (!Array.isArray(raw)) throw new ViewSpecError('filters must be a list of { column, label?, kind? }.')
+  if (raw.length > MAX_FILTERS) throw new ViewSpecError(`A view can have at most ${MAX_FILTERS} filters.`)
+  const datasetColumns = blocks.filter(isDataBlock).flatMap(b => findDataset(b.source.tool, b.source.dataset)?.columns ?? [])
+  const seen = new Set<string>()
+  return raw.map((f: unknown, i: number) => {
+    const entry = typeof f === 'string' ? { column: f } : f
+    if (!isObject(entry)) throw new ViewSpecError(`Filter ${i + 1} must be a column name or { column, label?, kind? }.`)
+    const column = typeof entry.column === 'string' ? entry.column : ''
+    const cols = datasetColumns.filter(c => c.name === column)
+    if (!cols.length) {
+      const names = Array.from(new Set(datasetColumns.map(c => c.name)))
+      throw new ViewSpecError(`Filter ${i + 1}: "${column}" is not a column of any block's dataset. Columns: ${names.join(', ')}.`)
+    }
+    if (seen.has(column)) throw new ViewSpecError(`Filter ${i + 1}: "${column}" is already a filter.`)
+    seen.add(column)
+    const kind = pick(entry.kind, ['pick', 'range'] as const, `Filter ${i + 1}: kind`, cols.some(c => c.type === 'date') ? 'range' : 'pick')
+    if (kind === 'range' && !cols.some(c => c.type === 'date' || c.type === 'number')) throw new ViewSpecError(`Filter ${i + 1}: a range needs a date or number column.`)
+    if (kind === 'pick' && cols.every(c => c.type === 'list' || c.type === 'boolean') && cols.some(c => c.type === 'boolean')) {
+      // A yes/no column is fine as a pick; lists filter by any of their items.
+    }
+    const label = oneLine(entry.label, MAX_LABEL, `Filter ${i + 1}: label`, false) ?? column.replace(/_/g, ' ').replace(/^./, c => c.toUpperCase())
+    return { column, label, kind }
+  })
 }
 
 function safeJson(text: string): unknown {
@@ -281,6 +563,31 @@ export function cleanParams(spec: ViewSpec, raw: unknown): Partial<Record<ViewPa
     if (typeof value !== 'string' || value.length > 200) throw new ViewSpecError(`${key} must be short text.`)
     if (key === 'as_of' && !isRealDate(value)) throw new ViewSpecError('as_of must be a real date (YYYY-MM-DD).')
     out[key] = value.trim()
+  }
+  return out
+}
+
+export interface FilterValue { pick?: string; from?: string; to?: string }
+
+/**
+ * The values a view's filters were opened with: `filter.<column>` for a pick, and
+ * `filter.<column>.from` / `.to` for a range. Others are ignored.
+ */
+export function cleanFilterValues(spec: ViewSpec, raw: unknown): Record<string, FilterValue> {
+  const input = isObject(raw) ? raw : {}
+  const out: Record<string, FilterValue> = {}
+  const text = (v: unknown, what: string) => {
+    if (v === undefined || v === null || v === '') return undefined
+    if (typeof v !== 'string' && typeof v !== 'number') throw new ViewSpecError(`${what} must be short text.`)
+    const s = String(v).trim()
+    if (s.length > 200) throw new ViewSpecError(`${what} must be short text.`)
+    return s || undefined
+  }
+  for (const f of spec.filters ?? []) {
+    const value: FilterValue = f.kind === 'pick'
+      ? { pick: text(input[`filter.${f.column}`], f.label) }
+      : { from: text(input[`filter.${f.column}.from`], `${f.label} from`), to: text(input[`filter.${f.column}.to`], `${f.label} to`) }
+    if (value.pick || value.from || value.to) out[f.column] = value
   }
   return out
 }

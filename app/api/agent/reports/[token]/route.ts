@@ -33,6 +33,9 @@ import { closeBundleZip, loadCloseBundle } from '@/lib/accounting/close-bundle'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { ForecastError } from '@/lib/forecast/service'
 import { forecastWorkbookDocument } from '@/lib/forecast/workbook-document'
+import { customViewDocument } from '@/lib/custom-views/document'
+import { CustomViewError } from '@/lib/custom-views/store'
+import { ViewSpecError } from '@/lib/custom-views/spec'
 
 export const runtime = 'nodejs'
 // 300 for a ZIP of a whole fund's report cards (lp_report_cards); every other document takes far less.
@@ -310,11 +313,22 @@ async function fundDocument(admin: ReturnType<typeof createAdminClient>, claims:
         })
         break
       }
+      // /api/views/[id]/export — level 'any'; every block is checked against this member's access as
+      // it loads, so the file holds only what the view shows them now.
+      case 'custom_view': {
+        const format = a.format === 'xlsx' ? 'xlsx' : a.format === 'pdf' ? 'pdf' : null
+        if (!a.view || !format) return notFound()
+        doc = await customViewDocument({ admin, fundId, userId: claims.userId, access }, {
+          view: a.view, format, arguments: Object.fromEntries(Object.entries(a).filter(([k]) => k !== 'view' && k !== 'format')),
+        })
+        break
+      }
       default:
         return notFound()
     }
   } catch (e) {
     if (e instanceof VehicleResolutionError) return notFound()
+    if (e instanceof CustomViewError || e instanceof ViewSpecError) return notFound()
     // The service's refusals (no access, an entity or plan not theirs) read like any other refusal.
     if (e instanceof ForecastError && (e.status === 403 || e.status === 404)) return notFound()
     if (e instanceof ForecastError) return NextResponse.json({ error: e.message }, { status: e.status })

@@ -8,6 +8,7 @@ import { AGENT_TOOL_MANIFEST, type AgentToolMeta } from './agent-tools-manifest'
 import type { Domain } from '@/lib/access/domains'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
 import { changeEntryState } from './journal-state'
+import { editDraftEntry } from './journal-edit'
 import { carryRecipientIds, combineCarryRecipients, seesIndividualCarry } from '@/lib/access/carry-visibility'
 import type { FeatureKey } from '@/lib/types/features'
 import { loadPostedLedger, loadEntityNames, loadOwnership, fetchAllRows } from './load'
@@ -111,7 +112,7 @@ import { ADMIN_REPORTING_TOOL_MANIFEST } from '@/lib/agent/admin-reporting-tools
 import { ADMIN_REPORTING_HANDLERS } from '@/lib/agent/admin-reporting-tools'
 import { RECORD_TOOL_MANIFEST } from '@/lib/agent/record-tools-manifest'
 import { RECORD_HANDLERS } from '@/lib/agent/record-tools'
-import { isRecordArea, readableAreas, recordAccessProblem } from '@/lib/records/areas'
+import { canFileRecords, isRecordArea, readableAreas, recordAccessProblem } from '@/lib/records/areas'
 import { authorizeToolUse, type ResolvedKey } from './api-keys'
 
 export { resolveVehicle } from './vehicle-resolver'
@@ -199,9 +200,12 @@ const HANDLERS: Record<string, AgentToolHandler> = {
     return { rows: rows.map(({ id, ...r }) => ({ lpEntityId: id, ...r })), nav: totalNav(accounts) }
   },
 
-  financial_statements: async ({ admin, fundId, portfolioGroup }) => {
+  financial_statements: async ({ admin, fundId, portfolioGroup }, input) => {
+    // `asOf` strikes every statement at that date: entries after it are left out, so the balances
+    // are the books as they stood then. The income statement runs from inception to that date.
+    const asOf = dateArg(input, 'asOf')
     const [{ accounts, postings, sourcedPostings }, kind] = await Promise.all([
-      loadPostedLedger(admin, fundId, portfolioGroup),
+      loadPostedLedger(admin, fundId, portfolioGroup, asOf),
       vehicleKindByName(admin, fundId, portfolioGroup),
     ])
     return {
@@ -211,7 +215,7 @@ const HANDLERS: Record<string, AgentToolHandler> = {
       // A management company's members have no statements of their own; this is each member's
       // capital roll-forward since inception (lib/accounting/members-capital.ts).
       ...(isManagementCompany(kind)
-        ? { changesInMembersCapital: changesInMembersCapital(accounts, sourcedPostings, { start: null, end: null }) }
+        ? { changesInMembersCapital: changesInMembersCapital(accounts, sourcedPostings, { start: null, end: asOf ?? null }) }
         : {}),
     }
   },
@@ -560,6 +564,52 @@ const HANDLERS: Record<string, AgentToolHandler> = {
     return { posted: changed, skipped, warnings, hasMore, cursor }
   },
 
+  // The entry form's Save on a draft (PUT /api/accounting/journal), through the same function:
+  // lib/accounting/journal-edit.ts. Accounts may be named by code (resolved in this entity's chart)
+  // or by id; either way validatePostings refuses an account or partner from elsewhere.
+  edit_draft_entry: async ({ admin, fundId, portfolioGroup, userId, access }, input) => {
+    const entryId = String(input?.entry_id ?? '')
+    if (!entryId) throw new Error('entry_id is required')
+    if (!Array.isArray(input?.postings) || input.postings.length === 0) throw new Error('postings must list every line of the entry')
+    const codes = await accountIdByCode(admin, fundId, portfolioGroup)
+    const postings = input.postings.map((p: any) => {
+      let accountId: string | undefined
+      if (p?.accountCode != null && p.accountCode !== '') {
+        accountId = codes.get(String(p.accountCode))
+        if (!accountId) throw new Error(`Unknown account code ${p.accountCode} for ${portfolioGroup}`)
+      } else if (typeof p?.accountId === 'string' && p.accountId) {
+        accountId = p.accountId
+      } else {
+        throw new Error('Each posting needs an accountCode or accountId')
+      }
+      return { accountId, amount: p?.amount, lpEntityId: p?.lpEntityId ?? null }
+    })
+    const vehicleId = await vehicleIdByName(admin, fundId, portfolioGroup)
+    const body: Record<string, unknown> = { id: entryId, postings }
+    for (const k of ['entryDate', 'memo', 'reference', 'vendorId', 'adjusting', 'sourceType']) {
+      if (input && k in input) body[k] = input[k]
+    }
+    const out = await editDraftEntry(admin, {
+      fundId, userId: userId ?? null,
+      proposing: !!access && isProposer(access, vehicleId),
+      mayTouchInvestments: async () => mayTouchInvestments(access),
+    }, portfolioGroup, vehicleId, body, { keepOmitted: true })
+    const removed = (out.body.removedTransactions as unknown[] | undefined) ?? []
+    const unlinked = (out.body.unlinkedRegisterRows as unknown[] | undefined) ?? []
+    if (out.status >= 400) {
+      const gone = removed.length > 0 ? ` These investment transactions were already deleted: ${JSON.stringify(removed)}.` : ''
+      throw new Error(String(out.body.error ?? 'The draft could not be saved.') + gone)
+    }
+    const e = out.body as any
+    return {
+      entryId, status: e.status ?? 'draft', entryDate: e.entry_date, memo: e.memo ?? null, reference: e.reference ?? null,
+      postings: ((e.journal_postings as any[]) ?? []).map(p => ({ accountId: p.account_id, amount: Number(p.amount), lpEntityId: p.lp_entity_id ?? null })),
+      ...(removed.length > 0 ? { removedTransactions: removed } : {}),
+      ...(unlinked.length > 0 ? { unlinkedRegisterRows: unlinked } : {}),
+      next: 'Still a draft. Post it with post_drafts (ids: [entryId]) once it looks right.',
+    }
+  },
+
   // The journal's bulk discard (api/accounting/journal/bulk-void): drafts only, never a posted entry.
   discard_drafts: async ({ admin, fundId, portfolioGroup, userId }, input) => {
     const vehicleId = await vehicleIdByName(admin, fundId, portfolioGroup)
@@ -730,9 +780,9 @@ export function accessFeatureFor(tool: AgentToolMeta): FeatureKey | undefined {
  * level, and a proposable write for a proposer too, since calling it makes a proposal.
  */
 export function toolListedFor(access: AccessContext, tool: AgentToolMeta): boolean {
-  // An area tool (fund records) is for anyone who reads some area; filing also needs a role that
-  // changes things, which the read-only demo is not.
-  if (tool.areaInput) return readableAreas(access).length > 0 && (tool.scope === 'read' || access.role !== 'viewer')
+  // An area tool (fund records) is for anyone with read on Records who reads some area; filing
+  // also needs write on Records, which the read-only demo never has.
+  if (tool.areaInput) return readableAreas(access).length > 0 && (tool.scope === 'read' || canFileRecords(access))
   const need = tool.scope === 'write' && tool.proposable === true ? 'propose' : tool.scope
   return hasAccess(access, accessDomainFor(tool), need, accessFeatureFor(tool))
 }

@@ -23,8 +23,10 @@ export interface AccessPreset {
 const NONE: AccessPreset['grants'] = {
   portfolio: 'none', relationships: 'none', dealflow: 'none', diligence: 'none', accounting: 'none',
   management_company: 'none', lp_capital: 'none', gp_economics: 'none', lp_relations: 'none', compliance: 'none',
-  tax: 'none',
+  // Records is granted by an admin per person, never by a preset.
+  tax: 'none', records: 'none',
 }
+
 
 export const ACCESS_PRESETS: AccessPreset[] = [
   {

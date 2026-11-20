@@ -80,6 +80,7 @@ const PAIRS: Pair[] = [
   { what: 'start the next diligence round', route: 'api/diligence/[id]/rounds', method: 'POST', tool: 'diligence_round_save' },
   { what: 'close or rename a diligence round', route: 'api/diligence/[id]/rounds/[roundId]', method: 'PATCH', tool: 'diligence_round_save' },
   { what: 'make a journal entry (a proposal for a proposer)', route: 'api/accounting/journal', method: 'POST', body: { status: 'draft' }, tool: 'post_entry', proposer: 'allowed' },
+  { what: 'edit a draft entry (their own proposal for a proposer)', route: 'api/accounting/journal', method: 'PUT', tool: 'edit_draft_entry', proposer: 'allowed' },
   { what: 'withdraw their own proposal', route: 'api/accounting/journal', method: 'PATCH', body: { action: 'void' }, tool: 'withdraw_proposal', proposer: 'allowed' },
   // A draft is discarded (discard_drafts); voiding a POSTED entry is admin-only, which the handler
   // checks from the row (journal-state.ts) and void_entry carries in ADMIN_ONLY_TOOLS.
@@ -168,10 +169,10 @@ describe('the three doors agree', () => {
     })
   }
 
-  it('let a proposer propose and withdraw on every door, and nothing else that changes the books', () => {
+  it('let a proposer propose, edit and withdraw their own proposals on every door, and nothing else that changes the books', () => {
     const auditor = PEOPLE.find(([w]) => w === 'Auditor preset')![1]
     const allowed = PAIRS.filter(p => p.route === 'api/accounting/journal' && p.method !== 'GET' && web(auditor, p)).map(p => p.tool)
-    expect(allowed.sort()).toEqual(['post_entry', 'withdraw_proposal'])
+    expect(allowed.sort()).toEqual(['edit_draft_entry', 'post_entry', 'withdraw_proposal'])
   })
 
   for (const [who, access] of PEOPLE) {

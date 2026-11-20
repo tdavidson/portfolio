@@ -175,6 +175,8 @@ p, h1, h2 { margin: 0; }
 .bar-fill, .bar-commit { position: absolute; top: 0; bottom: 0; left: 0; border-radius: 0 4px 4px 0; }
 .bar-fill { background: var(--pf-series); }
 .bar-fill-loss { background: hsl(var(--destructive)); }
+.bar-stack { position: absolute; top: 0; bottom: 0; left: 0; display: flex; gap: 1px; border-radius: 0 4px 4px 0; overflow: hidden; }
+.bar-seg { flex-basis: 0; min-width: 1px; }
 .bar-commit { background: var(--pf-series-soft); }
 /* A ring in the surface colour keeps the tick legible where it crosses the bar. */
 .bar-tick { position: absolute; top: -3px; bottom: -3px; width: 2px; margin-left: -1px; background: var(--pf-text); box-shadow: 0 0 0 2px var(--pf-bg); }

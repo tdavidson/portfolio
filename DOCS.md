@@ -389,7 +389,7 @@ Every entity keeps double-entry books from the day it is created — a fund, an 
 Entities are added under **Entities** (one *Add vehicle* button for every kind). For each one you want to look after:
 
 1. **The chart of accounts is already there** — the fund chart for a fund, SPV or direct vehicle; the GP-entity chart (investment in fund, members' capital, carried interest income) for an *associate*; the management-company chart for a management company. Edit it under the entity's **Admin → Chart of accounts**.
-2. **Bring in what came before.** Investment history already in the tracker: the entity's status page says how many items have not reached the ledger — choose *Put them on the ledger* (or book every entity at once from the entity index). It adopts entries already there and posts the missing ones on their own dates, and can be run again safely. For the rest: **Migrate from QuickBooks** on the status page, import the **bank** history, or take over at a cutover date on **Opening balances** with each LP's capital from their latest statement.
+2. **Bring in what came before.** Investment history already in the tracker: the entity's status page says how many items have not reached the ledger — choose *Review and book*, tick the items to book (or book every entity at once from the entity index). It adopts entries already there and posts the missing ones on their own dates, and can be run again safely. For the rest: **Migrate from QuickBooks** on the status page, import the **bank** history, or take over at a cutover date on **Opening balances** with each LP's capital from their latest statement.
 3. **Set the allocation terms** (Admin → Allocation terms): the allocation basis, each partner's commitment, who bears which category, and the carry terms (none, a straight split, or a European waterfall with a preferred return and catch-up). Carry accrues at each close only if terms are set.
 
 Then work the entity: import a bank feed under **Bank** (a row that matches an entry already posted is linked to it rather than booked twice), post entries in the **Journal** — each income or expense entry is allocated to the partners as it posts — and **Close** each month to review, reconcile the bank, true up carry and lock it.
@@ -571,7 +571,8 @@ Minting a URL changes no record, so it runs at once even from a chat; the regist
 | Tool | Datasets | Needs |
 |---|---|---|
 | `query_portfolio` | `positions`, `companies`, `transactions`, `kpis` | Portfolio (transactions: the Investments switch) |
-| `query_lps` | `lp_positions`, `capital_call_lines` | LP capital |
+| `query_lps` | `lp_positions`, `capital_accounts`, `capital_call_lines` | LP capital |
+| `query_funds` | `fund_performance`, `pnl_by_month`, `cash_by_month`, `forecast_by_month` | Accounting |
 | `query_deals` | `inbound_deals` | Deal flow |
 | `query_diligence` | `diligence_deals` | Diligence |
 | `query_ledger` | `journal_lines` | Accounting |

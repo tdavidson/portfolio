@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { Building2, ClipboardCheck, Mail, Upload, Send, Settings, LifeBuoy, PanelLeftClose, PanelLeftOpen, Monitor, Sun, Moon, BarChart3, TrendingUp, Lock, Users, Handshake, ArrowDownCircle, FileText, Crown, ShieldCheck, Lightbulb, Microscope, BookOpen, Sparkles, ListChecks, BadgeCheck, Archive } from 'lucide-react'
+import { Building2, ClipboardCheck, Mail, Upload, Send, Settings, LifeBuoy, PanelLeftClose, PanelLeftOpen, Monitor, Sun, Moon, BarChart3, TrendingUp, Lock, Users, Handshake, ArrowDownCircle, FileText, Crown, ShieldCheck, Lightbulb, Microscope, BookOpen, Sparkles, ListChecks, BadgeCheck, Archive, View } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import { useState, useEffect } from 'react'
 import { useTheme } from 'next-themes'
@@ -13,6 +13,7 @@ import type { FeatureKey, FeatureVisibilityMap } from '@/lib/types/features'
 import { domainForFeature, type Domain } from '@/lib/access/domains'
 import { useAccess } from '@/components/access-context'
 import type { AccessLevel } from '@/lib/access/effective'
+import { useSetupComplete } from '@/components/getting-started-banner'
 
 const THEME_CYCLE = ['system', 'light', 'dark'] as const
 const THEME_ICONS = { system: Monitor, light: Sun, dark: Moon }
@@ -81,9 +82,6 @@ const NAV_ITEMS: NavItem[] = [
   // domains, and /api/pending-actions filters each row by the caller's read access. Shown, like
   // Review, only while something is waiting — the layout counts with RLS, so that is per user.
   { href: '/pending-actions', label: 'Approvals', icon: BadgeCheck, badgeKey: 'approvals' },
-  // What people and their assistants filed from a session (lib/records). No domain: records span
-  // areas, and /api/records shows each one only to someone who reads its area and entity.
-  { href: '/records', label: 'Records', icon: Archive },
   // Portfolio, not dealflow — the mailbox is where portfolio updates arrive and where the review
   // queue's emails live, so gating it on the Deals product hid the only page that can reprocess an
   // email from every fund running Portfolio Reporting alone. Deal-specific actions inside it gate
@@ -94,7 +92,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/start', label: 'Start', icon: Sparkles },
   // The setup checklist (lib/onboarding/progress.ts). Admin-only in the nav because setting a fund
   // up is an admin's job; the page itself gates on `portfolio` and filters its steps per grant.
-  // Shown whether or not setup is finished — knowing that would cost the sidebar a fetch.
+  // Hidden once every step is done or skipped (useSetupComplete, one admin-only fetch); an admin
+  // gets back to it from the button on Settings.
   { href: '/getting-started', label: 'Getting started', icon: ListChecks, adminOnly: true },
   { href: '/emails', label: 'Inbound', icon: Mail, domain: 'portfolio' },
   { href: '/deals', label: 'Deals', icon: Lightbulb, featureKey: 'deals' },
@@ -115,9 +114,6 @@ const NAV_ITEMS: NavItem[] = [
       // What companies reported, searchable: the Company Updates corpus. Plain portfolio — it has
       // no feature switch of its own because it IS the reporting product's evidence layer.
       { href: '/company-updates', label: 'Updates', domain: 'portfolio' },
-      // Custom views: screens a member described to an assistant and saved (lib/custom-views).
-      // Each block is checked against the viewer's own access as it loads.
-      { href: '/views',        label: 'Views',        domain: 'portfolio' },
       // Letters are generated from PORTFOLIO data (the companies) and can be produced without
       // any LP tracking, so they live under Portfolio, not LPs.
       { href: '/letters',      label: 'Letters',      featureKey: 'lp_letters' },
@@ -127,6 +123,9 @@ const NAV_ITEMS: NavItem[] = [
       { href: '/compliance',   label: 'Compliance',   featureKey: 'compliance' },
     ],
   },
+  // Custom views: screens a member described to an assistant and saved (lib/custom-views).
+  // Each block is checked against the viewer's own access as it loads.
+  { href: '/views', label: 'Views', icon: View, domain: 'portfolio' },
   {
     href: '/lps', label: 'LPs', icon: Crown, featureKey: 'lps',
     children: [
@@ -154,6 +153,9 @@ const NAV_ITEMS: NavItem[] = [
     children: ACCOUNTING_SECTIONS.map(({ href, label, domain, requiresFof, feature }) => ({ href, label, domain, requiresFof, featureKey: feature })),
   },
   { href: '/usage', label: 'Usage', icon: Users, adminOnly: true, domain: 'admin' },
+  // What people and their assistants filed from a session (lib/records). Its own access right;
+  // /api/records still shows each record only to someone who reads its area and entity.
+  { href: '/records', label: 'Records', icon: Archive, domain: 'records' },
   { href: '/settings', label: 'Settings', icon: Settings, badgeKey: 'settings' },
   { href: '/support', label: 'Support', icon: LifeBuoy },
 ]
@@ -227,6 +229,7 @@ export function navSectionsFor(
     if (!canSee(item, isAdmin, access)) return false
     if (item.badgeKey === 'review' && (badges.review ?? 0) === 0) return false
     if (item.badgeKey === 'approvals' && (badges.approvals ?? 0) === 0) return false
+    if (item.href === '/getting-started' && badges.setupComplete) return false
     return true
   })
 }
@@ -330,7 +333,12 @@ function useNavPending(fundSeg: string | null, group: string | null, kind: strin
 export type { NavItem, NavChild }
 
 /** The counts that decide whether a conditional section (Review, Approvals) is shown at all. */
-export interface NavBadges { review?: number; approvals?: number }
+export interface NavBadges {
+  review?: number
+  approvals?: number
+  /** Every Getting started step is done or skipped: the entry leaves the nav (Settings links to it). */
+  setupComplete?: boolean
+}
 
 interface AppSidebarProps {
   reviewBadge: number
@@ -373,6 +381,7 @@ export function AppSidebar({ reviewBadge, approvalsBadge, settingsBadge, notesBa
   const fundSeg = useFundSeg()
   const { kind: vehicleKind, group: vehicleGroup } = useVehicle()
   const pending = useNavPending(fundSeg, vehicleGroup, vehicleKind)
+  const setupComplete = useSetupComplete(!!isAdmin)
 
   const currentTheme = (THEME_CYCLE.includes(theme as typeof THEME_CYCLE[number]) ? theme : 'system') as typeof THEME_CYCLE[number]
   const ThemeIcon = mounted ? THEME_ICONS[currentTheme] : Monitor
@@ -386,7 +395,7 @@ export function AppSidebar({ reviewBadge, approvalsBadge, settingsBadge, notesBa
   return (
     <div className="flex flex-col flex-1">
       <nav className={`flex-1 p-2 space-y-0.5 ${collapsed ? 'md:px-1' : ''}`}>
-        {navSectionsFor(!!isAdmin, access, { review: reviewBadge, approvals: approvalsBadge }).map((item) => {
+        {navSectionsFor(!!isAdmin, access, { review: reviewBadge, approvals: approvalsBadge, setupComplete }).map((item) => {
           const { href, label, icon: Icon, badgeKey, adminOnly, featureKey, beta } = item
           // The parent row is highlighted ONLY when it is the exact current page — never
           // merely because a child is open. Otherwise the highlight was inconsistent: Funds

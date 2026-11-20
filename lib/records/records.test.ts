@@ -24,7 +24,8 @@ const person = (
   grants: Partial<Record<Domain, AccessLevel>> = {},
   vehicles: AccessContext['vehicles'] = { all: true, ids: [] },
 ): AccessContext => ({ fundId: 'f1', userId: 'u1', role, features: ALL_ON, grants, defaults: {}, vehicles })
-const preset = (label: string) => person('member', ACCESS_PRESETS.find(p => p.label === label)!.grants)
+/** A preset, plus the Records grant an admin gives on top (presets never include it). */
+const preset = (label: string) => person('member', { ...ACCESS_PRESETS.find(p => p.label === label)!.grants, records: 'write' })
 const key = (scopes: ('read' | 'write')[] = ['read', 'write']): ResolvedKey => ({ fundId: 'f1', keyId: 'k1', userId: 'u1', role: 'member', scopes })
 
 describe('who may file and read', () => {
@@ -35,7 +36,22 @@ describe('who may file and read', () => {
 
   it('refuses an area the person cannot read', () => {
     expect(recordAccessProblem(preset('Investment team'), { area: 'tax', filing: true })).toMatch(/do not have access/)
-    expect(recordAccessProblem(person('member'), { filing: false })).toMatch(/no area/)
+    expect(recordAccessProblem(person('member', { records: 'read' }), { filing: false })).toMatch(/no area/)
+  })
+
+  it('gives presets no Records access: an admin grants it', () => {
+    for (const p of ACCESS_PRESETS) expect(p.grants.records, p.key).toBe('none')
+    expect(recordAccessProblem(person('member', ACCESS_PRESETS[0].grants), { area: 'accounting', filing: false })).toMatch(/access to Records/)
+  })
+
+  it('needs the Records access right: read to read, write to file', () => {
+    expect(recordAccessProblem(person('member', { accounting: 'read' }), { area: 'accounting', filing: false })).toMatch(/access to Records/)
+    expect(readableAreas(person('member', { accounting: 'write' }))).toEqual([])
+    const reader = person('member', { accounting: 'read', records: 'read' })
+    expect(recordAccessProblem(reader, { area: 'accounting', filing: false })).toBeNull()
+    expect(recordAccessProblem(reader, { area: 'accounting', filing: true })).toMatch(/not file/)
+    expect(recordAccessProblem(person('member', { accounting: 'read', records: 'write' }), { area: 'accounting', filing: true })).toBeNull()
+    expect(visible(person('member', { accounting: 'read' }), { area: 'accounting', vehicle_id: null })).toBe(false)
   })
 
   it('makes a filing name its area, and refuses an unknown one', () => {
@@ -49,7 +65,7 @@ describe('who may file and read', () => {
   })
 
   it('shows a record only with read on its area and its entity in scope', () => {
-    const scoped = person('member', { accounting: 'read' }, { all: false, ids: ['v1'] })
+    const scoped = person('member', { accounting: 'read', records: 'read' }, { all: false, ids: ['v1'] })
     expect(visible(scoped, { area: 'accounting', vehicle_id: 'v1' })).toBe(true)
     expect(visible(scoped, { area: 'accounting', vehicle_id: 'v2' })).toBe(false)
     expect(visible(scoped, { area: 'accounting', vehicle_id: null })).toBe(false)
@@ -59,6 +75,7 @@ describe('who may file and read', () => {
 
   it('never offers admin as an area', () => {
     expect(RECORD_AREAS as readonly string[]).not.toContain('admin')
+    expect(RECORD_AREAS as readonly string[]).not.toContain('records')
     expect(readableAreas(person('admin'))).toEqual([...RECORD_AREAS])
   })
 })
@@ -106,7 +123,10 @@ describe('every door', () => {
   })
 
   it('answers the same on MCP and the API, by the rule the web route uses', () => {
-    const people = [person('admin'), person('viewer'), person('member'), ...ACCESS_PRESETS.map(p => person('member', p.grants))]
+    const people = [
+      person('admin'), person('viewer'), person('member'),
+      ...ACCESS_PRESETS.flatMap(p => (['none', 'read', 'write'] as const).map(r => person('member', { ...p.grants, records: r }))),
+    ]
     const mcpFile = MCP_TOOLS.find(t => t.name === 'file_to_record')!
     for (const access of people) {
       for (const area of RECORD_AREAS) {
@@ -128,6 +148,9 @@ describe('every door', () => {
     expect(toolListedFor(person('member'), list)).toBe(false)
     expect(toolListedFor(person('viewer'), file)).toBe(false)
     expect(toolListedFor(person('viewer'), list)).toBe(true)
+    const reader = person('member', { accounting: 'read', records: 'read' })
+    expect(toolListedFor(reader, list)).toBe(true)
+    expect(toolListedFor(reader, file)).toBe(false)
     expect(listableTools(preset('Auditor')).some(t => t.name === 'file_to_record')).toBe(true)
   })
 

@@ -77,6 +77,8 @@ describe('query tools', () => {
     expect(getTool('query_deals')).toMatchObject({ scope: 'read', domain: 'deals' })
     expect(getTool('query_diligence')).toMatchObject({ scope: 'read', domain: 'diligence' })
     expect(getTool('query_ledger')).toMatchObject({ scope: 'read', domain: 'ledger' })
+    // Fund-level books, gated like fund_performance and forecast_series.
+    expect(getTool('query_funds')).toMatchObject({ scope: 'read', domain: 'portfolio', accessDomain: 'accounting' })
   })
 
   it('aggregates KPIs over only the companies the member can see', async () => {
