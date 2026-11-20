@@ -137,7 +137,7 @@ async function loadVehicle(ctx: ForecastServiceContext, vehicle: string, need: '
   const [accountRows, closed, currency, lastPosted] = await Promise.all([
     fetchAllRows((f, t) =>
       (ctx.admin as any).from('chart_of_accounts').select('id, code, name, type, subtype, lp_entity_id, company_id, is_active')
-        .eq('fund_id', ctx.fundId).eq('vehicle_id', id).range(f, t),
+        .eq('fund_id', ctx.fundId).eq('vehicle_id', id).order('id').range(f, t),
     ),
     closedPeriodRanges(ctx.admin, ctx.fundId, resolved.name),
     fundCurrency(ctx.admin, ctx.fundId),
@@ -296,7 +296,7 @@ async function loadPlanRow(ctx: ForecastServiceContext, v: VehicleCtx, planId: s
 
 async function loadInputs(ctx: ForecastServiceContext, planId: string) {
   const [rules, overrides] = await Promise.all([
-    fetchAllRows((f, t) => (ctx.admin as any).from('forecast_rules').select('id, account_id, method, params, cash_timing, source, note').eq('fund_id', ctx.fundId).eq('plan_id', planId).range(f, t)),
+    fetchAllRows((f, t) => (ctx.admin as any).from('forecast_rules').select('id, account_id, method, params, cash_timing, source, note').eq('fund_id', ctx.fundId).eq('plan_id', planId).order('id').range(f, t)),
     fetchAllRows((f, t) => (ctx.admin as any).from('forecast_overrides').select('id, account_id, month, amount, note').eq('fund_id', ctx.fundId).eq('plan_id', planId).order('month').range(f, t)),
   ])
   return { rules: (rules as any[]).map(mapRule), overrides: (overrides as any[]).map(mapOverride) }

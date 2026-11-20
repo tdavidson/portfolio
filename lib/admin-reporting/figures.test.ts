@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { adminRows, checkPull, cleanAdminFigures, parseAmount, parseIrr, parseMultiple, splitAdminRow, type AdminFigures } from './figures'
+import { adminRows, backfillMultiples, checkPull, cleanAdminFigures, parseAmount, parseIrr, parseMultiple, splitAdminRow, type AdminFigures } from './figures'
 
 const base = {
   as_of: '2026-06-30',
@@ -92,7 +92,7 @@ describe('adminRows', () => {
 
   it('shows the latest position as stated with the fund figures for its date', () => {
     const [r] = adminRows(positions, fund)
-    expect(r).toMatchObject({ asOf: '2026-06-30', paid_in_capital: 50_000, total_value: 65_000, outstanding_balance: 50_000, receivable: 1_000, irr: 0.0608, tvpi: 1.2, dpi: 0.1, rvpi: null })
+    expect(r).toMatchObject({ asOf: '2026-06-30', paid_in_capital: 50_000, total_value: 65_000, outstanding_balance: 50_000, receivable: 1_000, irr: 0.0608, tvpi: 1.2, dpi: 0.1, rvpi: 1.1 })
   })
 
   it('never borrows fund figures from another date', () => {
@@ -100,6 +100,18 @@ describe('adminRows', () => {
     expect(r.asOf).toBe('2026-03-31')
     expect(r.irr).toBeNull()
     expect(r.tvpi).toBeNull()
+  })
+})
+
+describe('backfillMultiples', () => {
+  it('derives the one multiple left out from the other two (TVPI = DPI + RVPI)', () => {
+    expect(backfillMultiples({ dpi: 0.25, rvpi: null, tvpi: 1.4 })).toEqual({ dpi: 0.25, rvpi: 1.15, tvpi: 1.4 })
+    expect(backfillMultiples({ dpi: null, rvpi: 1.15, tvpi: 1.4 })).toEqual({ dpi: 0.25, rvpi: 1.15, tvpi: 1.4 })
+    expect(backfillMultiples({ dpi: 0.25, rvpi: 1.15, tvpi: null })).toEqual({ dpi: 0.25, rvpi: 1.15, tvpi: 1.4 })
+  })
+  it('never replaces a stated figure, and leaves blanks it cannot derive', () => {
+    expect(backfillMultiples({ dpi: 0.2, rvpi: 1.3, tvpi: 1.4 })).toEqual({ dpi: 0.2, rvpi: 1.3, tvpi: 1.4 })
+    expect(backfillMultiples({ dpi: null, rvpi: null, tvpi: 1.4 })).toEqual({ dpi: null, rvpi: null, tvpi: 1.4 })
   })
 })
 

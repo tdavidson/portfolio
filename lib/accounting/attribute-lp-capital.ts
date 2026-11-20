@@ -97,7 +97,7 @@ async function scan(admin: SupabaseClient, fundId: string, group: string) {
       .eq('fund_id', fundId)
       .in('account_id', pooledIds)
       .neq('journal_entries.status', 'void')
-      .range(f, t),
+      .order('id').range(f, t),
   )
   const postings: PooledPosting[] = (posts ?? []).map(p => ({
     id: p.id,

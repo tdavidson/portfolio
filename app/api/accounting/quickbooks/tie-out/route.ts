@@ -57,17 +57,17 @@ export async function POST(req: NextRequest) {
   const [acctRows, entryRows, postingRows, mappingRows, taxEntryRows, taxPostingRows] = await Promise.all([
     fetchAllRows((f, t) => admin.from('chart_of_accounts' as any)
       .select('id, code, name, type, subtype, company_id, lp_entity_id')
-      .eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId).range(f, t)),
+      .eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId).order('id').range(f, t)),
     fetchAllRows((f, t) => admin.from('journal_entries' as any)
       .select('id, status, entry_date, source_type, memo')
       .eq('book', ACTUAL_BOOK)
       .eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId)
       .in('status', ['posted', 'draft'])
-      .lte('entry_date', body.asOf).range(f, t)),
+      .lte('entry_date', body.asOf).order('id').range(f, t)),
     fetchAllRows((f, t) => admin.from('journal_postings' as any)
       .select('journal_entry_id, account_id, amount, currency')
       .eq('book', ACTUAL_BOOK)
-      .eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId).range(f, t)),
+      .eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId).order('id').range(f, t)),
     (admin as any).from('qb_account_mappings')
       .select('qb_account, account_code, excluded')
       .eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId).eq('source', 'quickbooks'),
@@ -76,11 +76,11 @@ export async function POST(req: NextRequest) {
       .eq('book', 'tax').eq('source_type', 'quickbooks')
       .eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId)
       .in('status', ['posted', 'draft'])
-      .lte('entry_date', body.asOf).range(f, t)),
+      .lte('entry_date', body.asOf).order('id').range(f, t)),
     fetchAllRows((f, t) => admin.from('journal_postings' as any)
       .select('journal_entry_id, account_id, amount, currency')
       .eq('book', 'tax')
-      .eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId).range(f, t)),
+      .eq('fund_id', gate.fundId).eq('vehicle_id', vehicleId).order('id').range(f, t)),
   ])
 
   const inWindow = new Set(((entryRows as any[]) ?? []).map(e => e.id))

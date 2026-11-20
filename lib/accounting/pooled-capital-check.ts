@@ -104,7 +104,7 @@ export async function loadStrandedCapital(
       .eq('book', ACTUAL_BOOK)
       .eq('fund_id', fundId)
       .in('account_id', pooledIds)
-      .range(f, t),
+      .order('id').range(f, t),
   )
   const live = (posts ?? []).filter(p => p.journal_entries?.status === 'posted')
 

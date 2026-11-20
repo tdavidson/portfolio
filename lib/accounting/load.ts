@@ -19,7 +19,13 @@ export type SourcedPosting = Posting & { sourceType: string | null; entryId: str
  * Fetch every row of a query, paging past PostgREST's 1000-row default cap. A vehicle with more
  * than 1000 journal postings would otherwise load a TRUNCATED ledger — silently producing a false
  * trial-balance imbalance, phantom unallocated income, and a wrong NAV. `make(from, to)` must apply
- * the same filters each page and add `.range(from, to)`.
+ * the same filters each page, a stable unique order (`.order('id')`), and `.range(from, to)`.
+ *
+ * THE ORDER IS NOT OPTIONAL. Without one, Postgres is free to return each page from a different
+ * plan, so page 2 can repeat rows from page 1 and the rows it skipped are never read. Nothing
+ * errors: the result has the right row count with some rows twice and others missing. That is
+ * how a fund administrator's call entry lost its Due-from-LPs lines in the LP report's batched
+ * read, so the call went unclassified and the partners' called capital came up short.
  */
 export async function fetchAllRows<T>(
   make: (from: number, to: number) => PromiseLike<{ data: T[] | null; error: unknown }>,
@@ -73,13 +79,13 @@ export async function loadLedgerRowsBatch(
   const [acctRows, entryRows, postingRows] = opts.capitalOnly
     ? await loadCapitalRows(admin, fundId, vehicleIds, asOf)
     : await Promise.all([
-      fetchAllRows((f, t) => admin.from('chart_of_accounts' as any).select('id, code, name, type, subtype, lp_entity_id, company_id, vehicle_id').eq('fund_id', fundId).in('vehicle_id', vehicleIds).range(f, t)),
+      fetchAllRows((f, t) => admin.from('chart_of_accounts' as any).select('id, code, name, type, subtype, lp_entity_id, company_id, vehicle_id').eq('fund_id', fundId).in('vehicle_id', vehicleIds).order('id').range(f, t)),
       fetchAllRows((f, t) => {
         let q = admin.from('journal_entries' as any).select('id, source_type, status, entry_date, memo, vehicle_id').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('vehicle_id', vehicleIds).eq('status', 'posted')
         if (asOf) q = q.lte('entry_date', asOf)
-        return q.range(f, t)
+        return q.order('id').range(f, t)
       }),
-      fetchAllRows((f, t) => admin.from('journal_postings' as any).select('journal_entry_id, account_id, amount, currency, lp_entity_id, vehicle_id').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('vehicle_id', vehicleIds).range(f, t)),
+      fetchAllRows((f, t) => admin.from('journal_postings' as any).select('journal_entry_id, account_id, amount, currency, lp_entity_id, vehicle_id').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('vehicle_id', vehicleIds).order('id').range(f, t)),
     ])
 
   for (const r of (acctRows as any[])) out.get(r.vehicle_id)?.acctRows.push(r)
@@ -98,22 +104,22 @@ export async function loadLedgerRowsBatch(
  * trial balance and must not be used as one.
  */
 async function loadCapitalRows(admin: SupabaseClient, fundId: string, vehicleIds: string[], asOf?: string): Promise<[any[], any[], any[]]> {
-  // Unordered, like the whole-ledger read above: an order the full read doesn't have would change
-  // the order each partner's postings are summed in, and with it the last bit of the figures.
+  // Ordered by id, like the whole-ledger read above, so both reads sum each partner's postings in
+  // the same order. The order is also what makes the paging correct: see fetchAllRows.
   const POSTING_COLS = 'id, journal_entry_id, account_id, amount, currency, lp_entity_id, vehicle_id'
   const [acctRows, tagged] = await Promise.all([
-    fetchAllRows<any>((f, t) => admin.from('chart_of_accounts' as any).select('id, code, name, type, subtype, lp_entity_id, company_id, vehicle_id').eq('fund_id', fundId).in('vehicle_id', vehicleIds).range(f, t)),
-    fetchAllRows<any>((f, t) => admin.from('journal_postings' as any).select(POSTING_COLS).eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('vehicle_id', vehicleIds).not('lp_entity_id', 'is', null).range(f, t)),
+    fetchAllRows<any>((f, t) => admin.from('chart_of_accounts' as any).select('id, code, name, type, subtype, lp_entity_id, company_id, vehicle_id').eq('fund_id', fundId).in('vehicle_id', vehicleIds).order('id').range(f, t)),
+    fetchAllRows<any>((f, t) => admin.from('journal_postings' as any).select(POSTING_COLS).eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('vehicle_id', vehicleIds).not('lp_entity_id', 'is', null).order('id').range(f, t)),
   ])
   const entryIds = Array.from(new Set(tagged.map(p => p.journal_entry_id as string)))
   const entryRows = (await byIdChunks(entryIds, ids => fetchAllRows<any>((f, t) => {
     let q = admin.from('journal_entries' as any).select('id, source_type, status, entry_date, memo, vehicle_id').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('id', ids).eq('status', 'posted')
     if (asOf) q = q.lte('entry_date', asOf)
-    return q.range(f, t)
+    return q.order('id').range(f, t)
   })))
   const external = entryRows.filter(e => isExternalBookSource(e.source_type)).map(e => e.id as string)
   const splits = await byIdChunks(external, ids => fetchAllRows<any>((f, t) =>
-    admin.from('journal_postings' as any).select(POSTING_COLS).eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('journal_entry_id', ids).range(f, t)))
+    admin.from('journal_postings' as any).select(POSTING_COLS).eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('journal_entry_id', ids).order('id').range(f, t)))
   const seen = new Set(tagged.map(p => p.id))
   return [acctRows, entryRows, [...tagged, ...splits.filter(p => !seen.has(p.id))]]
 }
