@@ -81,9 +81,6 @@ const NAV_ITEMS: NavItem[] = [
   // domains, and /api/pending-actions filters each row by the caller's read access. Shown, like
   // Review, only while something is waiting — the layout counts with RLS, so that is per user.
   { href: '/pending-actions', label: 'Approvals', icon: BadgeCheck, badgeKey: 'approvals' },
-  // What people and their assistants filed from a session (lib/records). No domain: records span
-  // areas, and /api/records shows each one only to someone who reads its area and entity.
-  { href: '/records', label: 'Records', icon: Archive },
   // Portfolio, not dealflow — the mailbox is where portfolio updates arrive and where the review
   // queue's emails live, so gating it on the Deals product hid the only page that can reprocess an
   // email from every fund running Portfolio Reporting alone. Deal-specific actions inside it gate
@@ -154,6 +151,9 @@ const NAV_ITEMS: NavItem[] = [
     children: ACCOUNTING_SECTIONS.map(({ href, label, domain, requiresFof, feature }) => ({ href, label, domain, requiresFof, featureKey: feature })),
   },
   { href: '/usage', label: 'Usage', icon: Users, adminOnly: true, domain: 'admin' },
+  // What people and their assistants filed from a session (lib/records). Its own access right;
+  // /api/records still shows each record only to someone who reads its area and entity.
+  { href: '/records', label: 'Records', icon: Archive, domain: 'records' },
   { href: '/settings', label: 'Settings', icon: Settings, badgeKey: 'settings' },
   { href: '/support', label: 'Support', icon: LifeBuoy },
 ]

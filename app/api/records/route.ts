@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertReadAccess } from '@/lib/api-helpers'
 import { loadGateAccess } from '@/lib/access/request-context'
 import { outcomeResponse } from '@/lib/service-outcome'
-import { areaLabel, fileRecord, listRecords, readRecord, readableAreas } from '@/lib/records'
+import { areaLabel, canFileRecords, fileRecord, listRecords, readRecord, readableAreas } from '@/lib/records'
 
 /**
  * Fund records: what a person or their assistant filed from a working session (lib/records).
@@ -13,9 +13,9 @@ import { areaLabel, fileRecord, listRecords, readRecord, readableAreas } from '@
  *   GET  ?id=                                                 → one record, with its body
  *   POST { area, entity?, kind?, title, body, subject_type?, subject_id? }
  *
- * Gated at 'any' in route-domains.ts because a record's domain is its AREA, which the request
- * names: lib/records/areas.ts checks read on it here, as the file_to_record, list_records and
- * read_record tools do. Filing needs read, not write; it adds the fund's note and changes nothing.
+ * Gated on the Records access right in route-domains.ts: read to list or open, write to file. The
+ * record's AREA, which the request names, is then checked here by lib/records/areas.ts (read on it,
+ * for filing too), as the file_to_record, list_records and read_record tools do.
  */
 
 async function ctx() {
@@ -45,7 +45,7 @@ export async function GET(req: NextRequest) {
       records,
       areas: readableAreas(c.actor.access).map(id => ({ id, label: areaLabel(id) })),
       entityScoped: !c.actor.access.vehicles.all,
-      canFile: c.actor.access.role !== 'viewer',
+      canFile: canFileRecords(c.actor.access),
     }),
   )
 }

@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Records has its own access right
+- **A Records row in the access grid.** Read lets a member see records and use `list_records` and `read_record`; write lets them file one on the page or with `file_to_record`. The area check still applies underneath, so a record is shown only to someone who can read its area and see its entity. Before, anyone who could read an area could read and file records there.
+- **Nothing changes on the day.** Every fund's default for Records is write, and every preset files records, so members keep what they had until an admin narrows it.
+- **Records moved down the sidebar**, below Usage, and it appears only for people with read on Records.
+- Migration, additive: `20261120230000_records_access_right.sql` (seeds the default for every fund and adds Records to the defaults a new fund gets). Until it is applied, members see no records; admins are unaffected.
+
 ### LP report cards in bulk
 - **One build for a whole batch.** The live report cards' ZIP of PDFs (LP Reports → Individual PDFs) builds the fund's live report once and cuts every investor's card from it (`lib/lp-report-cards.ts`; the PDFs in `lib/lp-report-cards-zip.ts`), on the stored report when it is current. The on-screen batch reads the same builder.
 - **The ZIP matches the cards on screen.** Each PDF now carries the investor's own "As of" (the latest date their figures run through), their positions in connected funds, and only the investors the member's entities allow, exactly as `/lps/cards/<investor>`. Before, it printed one fund-wide date and left connected funds out.

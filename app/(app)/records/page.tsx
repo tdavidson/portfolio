@@ -5,7 +5,8 @@ import { FundRecords } from '@/components/fund-records'
 /**
  * Fund records: what people and their assistants filed from a working session (lib/records). A
  * client page, so it declares nothing in page-domains.ts: the records arrive through /api/records,
- * which shows each one only to someone who reads its area and sees its entity.
+ * which needs the Records access right and shows each one only to someone who reads its area and
+ * sees its entity.
  */
 export default function RecordsPage() {
   return (

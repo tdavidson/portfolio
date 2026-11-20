@@ -3,8 +3,8 @@
 // list_records and read_record tools all come through here, so a record filed from Claude is
 // checked, stored and shown exactly as one typed in the app.
 //
-// Rules (lib/records/areas.ts): filing and reading need read on the record's area, and the entity
-// in the caller's scope. Records are append-only.
+// Rules (lib/records/areas.ts): read on the Records access right to read, write on it to file;
+// either way read on the record's area, and the entity in the caller's scope. Append-only.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AccessContext } from '@/lib/access/effective'

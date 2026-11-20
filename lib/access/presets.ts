@@ -23,8 +23,12 @@ export interface AccessPreset {
 const NONE: AccessPreset['grants'] = {
   portfolio: 'none', relationships: 'none', dealflow: 'none', diligence: 'none', accounting: 'none',
   management_company: 'none', lp_capital: 'none', gp_economics: 'none', lp_relations: 'none', compliance: 'none',
-  tax: 'none',
+  tax: 'none', records: 'none',
 }
+
+// Every preset files records: filing a session's conclusions is how an outside provider's work
+// stays with the fund, and a record is still shown only in the areas the person can read.
+const FILES_RECORDS = { records: 'write' } as const
 
 export const ACCESS_PRESETS: AccessPreset[] = [
   {
@@ -33,7 +37,7 @@ export const ACCESS_PRESETS: AccessPreset[] = [
     label: 'CFO',
     description: 'Changes everything financial; reads the portfolio. Make them an admin to approve admin-only changes.',
     grants: {
-      ...NONE, portfolio: 'read', accounting: 'write', management_company: 'write', lp_capital: 'write',
+      ...NONE, ...FILES_RECORDS, portfolio: 'read', accounting: 'write', management_company: 'write', lp_capital: 'write',
       gp_economics: 'write', lp_relations: 'write', compliance: 'write', tax: 'write',
     },
   },
@@ -44,7 +48,7 @@ export const ACCESS_PRESETS: AccessPreset[] = [
     label: 'Fund administrator',
     description: 'Keeps the fund books, LP capital and carry, and prepares LP documents for an admin to publish.',
     grants: {
-      ...NONE, portfolio: 'read', accounting: 'write', lp_capital: 'write', gp_economics: 'write',
+      ...NONE, ...FILES_RECORDS, portfolio: 'read', accounting: 'write', lp_capital: 'write', gp_economics: 'write',
       lp_relations: 'write', compliance: 'read', tax: 'write',
     },
   },
@@ -58,7 +62,7 @@ export const ACCESS_PRESETS: AccessPreset[] = [
     label: 'Tax preparer',
     description: 'Reads the books, partner capital and carry, proposes journal entries, posts tax adjustments and prepares K-1s. An admin finalizes and delivers them.',
     grants: {
-      ...NONE, portfolio: 'read', accounting: 'propose', management_company: 'read', lp_capital: 'read',
+      ...NONE, ...FILES_RECORDS, portfolio: 'read', accounting: 'propose', management_company: 'read', lp_capital: 'read',
       gp_economics: 'read', compliance: 'read', tax: 'write',
     },
   },
@@ -70,7 +74,7 @@ export const ACCESS_PRESETS: AccessPreset[] = [
     label: 'Auditor',
     description: 'Reads every financial area and LP document, and the audit trail, and proposes journal entries. Changes nothing directly.',
     grants: {
-      ...NONE, portfolio: 'read', accounting: 'propose', management_company: 'read', lp_capital: 'read',
+      ...NONE, ...FILES_RECORDS, portfolio: 'read', accounting: 'propose', management_company: 'read', lp_capital: 'read',
       gp_economics: 'read', lp_relations: 'read', compliance: 'read', tax: 'read',
     },
   },
@@ -82,7 +86,7 @@ export const ACCESS_PRESETS: AccessPreset[] = [
     label: 'Compliance vendor',
     description: 'Keeps the compliance calendar and filings, and reads LP documents, partner capital and the books. Changes no financial data.',
     grants: {
-      ...NONE, portfolio: 'read', accounting: 'read', lp_capital: 'read', lp_relations: 'read', compliance: 'write',
+      ...NONE, ...FILES_RECORDS, portfolio: 'read', accounting: 'read', lp_capital: 'read', lp_relations: 'read', compliance: 'write',
     },
   },
   {
@@ -90,14 +94,14 @@ export const ACCESS_PRESETS: AccessPreset[] = [
     key: 'investment_team',
     label: 'Investment team',
     description: 'Works the portfolio, notes, deals and diligence. No access to the books or LPs.',
-    grants: { ...NONE, portfolio: 'write', relationships: 'write', dealflow: 'write', diligence: 'write' },
+    grants: { ...NONE, ...FILES_RECORDS, portfolio: 'write', relationships: 'write', dealflow: 'write', diligence: 'write' },
   },
   {
     // LP letters, documents and the portal; reads LP capital to answer LP questions.
     key: 'investor_relations',
     label: 'Investor relations',
     description: 'Prepares LP letters and documents and reads LP capital. An admin sends and shares them.',
-    grants: { ...NONE, portfolio: 'read', lp_capital: 'read', lp_relations: 'write', compliance: 'write' },
+    grants: { ...NONE, ...FILES_RECORDS, portfolio: 'read', lp_capital: 'read', lp_relations: 'write', compliance: 'write' },
   },
 ]
 

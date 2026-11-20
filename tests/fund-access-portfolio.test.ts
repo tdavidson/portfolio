@@ -28,6 +28,14 @@ import { AREAS, RECORD_AREAS as SPEC_RECORD_AREAS, STANDARD_AREAS } from '@/spec
 
 const SWITCH = { everyone: 'everyone', admins: 'admin', off: 'off' } as const
 
+/**
+ * Areas Portfolio defines beyond the standard ones, which the spec allows (engine/areas.ts), and
+ * the fund default each is seeded with. Vectors never name them, so the adapter gives each its
+ * shipped default: `records` is seeded at write for every fund (20261120230000), which is what
+ * lets the record vectors' readers file.
+ */
+const PORTFOLIO_ONLY_AREAS: Partial<Record<Domain, AccessLevel>> = { records: 'write' }
+
 function toAccess(v: Vector): AccessContext {
   const features = { ...DEFAULT_FEATURE_VISIBILITY, ...Object.fromEntries(Object.keys(DEFAULT_FEATURE_VISIBILITY).map(k => [k, 'everyone'])) } as FeatureVisibilityMap
   for (const [area, sw] of Object.entries(v.fund.switches ?? {})) {
@@ -41,7 +49,7 @@ function toAccess(v: Vector): AccessContext {
   return {
     fundId: 'f1', userId: 'u1', role, features,
     grants: (v.party.grants ?? {}) as Partial<Record<Domain, AccessLevel>>,
-    defaults: (v.fund.defaults ?? {}) as Partial<Record<Domain, AccessLevel>>,
+    defaults: { ...PORTFOLIO_ONLY_AREAS, ...(v.fund.defaults ?? {}) } as Partial<Record<Domain, AccessLevel>>,
     vehicles: role === 'admin' || !list
       ? { all: true, ids: [] }
       : { all: false, ids: list.map(e => e.id), ...(Object.keys(caps).length ? { caps } : {}) },
@@ -106,7 +114,7 @@ function portfolioDecides(v: Vector): Outcome {
 
 describe('Portfolio uses the standard areas', () => {
   it('has every standard area, related the same way', () => {
-    expect(Object.keys(DOMAIN_META).sort()).toEqual([...AREAS].sort())
+    expect(Object.keys(DOMAIN_META).sort()).toEqual([...AREAS, ...Object.keys(PORTFOLIO_ONLY_AREAS)].sort())
     for (const a of AREAS) {
       const m = DOMAIN_META[a as Domain] as { proposable?: boolean; requires?: string; impliedBy?: string; defaultFrom?: string; adminOnly?: boolean }
       const d = STANDARD_AREAS[a]

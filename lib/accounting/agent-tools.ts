@@ -111,7 +111,7 @@ import { ADMIN_REPORTING_TOOL_MANIFEST } from '@/lib/agent/admin-reporting-tools
 import { ADMIN_REPORTING_HANDLERS } from '@/lib/agent/admin-reporting-tools'
 import { RECORD_TOOL_MANIFEST } from '@/lib/agent/record-tools-manifest'
 import { RECORD_HANDLERS } from '@/lib/agent/record-tools'
-import { isRecordArea, readableAreas, recordAccessProblem } from '@/lib/records/areas'
+import { canFileRecords, isRecordArea, readableAreas, recordAccessProblem } from '@/lib/records/areas'
 import { authorizeToolUse, type ResolvedKey } from './api-keys'
 
 export { resolveVehicle } from './vehicle-resolver'
@@ -730,9 +730,9 @@ export function accessFeatureFor(tool: AgentToolMeta): FeatureKey | undefined {
  * level, and a proposable write for a proposer too, since calling it makes a proposal.
  */
 export function toolListedFor(access: AccessContext, tool: AgentToolMeta): boolean {
-  // An area tool (fund records) is for anyone who reads some area; filing also needs a role that
-  // changes things, which the read-only demo is not.
-  if (tool.areaInput) return readableAreas(access).length > 0 && (tool.scope === 'read' || access.role !== 'viewer')
+  // An area tool (fund records) is for anyone with read on Records who reads some area; filing
+  // also needs write on Records, which the read-only demo never has.
+  if (tool.areaInput) return readableAreas(access).length > 0 && (tool.scope === 'read' || canFileRecords(access))
   const need = tool.scope === 'write' && tool.proposable === true ? 'propose' : tool.scope
   return hasAccess(access, accessDomainFor(tool), need, accessFeatureFor(tool))
 }
