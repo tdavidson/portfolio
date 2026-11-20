@@ -45,6 +45,16 @@ export type StepKey =
   | 'inbound_email'
   | 'senders'
 
+/** Every step key, for validating what is stored (fund_settings.onboarding.checklist_skipped). */
+export const STEP_KEYS: readonly StepKey[] = [
+  'ai_key', 'products', 'entity', 'fund_terms', 'lps', 'lp_portal', 'investments',
+  'investments_on_ledger', 'open_books', 'first_close', 'forecast', 'inbound_email', 'senders',
+]
+
+export function isStepKey(v: unknown): v is StepKey {
+  return typeof v === 'string' && (STEP_KEYS as readonly string[]).includes(v)
+}
+
 /** One way of doing a step, when there is more than one (opening the books). */
 export interface StepOption {
   label: string
@@ -70,6 +80,8 @@ export interface SetupStep {
   options?: StepOption[]
   /** Shown only to admins (and only computed for them). */
   adminOnly?: boolean
+  /** The fund chose to skip it. Only ever set on a step that is not done (data wins over a skip). */
+  skipped?: boolean
 }
 
 export interface SetupSection {
@@ -80,10 +92,13 @@ export interface SetupSection {
 
 export interface SetupProgress {
   sections: SetupSection[]
-  /** Steps that count: everything except not_applicable. */
+  /** Steps that count: everything except not_applicable and skipped. */
   total: number
   done: number
+  /** Every applicable step is done or skipped. The sidebar hides Getting started then. */
   complete: boolean
+  /** Unfinished steps the fund skipped. */
+  skipped: number
   /** The entity the per-entity steps describe, if any. */
   vehicle: { id: string; name: string; kind: string | null } | null
 }
@@ -148,6 +163,11 @@ export interface SetupFacts {
   lpEntityCount: number | null
   companyCount: number | null
   lpPortalLinks: number | null
+  /**
+   * Steps the fund chose to skip (fund_settings.onboarding.checklist_skipped). Fund-wide, set by an
+   * admin; a skip never hides a step, it only stops it counting against "done".
+   */
+  skipped?: readonly StepKey[]
 }
 
 // ---------------------------------------------------------------------------
@@ -195,6 +215,7 @@ export function computeSetupProgress(facts: SetupFacts): SetupProgress {
   const { can, settings, vehicle: v } = facts
   const manco = isManagementCompany(v?.kind ?? null)
   const hasEntity = facts.vehicles.length > 0
+  const skippedKeys = new Set<StepKey>(facts.skipped ?? [])
   const drafts: Draft[] = []
 
   // Prerequisite facts, computed once so a step can depend on one the viewer cannot see.
@@ -440,6 +461,7 @@ export function computeSetupProgress(facts: SetupFacts): SetupProgress {
       ...rest,
       status,
       ...(status === 'blocked' && needs ? { dependsOn: needs.key, blockedBy: needs.label } : {}),
+      ...((status === 'todo' || status === 'blocked') && skippedKeys.has(rest.key) ? { skipped: true } : {}),
     }
   })
 
@@ -451,22 +473,17 @@ export function computeSetupProgress(facts: SetupFacts): SetupProgress {
     }))
     .filter(s => s.steps.length > 0)
 
-  const counted = steps.filter(s => s.status !== 'not_applicable')
+  const applicable = steps.filter(s => s.status !== 'not_applicable')
+  const counted = applicable.filter(s => !s.skipped)
   const done = counted.filter(s => s.status === 'done').length
   return {
     sections,
     total: counted.length,
     done,
-    complete: counted.length > 0 && done === counted.length,
+    complete: applicable.length > 0 && done === counted.length,
+    skipped: applicable.length - counted.length,
     vehicle: v ? { id: v.id, name: v.name, kind: v.kind } : null,
   }
-}
-
-/** Counts that discount steps the viewer chose to skip (client-side, per user). */
-export function progressCounts(progress: Pick<SetupProgress, 'sections'>, skipped: ReadonlySet<string> = new Set()) {
-  const counted = progress.sections.flatMap(s => s.steps).filter(s => s.status !== 'not_applicable' && !(s.status !== 'done' && skipped.has(s.key)))
-  const done = counted.filter(s => s.status === 'done').length
-  return { done, total: counted.length, complete: done === counted.length }
 }
 
 // ---------------------------------------------------------------------------
@@ -531,14 +548,14 @@ export async function loadSetupFacts(
   const ordered = primary ? [primary, ...visible.filter(r => r !== primary)] : visible
   const selected = (opts.vehicleId && visible.find(r => r.id === opts.vehicleId)) || primary
 
-  const settingsQ = can.isAdmin
-    ? db.from('fund_settings')
-        // select('*') so `ai_mode`, added by a migration that may not be applied yet, reads as
-        // undefined rather than failing the whole select (and with it every admin fact).
-        .select('*')
-        .eq('fund_id', fundId)
-        .maybeSingle()
-    : Promise.resolve({ data: null })
+  // Read for everyone: the fund's skipped steps (onboarding.checklist_skipped) apply to whoever
+  // views the checklist. Only admins get the rest of the row turned into facts, below.
+  const settingsQ = db.from('fund_settings')
+    // select('*') so `ai_mode` and `onboarding`, added by migrations that may not be applied yet,
+    // read as undefined rather than failing the whole select (and with it every admin fact).
+    .select('*')
+    .eq('fund_id', fundId)
+    .maybeSingle()
   const sendersQ = can.isAdmin && can.portfolio
     ? db.from('authorized_senders').select('id', { count: 'exact', head: true }).eq('fund_id', fundId)
     : Promise.resolve({ count: null })
@@ -584,7 +601,15 @@ export async function loadSetupFacts(
     lpEntityCount: (lpEntitiesRes as CountResult).count,
     companyCount: (companiesRes as CountResult).count,
     lpPortalLinks: (portalRes as CountResult).count,
+    skipped: parseSkippedSteps((settingsRes.data as Record<string, any> | null)?.onboarding),
   }
+}
+
+/** The fund's skipped step keys from fund_settings.onboarding, ignoring anything unknown. */
+export function parseSkippedSteps(onboarding: unknown): StepKey[] {
+  if (!onboarding || typeof onboarding !== 'object' || Array.isArray(onboarding)) return []
+  const raw = (onboarding as Record<string, unknown>).checklist_skipped
+  return Array.isArray(raw) ? [...new Set(raw.filter(isStepKey))] : []
 }
 
 async function loadVehicleFacts(

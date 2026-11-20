@@ -39,7 +39,6 @@ export default async function GettingStartedPage({
     <GettingStartedView
       progress={progress}
       vehicles={facts.vehicles}
-      userId={user.id}
       isAdmin={page.isAdmin}
     />
   )

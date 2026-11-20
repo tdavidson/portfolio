@@ -11,6 +11,7 @@ import { aiStatus, hasAnyAIKey } from '@/lib/ai/capabilities'
 import { credentialSources } from '@/lib/credentials/env'
 import { applyConnectionUpdate, connectionSettingsOf, parseConnectionUpdate } from '@/lib/onboarding/connection-settings'
 import { validateBaseUrlResolved } from '@/lib/validate-url'
+import { parseSkipChange, saveChecklistSkips } from '@/lib/onboarding/checklist-skips'
 
 /** How each checklist step is done from chat, where a tool does it. The rest link to the web page. */
 export const STEP_TOOLS: Partial<Record<StepKey, string>> = {
@@ -57,6 +58,7 @@ export const SETUP_HANDLERS: Record<string, AgentToolHandler> = {
       checklist: {
         done: progress.done,
         total: progress.total,
+        skipped: progress.skipped,
         complete: progress.complete,
         steps: progress.sections.flatMap(s => s.steps.map(st => ({
           section: s.title,
@@ -65,6 +67,7 @@ export const SETUP_HANDLERS: Record<string, AgentToolHandler> = {
           status: st.status,
           ...(st.detail ? { detail: st.detail } : {}),
           ...(st.blockedBy ? { needs: st.blockedBy } : {}),
+          ...(st.skipped ? { skipped: true } : {}),
           ...(STEP_TOOLS[st.key] ? { tool: STEP_TOOLS[st.key] } : {}),
           ...(WEB_ONLY[st.key] ? { note: WEB_ONLY[st.key] } : {}),
           url: `${base}${st.href}`,
@@ -94,8 +97,19 @@ export const SETUP_HANDLERS: Record<string, AgentToolHandler> = {
 
   setup_fund: async ({ admin, fundId, userId }, input) => {
     if (!userId) throw new Error('setup_fund needs a person behind the credential.')
-    const plan = parseSetupPlan(input)
+    const { skipSteps, unskipSteps, ...rest } = (input ?? {}) as Record<string, unknown>
+    const wantsSkips = skipSteps !== undefined || unskipSteps !== undefined
+    // Validate everything before writing anything, so a bad step key does not leave half a plan applied.
+    const change = wantsSkips ? parseSkipChange({ skip: skipSteps, unskip: unskipSteps }) : null
+    if (change && 'error' in change) throw new Error(change.error)
+    const plan = parseSetupPlan(rest)
     if ('error' in plan) throw new Error(plan.error)
-    return applySetupPlan(admin, { fundId, actorId: userId }, plan)
+
+    const hasPlan = Object.keys(rest).length > 0
+    const result = hasPlan || !wantsSkips ? await applySetupPlan(admin, { fundId, actorId: userId }, plan) : null
+    if (!change) return result
+    const saved = await saveChecklistSkips(admin, fundId, change)
+    if (!saved.ok) throw new Error(saved.error)
+    return { ...(result ?? {}), checklistSkipped: saved.skipped }
   },
 }

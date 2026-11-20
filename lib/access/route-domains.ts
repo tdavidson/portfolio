@@ -532,7 +532,8 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/onboarding/inbound-email': { domain: 'admin' },
   'api/onboarding/postmark': { domain: 'admin' },
   'api/onboarding/senders': { domain: 'admin' },
-  // The setup-progress count for the getting-started banner; admin-only, re-checked in-handler.
+  // The setup-progress count for the getting-started banner and sidebar (GET) and fund-wide step
+  // skips (PATCH); admin-only, re-checked in-handler.
   'api/onboarding/progress': { domain: 'admin' },
   'api/usage': { domain: 'admin' },
   'api/test-claude-key': { domain: 'admin' },

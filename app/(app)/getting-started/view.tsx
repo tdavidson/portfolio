@@ -1,11 +1,12 @@
 'use client'
 
 import Link from 'next/link'
-import { useMemo } from 'react'
+import { useState, useTransition } from 'react'
+import { useRouter } from 'next/navigation'
 import { CheckCircle2, Circle, Lock, MinusCircle, Download, ArrowRight } from 'lucide-react'
 import { Button } from '@/components/ui/button'
-import { useSkippedSteps } from '@/components/getting-started-banner'
-import { progressCounts, type SetupProgress, type SetupStep } from '@/lib/onboarding/progress'
+import { GETTING_STARTED_CHANGED } from '@/components/getting-started-banner'
+import type { SetupProgress, SetupStep, StepKey } from '@/lib/onboarding/progress'
 
 const TEMPLATES = [
   { href: '/templates/lp-import.csv', label: 'LP import', hint: 'Partners and their commitments, for the LP Import box.' },
@@ -16,18 +17,43 @@ const TEMPLATES = [
 export function GettingStartedView({
   progress,
   vehicles,
-  userId,
   isAdmin,
 }: {
   progress: SetupProgress
   vehicles: { id: string; name: string; kind: string | null }[]
-  userId: string
   isAdmin: boolean
 }) {
-  // Skips live in this browser only (per user) — a convenience, never a security decision.
-  const [skipped, toggleSkip] = useSkippedSteps(userId)
+  // Skips are fund-wide and saved on the server (an admin's call, like the rest of setup), so
+  // every admin sees the same checklist and the sidebar can hide the page once it is finished.
+  const router = useRouter()
+  const [pendingKey, setPendingKey] = useState<StepKey | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [, startTransition] = useTransition()
 
-  const counts = useMemo(() => progressCounts(progress, skipped), [progress, skipped])
+  async function toggleSkip(step: SetupStep) {
+    setPendingKey(step.key)
+    setError(null)
+    try {
+      const res = await fetch('/api/onboarding/progress', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(step.skipped ? { unskip: [step.key] } : { skip: [step.key] }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        setError(body?.error ?? 'Could not save that skip.')
+        return
+      }
+      window.dispatchEvent(new Event(GETTING_STARTED_CHANGED))
+      startTransition(() => router.refresh())
+    } catch {
+      setError('Could not save that skip.')
+    } finally {
+      setPendingKey(null)
+    }
+  }
+
+  const counts = progress
   const pct = counts.total > 0 ? Math.round((counts.done / counts.total) * 100) : 100
   const current = progress.vehicle
 
@@ -45,6 +71,11 @@ export function GettingStartedView({
             <p className="text-sm">
               <span className="font-medium tabular-nums">{counts.done}</span> of{' '}
               <span className="tabular-nums">{counts.total}</span> done
+              {counts.skipped > 0 && (
+                <span className="text-muted-foreground">
+                  {' '}· <span className="tabular-nums">{counts.skipped}</span> skipped
+                </span>
+              )}
             </p>
             <div
               className="h-2 w-full overflow-hidden rounded-full bg-muted"
@@ -84,7 +115,15 @@ export function GettingStartedView({
 
         {counts.complete && (
           <div className="rounded-card border border-success/30 bg-success-subtle p-4 text-sm text-success">
-            Everything here is done. This page stays available if you want to check again.
+            {isAdmin
+              ? 'Everything here is done or skipped, so Getting started has left the sidebar. You can come back to it any time from Settings.'
+              : 'Everything here is done or skipped.'}
+          </div>
+        )}
+
+        {error && (
+          <div role="alert" className="rounded-card border border-destructive/30 bg-destructive/5 p-3 text-sm text-destructive">
+            {error}
           </div>
         )}
 
@@ -96,8 +135,9 @@ export function GettingStartedView({
                 <StepRow
                   key={step.key}
                   step={step}
-                  skipped={skipped.has(step.key) && step.status !== 'done'}
-                  onToggleSkip={() => toggleSkip(step.key)}
+                  canSkip={isAdmin}
+                  busy={pendingKey === step.key}
+                  onToggleSkip={() => toggleSkip(step)}
                 />
               ))}
             </ol>
@@ -143,7 +183,8 @@ function StatusIcon({ status, skipped }: { status: SetupStep['status']; skipped:
   return <Circle className="h-5 w-5 text-muted-foreground" aria-label="To do" />
 }
 
-function StepRow({ step, skipped, onToggleSkip }: { step: SetupStep; skipped: boolean; onToggleSkip: () => void }) {
+function StepRow({ step, canSkip, busy, onToggleSkip }: { step: SetupStep; canSkip: boolean; busy: boolean; onToggleSkip: () => void }) {
+  const skipped = !!step.skipped
   const done = step.status === 'done'
   const na = step.status === 'not_applicable'
   const blocked = step.status === 'blocked'
@@ -196,8 +237,8 @@ function StepRow({ step, skipped, onToggleSkip }: { step: SetupStep; skipped: bo
               <Link href={step.href}>{done ? 'Review' : step.cta}</Link>
             </Button>
           )}
-          {!done && (
-            <Button size="sm" variant="ghost" onClick={onToggleSkip} className="text-muted-foreground">
+          {!done && canSkip && (
+            <Button size="sm" variant="outline" onClick={onToggleSkip} disabled={busy} className="text-muted-foreground">
               {skipped ? 'Undo skip' : 'Skip'}
             </Button>
           )}
