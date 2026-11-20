@@ -23,8 +23,12 @@
 //
 // WHAT IT REFUSES TO GUESS, in plain words for the person posting: a pooled account (which
 // company?), a pooled gain or escrow across several exits (whose?), a gain beside a cost line that
-// nets to zero, an exit with a mark-up beside it, lines it cannot read, and conversions (a SAFE or note becoming equity has its own transaction shape —
-// record it on the company).
+// nets to zero, an exit with a mark-up beside it, lines it cannot read, and a purchase booked with a
+// mark (reading it as a purchase alone would drop the mark).
+//
+// Note interest capitalising into cost (a cost debit beside a credit to the company's accrued-interest
+// account) is read as the purchase at that cost: the cost is the basis the ledger carries, and the
+// accrued-interest line stays in the entry as posted.
 
 import { roundCents } from './ledger'
 import { investmentKind, isPooledInvestmentAccount, type ChartAccount } from './investment-accounts'
@@ -50,7 +54,7 @@ export interface AdoptedTxn {
 
 export type ReadResult = { transactions: AdoptedTxn[] } | { refused: string }
 
-const CONVERSION = 'This entry converts a SAFE or note into equity. Record it on the company as a conversion, so the tracker and the ledger agree on its basis.'
+const PURCHASE_WITH_MARK = 'This entry books a purchase and a mark together. Split the mark into its own entry, so the tracker and the ledger agree.'
 
 export function touchesInvestmentAccounts(postings: ReadPosting[], chart: ChartAccount[]): boolean {
   const byId = new Map(chart.map(a => [a.id, a]))
@@ -92,10 +96,10 @@ export function readInvestmentLines(postings: ReadPosting[], chart: ChartAccount
   const transfer = readCostTransfer(postings, chart)
   if (transfer) return { transactions: transfer }
   const byId = new Map(chart.map(a => [a.id, a]))
-  const per = new Map<string, { cost: number; hadCost: boolean; unrealized: number; fx: number; realized: number; interest: number }>()
+  const per = new Map<string, { cost: number; hadCost: boolean; unrealized: number; fx: number; realized: number }>()
   const at = (companyId: string) => {
     let c = per.get(companyId)
-    if (!c) { c = { cost: 0, hadCost: false, unrealized: 0, fx: 0, realized: 0, interest: 0 }; per.set(companyId, c) }
+    if (!c) { c = { cost: 0, hadCost: false, unrealized: 0, fx: 0, realized: 0 }; per.set(companyId, c) }
     return c
   }
   let pooledGain = 0
@@ -118,14 +122,9 @@ export function readInvestmentLines(postings: ReadPosting[], chart: ChartAccount
       else c.realized = roundCents(c.realized + amount)
       continue
     }
-    // Context the reader consults: pooled realized gain, escrow receivable, note interest.
+    // Context the reader consults: pooled realized gain, escrow receivable.
     if (a.subtype === 'realized_gain' && !a.companyId) pooledGain = roundCents(pooledGain + amount)
     else if (a.code === ESCROW_CODE && amount > 0) escrow = roundCents(escrow + amount)
-    else if (a.subtype === 'accrued_interest' && a.companyId) {
-      const c = per.get(a.companyId)
-      if (c) c.interest = roundCents(c.interest + amount)
-      else at(a.companyId).interest = amount
-    }
   }
 
   const companies = Array.from(per.keys()).filter(id => {
@@ -156,7 +155,7 @@ export function readInvestmentLines(postings: ReadPosting[], chart: ChartAccount
       continue
     }
     if (c.cost > 0) {
-      if (c.unrealized !== 0 || c.interest !== 0) return { refused: CONVERSION }
+      if (c.unrealized !== 0) return { refused: PURCHASE_WITH_MARK }
       if (c.fx !== 0) return { refused: 'This entry records a purchase and a currency move together. Split it into one entry for each.' }
       transactions.push({ company_id: id, transaction_type: 'investment', investment_cost: c.cost })
       continue

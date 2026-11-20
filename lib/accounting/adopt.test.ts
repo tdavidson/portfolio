@@ -115,6 +115,11 @@ describe('readInvestmentLines — what it reads', () => {
       { company_id: 'co-a', transaction_type: 'investment', investment_cost: 300 },
     ] })
   })
+  it('note interest capitalising into cost reads as a purchase at that cost', () => {
+    expect(read(L('a1100', 30), L('a1150', -30))).toEqual({ transactions: [
+      { company_id: 'co-a', transaction_type: 'investment', investment_cost: 30 },
+    ] })
+  })
   it('a compound purchase across three companies, in company order', () => {
     expect(read(L('c1100', 300), L('a1100', 100), L('b1100', 200), L('cash', -600))).toEqual({ transactions: [
       { company_id: 'co-a', transaction_type: 'investment', investment_cost: 100 },
@@ -148,11 +153,8 @@ describe('readInvestmentLines — what it refuses', () => {
   it('cost lines netting to zero beside other investment lines', () => {
     expect(refused(read(L('a1100', 100), L('a1100', -100), L('a1200', 50), L('p4200', -50)))).toMatch(/cannot be read/i)
   })
-  it('a conversion (cost and a mark together)', () => {
-    expect(refused(read(L('a1100', 100), L('cash', -100), L('a1200', 50), L('p4200', -50)))).toMatch(/conversion/i)
-  })
-  it('note interest capitalising', () => {
-    expect(refused(read(L('a1100', 30), L('a1150', -30)))).toMatch(/conversion/i)
+  it('a purchase and a mark together', () => {
+    expect(refused(read(L('a1100', 100), L('cash', -100), L('a1200', 50), L('p4200', -50)))).toMatch(/split the mark/i)
   })
   it('a purchase and an FX move together', () => {
     expect(refused(read(L('a1100', 100), L('cash', -100), L('a1250', 5), L('p4300', -5)))).toMatch(/split/i)
