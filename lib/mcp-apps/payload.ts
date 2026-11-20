@@ -367,8 +367,13 @@ export interface CustomBlock {
   /** kpi: the figure (first row of the value column). */
   value?: number | string | null
   sub?: string
-  /** bar / line: one measure. */
-  points?: { label: string; value: number }[]
+  /**
+   * bar / line. `value` is the point's total. When the block splits by a series, `series` names
+   * them (largest first, at most 8 with the rest as "Other") and each point's `values` holds one
+   * figure per series, in that order: bars stack them, a line chart draws one line each.
+   */
+  points?: { label: string; value: number; values?: number[] }[]
+  series?: string[]
   /** table */
   columns?: { key: string; label: string; format: CustomValueFormat }[]
   rows?: Record<string, string | number | null>[]

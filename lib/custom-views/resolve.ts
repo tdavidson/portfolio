@@ -24,7 +24,7 @@ import { runQuery } from '@/lib/agent/query/engine'
 import { loadBranding } from '@/lib/mcp-apps/branding'
 import type { CustomBlock, CustomValueFormat, CustomViewPayload, DashboardBranding } from '@/lib/mcp-apps/payload'
 import {
-  cleanParams, findDataset, isDataBlock,
+  cleanParams, findDataset, isDataBlock, MAX_SERIES,
   type DataBlock, type TableBlock, type ViewBlock, type ViewParam, type ViewSpec,
 } from './spec'
 
@@ -50,6 +50,39 @@ export interface ViewRef {
 
 /** Points per chart, after the query's own limit. More than this is not a chart anyone reads. */
 export const MAX_CHART_POINTS = 60
+
+/**
+ * Long rows (one per x and series) as one point per x with a figure per series. Series are ordered
+ * by their total size, largest first; past MAX_SERIES the smallest are summed as "Other". Points
+ * keep the order the query returned their first row in, so the query's sort still decides it.
+ */
+export function pivotSeries(rows: Row[], x: string, y: string, seriesColumn: string): { points: { label: string; value: number; values: number[] }[]; series: string[] } {
+  const byLabel = new Map<string, Map<string, number>>()
+  const totals = new Map<string, number>()
+  for (const r of rows) {
+    const v = Number(r[y])
+    if (!Number.isFinite(v)) continue
+    const label = String(cell(r[x]) ?? '—')
+    const name = String(cell(r[seriesColumn]) ?? '—')
+    if (!byLabel.has(label)) {
+      if (byLabel.size >= MAX_CHART_POINTS) continue
+      byLabel.set(label, new Map())
+    }
+    const m = byLabel.get(label)!
+    m.set(name, (m.get(name) ?? 0) + v)
+    totals.set(name, (totals.get(name) ?? 0) + Math.abs(v))
+  }
+  const ranked = Array.from(totals.keys()).sort((a, b) => totals.get(b)! - totals.get(a)!)
+  const kept = ranked.length > MAX_SERIES ? ranked.slice(0, MAX_SERIES - 1) : ranked
+  const folded = ranked.length > MAX_SERIES
+  const series = folded ? [...kept, 'Other'] : kept
+  const points = Array.from(byLabel.entries()).map(([label, m]) => {
+    const values = kept.map(name => m.get(name) ?? 0)
+    if (folded) values.push(ranked.slice(MAX_SERIES - 1).reduce((sum, name) => sum + (m.get(name) ?? 0), 0))
+    return { label, value: values.reduce((a, b) => a + b, 0), values }
+  })
+  return { points, series }
+}
 
 const cell = (v: unknown): string | number | null => {
   if (v === null || v === undefined || v === '') return null
@@ -115,6 +148,9 @@ async function loadBlock(
     if (block.type === 'kpi') {
       const first = result.rows[0]
       return { ...base, status: 'ok', format: block.format, value: first ? cell(first[block.value]) : null, ...(block.sub ? { sub: block.sub } : {}) }
+    }
+    if ((block.type === 'bar' || block.type === 'line') && block.series) {
+      return { ...base, status: 'ok', format: block.format, ...pivotSeries(result.rows, block.x, block.y, block.series) }
     }
     if (block.type === 'bar' || block.type === 'line') {
       const points = result.rows

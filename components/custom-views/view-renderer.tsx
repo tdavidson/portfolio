@@ -8,7 +8,7 @@
 
 import { Bar, BarChart, CartesianGrid, Cell, Line, LineChart, XAxis, YAxis } from 'recharts'
 import { Metric } from '@/components/ui/metric'
-import { ChartContainer, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
+import { ChartContainer, ChartLegend, ChartLegendContent, ChartTooltip, ChartTooltipContent } from '@/components/ui/chart'
 import { ChartCard, EmptyPlot, HUE } from '@/components/fund-chart-kit'
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table'
 import { formatCurrencyAxis, formatCurrencyFull } from '@/components/currency-context'
@@ -57,11 +57,65 @@ function Unavailable({ block }: { block: CustomBlock }) {
   )
 }
 
+// One colour per series, from the categorical palette (the same eight slots every theme defines).
+const SERIES_FILL = [1, 2, 3, 4, 5, 6, 7, 8].map(n => `hsl(var(--cat-${n}))`)
+
+/** A chart split by a series: stacked bars, or one line per series, with a legend. */
+function SeriesChart({ block, currency }: { block: CustomBlock; currency: string }) {
+  const names = block.series ?? []
+  const fmt = (v: number) => formatValue(v, block.format, currency)
+  const tick = axisFormatter(block.format, currency)
+  // Recharts reads each series by key; s0, s1… keep a series called "label" or "value" from colliding.
+  const data = (block.points ?? []).map(p => {
+    const row: Record<string, string | number> = { label: p.label }
+    names.forEach((_, i) => { row[`s${i}`] = p.values?.[i] ?? 0 })
+    return row
+  })
+  const tooltip = <ChartTooltip formatter={(val: any, name: any) => [fmt(val as number), name]} content={<ChartTooltipContent />} />
+  const legend = <ChartLegend verticalAlign="top" align="left" content={<ChartLegendContent />} />
+  if (block.type === 'bar') {
+    const height = Math.max(180, Math.min(data.length, 30) * 28 + 56)
+    return (
+      <ChartCard title={block.label}>
+        <ChartContainer height={height}>
+          <BarChart data={data} layout="vertical" margin={{ top: 4, right: 12, bottom: 0, left: 4 }}>
+            <CartesianGrid horizontal={false} />
+            <XAxis type="number" tick={{ fontSize: 11 }} className="tabular-nums" tickLine={false} axisLine={false} tickFormatter={tick} />
+            <YAxis type="category" dataKey="label" tick={{ fontSize: 11 }} tickLine={false} axisLine={false} width={120} interval={0} />
+            {tooltip}
+            {legend}
+            {names.map((name, i) => (
+              <Bar key={i} dataKey={`s${i}`} name={name} stackId="stack" fill={SERIES_FILL[i] ?? HUE.muted} stroke={HUE.surface} strokeWidth={1} isAnimationActive={false} />
+            ))}
+          </BarChart>
+        </ChartContainer>
+      </ChartCard>
+    )
+  }
+  return (
+    <ChartCard title={block.label}>
+      <ChartContainer height={240}>
+        <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 8 }}>
+          <CartesianGrid vertical={false} />
+          <XAxis dataKey="label" tick={{ fontSize: 11 }} className="tabular-nums" tickLine={false} axisLine={false} interval="preserveStartEnd" />
+          <YAxis tick={{ fontSize: 11 }} className="tabular-nums" tickLine={false} axisLine={false} width={64} tickFormatter={tick} />
+          {tooltip}
+          {legend}
+          {names.map((name, i) => (
+            <Line key={i} type="monotone" dataKey={`s${i}`} name={name} stroke={SERIES_FILL[i] ?? HUE.muted} strokeWidth={2} dot={false} isAnimationActive={false} />
+          ))}
+        </LineChart>
+      </ChartContainer>
+    </ChartCard>
+  )
+}
+
 function ChartBlock({ block, currency }: { block: CustomBlock; currency: string }) {
   const points = block.points ?? []
   const fmt = (v: number) => formatValue(v, block.format, currency)
   const tick = axisFormatter(block.format, currency)
   if (points.length === 0) return <ChartCard title={block.label}><EmptyPlot label="Nothing to chart." /></ChartCard>
+  if (block.series?.length) return <SeriesChart block={block} currency={currency} />
   if (block.type === 'bar') {
     // Horizontal bars: category labels read in full, and one series takes one colour.
     const height = Math.max(160, Math.min(points.length, 30) * 28 + 24)

@@ -206,6 +206,15 @@ export const custom: CustomViewPayload = {
         columns: [{ key: 'company', label: 'Company', format: 'text' }, { key: 'cost', label: 'Cost', format: 'currency' }, { key: 'moic', label: 'MOIC', format: 'multiple' }],
         rows: positions.filter(p => p.fairValue < p.cost).map(p => ({ company: p.company, cost: p.cost, moic: p.moic })),
       },
+      {
+        id: 'stacked', type: 'bar', label: 'Fair value by stage and vehicle', span: 6, status: 'ok', format: 'currency',
+        series: ['Example Fund I', 'Example Fund II'],
+        points: [
+          { label: 'Seed', value: 3_000_000, values: [2_000_000, 1_000_000] },
+          { label: 'Series A', value: 2_500_000, values: [1_000_000, 1_500_000] },
+          { label: 'Series B', value: 1_000_000, values: [0, 1_000_000] },
+        ],
+      },
       { id: 'note', type: 'text', label: '', span: 12, status: 'ok', text: 'Figures load live each time the view opens.' },
     ],
   },

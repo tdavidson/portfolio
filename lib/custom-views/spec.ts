@@ -63,10 +63,19 @@ export interface ChartBlock extends BlockBase {
   source: BlockSource
   /** The category (bar) or period (line) column. */
   x: string
-  /** The measure column. One measure per chart. */
+  /** The measure column. */
   y: string
+  /**
+   * Optional: a result column that splits the measure into one series per value (stage, vehicle,
+   * sector). Bars stack the series; a line chart draws one line per series. The query groups by
+   * both x and series, so each row is one (x, series) pair.
+   */
+  series?: string
   format: ValueFormat
 }
+
+/** Series per chart. The rest are folded into "Other", so a legend stays readable. */
+export const MAX_SERIES = 8
 
 export interface TableBlock extends BlockBase {
   type: 'table'
@@ -218,10 +227,16 @@ function cleanBlock(raw: unknown, index: number, seen: Set<string>): ViewBlock {
   }
 
   if (type === 'bar' || type === 'line') {
+    const x = resultColumn(raw.x, resultColumns, where, 'x')
+    const y = resultColumn(raw.y, resultColumns, where, 'y')
+    let series: string | undefined
+    if (raw.series !== undefined && raw.series !== null && raw.series !== '') {
+      series = resultColumn(raw.series, resultColumns, where, 'series')
+      if (series === x || series === y) throw new ViewSpecError(`${where}: series must be a different column from x and y.`)
+    }
     return {
-      ...base, type, source,
-      x: resultColumn(raw.x, resultColumns, where, 'x'),
-      y: resultColumn(raw.y, resultColumns, where, 'y'),
+      ...base, type, source, x, y,
+      ...(series ? { series } : {}),
       format: pick(raw.format, VALUE_FORMATS, `${where}: format`, 'number'),
     }
   }

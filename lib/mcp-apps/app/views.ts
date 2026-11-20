@@ -134,6 +134,30 @@ function customBlock(b: CustomBlock, ctx: ViewContext): Node | null {
   if (b.type === 'bar' || b.type === 'line') {
     const points = b.points ?? []
     if (points.length === 0) return section(b.label, empty('Nothing to chart.'))
+    const names = b.series ?? []
+    if (names.length) {
+      const color = (i: number) => `hsl(var(--cat-${i + 1}))`
+      if (b.type === 'bar') {
+        const data: BarDatum[] = points.map(p => ({
+          label: p.label,
+          value: Math.max(0, p.values?.reduce((sum, v) => sum + Math.max(0, v), 0) ?? 0),
+          valueLabel: b.format === 'currency' ? ctx.fmt.compact(p.value) : format(p.value),
+          tooltip: names.map((name, i) => ({ value: format(p.values?.[i] ?? 0), label: name })),
+          segments: names.map((_, i) => ({ value: p.values?.[i] ?? 0, color: color(i) })),
+        }))
+        return section(b.label, barChart(data, {
+          valueName: b.label,
+          ariaLabel: `${b.label} by ${points.length} categories, split by ${names.length} series`,
+          series: names.map((name, i) => ({ name, color: color(i) })),
+        }))
+      }
+      // A line per series needs a multi-series plot this bundle does not have; the figures are
+      // every value at once, in a table with one column per series.
+      return section(b.label, dataTable(points, [
+        { header: 'Period', cell: p => p.label },
+        ...names.map((name, i) => ({ header: name, numeric: true, cell: (p: (typeof points)[number]) => format(p.values?.[i] ?? 0), sort: (p: (typeof points)[number]) => p.values?.[i] ?? 0 })),
+      ], { caption: b.label }))
+    }
     if (b.type === 'bar') {
       const data: BarDatum[] = points.map(p => ({
         label: p.label,

@@ -2,7 +2,7 @@ import { describe, expect, it, vi } from 'vitest'
 import type { AccessContext, AccessLevel } from '@/lib/access/effective'
 import type { Domain } from '@/lib/access/domains'
 import { DEFAULT_FEATURE_VISIBILITY, type FeatureVisibilityMap } from '@/lib/types/features'
-import { resolveView } from './resolve'
+import { pivotSeries, resolveView } from './resolve'
 import { parseViewSpec } from './spec'
 
 const access = (grants: Partial<Record<Domain, AccessLevel>>): AccessContext => ({
@@ -115,5 +115,33 @@ describe('resolveView', () => {
     expect(payload.data.values).toEqual({})
     expect(payload.data.vehicles).toEqual([])
     expect((d.positions.mock.calls[0] as unknown[])[1]).toEqual({ vehicle: undefined, as_of: undefined })
+  })
+})
+
+describe('chart series', () => {
+  it('stacks a split bar chart: one point per x, a figure per series, largest series first', async () => {
+    const d = deps({ portfolio: 'read' })
+    const split = parseViewSpec({
+      title: 'Split',
+      blocks: [{
+        type: 'bar', label: 'Fair value by stage', format: 'currency', x: 'stage', y: 'fv', series: 'company',
+        source: { tool: 'query_portfolio', dataset: 'positions', query: { group_by: ['stage', 'company'], aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] } },
+      }],
+    })
+    const [block] = (await resolveView(d.deps, split, {}, { id: null })).data.blocks
+    expect(block.series).toEqual(['Acme', 'Northwind'])
+    expect(block.points).toEqual([
+      { label: 'Seed', value: 250_000, values: [250_000, 0] },
+      { label: 'Series A', value: 150_000, values: [0, 150_000] },
+    ])
+  })
+
+  it('folds series past the eighth into Other', () => {
+    const rows = Array.from({ length: 10 }, (_, i) => ({ quarter: 'Q1', sector: `Sector ${i}`, amount: (10 - i) * 1_000 }))
+    const { series, points } = pivotSeries(rows, 'quarter', 'amount', 'sector')
+    expect(series).toHaveLength(8)
+    expect(series[7]).toBe('Other')
+    expect(points[0].values[7]).toBe(2_000 + 1_000 + 3_000)
+    expect(points[0].value).toBe(55_000)
   })
 })

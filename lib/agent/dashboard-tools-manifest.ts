@@ -282,12 +282,14 @@ export const DASHBOARD_TOOL_MANIFEST: DashboardToolMeta[] = [
       'and show it live, before saving. Write a spec: { title, description?, params?: ["vehicle","as_of"], blocks: [...] }. ' +
       'Blocks come from a fixed set: ' +
       'kpi { label, source, value, format, sub? } shows the first row of one result column; ' +
-      'bar | line { label, source, x, y, format } charts one measure (line: oldest first); ' +
+      'bar | line { label, source, x, y, series?, format } charts one measure (line: oldest first); with series ' +
+      '(a result column such as stage or vehicle, grouped by alongside x) bars stack one segment per value and a ' +
+      'line chart draws one line per value; ' +
       'table { label, source, columns?: [{ column, label?, format? }] }; ' +
       'text { text } is plain copy. Every data block has span (3, 4, 6, 8 or 12 of 12) and ' +
       'source { tool, dataset, query }: tool is one of the query tools (query_portfolio, query_lps, query_deals, ' +
       'query_diligence, query_ledger), dataset and columns are theirs, and query is what you would pass that tool ' +
-      '(columns, where, group_by, aggregates, order_by, limit). value, x, y and table columns name RESULT columns ' +
+      '(columns, where, group_by, aggregates, order_by, limit). value, x, y, series and table columns name RESULT columns ' +
       '(an aggregate is named by its "as"). format is currency, number, percent, multiple, date or text. Never put ' +
       'figures in the spec: every block loads live, as the person viewing it. If the spec is wrong the error names ' +
       'what is allowed; fix it and preview again. Then offer to save it with save_custom_view.',

@@ -81,6 +81,31 @@ describe('parseViewSpec', () => {
   })
 })
 
+describe('chart series', () => {
+  const stacked = (extra: Record<string, unknown> = {}) => ({
+    title: 'Stacked',
+    blocks: [{
+      type: 'bar', label: 'Fair value by stage and status',
+      source: positions({ group_by: ['stage', 'status'], aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] }),
+      x: 'stage', y: 'fv', series: 'status', format: 'currency', ...extra,
+    }],
+  })
+
+  it('keeps a series that is a result column', () => {
+    expect(parseViewSpec(stacked()).blocks[0]).toMatchObject({ type: 'bar', x: 'stage', y: 'fv', series: 'status' })
+  })
+
+  it('leaves series off a chart that does not split', () => {
+    expect(parseViewSpec(valid).blocks[1]).not.toHaveProperty('series')
+    expect(parseViewSpec(stacked({ series: '' })).blocks[0]).not.toHaveProperty('series')
+  })
+
+  it('refuses a series outside the result, or the same as x or y', () => {
+    fails(stacked({ series: 'industry' }), /series must be a column of the result: stage, status, fv/)
+    fails(stacked({ series: 'stage' }), /series must be a different column from x and y/)
+  })
+})
+
 describe('cleanParams', () => {
   const spec = parseViewSpec({ ...valid, params: ['vehicle', 'as_of'] })
 
