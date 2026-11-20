@@ -38,11 +38,13 @@ vi.mock('@/lib/access/lp-scope', () => ({
   visibleLpEntityIds: async (_: unknown, scope: { vehicleNames: string[] | null }) => (scope.vehicleNames === null ? null : ['ent-1']),
 }))
 vi.mock('@/lib/accounting/lp-statement-pdf', () => ({ generateLpStatementPdf: (...a: unknown[]) => (statementPdf as any)(...a) }))
-vi.mock('@/lib/lp-report-pdf', () => ({ generateLiveInvestorReportPdf: (...a: unknown[]) => (cardPdf as any)(...a) }))
 const builtCards = vi.fn(async (..._a: unknown[]) => ({ asOf: '2026-09-30', refreshedAt: null, cards: [{ investorId: 'inv-1', investorName: 'Acme', rows: [], asOf: '2026-09-30' }] }))
 const cardsZip = vi.fn(async (..._a: unknown[]) => ({ zip: Buffer.from('PK-zip'), count: 1 }))
 vi.mock('@/lib/lp-report-cards', () => ({ buildLiveReportCards: (...a: unknown[]) => (builtCards as any)(...a) }))
-vi.mock('@/lib/lp-report-cards-zip', () => ({ renderReportCardsZip: (...a: unknown[]) => (cardsZip as any)(...a) }))
+vi.mock('@/lib/lp-report-cards-zip', () => ({
+  renderReportCardsZip: (...a: unknown[]) => (cardsZip as any)(...a),
+  renderReportCardPdf: (...a: unknown[]) => (cardPdf as any)(...a),
+}))
 const documentPdf = vi.fn(async (_admin: unknown, fundId: string, id: string) =>
   fundId === 'fund-1' && id === 'render-1' ? { pdf: Buffer.from('%PDF-letter'), fileName: 'Fund II Letter Q1 2026.pdf' } : null)
 vi.mock('@/lib/document-templates/pdf', () => ({ renderPdf: (...a: unknown[]) => (documentPdf as any)(...a) }))
@@ -91,10 +93,14 @@ describe('a document link', () => {
   it('opens a report card of every vehicle — or only the entities a scoped member can see', async () => {
     access = member({ lp_capital: 'read', gp_economics: 'read' })
     expect((await open(card())).status).toBe(200)
-    expect(cardPdf).toHaveBeenLastCalledWith(store.admin, { fundId: 'fund-1', investorIds: ['inv-1'], groups: null, includeConnected: true })
+    // The on-screen card's build (lib/lp-report-cards), so the investor's group comes with it.
+    expect(builtCards).toHaveBeenLastCalledWith(store.admin, 'fund-1', expect.objectContaining({ investorIds: ['inv-1'], includeConnected: true }))
+    expect(cardPdf).toHaveBeenLastCalledWith(store.admin, 'fund-1', expect.objectContaining({ investorId: 'inv-1', investorName: 'Acme' }))
     access = member({ lp_capital: 'read', gp_economics: 'read' }, false)
     expect((await open(card())).status).toBe(200)
-    expect(cardPdf).toHaveBeenLastCalledWith(store.admin, { fundId: 'fund-1', investorIds: ['inv-1'], groups: ['Fund I'], includeConnected: true })
+    const opts = (builtCards.mock.calls.at(-1) as any)[2]
+    expect(opts).toMatchObject({ investorIds: ['inv-1'], includeConnected: false })
+    expect(opts.selectRows([{ portfolio_group: 'Fund I' }, { portfolio_group: 'Fund II' }])).toEqual([{ portfolio_group: 'Fund I' }])
   })
 
   it('opens a ZIP of report cards from one build, for the investors named or every one the member sees', async () => {
@@ -150,7 +156,7 @@ describe('a document link', () => {
       expect((await open(statement('ent-gp'))).status).toBe(404)
       expect((await open(statement('ent-1'))).status).toBe(200)   // an LP's statement, carry charge and all
       expect((await open(card())).status).toBe(200)
-      const omit = (cardPdf.mock.calls.at(-1) as any)[1].omit as Map<string, Set<string>>
+      const omit = (builtCards.mock.calls.at(-1) as any)[2].omit as Map<string, Set<string>>
       expect([...omit.get('Fund I')!]).toEqual(['ent-gp'])
       access = member({ lp_capital: 'read', gp_economics: 'read' })
       expect((await open(statement('ent-gp'))).status).toBe(200)

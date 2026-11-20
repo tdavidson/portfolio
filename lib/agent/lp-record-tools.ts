@@ -15,21 +15,25 @@ import {
 } from '@/lib/lps/records'
 import { loadIdentities, lpToolScope, resolveLp, type EntityIdentity } from './lp-tools'
 import { requireUser } from './deals-tools'
+import { investorNameMatches } from '@/lib/lps/investor-groups'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 
-/** One investor of this fund, by id or name. */
+/** One investor of this fund, by id, name or alternate name. */
 export async function resolveInvestor(admin: SupabaseClient, fundId: string, ref: string): Promise<{ id: string; name: string }> {
   const needle = ref.trim().toLowerCase()
   if (!needle) throw new Error('Name the investor.')
-  const { data } = await (admin as any).from('lp_investors').select('id, name').eq('fund_id', fundId)
-  const rows = ((data ?? []) as { id: string; name: string }[])
+  const { data } = await (admin as any).from('lp_investors').select('id, name, alternate_name').eq('fund_id', fundId)
+  const rows = ((data ?? []) as { id: string; name: string; alternate_name?: string | null }[])
+  const pick = (r: { id: string; name: string }) => ({ id: r.id, name: r.name })
   const byId = rows.find(r => r.id === ref.trim())
-  if (byId) return byId
-  const exact = rows.filter(r => r.name.trim().toLowerCase() === needle)
-  if (exact.length === 1) return exact[0]
-  const near = exact.length ? exact : rows.filter(r => r.name.toLowerCase().includes(needle))
-  if (near.length === 1) return near[0]
+  if (byId) return pick(byId)
+  // The name first; the alternate name (a person behind an entity, say) when the name misses.
+  let exact = rows.filter(r => r.name.trim().toLowerCase() === needle)
+  if (exact.length === 0) exact = rows.filter(r => (r.alternate_name ?? '').trim().toLowerCase() === needle)
+  if (exact.length === 1) return pick(exact[0])
+  const near = exact.length ? exact : rows.filter(r => investorNameMatches(r, needle))
+  if (near.length === 1) return pick(near[0])
   if (near.length > 1) throw new Error(`"${ref}" matches ${near.length} investors (${near.map(r => r.name).join(', ')}). Pass one.`)
   throw new Error(`No investor matching "${ref}" in this fund.`)
 }
@@ -82,21 +86,21 @@ export const LP_RECORD_HANDLERS: Record<string, AgentToolHandler> = {
   },
 
   lp_create_investor: async ({ admin, fundId }: AgentToolContext, input: any) => {
-    const row = unwrap(await createInvestor(admin, fundId, input?.name))
-    return { investor: { id: row.id, name: row.name }, next: 'Add their legal entities with lp_create_entity, then a commitment with add_partner.' }
+    const row = unwrap(await createInvestor(admin, fundId, input?.name, input?.alternate_name))
+    return { investor: { id: row.id, name: row.name, alternate_name: row.alternate_name ?? null }, next: 'Add their legal entities with lp_create_entity, then a commitment with add_partner.' }
   },
 
   lp_update_investor: async ({ admin, fundId }: AgentToolContext, input: any) => {
     const investor = await resolveInvestor(admin, fundId, String(input?.investor ?? ''))
     let parentId: string | null | undefined
     if (input?.parent !== undefined) parentId = input.parent ? (await resolveInvestor(admin, fundId, String(input.parent))).id : null
-    if (input?.name === undefined && parentId === undefined) throw new Error('Pass a new name or a parent.')
-    const out = await updateInvestor(admin, fundId, investor.id, { name: input?.name, parentId })
+    if (input?.name === undefined && parentId === undefined && input?.alternate_name === undefined) throw new Error('Pass a new name, an alternate name or a parent.')
+    const out = await updateInvestor(admin, fundId, investor.id, { name: input?.name, parentId, alternateName: input?.alternate_name })
     if (!out.ok && out.error === 'duplicate_name') {
       throw new Error(`Another investor is already named "${String(input.name).trim()}". Merging investors is done on the Investors page.`)
     }
     const row = unwrap(out)
-    return { investor: { id: row.id, name: row.name, parent_id: row.parent_id ?? null } }
+    return { investor: { id: row.id, name: row.name, alternate_name: row.alternate_name ?? null, parent_id: row.parent_id ?? null } }
   },
 
   lp_create_entity: async ({ admin, fundId }: AgentToolContext, input: any) => {

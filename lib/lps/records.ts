@@ -31,10 +31,25 @@ async function investorInFund(admin: SupabaseClient, fundId: string, id: string)
   return !!data
 }
 
-export async function createInvestor(admin: SupabaseClient, fundId: string, rawName: unknown): Promise<Outcome<Row>> {
+/** An investor's second name: trimmed, empty = none. */
+function cleanAlternateName(raw: unknown): Outcome<string | null> {
+  if (raw === null) return done(null)
+  if (typeof raw !== 'string') return fail(400, 'alternateName must be a string or null')
+  const v = raw.trim()
+  if (v.length > MAX_NAME) return fail(400, `alternateName too long (max ${MAX_NAME} chars)`)
+  return done(v || null)
+}
+
+export async function createInvestor(admin: SupabaseClient, fundId: string, rawName: unknown, rawAlternateName?: unknown): Promise<Outcome<Row>> {
   const name = cleanName(rawName, 'name')
   if (!name.ok) return name
-  const { data, error } = await (admin as any).from('lp_investors').insert({ fund_id: fundId, name: name.value }).select('*').single()
+  const insert: Record<string, unknown> = { fund_id: fundId, name: name.value }
+  if (rawAlternateName !== undefined) {
+    const alt = cleanAlternateName(rawAlternateName)
+    if (!alt.ok) return alt
+    if (alt.value) insert.alternate_name = alt.value
+  }
+  const { data, error } = await (admin as any).from('lp_investors').insert(insert).select('*').single()
   if (error) {
     if (/unique|duplicate/i.test(error.message ?? '')) return fail(409, `An investor named "${name.value}" already exists.`)
     return dbFail(error, 'lp-investors-create')
@@ -42,11 +57,19 @@ export async function createInvestor(admin: SupabaseClient, fundId: string, rawN
   return done(data)
 }
 
-/** Rename an investor and/or set its parent. A name taken by another investor is a 409 naming it, for a merge. */
+/**
+ * Rename an investor, set its alternate name (search only), and/or set its parent. A name taken by
+ * another investor is a 409 naming it, for a merge.
+ */
 export async function updateInvestor(
-  admin: SupabaseClient, fundId: string, id: string, input: { name?: unknown; parentId?: unknown },
+  admin: SupabaseClient, fundId: string, id: string, input: { name?: unknown; parentId?: unknown; alternateName?: unknown },
 ): Promise<Outcome<Row>> {
   const updates: Record<string, unknown> = { updated_at: new Date().toISOString() }
+  if (input.alternateName !== undefined) {
+    const alt = cleanAlternateName(input.alternateName)
+    if (!alt.ok) return alt
+    updates.alternate_name = alt.value
+  }
   let name: string | undefined
   if (input.name !== undefined) {
     const n = cleanName(input.name, 'name')

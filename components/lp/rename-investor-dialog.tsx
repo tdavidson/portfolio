@@ -3,6 +3,8 @@
 // Shared LP rename dialog — used on /lps (has an investorId) and from accounting pages
 // (which only have an entityId). Error-first: a name collision is reported as an error,
 // not silently merged. Merging is an explicit, double-confirmed action the user opts into.
+// With `alternateName` (null = none set) it also edits the investor's second name, which
+// searches match but reports never print.
 
 import { useState } from 'react'
 import { Button } from '@/components/ui/button'
@@ -10,11 +12,13 @@ import { Input } from '@/components/ui/input'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog'
 
 export function RenameInvestorDialog({ target, onClose, onSaved }: {
-  target: { investorId?: string; entityId?: string; name: string }
+  target: { investorId?: string; entityId?: string; name: string; alternateName?: string | null }
   onClose: () => void
   onSaved: () => void
 }) {
   const [name, setName] = useState(target.name)
+  const editsAlternate = target.alternateName !== undefined
+  const [alternate, setAlternate] = useState(target.alternateName ?? '')
   const [saving, setSaving] = useState(false)
   const [err, setErr] = useState<string | null>(null)
   const [conflict, setConflict] = useState<{ conflictId: string; sourceId: string } | null>(null)
@@ -24,6 +28,7 @@ export function RenameInvestorDialog({ target, onClose, onSaved }: {
     if (!name.trim()) return
     setSaving(true); setErr(null)
     const body: Record<string, any> = { name: name.trim() }
+    if (editsAlternate && alternate.trim() !== (target.alternateName ?? '')) body.alternateName = alternate.trim() || null
     if (target.investorId) body.id = target.investorId
     else if (target.entityId) body.entityId = target.entityId
 
@@ -56,15 +61,34 @@ export function RenameInvestorDialog({ target, onClose, onSaved }: {
   return (
     <Dialog open onOpenChange={o => { if (!o) onClose() }}>
       <DialogContent className="sm:max-w-sm">
-        <DialogHeader><DialogTitle>Rename investor</DialogTitle></DialogHeader>
+        <DialogHeader><DialogTitle>{editsAlternate ? 'Edit investor names' : 'Rename investor'}</DialogTitle></DialogHeader>
 
-        <Input
-          value={name}
-          onChange={e => { setName(e.target.value); setConflict(null); setConfirmMerge(false); setErr(null) }}
-          onKeyDown={e => e.key === 'Enter' && !conflict && save()}
-          autoFocus
-          disabled={saving}
-        />
+        <div className="space-y-1">
+          {editsAlternate && <label htmlFor="investor-name" className="text-sm font-medium">Name</label>}
+          <Input
+            id="investor-name"
+            value={name}
+            onChange={e => { setName(e.target.value); setConflict(null); setConfirmMerge(false); setErr(null) }}
+            onKeyDown={e => e.key === 'Enter' && !conflict && save()}
+            autoFocus
+            disabled={saving}
+          />
+        </div>
+
+        {editsAlternate && (
+          <div className="space-y-1">
+            <label htmlFor="investor-alternate-name" className="text-sm font-medium">Also known as</label>
+            <Input
+              id="investor-alternate-name"
+              value={alternate}
+              onChange={e => setAlternate(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && !conflict && save()}
+              placeholder="The person behind the entity, or the entity behind the person"
+              disabled={saving || !!conflict}
+            />
+            <p className="text-xs text-muted-foreground">Search finds the investor by either name. Reports print the name above.</p>
+          </div>
+        )}
 
         {err && <p className="text-sm text-destructive">{err}</p>}
 

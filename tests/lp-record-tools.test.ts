@@ -82,6 +82,18 @@ describe('LP record tools', () => {
     expect(store.tables.lp_investors.find((i: any) => i.id === 'inv-1')!.parent_id).toBeNull()
   })
 
+  it('sets and clears an alternate name, and finds the investor by it', async () => {
+    const out = await H.lp_update_investor(ctx(), { investor: 'Acme', alternate_name: '  Jane Doe ' }) as any
+    expect(out.investor.alternate_name).toBe('Jane Doe')
+    // Another tool can now name the investor by the person behind it.
+    const ent = await H.lp_create_entity(ctx(), { investor: 'jane doe', entity_name: 'Doe Family Trust' }) as any
+    expect(ent.investor).toBe('Acme')
+    await H.lp_update_investor(ctx(), { investor: 'Acme', alternate_name: '' })
+    expect(store.tables.lp_investors.find((i: any) => i.id === 'inv-1')!.alternate_name).toBeNull()
+    const created = await H.lp_create_investor(ctx(), { name: 'Cedar Holdings LLC', alternate_name: 'John Roe' }) as any
+    expect(created.investor).toMatchObject({ name: 'Cedar Holdings LLC', alternate_name: 'John Roe' })
+  })
+
   it('renames an entity and its investor with it', async () => {
     await H.lp_update_entity(ctx(), { lp: 'Acme LP', name: 'Acme Holdings LP' })
     expect(store.tables.lp_entities.find((e: any) => e.id === 'ent-1')!.entity_name).toBe('Acme Holdings LP')

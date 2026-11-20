@@ -140,11 +140,12 @@ function useRecords(open: boolean): Records {
         })))
     }
     if (canRead('lp_capital', 'lps')) {
-      jobs.push(getJson<{ id: string; name: string; lp_entities?: { entity_name: string }[] }[]>(appFetch, '/api/lps/investors')
+      jobs.push(getJson<{ id: string; name: string; alternate_name?: string | null; lp_entities?: { entity_name: string }[] }[]>(appFetch, '/api/lps/investors')
         .then(rows => (!Array.isArray(rows) ? {} : {
           lps: rows.map(inv => ({
             id: `lp:${inv.id}`, label: inv.name, href: `/lps/cards/${inv.id}`, group: 'lps' as PaletteGroup,
-            keywords: (inv.lp_entities ?? []).map(e => e.entity_name),
+            // The alternate name too: the person behind an entity, or the entity behind a person.
+            keywords: [...(inv.lp_entities ?? []).map(e => e.entity_name), ...(inv.alternate_name ? [inv.alternate_name] : [])],
           })),
         })))
     }

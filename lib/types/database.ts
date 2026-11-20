@@ -2627,6 +2627,7 @@ export type Database = {
       }
       lp_investors: {
         Row: {
+          alternate_name: string | null
           created_at: string | null
           fund_id: string
           id: string
@@ -2635,6 +2636,7 @@ export type Database = {
           updated_at: string | null
         }
         Insert: {
+          alternate_name?: string | null
           created_at?: string | null
           fund_id: string
           id?: string
@@ -2643,6 +2645,7 @@ export type Database = {
           updated_at?: string | null
         }
         Update: {
+          alternate_name?: string | null
           created_at?: string | null
           fund_id?: string
           id?: string

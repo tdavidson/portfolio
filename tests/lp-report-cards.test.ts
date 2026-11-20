@@ -15,9 +15,11 @@ const entities = [
   { id: 'e2', entity_name: 'Acme Holdings', investor_id: 'i1', lp_investors: { id: 'i1', name: 'Acme' } },
   { id: 'e3', entity_name: 'Northwind LLC', investor_id: 'i2', lp_investors: { id: 'i2', name: 'Northwind' } },
 ]
+let investors: { id: string; name: string; parent_id: string | null }[] = []
 const admin = {
-  from: () => {
-    const chain: any = { select: () => chain, eq: () => chain, then: (res: any) => res({ data: entities, error: null }) }
+  from: (table: string) => {
+    const data = table === 'lp_investors' ? investors : entities
+    const chain: any = { select: () => chain, eq: () => chain, then: (res: any) => res({ data, error: null }) }
     return chain
   },
 } as any
@@ -45,6 +47,7 @@ beforeEach(() => {
   m.current.mockResolvedValue(report())
   m.live.mockResolvedValue({ ...report('2025-12-31'), computedAt: undefined })
   m.linked.mockResolvedValue({ rows: [] })
+  investors = [{ id: 'i1', name: 'Acme', parent_id: null }, { id: 'i2', name: 'Northwind', parent_id: null }]
 })
 
 describe('buildLiveReportCards', () => {
@@ -76,6 +79,40 @@ describe('buildLiveReportCards', () => {
       omit: new Map([['Example Fund I', new Set(['e3'])]]),
     })
     expect(out.cards.map(c => [c.investorId, c.rows.map(r => r.row.entity_id)])).toEqual([['i1', ['e1']]])
+  })
+})
+
+describe('investor groupings', () => {
+  beforeEach(() => {
+    // Northwind rolls up under Acme, as the LPs page shows it.
+    investors = [{ id: 'i1', name: 'Acme', parent_id: null }, { id: 'i2', name: 'Northwind', parent_id: 'i1' }]
+  })
+
+  it('puts an investor grouped under a parent on the parent\'s card, under the parent\'s name', async () => {
+    const out = await buildLiveReportCards(admin, 'f1', { includeConnected: true })
+    expect(out.cards.map(c => [c.investorId, c.investorName, c.rows.map(r => [r.entityName, r.row.entity_id])])).toEqual([
+      ['i1', 'Acme', [['Acme Trust', 'e1'], ['Acme Holdings', 'e2'], ['Northwind LLC', 'e3']]],
+    ])
+    // Connections are per investor: every member of the group is asked for.
+    expect(m.linked).toHaveBeenCalledWith(admin, expect.objectContaining({ investorIds: ['i1', 'i2'] }))
+  })
+
+  it('asking for the child gives the group\'s card, built from every member\'s vehicles', async () => {
+    const out = await buildLiveReportCards(admin, 'f1', { asOf: '2025-12-31', investorIds: ['i2'] })
+    expect(m.live).toHaveBeenCalledWith(admin, 'f1', '2025-12-31', { entityIds: ['e1', 'e2', 'e3'] })
+    expect(out.cards.map(c => [c.investorId, c.rows.length])).toEqual([['i1', 3]])
+  })
+
+  it('puts a member\'s connected-fund rows on the group\'s card', async () => {
+    m.linked.mockResolvedValue({ rows: [{ investorId: 'i2', fundId: 'f2', entityName: 'Northwind LLC', row: row('x1', 'Example Opportunity Fund', null) }] })
+    const out = await buildLiveReportCards(admin, 'f1', { includeConnected: true })
+    expect(out.cards[0].rows.map(r => r.key)).toContain('f2-x1-Example Opportunity Fund')
+  })
+
+  it('a parent loop stops where it repeats', async () => {
+    investors = [{ id: 'i1', name: 'Acme', parent_id: 'i2' }, { id: 'i2', name: 'Northwind', parent_id: 'i1' }]
+    const out = await buildLiveReportCards(admin, 'f1')
+    expect(out.cards).toHaveLength(2)
   })
 })
 

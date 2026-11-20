@@ -3,6 +3,7 @@ import { generateLiveReport, type LiveInvestmentRow } from '@/lib/accounting/liv
 import { currentLiveReport } from '@/lib/accounting/live-report-cache'
 import { linkedLiveRows } from '@/lib/fund-connections'
 import { reportedThrough } from '@/lib/report-card-footer'
+import { investorGroups, type InvestorRecord } from '@/lib/lps/investor-groups'
 
 // The LIVE LP report cards, many at once.
 //
@@ -13,7 +14,8 @@ import { reportedThrough } from '@/lib/report-card-footer'
 // accounts for every card, which is what made a run of cards slow.
 //
 // Each card is the one /lps/cards/<investor> shows: one investor's positions across the vehicles
-// (and, through approved connections, connected funds), with its own "As of" — the latest date
+// (with every investor grouped under it through lp_investors.parent_id, as the LPs page rolls them
+// up, and, through approved connections, connected funds), with its own "As of" — the latest date
 // that investor's figures run through. The on-screen batch, the zip of PDFs and the assistant's
 // bulk link all read this, so the three agree card for card. The PDFs are lib/lp-report-cards-zip.ts,
 // kept apart so the on-screen route does not carry Chromium.
@@ -45,8 +47,8 @@ export interface LiveCardsOptions {
   asOf?: string
   /** Rebuild today's stored report regardless. */
   refresh?: boolean
-  /** Only these investors' cards; absent or null = every investor. One investor with `asOf` builds
-   *  only the vehicles they hold. */
+  /** Only these investors' cards; absent or null = every investor. An investor grouped under a
+   *  parent gives the parent's card. One investor with `asOf` builds only the vehicles they hold. */
   investorIds?: string[] | null
   /** Narrow the fund's rows before grouping (a member's entity scope). */
   selectRows?: (rows: LiveInvestmentRow[], investorOf: (entityId: string) => string) => LiveInvestmentRow[]
@@ -89,18 +91,26 @@ export function groupIntoCards(
 }
 
 export async function buildLiveReportCards(admin: SupabaseClient, fundId: string, opts: LiveCardsOptions = {}): Promise<LiveCards> {
-  const { data: ents, error: entsError } = await (admin as any).from('lp_entities').select('id, entity_name, investor_id, lp_investors(id, name)').eq('fund_id', fundId)
+  const [{ data: ents, error: entsError }, { data: invs }] = await Promise.all([
+    (admin as any).from('lp_entities').select('id, entity_name, investor_id, lp_investors(id, name)').eq('fund_id', fundId),
+    (admin as any).from('lp_investors').select('id, name, parent_id').eq('fund_id', fundId),
+  ])
+  // A card is a GROUP: an investor rolled up under a parent goes on the parent's card, under the
+  // parent's name, as on the LPs page (lib/lps/investor-groups).
+  const groups = investorGroups(((invs as InvestorRecord[] | null) ?? []))
   const entInfo = new Map<string, EntityInfo>()
   for (const e of ((ents as any[]) ?? [])) {
     const inv = Array.isArray(e.lp_investors) ? e.lp_investors[0] : e.lp_investors
-    entInfo.set(e.id, { entityName: e.entity_name, investorId: e.investor_id ?? e.id, investorName: inv?.name ?? e.entity_name })
+    const top = e.investor_id ? groups.topOf(e.investor_id) : e.id
+    entInfo.set(e.id, { entityName: e.entity_name, investorId: top, investorName: groups.nameOf(top) ?? inv?.name ?? e.entity_name })
   }
   const investorOf = (entityId: string) => entInfo.get(entityId)?.investorId ?? entityId
 
-  const wanted = opts.investorIds ? new Set(opts.investorIds) : null
+  // Asking for an investor in a group asks for the group's card.
+  const wanted = opts.investorIds ? new Set(opts.investorIds.map(groups.topOf)) : null
   // A past date for a few investors builds only the vehicles they hold.
   const entityIds = wanted && !entsError
-    ? ((ents as any[]) ?? []).filter(e => wanted.has(e.investor_id ?? e.id)).map(e => e.id as string)
+    ? ((ents as any[]) ?? []).filter(e => wanted.has(investorOf(e.id))).map(e => e.id as string)
     : null
   const report = opts.asOf
     ? await generateLiveReport(admin, fundId, opts.asOf, entityIds ? { entityIds } : {})
@@ -111,13 +121,16 @@ export async function buildLiveReportCards(admin: SupabaseClient, fundId: string
   if (opts.omit) rows = rows.filter(r => !opts.omit!.get(r.portfolio_group)?.has(r.entity_id))
 
   const investorIds = Array.from(new Set(rows.map(r => investorOf(r.entity_id))))
+  // Connections are made per investor, so ask for every investor in the cards' groups, then put
+  // each connected row on its group's card.
   const linked = opts.includeConnected && investorIds.length > 0
-    ? await linkedLiveRows(admin as any, { fundId, investorIds, asOf: opts.asOf, omitCarryRecipients: !!opts.omitConnectedCarry })
+    ? await linkedLiveRows(admin as any, { fundId, investorIds: Array.from(groups.membersOf(investorIds)), asOf: opts.asOf, omitCarryRecipients: !!opts.omitConnectedCarry })
     : { rows: [] }
+  const linkedRows = linked.rows.map(l => ({ ...l, investorId: groups.topOf(l.investorId) }))
 
   return {
     asOf: report.asOf,
     refreshedAt: (() => { const at = (report as { computedAt?: unknown }).computedAt; return typeof at === 'string' ? at : null })(),
-    cards: groupIntoCards(rows, entInfo, report.entityNames, linked.rows, report.asOf),
+    cards: groupIntoCards(rows, entInfo, report.entityNames, linkedRows, report.asOf),
   }
 }
