@@ -22,6 +22,8 @@ create table public.lp_report_cache (
   computed_at  timestamptz not null default now()
 );
 
+revoke all on public.fund_data_versions from anon, authenticated;
+revoke all on public.lp_report_cache from anon, authenticated;
 grant select, insert, update, delete on public.fund_data_versions to service_role;
 grant select, insert, update, delete on public.lp_report_cache to service_role;
 alter table public.fund_data_versions enable row level security;
