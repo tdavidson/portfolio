@@ -27,7 +27,7 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
       { vehicle: p.get('vehicle') ?? undefined, as_of: p.get('as_of') ?? undefined },
       { id: view.id, name: view.name, url: viewPath(view.id) },
     )
-    return NextResponse.json({ view: { id: view.id, name: view.name, kind: view.kind, shared: view.shared }, payload })
+    return NextResponse.json({ view: { id: view.id, name: view.name, kind: view.kind, shared: view.shared }, spec: view.spec, payload })
   } catch (e) {
     if (e instanceof CustomViewError || e instanceof ViewSpecError) return NextResponse.json({ error: e.message }, { status: 404 })
     throw e

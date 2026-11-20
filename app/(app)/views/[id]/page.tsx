@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Loader2, RefreshCw } from 'lucide-react'
+import { ArrowLeft, Loader2, RefreshCw, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -11,6 +11,7 @@ import { CustomViewRenderer } from '@/components/custom-views/view-renderer'
 import type { CustomViewPayload } from '@/lib/mcp-apps/payload'
 
 interface Loaded {
+  spec: unknown
   view: { id: string; name: string; kind: 'mine' | 'shared'; shared: boolean }
   payload: CustomViewPayload
 }
@@ -105,6 +106,11 @@ export default function CustomViewPage() {
             <Button variant="outline" size="sm" onClick={() => { setLoading(true); load({ vehicle, asOf }) }} disabled={loading}>
               <RefreshCw className={loading ? 'animate-spin' : ''} /> Refresh
             </Button>
+            {data && (
+              <Button asChild variant="outline" size="sm">
+                <Link href={`/views/new?from=${encodeURIComponent(id)}`}><Sparkles /> {data.view.kind === 'mine' ? 'Change' : 'Copy and change'}</Link>
+              </Button>
+            )}
             {data?.view.kind === 'mine' && (
               confirmDelete ? (
                 <>

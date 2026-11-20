@@ -2,7 +2,8 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
-import { LayoutGrid, Loader2 } from 'lucide-react'
+import { LayoutGrid, Loader2, Plus } from 'lucide-react'
+import { Button } from '@/components/ui/button'
 import { Badge } from '@/components/ui/badge'
 import { EmptyState } from '@/components/ui/empty-state'
 
@@ -38,11 +39,14 @@ export default function ViewsPage() {
   return (
     <div className="p-4 md:p-8">
       <div className="max-w-4xl space-y-1">
-        <h1 className="text-2xl font-semibold tracking-tight">Views</h1>
+        <div className="flex items-center justify-between gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">Views</h1>
+          <Button asChild size="sm"><Link href="/views/new"><Plus /> New view</Link></Button>
+        </div>
         <p className="text-sm text-muted-foreground">
-          Screens built on live fund data. Describe one to Claude over the Hemrock connector (&ldquo;build me a view
-          with NAV, unfunded and the largest positions&rdquo;), check the preview, and ask it to save the view. Each view
-          loads fresh every time, and everyone sees only the figures their own access allows.
+          Screens built on live fund data. Describe one here (&ldquo;NAV, unfunded and the largest positions, filterable by
+          vehicle&rdquo;), or to Claude with the Hemrock connector, check the preview, and save it. Each view loads fresh
+          every time, and everyone sees only the figures their own access allows.
         </p>
       </div>
       <div className="mt-6 max-w-4xl">
@@ -51,8 +55,8 @@ export default function ViewsPage() {
         ) : views === null ? (
           <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" /> Loading views</div>
         ) : views.length === 0 ? (
-          <EmptyState icon={LayoutGrid}>
-            No views yet. Ask Claude to build one with the Hemrock connector, then ask it to save the view.
+          <EmptyState icon={LayoutGrid} action={<Button asChild><Link href="/views/new"><Plus /> New view</Link></Button>}>
+            No views yet. Describe the first one and see it built on your live data.
           </EmptyState>
         ) : (
           <ul className="grid gap-3 sm:grid-cols-2">
