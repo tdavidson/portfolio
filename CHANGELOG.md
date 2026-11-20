@@ -8,6 +8,13 @@
 - **Records moved down the sidebar**, below Usage, and it appears only for people with read on Records.
 - Migration, additive: `20261120230000_records_access_right.sql` (seeds Records at none for every fund and for new funds). Members see no records before it is applied either.
 
+### Status-page warnings say what to do
+- **Review before booking.** "Put them on the ledger" is now *Review and book*: it lists each investment item a run would book (date, company, what it books, amount), you tick the ones to book, and only those are booked (`backfill` takes `select`; a dry run with `review` builds each entry without writing it, up to 100).
+- **Nothing to book is not "waiting".** A transaction with no ledger effect (a conversion with no cash, interest or round price; a mark the records true-up cancels to zero postings) is no longer counted as not on the ledger, and is listed apart as needing no action. Before, the ledger refused the second as "Journal entry has no postings", and both kept the warning and the button up forever.
+- **Exits with escrow.** The warning shows, per exit, what the books put in cash and in escrow and what to change for each reading of the bank statement, and opens the company where the exit is edited.
+- **Imported balances.** The warnings name the partners whose books differ from an import, by how much and on which date, say that statements use the books, and open that import on the LP capital page (`/lps/capital?vehicle=&asOf=`), where it can be compared and deleted.
+- **Partners' capital that reaches no partner.** The warning names the postings behind the gap (a line on a partner's own capital account with no partner tag, or anything on the pooled account). A new posting on a partner's own capital account now takes that partner automatically.
+
 ### LP report cards in bulk
 - **One build for a whole batch.** The live report cards' ZIP of PDFs (LP Reports → Individual PDFs) builds the fund's live report once and cuts every investor's card from it (`lib/lp-report-cards.ts`; the PDFs in `lib/lp-report-cards-zip.ts`), on the stored report when it is current. The on-screen batch reads the same builder.
 - **The ZIP matches the cards on screen.** Each PDF now carries the investor's own "As of" (the latest date their figures run through), their positions in connected funds, and only the investors the member's entities allow, exactly as `/lps/cards/<investor>`. Before, it printed one fund-wide date and left connected funds out.

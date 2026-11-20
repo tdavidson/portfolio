@@ -772,8 +772,8 @@ export default function SupportPage() {
               the pages are shown &mdash; like Investments and LP capital tracking.
             </p>
             <p className="text-muted-foreground mb-2">
-              <strong>Bringing in history:</strong> on the entity&rsquo;s status page, <em>Put them on the ledger</em> 
-              books investment history already in the tracker; <em>Migrate from QuickBooks</em> imports a general
+              <strong>Bringing in history:</strong> on the entity&rsquo;s status page, <em>Review and book</em> 
+              lists investment history already in the tracker, lets you pick what to book, and books it; <em>Migrate from QuickBooks</em> imports a general
               ledger; the bank page takes a CSV or a table copied straight from your bank&rsquo;s website; and 
               <em>Opening balances</em> takes over at a cutover date. An administrator&rsquo;s statement can be kept
               beside the books as dated positions and reconciled against them.

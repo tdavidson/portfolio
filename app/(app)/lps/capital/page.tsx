@@ -19,7 +19,7 @@ export const metadata: Metadata = { title: 'LP capital accounts' }
  * with the overlap excluded. Either way it is the same capital-account statement; a vehicle with
  * only reported observations simply has fewer lines behind each figure.
  */
-export default async function LpCapitalPage() {
+export default async function LpCapitalPage(props: { searchParams?: Promise<{ vehicle?: string | string[]; asOf?: string | string[] }> } = {}) {
   const user = await getUser()
   if (!user) redirect('/auth')
 
@@ -34,12 +34,19 @@ export default async function LpCapitalPage() {
   const vehicles = (await listVehiclesWithId(createAdminClient(), page.fundId))
     .filter(vehicle => canSeeVehicle(page.access, vehicle.id))
     .map(({ id, name }) => ({ id, name }))
+  // A link from the entity status page opens on the vehicle and the import date it is about.
+  const sp = (await props.searchParams) ?? {}
+  const one = (v: string | string[] | undefined) => (Array.isArray(v) ? v[0] : v) ?? undefined
+  const vehicle = one(sp.vehicle)
+  const asOf = one(sp.asOf)
+  const initialVehicle = vehicle && vehicles.some(v => v.name === vehicle) ? vehicle : undefined
+  const initialAsOf = asOf && /^\d{4}-\d{2}-\d{2}$/.test(asOf) ? asOf : undefined
 
   return (
     <div className="px-4 md:pl-8 md:pr-4 pt-4 md:pt-6 pb-8 w-full">
       {/* The LP statement (and its PDF) lives under /funds, which is gated on accounting — link to
           it only for a member who can open it, rather than a link that bounces to the dashboard. */}
-      <LpCapitalView isAdmin={page.isAdmin} canOpenStatement={canViewPage(page, 'accounting')} initialVehicles={vehicles} />
+      <LpCapitalView isAdmin={page.isAdmin} canOpenStatement={canViewPage(page, 'accounting')} initialVehicles={vehicles} initialVehicle={initialVehicle} initialAsOf={initialAsOf} />
     </div>
   )
 }

@@ -56,8 +56,9 @@ export async function GET(req: NextRequest) {
 }
 
 // POST
-//   { action: 'backfill', dryRun? } → adopt what's posted, derive what's missing, post what waits
-//                                     (lib/accounting/investment-backfill.ts)
+//   { action: 'backfill', dryRun?, review?, select? } → adopt what's posted, derive what's missing, post
+//     what waits (lib/accounting/investment-backfill.ts). `review` (with dryRun) lists each item and
+//     what would happen to it; `select` books only those item keys.
 // Investments reach the ledger only through investment transactions (plans/spec-ledger-one-writer.md):
 // bootstrap, history replay, single marks and FX revaluations were retired with that.
 export async function POST(req: NextRequest) {
@@ -84,7 +85,8 @@ export async function POST(req: NextRequest) {
   // Adopt posted investment entries, derive what's missing, post what waited. `dryRun` previews. Idempotent — see lib/accounting/investment-backfill.ts.
   if (body?.action === 'backfill') {
     try {
-      return NextResponse.json(await backfillDerivedEntries(admin, gate.fundId, group, user.id, { dryRun: !!body?.dryRun }))
+      const select = Array.isArray(body?.select) ? (body.select as unknown[]).filter((k): k is string => typeof k === 'string') : undefined
+      return NextResponse.json(await backfillDerivedEntries(admin, gate.fundId, group, user.id, { dryRun: !!body?.dryRun, review: !!body?.review, select }))
     } catch (e) {
       console.error('[accounting-investments-backfill]', e instanceof Error ? e.message : e)
       return NextResponse.json({ error: 'Part of the ledger could not be read, so nothing was put on it. Try again.' }, { status: 500 })
