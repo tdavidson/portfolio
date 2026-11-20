@@ -3,10 +3,11 @@ import { loadDashboardCompanyRows } from '@/lib/dashboard/companies'
 import type { PageContext } from '@/lib/pages/context'
 import { computeSummary, effectiveCompanyStatus } from '@/lib/investments'
 import { entityScopeFor } from '@/lib/access/entity-scope'
-import { scopeTransactions } from '@/lib/access/scope'
+import { scopeTransactions, visibleVehicleIds } from '@/lib/access/scope'
 import type { InvestmentTransaction, CompanyStatus } from '@/lib/types/database'
 import { resolveExcluded } from '@/lib/dashboard/entity-selection'
 import { loadActiveEntityOptions, loadFundDefaultExcluded, loadSavedExcluded } from '@/lib/dashboard/entity-selection-load'
+import { loadDashboardFundHoldingRows, loadFirstCallDates } from '@/lib/dashboard/fund-holdings'
 
 export type DashboardPageData = Awaited<ReturnType<typeof loadDashboardPage>>
 
@@ -24,11 +25,18 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
   // Start the independent picker reads while the portfolio data loads. Await the whole batch so
   // an error in either path is observed rather than leaving a rejected promise behind.
   const loadTransactions = createTransactionLoader(admin, page.fundId)
-  const [{ companiesRaw, allTxns }, entityOptions, savedExcluded, fundDefaultExcluded] = await Promise.all([
+  const [{ companiesRaw, allTxns }, { fundRows, firstCalls }, entityOptions, savedExcluded, fundDefaultExcluded] = await Promise.all([
     (async () => {
       const companiesRaw = await loadDashboardCompanyRows(supabase, page.fundId, scope.companyIds)
       const allTxns = await loadTransactions(companiesRaw.map(c => c.id))
       return { companiesRaw, allTxns }
+    })(),
+    // Fund holdings sit in the same grid as the companies (their figures come from the portfolio
+    // sheet the page fetches); here only what sorts and filters them.
+    (async () => {
+      const fundRows = await loadDashboardFundHoldingRows(supabase, page.fundId, scope.companyIds)
+      const firstCalls = await loadFirstCallDates(admin, page.fundId, fundRows.map(f => f.id), visibleVehicleIds(page.access))
+      return { fundRows, firstCalls }
     })(),
     loadActiveEntityOptions(admin, page.access, loadTransactions),
     page.role === 'viewer' ? Promise.resolve(null) : loadSavedExcluded(admin, page.fundId, user.id),
@@ -138,8 +146,20 @@ export async function loadDashboardPage({ supabase, admin, user, page }: PageCon
   // digital assets), and the selection in force — their saved one, else the fund default, else all.
   const selection = resolveExcluded({ options: entityOptions, saved: savedExcluded, fundDefault: fundDefaultExcluded })
 
+  const fundHoldings = fundRows.map(f => ({
+    id: f.id,
+    name: f.name,
+    status: f.status,
+    createdAt: f.created_at,
+    tags: f.tags ?? [],
+    aliases: f.aliases ?? [],
+    portfolioGroup: scope.vehicleNames === null ? f.portfolio_group : (f.portfolio_group ?? []).filter(g => scope.vehicleNames!.includes(g)),
+    firstInvestmentDate: firstCalls.get(f.id) ?? null,
+  }))
+
   return {
     companies: companiesWithInvestments,
+    fundHoldings,
     entityOptions,
     initialExcluded: selection.excluded,
     hasSavedSelection: selection.source === 'saved',

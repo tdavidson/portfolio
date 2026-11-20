@@ -31,6 +31,7 @@ import { unwrap } from '@/lib/service-outcome'
 import { setRoundTerms } from '@/lib/portfolio/round-terms'
 import { formatReportedFigure, recordReportedFigures } from '@/lib/accounting/reported-figures'
 import { fundEconomics } from '@/lib/accounting/fund-economics'
+import { loadPortfolioSheet } from '@/lib/portfolio/sheet-load'
 import { escrowExceedsGross, escrowReceiptError, inKindExceeds } from '@/lib/portfolio/proceeds'
 import { loadReviewForAccess, loadReviewQueue, resolveReview } from '@/lib/review/resolve'
 
@@ -94,9 +95,10 @@ async function txnsFor(admin: SupabaseClient, fundId: string, companyId: string,
   return rows
 }
 
-/** Companies in the fund, optionally narrowed to a vehicle. `portfolio_group` is text[]. */
-async function companiesIn(admin: SupabaseClient, fundId: string, vehicle: string | undefined, scope: EntityScope): Promise<any[]> {
-  const { data } = await (admin as any).from('companies').select('*').eq('fund_id', fundId).eq('holding_type', 'company')
+/** Companies in the fund, optionally narrowed to a vehicle. `portfolio_group` is text[]. `holdingType`
+ *  'fund' lists the fund holdings instead (companies rows too). */
+async function companiesIn(admin: SupabaseClient, fundId: string, vehicle: string | undefined, scope: EntityScope, holdingType: 'company' | 'fund' = 'company'): Promise<any[]> {
+  const { data } = await (admin as any).from('companies').select('*').eq('fund_id', fundId).eq('holding_type', holdingType)
   // Only companies linked to the caller's entities, naming only those entities.
   const rows = scopeCompanyRows((data as any[]) ?? [], scope.companyIds)
     .map(c => ({ ...c, portfolio_group: scopeGroups(c.portfolio_group, scope.vehicleNames) }))
@@ -210,6 +212,7 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
       const fairValue = r2(s.unrealizedValue)
       if (cost === 0 && fairValue === 0) continue
       positions.push({
+        kind: 'company',
         company: c.name,
         companyId: c.id,
         status: c.status,
@@ -222,6 +225,43 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
         realized: r2(s.totalRealized ?? 0),
         moic: invested > 0 ? r2((fairValue + (s.totalRealized ?? 0)) / invested) : null,
       })
+    }
+
+    // Fund holdings, beside the companies as on the Portfolio page: their cost and NAV from the
+    // schedule of investments (the same sheet the page's fund cards read), plus the commitment.
+    const funds = await companiesIn(admin, fundId, input?.vehicle, scope, 'fund')
+    if (funds.length > 0) {
+      // Only entities the caller can see: portfolio_group is already narrowed to them.
+      const vehicles = input?.vehicle ? [input.vehicle] : Array.from(new Set(funds.flatMap(f => f.portfolio_group as string[])))
+      const sheet = vehicles.length > 0
+        ? await loadPortfolioSheet(admin, fundId, vehicles, input?.as_of ? { asOf: asOf.toISOString().slice(0, 10) } : {})
+        : null
+      const byId = new Map(funds.map(f => [f.id as string, f]))
+      for (const r of sheet?.funds ?? []) {
+        const f = r.companyId ? byId.get(r.companyId) : undefined
+        if (!f) continue
+        const cost = r2(r.cost)
+        const fairValue = r2(r.fairValue)
+        if (cost === 0 && fairValue === 0 && r.commitment === 0) continue
+        positions.push({
+          kind: 'fund',
+          company: f.name,
+          companyId: f.id,
+          status: f.status,
+          stage: null,
+          industry: f.industry ?? [],
+          invested: r2(r.invested),
+          cost,
+          fairValue,
+          unrealized: r2(fairValue - cost),
+          realized: r2(r.distributions),
+          moic: r.moic == null ? null : r2(r.moic),
+          commitment: r2(r.commitment),
+          called: r2(r.called),
+          unfunded: r2(r.unfunded),
+          navAsOf: r.navAsOf,
+        })
+      }
     }
     positions.sort((a, b) => b.fairValue - a.fairValue)
 
