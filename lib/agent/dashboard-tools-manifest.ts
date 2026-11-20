@@ -57,6 +57,18 @@ const ARGUMENTS = {
     'Leave out as_of, start and end unless the user asked to pin a date: a saved dashboard without them opens on current figures.',
 }
 
+const CUSTOM_SPEC = {
+  type: 'object',
+  description: 'The view spec: { title, description?, params?, blocks }. See the tool description for the block shapes.',
+}
+
+const CUSTOM_ARGS = {
+  type: 'object',
+  description: 'Optional filter values, for the params the view offers: { vehicle?, as_of? (YYYY-MM-DD) }.',
+}
+
+const CUSTOM_REF = { type: 'string', description: 'The view id or its name, as list_custom_views returns them.' }
+
 export const DASHBOARD_TOOL_MANIFEST: DashboardToolMeta[] = [
   {
     name: 'show_home',
@@ -260,6 +272,102 @@ export const DASHBOARD_TOOL_MANIFEST: DashboardToolMeta[] = [
       type: 'object',
       properties: { dashboard: DASHBOARD_REF },
       required: ['dashboard'],
+    },
+  },
+  // ── Custom views: a member's own layout of blocks over the query datasets (lib/custom-views) ──
+  {
+    name: 'preview_custom_view',
+    description:
+      'Build a custom view the user describes ("NAV, unfunded and the ten largest positions, filterable by vehicle") ' +
+      'and show it live, before saving. Write a spec: { title, description?, params?: ["vehicle","as_of"], blocks: [...] }. ' +
+      'Blocks come from a fixed set: ' +
+      'kpi { label, source, value, format, sub? } shows the first row of one result column; ' +
+      'bar | line { label, source, x, y, format } charts one measure (line: oldest first); ' +
+      'table { label, source, columns?: [{ column, label?, format? }] }; ' +
+      'text { text } is plain copy. Every data block has span (3, 4, 6, 8 or 12 of 12) and ' +
+      'source { tool, dataset, query }: tool is one of the query tools (query_portfolio, query_lps, query_deals, ' +
+      'query_diligence, query_ledger), dataset and columns are theirs, and query is what you would pass that tool ' +
+      '(columns, where, group_by, aggregates, order_by, limit). value, x, y and table columns name RESULT columns ' +
+      '(an aggregate is named by its "as"). format is currency, number, percent, multiple, date or text. Never put ' +
+      'figures in the spec: every block loads live, as the person viewing it. If the spec is wrong the error names ' +
+      'what is allowed; fix it and preview again. Then offer to save it with save_custom_view.',
+    scope: 'read',
+    domain: 'portfolio',
+    // Every block is checked against the dataset's own gate as it loads, so membership is the test
+    // for the tool; a block the member cannot read comes back marked, with no rows.
+    personal: true,
+    ui: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        spec: CUSTOM_SPEC,
+        arguments: CUSTOM_ARGS,
+      },
+      required: ['spec'],
+    },
+  },
+  {
+    name: 'save_custom_view',
+    description:
+      'Save a custom view under a name so the user can open it in the app (Views) and in any later conversation. ' +
+      'Saves the spec, never the figures. Saving under a name the user already has replaces it (the old version ' +
+      'is kept in its history). Preview it first, and only save when the user asks to.',
+    scope: 'write',
+    domain: 'portfolio',
+    personal: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string', description: 'What the user calls it, up to 80 characters.' },
+        spec: CUSTOM_SPEC,
+        shared: { type: 'boolean', description: 'True to list it for every member of the fund. Default false. Each member still sees only what their own access allows.' },
+      },
+      required: ['name', 'spec'],
+    },
+  },
+  {
+    name: 'open_custom_view',
+    description: 'Open a saved custom view by id or name and show it with current figures. The figures also come back as text.',
+    scope: 'read',
+    domain: 'portfolio',
+    personal: true,
+    ui: true,
+    inputSchema: {
+      type: 'object',
+      properties: { view: CUSTOM_REF, arguments: CUSTOM_ARGS },
+      required: ['view'],
+    },
+  },
+  {
+    name: 'list_custom_views',
+    description: 'List the custom views this user saved and the ones colleagues shared with the fund.',
+    scope: 'read',
+    domain: 'portfolio',
+    personal: true,
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'get_custom_view_spec',
+    description: 'Read a saved custom view\'s spec, to change it: edit the spec, preview it, then save it under the same name.',
+    scope: 'read',
+    domain: 'portfolio',
+    personal: true,
+    inputSchema: {
+      type: 'object',
+      properties: { view: CUSTOM_REF },
+      required: ['view'],
+    },
+  },
+  {
+    name: 'delete_custom_view',
+    description: 'Delete one of the user\'s own custom views, by id or name. Only call this when the user asks to remove it.',
+    scope: 'write',
+    domain: 'portfolio',
+    personal: true,
+    inputSchema: {
+      type: 'object',
+      properties: { view: CUSTOM_REF },
+      required: ['view'],
     },
   },
 ]

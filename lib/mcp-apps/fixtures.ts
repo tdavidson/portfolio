@@ -6,7 +6,7 @@
 
 import { VIEW_TOOL } from './payload'
 import type {
-  HomePayload, ChartPayload, CallsPayload, CallLine,
+  HomePayload, ChartPayload, CallsPayload, CallLine, CustomViewPayload,
   CompanyMetricSeries, CompanyPayload, DashboardBranding, DashboardPayload, LpPayload, LpRow,
   PartnerCapitalRow, PortfolioPayload, PortfolioPosition, StatementLine, StatementsPayload,
 } from './payload'
@@ -187,7 +187,30 @@ export const chart: ChartPayload = {
     ],
   },
 }
-export const SAMPLE_DASHBOARDS = { portfolio, company, statements, lps, calls, home, chart }
+export const custom: CustomViewPayload = {
+  view: 'custom', title: 'Monday fund view', subtitle: 'All vehicles', args: { view: 'view-1' }, generatedAt: now, branding,
+  data: {
+    id: 'view-1', url: 'https://app.fund.example/views/view-1', description: 'Where the portfolio stands, for the Monday meeting.',
+    params: ['vehicle'], values: {}, vehicles: ['Fernhill Fund I', 'Fernhill Fund II'],
+    blocks: [
+      { id: 'fv', type: 'kpi', label: 'Fair value', span: 3, status: 'ok', format: 'currency', value: tf },
+      { id: 'cost', type: 'kpi', label: 'Cost', span: 3, status: 'ok', format: 'currency', value: tc },
+      { id: 'n', type: 'kpi', label: 'Active companies', span: 3, status: 'ok', format: 'number', value: positions.filter(p => p.status === 'active').length },
+      { id: 'nav', type: 'kpi', label: 'LP NAV', span: 3, status: 'denied', message: 'Needs access to LP capital.' },
+      {
+        id: 'bars', type: 'bar', label: 'Largest positions by fair value', span: 6, status: 'ok', format: 'currency',
+        points: positions.slice(0, 8).map(p => ({ label: p.company, value: p.fairValue })),
+      },
+      {
+        id: 'tbl', type: 'table', label: 'Below cost', span: 6, status: 'ok',
+        columns: [{ key: 'company', label: 'Company', format: 'text' }, { key: 'cost', label: 'Cost', format: 'currency' }, { key: 'moic', label: 'MOIC', format: 'multiple' }],
+        rows: positions.filter(p => p.fairValue < p.cost).map(p => ({ company: p.company, cost: p.cost, moic: p.moic })),
+      },
+      { id: 'note', type: 'text', label: '', span: 12, status: 'ok', text: 'Figures load live each time the view opens.' },
+    ],
+  },
+}
+export const SAMPLE_DASHBOARDS = { portfolio, company, statements, lps, calls, home, chart, custom }
 
 /** The sample each `show_*` tool returns, for a host standing in for the MCP server. */
 export const SAMPLE_BY_TOOL: Record<string, DashboardPayload> = {
@@ -198,4 +221,6 @@ export const SAMPLE_BY_TOOL: Record<string, DashboardPayload> = {
   [VIEW_TOOL.calls]: calls,
   show_home: home,
   show_chart: chart,
+  preview_custom_view: custom,
+  open_custom_view: custom,
 }

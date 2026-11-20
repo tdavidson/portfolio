@@ -32,6 +32,8 @@ const NOT_IN_DEMO: Record<string, string> = {
   'settings/memo-agent/style-anchors': 'admin only',
   'settings/memo-agent/style-anchors/[id]': 'admin only',
   'manco/[[...rest]]': 'redirect into /funds',
+  'views': 'custom views are saved from a connected assistant; the demo fund has none',
+  'views/[id]': 'custom views are saved from a connected assistant; the demo fund has none',
 }
 
 function pages(dir = APP_DIR, prefix = ''): string[] {

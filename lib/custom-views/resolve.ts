@@ -1,0 +1,180 @@
+// Turn a view spec into figures, as the person opening it.
+//
+// Every data block is answered the way the assistant's own query tool would answer it
+// (lib/agent/query-tools.ts): the tool's access, the dataset's gate, the same scoped loader, the
+// same engine. Nothing here reads the database directly, so a view can only ever lay out what
+// its viewer could already ask for. A block the viewer may not read is returned `denied` with no
+// rows, never an error page: one shared view serves colleagues with different access.
+//
+// Blocks over the same dataset share one load (the LP live report is the slow one), and every
+// block loads in parallel.
+
+import type { SupabaseClient } from '@supabase/supabase-js'
+import type { AccessContext } from '@/lib/access/effective'
+import { hasAccess } from '@/lib/access/effective'
+import { DOMAIN_META } from '@/lib/access/domains'
+import { entityScopeFor } from '@/lib/access/entity-scope'
+import {
+  accessDomainForCall, accessFeatureFor, getTool, resolveVehicleForTool,
+  type AgentToolContext,
+} from '@/lib/accounting/agent-tools'
+import { listVehicles } from '@/lib/accounting/load'
+import { QUERY_LOADERS, type DatasetParams } from '@/lib/agent/query/datasets'
+import { runQuery } from '@/lib/agent/query/engine'
+import { loadBranding } from '@/lib/mcp-apps/branding'
+import type { CustomBlock, CustomValueFormat, CustomViewPayload, DashboardBranding } from '@/lib/mcp-apps/payload'
+import {
+  cleanParams, findDataset, isDataBlock,
+  type DataBlock, type TableBlock, type ViewBlock, type ViewParam, type ViewSpec,
+} from './spec'
+
+type Row = Record<string, unknown>
+type Loader = (ctx: AgentToolContext, params: DatasetParams) => Promise<Row[]>
+
+export interface ResolveDeps {
+  admin: SupabaseClient
+  fundId: string
+  userId: string | null
+  access: AccessContext
+  /** Tests swap the loaders and the branding/vehicle lookups. */
+  loaders?: Record<string, Loader>
+  branding?: () => Promise<DashboardBranding>
+  vehicles?: () => Promise<string[]>
+}
+
+export interface ViewRef {
+  id: string | null
+  name?: string
+  url?: string | null
+}
+
+/** Points per chart, after the query's own limit. More than this is not a chart anyone reads. */
+export const MAX_CHART_POINTS = 60
+
+const cell = (v: unknown): string | number | null => {
+  if (v === null || v === undefined || v === '') return null
+  if (typeof v === 'number') return Number.isFinite(v) ? v : null
+  if (typeof v === 'boolean') return v ? 'Yes' : 'No'
+  if (Array.isArray(v)) return v.map(String).join(', ')
+  return String(v)
+}
+
+const humanize = (column: string) => {
+  const t = column.replace(/_/g, ' ').trim()
+  return t ? t[0].toUpperCase() + t.slice(1) : column
+}
+
+/** A sensible default format for a table column the spec left unformatted. */
+function guessFormat(column: string, sample: unknown): CustomValueFormat {
+  if (/(^|_)(dpi|rvpi|tvpi|moic)$/.test(column)) return 'multiple'
+  if (/(pct|percent|irr)/.test(column)) return 'percent'
+  if (/(^|_)(date|as_of|created_at)$/.test(column) || /_date$/.test(column)) return 'date'
+  if (typeof sample === 'number') {
+    return /(count|shares|quarter|year|month|days)/.test(column) ? 'number' : 'currency'
+  }
+  return 'text'
+}
+
+async function loadBlock(
+  deps: ResolveDeps,
+  block: DataBlock,
+  values: Partial<Record<ViewParam, string>>,
+  cache: Map<string, Promise<Row[]>>,
+): Promise<CustomBlock> {
+  const base = { id: block.id, type: block.type, label: block.label, span: block.span }
+  const { tool: toolName, dataset, query } = block.source
+  const tool = getTool(toolName)
+  const meta = findDataset(toolName, dataset)
+  if (!tool || !meta) return { ...base, status: 'error', message: `${toolName} ${dataset} is no longer available.` }
+
+  const input = { dataset, ...(values.vehicle ? { vehicle: values.vehicle } : {}), ...(values.as_of ? { as_of: values.as_of } : {}) }
+  // The tool's own gate (as the assistant's call would be checked) and the dataset's (as the
+  // query handler checks it): a block can never show more than either would.
+  const toolDomain = accessDomainForCall(tool, input)
+  if (!hasAccess(deps.access, toolDomain, 'read', accessFeatureFor(tool))) {
+    return { ...base, status: 'denied', message: `Needs access to ${DOMAIN_META[toolDomain].label}.` }
+  }
+  if (!hasAccess(deps.access, meta.gate.domain, 'read', meta.gate.feature)) {
+    return { ...base, status: 'denied', message: `Needs access to ${DOMAIN_META[meta.gate.domain].label}.` }
+  }
+
+  try {
+    // Ledger datasets work on one entity; resolving it checks the viewer may see that entity.
+    const portfolioGroup = await resolveVehicleForTool(tool, deps.admin, deps.fundId, values.vehicle, deps.access)
+    const key = JSON.stringify([dataset, portfolioGroup, values.vehicle ?? null, values.as_of ?? null])
+    let rows = cache.get(key)
+    if (!rows) {
+      const loader = (deps.loaders ?? QUERY_LOADERS)[dataset]
+      if (!loader) return { ...base, status: 'error', message: `${dataset} has no loader.` }
+      const ctx: AgentToolContext = { admin: deps.admin, fundId: deps.fundId, portfolioGroup, userId: deps.userId, access: deps.access }
+      rows = loader(ctx, { vehicle: values.vehicle, as_of: values.as_of })
+      cache.set(key, rows)
+    }
+    const result = runQuery(await rows, meta.columns, query)
+
+    if (block.type === 'kpi') {
+      const first = result.rows[0]
+      return { ...base, status: 'ok', format: block.format, value: first ? cell(first[block.value]) : null, ...(block.sub ? { sub: block.sub } : {}) }
+    }
+    if (block.type === 'bar' || block.type === 'line') {
+      const points = result.rows
+        .map(r => ({ label: String(cell(r[block.x]) ?? '—'), value: Number(r[block.y]) }))
+        .filter(p => Number.isFinite(p.value))
+        .slice(0, MAX_CHART_POINTS)
+      return { ...base, status: 'ok', format: block.format, points }
+    }
+    const columns = (block as TableBlock).columns.map(c => ({
+      key: c.column,
+      label: c.label ?? humanize(c.column),
+      format: c.format ?? guessFormat(c.column, result.rows.find(r => r[c.column] != null)?.[c.column]),
+    }))
+    const rows2 = result.rows.map(r => Object.fromEntries(columns.map(c => [c.key, cell(r[c.key])])))
+    return { ...base, status: 'ok', columns, rows: rows2, truncated: result.truncated }
+  } catch (e) {
+    return { ...base, status: 'error', message: (e as Error).message || 'Could not load this block.' }
+  }
+}
+
+function textBlock(block: ViewBlock & { type: 'text' }): CustomBlock {
+  return { id: block.id, type: 'text', label: block.label, span: block.span, status: 'ok', text: block.text }
+}
+
+/** Load every block of a view, as the viewer, and lay it out as a payload the renderers draw. */
+export async function resolveView(deps: ResolveDeps, spec: ViewSpec, rawParams: unknown, ref: ViewRef): Promise<CustomViewPayload> {
+  const values = cleanParams(spec, rawParams)
+  const cache = new Map<string, Promise<Row[]>>()
+  const [branding, vehicles, blocks] = await Promise.all([
+    (deps.branding ?? (() => loadBranding(deps.admin, deps.fundId)))(),
+    spec.params.includes('vehicle') ? viewerVehicles(deps) : Promise.resolve([] as string[]),
+    Promise.all(spec.blocks.map(b => (isDataBlock(b) ? loadBlock(deps, b, values, cache) : Promise.resolve(textBlock(b))))),
+  ])
+  const subtitle = [values.vehicle ?? (spec.params.includes('vehicle') ? 'All vehicles' : null), values.as_of ? `as of ${values.as_of}` : null]
+    .filter(Boolean).join(' · ') || null
+  return {
+    view: 'custom',
+    title: ref.name ?? spec.title,
+    subtitle,
+    args: { ...(ref.id ? { view: ref.id } : {}), ...values },
+    generatedAt: new Date().toISOString(),
+    branding,
+    data: {
+      id: ref.id,
+      url: ref.url ?? null,
+      description: spec.description ?? null,
+      params: spec.params,
+      values: values as Record<string, string>,
+      vehicles,
+      blocks,
+    },
+  }
+}
+
+/** The entities the viewer may pick: only their own, as the dashboards' entity pickers do. */
+async function viewerVehicles(deps: ResolveDeps): Promise<string[]> {
+  if (deps.vehicles) return deps.vehicles()
+  const [all, scope] = await Promise.all([
+    listVehicles(deps.admin, deps.fundId).catch(() => [] as string[]),
+    entityScopeFor(deps.admin, deps.access),
+  ])
+  return scope.vehicleNames === null ? all : all.filter(v => scope.vehicleNames!.includes(v))
+}

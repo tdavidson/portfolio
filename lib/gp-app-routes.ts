@@ -35,6 +35,7 @@ export const GP_APP_SEGMENTS: ReadonlySet<string> = new Set([
   'support',
   'updates',
   'usage',
+  'views',
 ])
 
 export function isGpAppPath(pathname: string): boolean {

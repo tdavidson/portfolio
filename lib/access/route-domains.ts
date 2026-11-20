@@ -363,6 +363,11 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // Fund records: a record's domain is the area the request names, and lib/records/areas.ts checks
   // read on it in the handler, as the record tools do. Level 'any' only keeps non-members out.
   'api/records': { domain: 'portfolio', level: 'any' },
+  // Custom views (lib/custom-views): a member's own list, like a saved dashboard. Every block of a
+  // view is checked against its dataset's gate and the caller's entities when it loads
+  // (lib/custom-views/resolve.ts), so level 'any' only keeps non-members out.
+  'api/views': { domain: 'portfolio', level: 'any' },
+  'api/views/[id]': { domain: 'portfolio', level: 'any' },
   'api/entities': { domain: 'portfolio', level: 'any' },
   // The sections every entity list renders in. Labels, not figures, read by lists in four domains;
   // the handler filters the entity assignments (and a scoped caller's groups) by canSeeVehicle.
