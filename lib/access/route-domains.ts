@@ -239,7 +239,8 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // where an authorized-user request is also admin-only).
   'api/lps/change-requests': { domain: 'lp_capital' },
   'api/lps/export/excel': { domain: 'lp_capital' },
-  'api/lps/export/pdf': { domain: 'lp_capital' },
+  // A POST only because the investor list is long; it changes nothing, so read, like the cards.
+  'api/lps/export/pdf': { domain: 'lp_capital', level: { POST: 'read' } },
   'api/lps/import': { domain: 'lp_capital' },
   'api/lps/investments': { domain: 'lp_capital' },
   'api/lps/investor-groups': { domain: 'lp_capital' },

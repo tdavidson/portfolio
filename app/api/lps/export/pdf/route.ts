@@ -33,10 +33,11 @@ export async function POST(req: NextRequest) {
     .maybeSingle()
 
   if (!membership) return NextResponse.json({ error: 'No fund' }, { status: 403 })
-  // Per-LP report PDFs carry each investor's commitments/NAV/IRR — admin only, matching the
-  // Excel export. Without this a non-admin member (or the demo viewer role) could pull them.
-  if (membership.role !== 'admin') return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
+  // Gated on lp_capital read (lib/access/route-domains.ts), like the on-screen cards and the
+  // assistant's report card tools: the PDFs carry nothing the caller can't already see there.
+  // Both branches below keep to the caller's entities.
   const fundId = membership.fund_id
+  const scope = await loadEntityScope(admin, { fundId, userId: user.id, role: membership.role })
 
   const body = await req.json()
   const { snapshotId, investorIds, excludedGroups, snapshotName, live, asOf } = body as {
@@ -79,7 +80,6 @@ export async function POST(req: NextRequest) {
     if (((invs ?? []) as unknown[]).length !== new Set(investorIds).size) {
       return NextResponse.json({ error: 'One or more investors not found in your fund' }, { status: 403 })
     }
-    const scope = await loadEntityScope(admin, { fundId, userId: user.id, role: membership.role })
     const built = await buildLiveReportCards(admin, fundId, {
       asOf: safeAsOf,
       investorIds,
@@ -118,7 +118,11 @@ export async function POST(req: NextRequest) {
   ])
   const snapshot = snapshotResult.data
   if (!snapshot) return NextResponse.json({ error: 'Snapshot not found' }, { status: 404 })
-  const allInvestments = (investmentsResult.data ?? []) as unknown as InvestmentRow[]
+  // A member who sees only some entities gets cards only for the LPs in them (each card with all
+  // of that LP's positions), as the live branch and /api/lps/live-cards do (scopeReportCardRows).
+  const snapshotRows = (investmentsResult.data ?? []) as unknown as InvestmentRow[]
+  const investorOfEntity = new Map(snapshotRows.map(r => [r.entity_id, r.lp_entities?.lp_investors?.id ?? '']))
+  const allInvestments = scopeReportCardRows(snapshotRows, scope.vehicleNames, e => investorOfEntity.get(e) ?? '')
   const description: string | null = snapshot.description
   const footerNote: string | null = snapshot.footer_note
   const asOfDate: string | null = snapshot.as_of_date
@@ -179,6 +183,8 @@ export async function POST(req: NextRequest) {
       const invs = investmentsByInvestorId.get(rid)
       if (invs) investments.push(...invs)
     })
+    // Outside the caller's entities: no card at all, rather than an empty one under the LP's name.
+    if (scope.vehicleNames !== null && investments.length === 0) continue
 
     // Apply excluded groups filter
     const excludedGroupNames: string[] = []
