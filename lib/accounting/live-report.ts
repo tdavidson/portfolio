@@ -434,7 +434,8 @@ async function applyLookThrough(
         receivable: null,
         carried_interest: null,
         // The member's own multiples from their own split. Copying the associate's would give every
-        // member the same TVPI, though carry follows points and capital follows ownership.
+        // member the same TVPI, though carry follows points and capital follows ownership. The IRR
+        // is the administrator's stated one: an imported position has no flows to split.
         ...memberRatios(associateRow, m),
         evidence: associateRow.evidence ? {
           ...associateRow.evidence,
@@ -523,9 +524,12 @@ async function applyLookThrough(
 }
 
 /**
- * A member's DPI, RVPI and TVPI from their share of an administrator-reported associate row. The
- * administrator states one IRR for the associate, and it is the member's only when their share
- * is a straight slice of it (same TVPI); otherwise no IRR is shown rather than a wrong one.
+ * A member's DPI, RVPI and TVPI from their share of an administrator-reported associate row.
+ *
+ * The administrator states one IRR for the associate's position, and an imported position carries
+ * no dated cash flows to work out a member's own. When the member's share is a straight slice of
+ * the position (same TVPI) that IRR is theirs exactly. When carry points make their share differ,
+ * it is still the only IRR there is, so the member gets the stated one rather than none.
  */
 function memberRatios(
   associateRow: LiveInvestmentRow,
@@ -533,12 +537,11 @@ function memberRatios(
 ): Pick<LiveInvestmentRow, 'dpi' | 'rvpi' | 'tvpi' | 'irr'> {
   const rr = lpRatios({ commitment: m.commitment, paidIn: m.paid_in_capital, distributions: m.distributions, nav: m.nav })
   const tvpi = rr.tvpi == null ? null : round4(rr.tvpi)
-  const sameSlice = tvpi != null && associateRow.tvpi != null && Math.abs(tvpi - associateRow.tvpi) < 0.0001
   return {
     dpi: rr.dpi == null ? null : round4(rr.dpi),
     rvpi: rr.rvpi == null ? null : round4(rr.rvpi),
     tvpi,
-    irr: sameSlice ? associateRow.irr : null,
+    irr: associateRow.irr,
   }
 }
 

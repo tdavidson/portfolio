@@ -180,3 +180,38 @@ describe('the report card date', () => {
     expect(formatAsOf(null)).toBeNull()
   })
 })
+
+describe('an associate whose position is only an administrator import', () => {
+  /** The tracked vehicle reports its administrator's figures, and the associate holds a position
+   *  in it through lp-gp. The members' carry points differ from their ownership, so their shares
+   *  are not straight slices of the position. */
+  function importedAssociateFund() {
+    const m = multiVehicleFund()
+    const t = m.tables
+    t.fund_vehicles.find((v: any) => v.id === 'veh-4').record_source = 'admin'
+    t.lp_positions.push({ id: 'pos-gp', fund_id: FUND, vehicle_id: 'veh-4', lp_entity_id: 'lp-gp', as_of_date: '2021-03-31', commitment: 10_000, called_capital: 10_000, distributions: 50_000, nav: 150_000, carried_interest: 160_000 })
+    // The fund's net LP figures for the quarter: the IRR is the only one the administrator states.
+    t.vehicle_reported_figures = (['irr', 'tvpi', 'dpi'] as const).map((metric, i) => ({
+      id: `vrf-${metric}`, fund_id: FUND, vehicle_id: 'veh-4', as_of: '2021-03-31', basis: 'net', metric, value: [0.12, 2.5, 1.0][i], source: 'Example Administrator',
+    }))
+    t.vehicle_gp_links.push({ id: 'gpl-2', fund_id: FUND, gp_vehicle_id: 'veh-3', served_vehicle_id: 'veh-4', lp_entity_id: 'lp-gp' })
+    t.partner_allocation_terms = [
+      { id: 'pat-c', fund_id: FUND, vehicle_id: 'veh-3', lp_entity_id: 'lp-c', category: 'carried_interest', participates: true, weight_override: 3, rate_override: null },
+      { id: 'pat-x', fund_id: FUND, vehicle_id: 'veh-3', lp_entity_id: 'lp-x', category: 'carried_interest', participates: true, weight_override: 1, rate_override: null },
+    ]
+    return m
+  }
+
+  it("gives each member the administrator's stated IRR when there are no flows to work out their own", async () => {
+    const m = importedAssociateFund()
+    const report = await generateLiveReport(m.admin as any, FUND, undefined, { fullLedger: true })
+    const members = report.rows.filter(r => r.portfolio_group === OTHER && r.lookThroughVia === ASSOC)
+    expect(members.map(r => r.entity_id).sort()).toEqual(['lp-c', 'lp-x'])
+    // Carry points make the shares differ from the position's own multiple...
+    expect(members[0].tvpi).not.toBe(members[1].tvpi)
+    // ...but the stated IRR is the only one there is, so each member shows it.
+    for (const r of members) expect(r.irr).toBe(0.12)
+    // The associate's holder has no row of its own in the vehicle.
+    expect(report.rows.some(r => r.portfolio_group === OTHER && r.entity_id === 'lp-gp')).toBe(false)
+  })
+})
