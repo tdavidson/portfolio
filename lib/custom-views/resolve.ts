@@ -24,11 +24,11 @@ import { runQuery } from '@/lib/agent/query/engine'
 import { loadBranding } from '@/lib/mcp-apps/branding'
 import type { CustomBlock, CustomValueFormat, CustomViewPayload, DashboardBranding } from '@/lib/mcp-apps/payload'
 import {
-  cleanFilterValues, cleanParams, findDataset, isDataBlock, MAX_SERIES, splitQuery,
-  type ChartBlock, type ComparePeriod, type DataBlock, type FilterValue, type PivotBlock, type TableBlock,
+  cleanFilterValues, cleanParams, findDataset, isDataBlock, isFormulaBlock, MAX_SERIES, splitQuery,
+  type BlockSource, type ChartBlock, type ComparePeriod, type DataBlock, type FilterValue, type FormulaKpiBlock, type PivotBlock, type TableBlock,
   type ViewBlock, type ViewFilter, type ViewParam, type ViewSpec,
 } from './spec'
-import { applyComputed } from './formula'
+import { applyComputed, evaluate, parseFormula } from './formula'
 import type { Column, Filter, QueryResult } from '@/lib/agent/query/engine'
 
 type Row = Record<string, unknown>
@@ -132,7 +132,7 @@ function filterClauses(meta: { columns: Column[] }, filters: ViewFilter[], value
 }
 
 /** The block's query over loaded rows: filters, the engine, calculated columns, then their sort. */
-function runSource(block: DataBlock, meta: { columns: Column[] }, rows: Row[], where: Filter[]): QueryResult {
+function runSource(block: { source: BlockSource }, meta: { columns: Column[] }, rows: Row[], where: Filter[]): QueryResult {
   const { engine, post, limit } = splitQuery(block.source)
   const result = runQuery(rows, meta.columns, { ...engine, where: [...(engine.where ?? []), ...where] })
   const computed = block.source.computed ?? []
@@ -243,23 +243,84 @@ async function loadBlock(deps: ResolveDeps, block: DataBlock, lc: LoadContext): 
         out.previous = Number.isFinite(pv) ? pv : null
         out.previousLabel = `vs ${new Date(`${at}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })}`
       }
+      if (block.trend) {
+        const t = block.trend
+        const tmeta = findDataset(t.source.tool, t.source.dataset)
+        const tloader = tmeta && (deps.loaders ?? QUERY_LOADERS)[t.source.dataset]
+        // Only a dataset under the same gate as the figure, so a sparkline never shows more than its tile.
+        if (tmeta && tloader && hasAccess(deps.access, tmeta.gate.domain, 'read', tmeta.gate.feature)) {
+          const key = JSON.stringify([t.source.dataset, portfolioGroup, values.vehicle ?? null, values.as_of ?? null])
+          let trows = cache.get(key)
+          if (!trows) {
+            trows = tloader({ admin: deps.admin, fundId: deps.fundId, portfolioGroup, userId: deps.userId, access: deps.access }, { vehicle: values.vehicle, as_of: values.as_of })
+            cache.set(key, trows)
+          }
+          const spark = runSource(t, tmeta, await trows, filterClauses(tmeta, lc.filters, lc.filterValues)).rows
+            .map(r => ({ label: String(cell(r[t.x]) ?? ''), value: Number(r[t.y]) }))
+            .filter(p => Number.isFinite(p.value))
+            .slice(-MAX_CHART_POINTS)
+          if (spark.length > 1) out.spark = spark
+        }
+      }
       return out
     }
-    if (block.type === 'pivot') return pivotBlock(block, base, result.rows)
-    if (block.type !== 'table') return chartBlock(block, base, result.rows)
+    if (block.type === 'gauge') {
+      const first = result.rows[0]
+      const v = first ? Number(first[block.value]) : NaN
+      const max = block.max_column ? Number(first?.[block.max_column]) : block.max
+      return {
+        ...base, status: 'ok', format: block.format,
+        value: Number.isFinite(v) ? v : null,
+        gaugeMax: max !== undefined && Number.isFinite(max) && max > 0 ? max : null,
+        ...(block.target !== undefined ? { target: block.target } : {}),
+      }
+    }
+    if (block.type === 'pivot' || block.type === 'heatmap') return pivotBlock(block as PivotBlock, base, result.rows)
+    if (block.type !== 'table') return chartBlock(block as ChartBlock, base, result.rows)
     const table = block as TableBlock
     const columns = table.columns.map(c => ({
       key: c.column,
       label: c.label ?? humanize(c.column),
       format: c.format ?? guessFormat(c.column, result.rows.find(r => r[c.column] != null)?.[c.column]),
+      ...(c.tone ? { tone: c.tone } : {}),
+      ...(c.link ? { link: c.link } : {}),
     }))
-    const rows2 = result.rows.map(r => Object.fromEntries(columns.map(c => [c.key, cell(r[c.key])])))
+    const summed = (f: CustomValueFormat) => f === 'currency' || f === 'number'
+    // Subtotals keep the query's order within each group, groups in order of first appearance.
+    let source = result.rows
+    let subtotals: CustomBlock['subtotals']
+    if (table.subtotal_by) {
+      const by = table.subtotal_by
+      const groups = new Map<string, Row[]>()
+      for (const r of source) {
+        const k = String(cell(r[by]) ?? '—')
+        groups.set(k, [...(groups.get(k) ?? []), r])
+      }
+      source = Array.from(groups.values()).flat()
+      subtotals = []
+      let at = 0
+      for (const [k, rs] of groups) {
+        at += rs.length
+        subtotals.push({
+          after: at - 1,
+          label: k,
+          values: Object.fromEntries(columns.map(c => [c.key, summed(c.format) ? rs.reduce((t, r) => t + (Number.isFinite(Number(r[c.key])) && r[c.key] !== null ? Number(r[c.key]) : 0), 0) : null])),
+        })
+      }
+    }
+    const rows2 = source.map(r => Object.fromEntries(columns.map(c => [c.key, cell(r[c.key])])))
+    const links = columns.some(c => c.link === 'company')
+      ? source.map(r => Object.fromEntries(columns.filter(c => c.link === 'company' && r.company_id).map(c => [c.key, `company:${String(r.company_id)}`])))
+      : undefined
     const totalsRow = table.totals
-      ? Object.fromEntries(columns.map(c => [c.key, c.format === 'currency' || c.format === 'number'
+      ? Object.fromEntries(columns.map(c => [c.key, summed(c.format)
         ? rows2.reduce((s: number, r) => s + (typeof r[c.key] === 'number' ? (r[c.key] as number) : 0), 0)
         : null]))
       : undefined
-    return { ...base, status: 'ok', columns, rows: rows2, truncated: result.truncated, ...(totalsRow ? { totalsRow } : {}) }
+    return {
+      ...base, status: 'ok', columns, rows: rows2, truncated: result.truncated,
+      ...(totalsRow ? { totalsRow } : {}), ...(subtotals ? { subtotals } : {}), ...(links ? { links } : {}),
+    }
   } catch (e) {
     return { ...base, status: 'error', message: (e as Error).message || 'Could not load this block.' }
   }
@@ -285,7 +346,7 @@ function pivotBlock(block: PivotBlock, base: Pick<CustomBlock, 'id' | 'type' | '
   // Columns read left to right in order: dates and periods sort as text, which is their order.
   colKeys.sort((a, b) => a.localeCompare(b, 'en', { numeric: true }))
   const grid = rowKeys.map(rk => colKeys.map(ck => cells.get(JSON.stringify([rk, ck])) ?? null))
-  const totals = block.totals !== false
+  const totals = block.type === 'heatmap' ? block.totals === true : block.totals !== false
   return {
     ...base, status: 'ok', format: block.format,
     pivot: {
@@ -310,6 +371,16 @@ function chartBlock(block: ChartBlock, base: Pick<CustomBlock, 'id' | 'type' | '
   const label = (r: Row) => String(cell(r[block.x]) ?? '—')
   if (block.series) {
     return { ...ok, ...(block.stack ? { stack: block.stack } : {}), ...pivotSeries(rows, block.x, block.y, block.series) }
+  }
+  if (block.measures?.length) {
+    // Each measure is a series of its own; bars set them side by side unless asked to stack.
+    const cols = [block.y, ...block.measures]
+    const num = (v: unknown) => (Number.isFinite(Number(v)) && v !== null && v !== '' ? Number(v) : 0)
+    const points = rows.slice(0, MAX_CHART_POINTS).map(r => {
+      const values = cols.map(c => num(r[c]))
+      return { label: label(r), value: values.reduce((t, v) => t + v, 0), values }
+    })
+    return { ...ok, stack: block.stack ?? (block.type === 'area' ? 'stacked' : 'grouped'), series: cols.map(humanize), points }
   }
   if (block.type === 'scatter') {
     const dots = rows
@@ -342,6 +413,33 @@ function chartBlock(block: ChartBlock, base: Pick<CustomBlock, 'id' | 'type' | '
   return { ...ok, points }
 }
 
+function formulaTile(block: FormulaKpiBlock, specBlocks: ViewBlock[], loaded: (CustomBlock | null)[]): CustomBlock {
+  const base = { id: block.id, type: 'kpi' as const, label: block.label, span: block.span }
+  const figures: Record<string, unknown> = {}
+  const missing: string[] = []
+  specBlocks.forEach((b, i) => {
+    const out = loaded[i]
+    if (b.type !== 'kpi' || isFormulaBlock(b) || !out) return
+    if (out.status === 'ok') figures[b.id] = out.value
+    else missing.push(b.label || b.id)
+  })
+  let expr
+  try { expr = parseFormula(block.formula, specBlocks.filter(b => b.type === 'kpi' && !isFormulaBlock(b)).map(b => b.id)) }
+  catch (e) { return { ...base, status: 'error', message: (e as Error).message } }
+  const names = new Set<string>()
+  const walk = (e: typeof expr): void => {
+    if (e.k === 'col') names.add(e.name)
+    else if (e.k === 'neg') walk(e.e)
+    else if (e.k === 'bin') { walk(e.a); walk(e.b) }
+    else if (e.k === 'fn') e.args.forEach(walk)
+  }
+  walk(expr)
+  // A tile this viewer cannot read makes the figure unknowable to them, not zero.
+  const denied = specBlocks.filter(b => names.has(b.id) && missing.includes(b.label || b.id))
+  if (denied.length) return { ...base, status: 'denied', message: `Uses ${denied.map(b => b.label || b.id).join(', ')}, which you cannot see.` }
+  return { ...base, status: 'ok', format: block.format, value: evaluate(expr, figures), ...(block.sub ? { sub: block.sub } : {}) }
+}
+
 function textBlock(block: ViewBlock & { type: 'text' }): CustomBlock {
   return { id: block.id, type: 'text', label: block.label, span: block.span, status: 'ok', text: block.text }
 }
@@ -361,8 +459,10 @@ export async function resolveView(deps: ResolveDeps, spec: ViewSpec, rawParams: 
   const [branding, vehicles, blocks] = await Promise.all([
     (deps.branding ?? (() => loadBranding(deps.admin, deps.fundId)))(),
     spec.params.includes('vehicle') ? viewerVehicles(deps) : Promise.resolve([] as string[]),
-    Promise.all(spec.blocks.map(b => (isDataBlock(b) ? loadBlock(deps, b, lc) : Promise.resolve(textBlock(b))))),
+    Promise.all(spec.blocks.map(b => (isDataBlock(b) ? loadBlock(deps, b, lc) : isFormulaBlock(b) ? Promise.resolve(null) : Promise.resolve(textBlock(b as ViewBlock & { type: 'text' }))))),
   ])
+  // Formula tiles last: they read the figures the other tiles loaded, as this viewer.
+  spec.blocks.forEach((b, i) => { if (isFormulaBlock(b)) blocks[i] = formulaTile(b, spec.blocks, blocks) })
   // The filters' current values travel as plain params too, so links and exports reopen the same view.
   const filterArgs: Record<string, string> = {}
   for (const [column, v] of Object.entries(lc.filterValues)) {
@@ -402,7 +502,7 @@ export async function resolveView(deps: ResolveDeps, spec: ViewSpec, rawParams: 
           ...(lc.filterValues[f.column] ? { value: lc.filterValues[f.column] } : {}),
         })),
       } : {}),
-      blocks,
+      blocks: blocks as CustomBlock[],
     },
   }
 }

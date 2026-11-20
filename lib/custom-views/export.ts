@@ -15,6 +15,7 @@ import * as XLSX from 'xlsx'
 import type { CustomBlock, CustomValueFormat, CustomViewPayload } from '@/lib/mcp-apps/payload'
 import { PDF_DISPLAY, PDF_SANS, pdfFontCss } from '@/lib/pdf-fonts'
 import { kpiDelta } from './delta'
+import { gaugeArc, gaugePoint, gaugeShare, maxMagnitude, shadeAlpha, shadeOf, signOf, sparkPath } from './tone'
 
 export const EXPORT_FORMATS = ['pdf', 'xlsx'] as const
 export type ExportFormat = (typeof EXPORT_FORMATS)[number]
@@ -359,20 +360,54 @@ function tableHtml(block: CustomBlock, currency: string): string {
   const rows = block.rows ?? []
   if (rows.length === 0) return '<p class="muted">No rows.</p>'
   const numeric = (f: CustomValueFormat) => f === 'currency' || f === 'number' || f === 'percent' || f === 'multiple'
+  const ranges = Object.fromEntries(columns.filter(c => c.tone === 'scale').map(c => [c.key, maxMagnitude(rows.map(r => r[c.key]))]))
+  const td = (c: (typeof columns)[number], v: unknown) => {
+    const sign = c.tone === 'sign' ? signOf(v) : null
+    const shade = c.tone === 'scale' ? shadeOf(v, ranges[c.key] ?? 0) : null
+    const style = [sign ? `color:${sign === 'gain' ? GAIN : LOSS}` : '', shade ? `background:${shadeFill(shade)}` : ''].filter(Boolean).join(';')
+    return `<td class="${numeric(c.format) ? 'num' : ''}"${style ? ` style="${style}"` : ''}>${esc(formatFigure(v as never, c.format, currency))}</td>`
+  }
+  const subRow = (i: number) => {
+    const st = block.subtotals?.find(x => x.after === i)
+    if (!st) return ''
+    return `<tr class="subtotal">${columns.map((c, j) => `<td class="${numeric(c.format) ? 'num' : ''}">${esc(st.values[c.key] != null ? formatFigure(st.values[c.key], c.format, currency) : j === 0 ? `${st.label} subtotal` : '')}</td>`).join('')}</tr>`
+  }
   return `<table><thead><tr>${columns.map(c => `<th class="${numeric(c.format) ? 'num' : ''}">${esc(c.label)}</th>`).join('')}</tr></thead><tbody>${
-    rows.map(r => `<tr>${columns.map(c => `<td class="${numeric(c.format) ? 'num' : ''}">${esc(formatFigure(r[c.key], c.format, currency))}</td>`).join('')}</tr>`).join('')
+    rows.map((r, i) => `<tr>${columns.map(c => td(c, r[c.key])).join('')}</tr>${subRow(i)}`).join('')
   }${block.totalsRow ? `<tr class="total">${columns.map((c, j) => {
     const v = block.totalsRow![c.key]
     return `<td class="${numeric(c.format) ? 'num' : ''}">${esc(v != null ? formatFigure(v, c.format, currency) : j === 0 ? 'Total' : '')}</td>`
   }).join('')}</tr>` : ''}</tbody></table>${block.truncated ? '<p class="muted">Showing the first rows only.</p>' : ''}`
 }
 
+/** A shade on paper: the first series colour for gains, red for losses, at the shade's alpha. */
+function shadeFill(sh: { strength: number; negative: boolean }): string {
+  return sh.negative ? `hsla(0, 73.5%, 50%, ${shadeAlpha(sh).toFixed(2)})` : `hsla(213, 67.7%, 50.2%, ${shadeAlpha(sh).toFixed(2)})`
+}
+
+export function gaugeSvg(block: CustomBlock, currency: string): string {
+  const share = gaugeShare(typeof block.value === 'number' ? block.value : null, block.gaugeMax)
+  const t = block.target !== undefined ? gaugeShare(block.target, block.gaugeMax) : null
+  const tick = t !== null ? [gaugePoint(t, 60, 58, 40), gaugePoint(t, 60, 58, 54)] : null
+  return `<svg viewBox="0 0 120 64" width="150" height="80"><path d="${gaugeArc(1, 60, 58, 47)}" fill="none" stroke="${RULE}" stroke-width="10"/>${
+    share ? `<path d="${gaugeArc(share, 60, 58, 47)}" fill="none" stroke="${SERIES[0]}" stroke-width="10"/>` : ''}${
+    tick ? `<line x1="${tick[0].x.toFixed(1)}" y1="${tick[0].y.toFixed(1)}" x2="${tick[1].x.toFixed(1)}" y2="${tick[1].y.toFixed(1)}" stroke="${INK}" stroke-width="2"/>` : ''}</svg>`
+    + `<p class="figure">${esc(formatFigure(block.value ?? null, block.format, currency))}</p><p class="muted">of ${esc(formatFigure(block.gaugeMax ?? null, block.format, currency))}${block.target !== undefined ? ` · target ${esc(formatFigure(block.target, block.format, currency))}` : ''}</p>`
+}
+
+function sparkSvg(block: CustomBlock): string {
+  const d = block.spark ? sparkPath(block.spark.map(p => p.value), 120, 24) : null
+  return d ? `<svg viewBox="0 0 120 24" width="100%" height="24" preserveAspectRatio="none"><path d="${d}" fill="none" stroke="${SERIES[0]}" stroke-width="1.5" vector-effect="non-scaling-stroke"/></svg>` : ''
+}
+
 function pivotHtml(block: CustomBlock, currency: string): string {
   const p = block.pivot
   if (!p || p.rows.length === 0) return '<p class="muted">No rows.</p>'
   const f = (v: number | null | undefined) => esc(formatFigure(v ?? null, block.format, currency))
+  const heat = block.type === 'heatmap' ? maxMagnitude(p.cells.flat()) : 0
+  const cellStyle = (v: number | null) => { const sh = heat ? shadeOf(v, heat) : null; return sh ? ` style="background:${shadeFill(sh)}"` : '' }
   const head = `<tr><th>${esc(p.rowLabel)}</th>${p.columns.map(c => `<th class="num">${esc(c)}</th>`).join('')}${p.rowTotals ? '<th class="num">Total</th>' : ''}</tr>`
-  const body = p.rows.map((r, i) => `<tr><td>${esc(r)}</td>${p.cells[i].map(v => `<td class="num">${f(v)}</td>`).join('')}${p.rowTotals ? `<td class="num strong">${f(p.rowTotals[i])}</td>` : ''}</tr>`).join('')
+  const body = p.rows.map((r, i) => `<tr><td>${esc(r)}</td>${p.cells[i].map(v => `<td class="num"${cellStyle(v)}>${f(v)}</td>`).join('')}${p.rowTotals ? `<td class="num strong">${f(p.rowTotals[i])}</td>` : ''}</tr>`).join('')
   const foot = p.columnTotals
     ? `<tr class="total"><td>Total</td>${p.columnTotals.map(v => `<td class="num">${f(v)}</td>`).join('')}${p.rowTotals ? `<td class="num">${f(p.grandTotal)}</td>` : ''}</tr>`
     : ''
@@ -386,7 +421,8 @@ function blockHtml(block: CustomBlock, currency: string): string {
   if (block.type === 'text') {
     return `<section>${block.label ? `<h2>${esc(block.label)}</h2>` : ''}${String(block.text ?? '').split(/\n\s*\n/).map(p => `<p>${esc(p)}</p>`).join('')}</section>`
   }
-  if (block.type === 'pivot') return `<section><h2>${esc(block.label)}</h2>${pivotHtml(block, currency)}</section>`
+  if (block.type === 'pivot' || block.type === 'heatmap') return `<section><h2>${esc(block.label)}</h2>${pivotHtml(block, currency)}</section>`
+  if (block.type === 'gauge') return `<section class="keep gauge"><h2>${esc(block.label)}</h2>${gaugeSvg(block, currency)}</section>`
   if (block.type !== 'kpi' && block.type !== 'table') {
     const empty = block.type === 'scatter' ? (block.dots ?? []).length === 0 : (block.points ?? []).length === 0
     const draw: Record<string, () => string> = {
@@ -420,7 +456,7 @@ export function viewPdfHtml(payload: CustomViewPayload, meta: ExportMeta): strin
   const kpis = blocks.filter(b => b.type === 'kpi')
   const rest = blocks.filter(b => b.type !== 'kpi')
   const tiles = kpis.length === 0 ? '' : `<div class="tiles">${kpis.map(b => b.status === 'ok'
-    ? `<div class="tile"><p class="eyebrow">${esc(b.label)}</p><p class="figure">${esc(formatFigure(b.value ?? null, b.format, currency))}</p>${deltaHtml(b, currency)}${b.sub ? `<p class="muted">${esc(b.sub)}</p>` : ''}</div>`
+    ? `<div class="tile"><p class="eyebrow">${esc(b.label)}</p><p class="figure">${esc(formatFigure(b.value ?? null, b.format, currency))}</p>${deltaHtml(b, currency)}${b.sub ? `<p class="muted">${esc(b.sub)}</p>` : ''}${sparkSvg(b)}</div>`
     : `<div class="tile"><p class="eyebrow">${esc(b.label)}</p><p class="muted">${esc(b.message ?? 'Not available.')}</p></div>`).join('')}</div>`
   const byline = [payload.branding.fundName, payload.subtitle, `Read ${meta.readAt}`].filter(Boolean).map(esc).join(' · ')
   return `<!doctype html>
@@ -447,6 +483,8 @@ export function viewPdfHtml(payload: CustomViewPayload, meta: ExportMeta): strin
   .key { width: auto; min-width: 300px; }
   .key td { border: 0; padding: 2px 6px; }
   .key i { display: inline-block; width: 8px; height: 8px; border-radius: 2px; margin-right: 6px; }
+  .subtotal td { font-weight: 600; background: #f6f6f6; }
+  .gauge { text-align: center; } .gauge svg { display: block; margin: 0 auto; } .gauge .figure { margin-top: -6px; }
   .total td { font-weight: 600; border-top: 1.5px solid #ccc; border-bottom: 0; }
   .strong { font-weight: 600; }
   .up { color: ${GAIN}; } .down { color: ${LOSS}; }
@@ -535,6 +573,12 @@ export function viewWorkbook(payload: CustomViewPayload, meta: ExportMeta): Buff
     }
     summary.push([])
   }
+  const gauges = blocks.filter(b => b.type === 'gauge' && b.status === 'ok')
+  if (gauges.length) {
+    summary.push(['Gauge', 'Value', 'Of', 'Target'])
+    for (const b of gauges) summary.push([b.label, xlValue(b.value, b.format), xlValue(b.gaugeMax ?? null, b.format), xlValue(b.target ?? null, b.format)])
+    summary.push([])
+  }
   const notes = blocks.filter(b => b.type === 'text' || b.status !== 'ok')
   for (const b of notes.filter(n => n.type !== 'kpi')) {
     summary.push([b.label || 'Note', b.status === 'ok' ? String(b.text ?? '') : (b.message ?? 'Not available.')])
@@ -560,7 +604,7 @@ export function viewWorkbook(payload: CustomViewPayload, meta: ExportMeta): Buff
       XLSX.utils.book_append_sheet(wb, sheetOf([['Step', 'Change', 'Running total'], ...rows], [28, 16, 16]), sheetName(b.label, used))
       continue
     }
-    if (b.type === 'pivot') {
+    if (b.type === 'pivot' || b.type === 'heatmap') {
       const p = b.pivot
       if (!p) continue
       const head: XlCell[] = [p.rowLabel, ...p.columns, ...(p.rowTotals ? ['Total'] : [])]
@@ -575,7 +619,7 @@ export function viewWorkbook(payload: CustomViewPayload, meta: ExportMeta): Buff
       XLSX.utils.book_append_sheet(wb, sheetOf([['Slice', b.label, 'Share'], ...rows], [28, 16, 12]), sheetName(b.label, used))
       continue
     }
-    if (b.type !== 'kpi' && b.type !== 'table' && b.type !== 'text') {
+    if (b.type !== 'kpi' && b.type !== 'gauge' && b.type !== 'table' && b.type !== 'text') {
       const names = b.series ?? []
       const head: XlCell[] = [b.type === 'line' || b.type === 'area' ? 'Period' : 'Item', ...(names.length ? [...names, 'Total'] : [b.label])]
       const rows: XlCell[][] = (b.points ?? []).map(p => [
@@ -585,7 +629,12 @@ export function viewWorkbook(payload: CustomViewPayload, meta: ExportMeta): Buff
       XLSX.utils.book_append_sheet(wb, sheetOf([head, ...rows], [28, ...head.slice(1).map(() => 16)]), sheetName(b.label, used))
     } else if (b.type === 'table') {
       const columns = b.columns ?? []
-      const rows: XlCell[][] = (b.rows ?? []).map(r => columns.map(c => xlValue(r[c.key], c.format)))
+      const rows: XlCell[][] = []
+      ;(b.rows ?? []).forEach((r, i) => {
+        rows.push(columns.map(c => xlValue(r[c.key], c.format)))
+        const st = b.subtotals?.find(x => x.after === i)
+        if (st) rows.push(columns.map((c, j) => (st.values[c.key] != null ? xlValue(st.values[c.key], c.format) : j === 0 ? `${st.label} subtotal` : null)))
+      })
       if (b.totalsRow) rows.push(columns.map((c, j) => (b.totalsRow![c.key] != null ? xlValue(b.totalsRow![c.key], c.format) : j === 0 ? 'Total' : null)))
       XLSX.utils.book_append_sheet(wb, sheetOf([columns.map(c => c.label), ...rows], columns.map(c => (c.format === 'text' ? 28 : 16))), sheetName(b.label, used))
     }

@@ -359,7 +359,7 @@ export type CustomChartType = 'bar' | 'column' | 'line' | 'area' | 'pie' | 'scat
 
 export interface CustomBlock {
   id: string
-  type: 'kpi' | CustomChartType | 'table' | 'pivot' | 'text'
+  type: 'kpi' | 'gauge' | CustomChartType | 'table' | 'pivot' | 'heatmap' | 'text'
   label: string
   /** Width out of 12. */
   span: number
@@ -373,6 +373,11 @@ export interface CustomBlock {
   /** kpi with a comparison: the same figure at the earlier date, and how to name that date. */
   previous?: number | null
   previousLabel?: string
+  /** kpi with a trend: a sparkline, oldest first. */
+  spark?: { label: string; value: number }[]
+  /** gauge: the dial's maximum (null when it could not be read) and an optional target mark. */
+  gaugeMax?: number | null
+  target?: number
   /**
    * bar / line. `value` is the point's total. When the block splits by a series, `series` names
    * them (largest first, at most 8 with the rest as "Other") and each point's `values` holds one
@@ -393,12 +398,24 @@ export interface CustomBlock {
   dots?: { label: string; x: number; y: number }[]
   xFormat?: CustomValueFormat
   /** table */
-  columns?: { key: string; label: string; format: CustomValueFormat }[]
+  columns?: {
+    key: string
+    label: string
+    format: CustomValueFormat
+    /** Conditional colour: sign (losses red, gains green) or scale (shaded by size in the column). */
+    tone?: 'sign' | 'scale'
+    /** Click through: the cell's target, in `links`. */
+    link?: 'company'
+  }[]
   rows?: Record<string, string | number | null>[]
   truncated?: boolean
   /** table with totals: the sum of each currency or number column (null for the others). */
   totalsRow?: Record<string, number | null>
-  /** pivot: one row per value of the row column, one column per value of the column column. */
+  /** table grouped by a column: a subtotal row after row `after` (an index into rows). */
+  subtotals?: { after: number; label: string; values: Record<string, number | null> }[]
+  /** Per row, per linked column: what the cell opens ("company:<id>"). */
+  links?: Record<string, string>[]
+  /** pivot and heatmap: one row per value of the row column, one column per value of the column column. */
   pivot?: {
     rowLabel: string
     rows: string[]

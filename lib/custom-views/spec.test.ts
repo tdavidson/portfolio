@@ -63,7 +63,7 @@ describe('parseViewSpec', () => {
   })
 
   it('refuses unknown block types, params and formats', () => {
-    fails({ ...valid, blocks: [{ type: 'html', label: 'X' }] }, /type must be one of: kpi, bar, column, line, area, pie, scatter, combo, waterfall, funnel, table, pivot, text/)
+    fails({ ...valid, blocks: [{ type: 'html', label: 'X' }] }, /type must be one of: kpi, gauge, bar, column, line, area, pie, scatter, combo, waterfall, funnel, table, pivot, heatmap, text/)
     fails({ ...valid, params: ['company'] }, /params must be one of: vehicle, as_of/)
     fails({ ...valid, blocks: [{ ...valid.blocks[0], format: 'emoji' }] }, /format must be one of/)
   })
@@ -175,5 +175,38 @@ describe('report features in the spec', () => {
     expect(spec.filters).toEqual([{ column: 'stage', label: 'Stage', kind: 'pick' }, { column: 'fair_value', label: 'Fair value', kind: 'range' }])
     fails({ title: 'F', filters: ['nope'], blocks: [{ type: 'table', label: 'T', source: src() }] }, /Filter 1/)
     fails({ title: 'F', filters: [{ column: 'stage', kind: 'range' }], blocks: [{ type: 'table', label: 'T', source: src() }] }, /range needs a date or number/)
+  })
+})
+
+describe('more blocks and table options', () => {
+  const pos = (query: object) => ({ tool: 'query_portfolio', dataset: 'positions', query })
+  const fv = pos({ aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] })
+
+  it('checks a formula tile against the other tiles\' ids', () => {
+    const spec = parseViewSpec({ title: 'F', blocks: [
+      { id: 'fair_value', type: 'kpi', label: 'FV', source: fv, value: 'fv' },
+      { id: 'nav', type: 'kpi', label: 'NAV', source: { tool: 'query_lps', dataset: 'lp_positions', query: { aggregates: [{ fn: 'sum', column: 'nav', as: 'nav' }] } }, value: 'nav' },
+      { type: 'kpi', label: 'NAV / FV', formula: 'nav / fair_value', format: 'multiple' },
+    ] })
+    expect(spec.blocks[2]).toMatchObject({ type: 'kpi', formula: 'nav / fair_value', format: 'multiple' })
+    fails({ title: 'F', blocks: [{ id: 'a', type: 'kpi', label: 'A', source: fv, value: 'fv' }, { type: 'kpi', label: 'B', formula: 'a / b' }] }, /"b" is not the id of another kpi block/)
+  })
+
+  it('needs a gauge maximum, defaulting a percent to 100', () => {
+    expect(parseViewSpec({ title: 'G', blocks: [{ type: 'gauge', label: 'G', source: fv, value: 'fv', format: 'percent' }] }).blocks[0]).toMatchObject({ max: 100 })
+    fails({ title: 'G', blocks: [{ type: 'gauge', label: 'G', source: fv, value: 'fv', format: 'currency' }] }, /needs max/)
+  })
+
+  it('takes measures, a trend, subtotals, tones and company links', () => {
+    const spec = parseViewSpec({ title: 'T', blocks: [
+      { type: 'column', label: 'C', source: pos({ columns: ['company', 'cost', 'fair_value'] }), x: 'company', y: 'cost', measures: ['fair_value', 'cost'] },
+      { type: 'kpi', label: 'K', source: fv, value: 'fv', trend: { source: pos({ columns: ['company', 'fair_value'] }), x: 'company', y: 'fair_value' } },
+      { type: 'table', label: 'T', source: pos({ columns: ['company', 'company_id', 'stage', 'unrealized'] }), subtotal_by: 'stage', columns: [{ column: 'company', link: 'company' }, { column: 'unrealized', tone: 'sign' }] },
+    ] })
+    expect(spec.blocks[0]).toMatchObject({ measures: ['fair_value'] })
+    expect(spec.blocks[1]).toMatchObject({ trend: { x: 'company', y: 'fair_value' } })
+    expect(spec.blocks[2]).toMatchObject({ subtotal_by: 'stage', columns: [{ column: 'company', link: 'company' }, { column: 'unrealized', tone: 'sign' }] })
+    fails({ title: 'T', blocks: [{ type: 'table', label: 'T', source: pos({ columns: ['company'] }), columns: [{ column: 'company', link: 'company' }] }] }, /must return company_id/)
+    fails({ title: 'T', blocks: [{ type: 'pie', label: 'P', source: pos({ columns: ['company', 'cost', 'fair_value'] }), x: 'company', y: 'cost', measures: ['fair_value'] }] }, /measures work on/)
   })
 })

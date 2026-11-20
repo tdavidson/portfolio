@@ -195,18 +195,37 @@ export const custom: CustomViewPayload = {
     filters: [{ column: 'stage', label: 'Stage', kind: 'pick', options: ['Seed', 'Series A', 'Series B'] }],
     blocks: [
       { id: 'fv', type: 'kpi', label: 'Fair value', span: 3, status: 'ok', format: 'currency', value: tf, previous: Math.round(tf * 0.9), previousLabel: 'vs Jun 30, 2026' },
-      { id: 'cost', type: 'kpi', label: 'Cost', span: 3, status: 'ok', format: 'currency', value: tc },
+      { id: 'cost', type: 'kpi', label: 'Cost', span: 3, status: 'ok', format: 'currency', value: tc,
+        spark: [{ label: '2026-Q1', value: tc * 0.8 }, { label: '2026-Q2', value: tc * 0.9 }, { label: '2026-Q3', value: tc * 0.95 }, { label: '2026-Q4', value: tc }] },
       { id: 'n', type: 'kpi', label: 'Active companies', span: 3, status: 'ok', format: 'number', value: positions.filter(p => p.status === 'active').length },
       { id: 'nav', type: 'kpi', label: 'LP NAV', span: 3, status: 'denied', message: 'Needs access to LP capital.' },
+      { id: 'called', type: 'gauge', label: 'Called of committed', span: 4, status: 'ok', format: 'currency', value: 18_000_000, gaugeMax: 30_000_000, target: 21_000_000 },
       {
         id: 'bars', type: 'bar', label: 'Largest positions by fair value', span: 6, status: 'ok', format: 'currency',
         points: positions.slice(0, 8).map(p => ({ label: p.company, value: p.fairValue })),
       },
       {
         id: 'tbl', type: 'table', label: 'Below cost', span: 6, status: 'ok',
-        columns: [{ key: 'company', label: 'Company', format: 'text' }, { key: 'cost', label: 'Cost', format: 'currency' }, { key: 'moic', label: 'MOIC', format: 'multiple' }],
+        columns: [{ key: 'company', label: 'Company', format: 'text' }, { key: 'cost', label: 'Cost', format: 'currency' }, { key: 'moic', label: 'MOIC', format: 'multiple', tone: 'scale' }],
         rows: positions.filter(p => p.fairValue < p.cost).map(p => ({ company: p.company, cost: p.cost, moic: p.moic })),
+        subtotals: [{ after: 2, label: 'First three', values: { company: null, cost: positions.filter(p => p.fairValue < p.cost).slice(0, 3).reduce((s, p) => s + p.cost, 0), moic: null } }],
         totalsRow: { company: null, cost: positions.filter(p => p.fairValue < p.cost).reduce((s, p) => s + p.cost, 0), moic: null },
+      },
+      {
+        id: 'heat', type: 'heatmap', label: 'ARR growth by company and quarter', span: 12, status: 'ok', format: 'percent',
+        pivot: {
+          rowLabel: 'Company', rows: ['Acme', 'Northwind', 'Globex'], columns: ['2026-Q1', '2026-Q2', '2026-Q3'],
+          cells: [[12, 18, 25], [4, -3, 6], [30, 22, null]],
+        },
+      },
+      {
+        id: 'flows', type: 'column', label: 'Called and distributed by quarter', span: 6, status: 'ok', format: 'currency', stack: 'grouped',
+        series: ['Called', 'Distributed'],
+        points: [
+          { label: '2026-Q1', value: 1_500_000, values: [1_000_000, 500_000] },
+          { label: '2026-Q2', value: 2_000_000, values: [1_500_000, 500_000] },
+          { label: '2026-Q3', value: 1_250_000, values: [500_000, 750_000] },
+        ],
       },
       {
         id: 'cross', type: 'pivot', label: 'Fair value by stage and vehicle', span: 12, status: 'ok', format: 'currency',

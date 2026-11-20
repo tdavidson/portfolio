@@ -170,3 +170,34 @@ describe('report features in the exports', () => {
     expect(cross[2]).toEqual(['Total', 250_000, 0, 250_000])
   })
 })
+
+describe('more blocks in the exports', () => {
+  const blocks: CustomViewPayload['data']['blocks'] = [
+    { id: 'k', type: 'kpi', label: 'NAV', span: 3, status: 'ok', format: 'currency', value: 100, spark: [{ label: 'Q1', value: 1 }, { label: 'Q2', value: 3 }] },
+    { id: 'g', type: 'gauge', label: 'Called', span: 3, status: 'ok', format: 'currency', value: 600_000, gaugeMax: 1_000_000, target: 800_000 },
+    {
+      id: 't', type: 'table', label: 'Grouped', span: 12, status: 'ok',
+      columns: [{ key: 'company', label: 'Company', format: 'text' }, { key: 'gain', label: 'Gain', format: 'currency', tone: 'sign' }],
+      rows: [{ company: 'Acme', gain: 100 }, { company: 'Northwind', gain: -50 }],
+      subtotals: [{ after: 1, label: 'Seed', values: { company: null, gain: 50 } }],
+    },
+    { id: 'h', type: 'heatmap', label: 'Heat', span: 12, status: 'ok', format: 'number', pivot: { rowLabel: 'R', rows: ['a'], columns: ['x', 'y'], cells: [[10, -5]] } },
+  ]
+  const p = { ...payload, data: { ...payload.data, blocks } }
+
+  it('prints a sparkline, a dial, coloured figures, subtotals and a shaded heatmap', () => {
+    const html = viewPdfHtml(p, meta)
+    expect(html.match(/<svg /g)).toHaveLength(2)
+    expect(html).toContain('of $1,000,000 · target $800,000')
+    expect(html).toContain('Seed subtotal')
+    expect(html).toMatch(/style="color:hsl\(0 73.5% 50%\)">\(\$50\)/)
+    expect(html).toMatch(/hsla\(0, 73.5%, 50%, 0\.29\)/)
+  })
+
+  it('writes the gauge to the summary and subtotals into the table sheet', () => {
+    const wb = XLSX.read(viewWorkbook(p, meta), { type: 'buffer' })
+    expect(XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets.View, { header: 1 })).toContainEqual(['Called', 600_000, 1_000_000, 800_000])
+    expect(XLSX.utils.sheet_to_json<unknown[]>(wb.Sheets.Grouped, { header: 1 }).at(-1)).toEqual(['Seed subtotal', 50])
+    expect(wb.SheetNames).toContain('Heat')
+  })
+})

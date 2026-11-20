@@ -7,6 +7,7 @@
 
 import { h } from './dom'
 import { kpiDelta } from '../../custom-views/delta'
+import { gaugeShare, maxMagnitude, shadeAlpha, shadeOf, signOf } from '../../custom-views/tone'
 import { barChart, lineChart, type BarDatum } from './charts'
 import { DASH, fractionPercent, multiple, percent, share, shortDate, titleCase, type Formatters } from './format'
 import { button, dataTable, empty, note, section, segmented, tiles, type Column, type Tile } from './ui'
@@ -168,7 +169,9 @@ function customBlock(b: CustomBlock, ctx: ViewContext): Node | null {
     const names = b.series ?? []
     if (names.length) {
       const color = (i: number) => `hsl(var(--cat-${i + 1}))`
-      if (b.type === 'bar' || b.type === 'column') {
+      // Side by side is not a stack (called plus distributed is no total), and this bundle only
+      // stacks, so grouped bars read as their figures.
+      if ((b.type === 'bar' || b.type === 'column') && b.stack !== 'grouped') {
         const data: BarDatum[] = points.map(p => ({
           label: p.label,
           value: Math.max(0, p.values?.reduce((sum, v) => sum + Math.max(0, v), 0) ?? 0),
@@ -182,10 +185,10 @@ function customBlock(b: CustomBlock, ctx: ViewContext): Node | null {
           series: names.map((name, i) => ({ name, color: color(i) })),
         }))
       }
-      // A line per series needs a multi-series plot this bundle does not have; the figures are
+      // A line per series (or grouped bars) needs a plot this bundle does not have; the figures are
       // every value at once, in a table with one column per series.
       return section(b.label, dataTable(points, [
-        { header: 'Period', cell: p => p.label },
+        { header: b.type === 'bar' || b.type === 'column' ? 'Item' : 'Period', cell: p => p.label },
         ...names.map((name, i) => ({ header: name, numeric: true, cell: (p: (typeof points)[number]) => format(p.values?.[i] ?? 0), sort: (p: (typeof points)[number]) => p.values?.[i] ?? 0 })),
       ], { caption: b.label }))
     }
@@ -214,14 +217,41 @@ function customBlock(b: CustomBlock, ctx: ViewContext): Node | null {
     const columns = b.columns ?? []
     const rows = b.rows ?? []
     if (rows.length === 0) return section(b.label, empty('No rows.'))
-    return section(b.label, dataTable(rows, columns.map(c => {
+    // Rows keep their index, so links and subtotals find theirs; subtotal rows are interleaved
+    // and the table then keeps the order it was given (sorting would scatter them).
+    type R = { i: number; sub?: { label: string; values: Record<string, number | null> } }
+    const ordered: R[] = []
+    rows.forEach((_, i) => {
+      ordered.push({ i })
+      const st = b.subtotals?.find(x => x.after === i)
+      if (st) ordered.push({ i, sub: st })
+    })
+    const ranges = Object.fromEntries(columns.filter(c => c.tone === 'scale').map(c => [c.key, maxMagnitude(rows.map(r => r[c.key]))]))
+    return section(b.label, dataTable(ordered, columns.map((c, j) => {
       const f = customFormat(c.format, ctx.fmt).value
       const numeric = c.format !== 'text' && c.format !== 'date'
       return {
         header: c.label,
         numeric,
-        cell: (r: Record<string, string | number | null>) => f(r[c.key] ?? null),
-        sort: (r: Record<string, string | number | null>) => (r[c.key] ?? '') as number | string,
+        cell: (r: R): string | Node => {
+          if (r.sub) return h('strong', null, r.sub.values[c.key] != null ? f(r.sub.values[c.key]) : j === 0 ? `${r.sub.label} subtotal` : '')
+          const v = rows[r.i][c.key] ?? null
+          const text = f(v)
+          const target = b.links?.[r.i]?.[c.key]
+          if (target?.startsWith('company:')) {
+            return h('button', { type: 'button', class: 'th-sort', onclick: () => ctx.open(VIEW_TOOL.company, { company: target.slice(8) }, 'push') }, text)
+          }
+          const sign = c.tone === 'sign' ? signOf(v) : null
+          const shade = c.tone === 'scale' ? shadeOf(v, ranges[c.key] ?? 0) : null
+          if (!sign && !shade) return text
+          return h('span', {
+            style: {
+              ...(sign ? { color: `hsl(var(${sign === 'gain' ? '--success' : '--destructive'}))` } : {}),
+              ...(shade ? { background: `hsl(var(${shade.negative ? '--destructive' : '--cat-1'}) / ${shadeAlpha(shade)})`, padding: '0 4px', borderRadius: '3px' } : {}),
+            },
+          }, text)
+        },
+        ...(b.subtotals?.length ? {} : { sort: (r: R) => (rows[r.i][c.key] ?? '') as number | string }),
       }
     }), {
       caption: b.label,
@@ -230,13 +260,29 @@ function customBlock(b: CustomBlock, ctx: ViewContext): Node | null {
     }),
       b.truncated ? note('Showing the first rows only.') : null)
   }
-  if (b.type === 'pivot') {
+  if (b.type === 'gauge') {
+    const share = gaugeShare(typeof b.value === 'number' ? b.value : null, b.gaugeMax)
+    return tiles([{
+      label: b.label,
+      value: format(b.value ?? null),
+      sub: [`of ${format(b.gaugeMax ?? null)}`, b.target !== undefined ? `target ${format(b.target)}` : null].filter(Boolean).join(' · '),
+      meter: share,
+    }])
+  }
+  if (b.type === 'pivot' || b.type === 'heatmap') {
     const p = b.pivot
     if (!p || p.rows.length === 0) return section(b.label, empty('No rows.'))
     const index = p.rows.map((_, i) => i)
+    const heat = b.type === 'heatmap' ? maxMagnitude(p.cells.flat()) : 0
     return section(b.label, dataTable(index, [
       { header: p.rowLabel, cell: (i: number) => p.rows[i], sort: (i: number) => p.rows[i] },
-      ...p.columns.map((c, j) => ({ header: c, numeric: true, cell: (i: number) => format(p.cells[i][j]), sort: (i: number) => p.cells[i][j] ?? 0 })),
+      ...p.columns.map((c, j) => ({
+        header: c, numeric: true, sort: (i: number) => p.cells[i][j] ?? 0,
+        cell: (i: number): string | Node => {
+          const sh = heat ? shadeOf(p.cells[i][j], heat) : null
+          return sh ? h('span', { style: { background: `hsl(var(${sh.negative ? '--destructive' : '--cat-1'}) / ${shadeAlpha(sh)})`, padding: '0 4px', borderRadius: '3px' } }, format(p.cells[i][j])) : format(p.cells[i][j])
+        },
+      })),
       ...(p.rowTotals ? [{ header: 'Total', numeric: true, cell: (i: number) => format(p.rowTotals![i]), sort: (i: number) => p.rowTotals![i] }] : []),
     ], {
       caption: b.label,
@@ -302,7 +348,11 @@ function custom(payload: CustomViewPayload, ctx: ViewContext): Node[] {
       const f = customFormat(b.format, ctx.fmt).value
       const delta = b.previousLabel ? kpiDelta(b.value, b.previous, b.format, v => f(v)) : null
       const compare = b.previousLabel ? (delta ? `${delta.text} ${b.previousLabel}` : `No figure ${b.previousLabel.replace(/^vs /, 'for ')}`) : null
-      const sub = [compare, b.sub].filter(Boolean).join(' · ')
+      // The tile has no plot; a trend reads as its first and last figure.
+      const trend = b.spark && b.spark.length > 1
+        ? `${f(b.spark[0].value)} at ${b.spark[0].label} → ${f(b.spark[b.spark.length - 1].value)}`
+        : null
+      const sub = [compare, b.sub, trend].filter(Boolean).join(' · ')
       return { label: b.label, value: f(b.value ?? null), ...(sub ? { sub } : {}) }
     })))
   }

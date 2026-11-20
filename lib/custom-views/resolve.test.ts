@@ -247,3 +247,53 @@ describe('report features', () => {
     expect(l.rows).toHaveLength(1)
   })
 })
+
+describe('more blocks and table options', () => {
+  const src = (query: object) => ({ tool: 'query_portfolio', dataset: 'positions', query })
+  const fvSrc = src({ aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] })
+
+  it('works out a formula tile from tiles on different datasets, and denies it with one it cannot read', async () => {
+    const view = parseViewSpec({ title: 'F', blocks: [
+      { id: 'fair_value', type: 'kpi', label: 'FV', source: fvSrc, value: 'fv', format: 'currency' },
+      { id: 'nav', type: 'kpi', label: 'LP NAV', source: { tool: 'query_lps', dataset: 'lp_positions', query: { aggregates: [{ fn: 'sum', column: 'nav', as: 'nav' }] } }, value: 'nav', format: 'currency' },
+      { id: 'ratio', type: 'kpi', label: 'NAV / FV', formula: 'nav / fair_value', format: 'multiple' },
+    ] })
+    const ok = (await resolveView(deps({ portfolio: 'read', lp_capital: 'read' }).deps, view, {}, { id: null })).data.blocks[2]
+    expect(ok).toMatchObject({ status: 'ok', value: 1, format: 'multiple' })
+    const denied = (await resolveView(deps({ portfolio: 'read' }).deps, view, {}, { id: null })).data.blocks[2]
+    expect(denied).toMatchObject({ status: 'denied' })
+  })
+
+  it('reads a gauge against a column, and a sparkline under a tile', async () => {
+    const view = parseViewSpec({ title: 'G', blocks: [
+      { type: 'gauge', label: 'G', format: 'currency', value: 'fv', max_column: 'inv', target: 350_000,
+        source: src({ aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }, { fn: 'sum', column: 'invested', as: 'inv' }] }) },
+      { type: 'kpi', label: 'K', source: fvSrc, value: 'fv', format: 'currency', trend: { source: src({ columns: ['company', 'fair_value'] }), x: 'company', y: 'fair_value' } },
+    ] })
+    const [g, k] = (await resolveView(deps({ portfolio: 'read' }).deps, view, {}, { id: null })).data.blocks
+    expect(g).toMatchObject({ value: 400_000, gaugeMax: 300_000, target: 350_000 })
+    expect(k.spark).toEqual([{ label: 'Acme', value: 250_000 }, { label: 'Northwind', value: 150_000 }])
+  })
+
+  it('draws measures as series, and groups a table with subtotals and company links', async () => {
+    const view = parseViewSpec({ title: 'M', blocks: [
+      { type: 'column', label: 'C', source: src({ columns: ['company', 'cost', 'fair_value'] }), x: 'company', y: 'cost', measures: ['fair_value'] },
+      { type: 'table', label: 'T', source: src({ columns: ['company', 'company_id', 'status', 'fair_value'] }), subtotal_by: 'status',
+        columns: [{ column: 'company', link: 'company' }, { column: 'fair_value', tone: 'scale' }] },
+    ] })
+    const [c, t] = (await resolveView(deps({ portfolio: 'read' }).deps, view, {}, { id: null })).data.blocks
+    expect(c).toMatchObject({ stack: 'grouped', series: ['Cost', 'Fair value'], points: [{ label: 'Acme', value: 350_000, values: [100_000, 250_000] }, { label: 'Northwind', values: [200_000, 150_000] }] })
+    expect(t.subtotals).toEqual([{ after: 1, label: 'active', values: { company: null, fair_value: 400_000 } }])
+    expect(t.links).toEqual([{ company: 'company:c1' }, { company: 'company:c2' }])
+    expect(t.columns?.[1]).toMatchObject({ tone: 'scale' })
+  })
+
+  it('shades a heatmap with no totals unless asked', async () => {
+    const view = parseViewSpec({ title: 'H', blocks: [{ type: 'heatmap', label: 'H', rows: 'company', columns: 'stage', value: 'fv', format: 'currency',
+      source: src({ group_by: ['company', 'stage'], aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] }) }] })
+    const [h] = (await resolveView(deps({ portfolio: 'read' }).deps, view, {}, { id: null })).data.blocks
+    expect(h.type).toBe('heatmap')
+    expect(h.pivot).toMatchObject({ rows: ['Acme', 'Northwind'], columns: ['Seed', 'Series A'] })
+    expect(h.pivot?.rowTotals).toBeUndefined()
+  })
+})
