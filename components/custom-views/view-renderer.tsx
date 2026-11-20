@@ -191,7 +191,7 @@ function GaugeTile({ block, currency }: { block: CustomBlock; currency: string }
         {share !== null && share > 0 && <path d={gaugeArc(share, 60, 58, 47)} fill="none" stroke="hsl(var(--cat-1))" strokeWidth={10} />}
         {tick && <line x1={tick[0].x} y1={tick[0].y} x2={tick[1].x} y2={tick[1].y} stroke="hsl(var(--foreground))" strokeWidth={2} />}
       </svg>
-      <p className="-mt-6 text-center text-2xl font-semibold tracking-tight tabular-nums">{formatValue(block.value, block.format, currency)}</p>
+      <p className="-mt-3 text-center text-2xl font-semibold tracking-tight tabular-nums">{formatValue(block.value, block.format, currency)}</p>
       <p className="mt-1 text-center text-caption text-muted-foreground tabular-nums">
         of {formatValue(block.gaugeMax ?? null, block.format, currency)}
         {block.target !== undefined ? ` · target ${formatValue(block.target, block.format, currency)}` : ''}
