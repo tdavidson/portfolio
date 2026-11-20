@@ -568,6 +568,7 @@ export interface RecordInvestmentInput {
   /** Convertible note: annual simple rate as a fraction. The close accrues on this. */
   interest_rate?: number | string | null
   maturity_date?: string | null
+  interest_start_date?: string | null
 }
 
 /**
@@ -656,6 +657,7 @@ export async function executeRecordInvestment(
       security_type: securityType,
       interest_rate: num(input.interest_rate),
       maturity_date: input.maturity_date || null,
+      interest_start_date: input.interest_start_date || null,
     })
     .select('*')
     .single()
