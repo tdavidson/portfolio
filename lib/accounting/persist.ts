@@ -287,6 +287,131 @@ export async function persistEntry(
 }
 
 /**
+ * Post several balanced entries for one vehicle in three writes instead of three or four each:
+ * every header (as a draft) in one insert, every line in one insert, then one update that posts
+ * them all. For the entries a period close generates (its allocation and owner entries), which
+ * post together, into the same open period, and are undone together.
+ *
+ * The same checks as persistEntry run on every entry first (currency, balance, the period lock,
+ * the vehicle, the lines), so nothing is written unless all of them may be; the database's own
+ * triggers still check each row. If a write fails, the drafts are removed and nothing is posted.
+ * If the partner allocation of a posted entry fails, the error is returned with every entry
+ * already posted left for the caller to void: the close does that (reopenPeriodWithReversal),
+ * which is what it did when the entries were written one at a time.
+ *
+ * Not for entries that can carry investment lines: those adopt transactions one by one in
+ * persistEntry. One that does is refused here before anything is written.
+ */
+export async function persistEntriesTogether(
+  admin: SupabaseClient,
+  fundId: string,
+  group: string,
+  userId: string | null,
+  entries: JournalEntry[],
+): Promise<{ entryIds: string[] } | { error: string; entryIndex?: number }> {
+  if (entries.length === 0) return { entryIds: [] }
+  let currency: string
+  try {
+    currency = await fundCurrency(admin, fundId)
+  } catch (e) {
+    return { error: `${e instanceof Error ? e.message : String(e)}. Nothing was saved — try again.` }
+  }
+  entries = entries.map(entry => ({ ...entry, postings: entry.postings.map(p => ({ ...p, currency })) }))
+  for (const [i, entry] of entries.entries()) {
+    try {
+      assertBalanced(entry)
+    } catch (e) {
+      return { error: (e as Error).message, entryIndex: i }
+    }
+  }
+  const closed = await closedPeriodRanges(admin, fundId, group)
+  for (const [i, entry] of entries.entries()) {
+    if (dateInAnyClosedPeriod(closed, entry.entryDate)) {
+      return { error: `The period covering ${entry.entryDate} is closed — reopen it to post here`, entryIndex: i }
+    }
+  }
+  const vehicleId = await vehicleIdByName(admin, fundId, group)
+  if (!vehicleId) return { error: `Unknown vehicle "${group}" — add it in Settings before booking to it.` }
+  const problems = await Promise.all(entries.map(entry => validatePostings(admin, fundId, vehicleId, group, entry.postings)))
+  const bad = problems.findIndex(Boolean)
+  if (bad >= 0) return { error: problems[bad]!, entryIndex: bad }
+
+  // Ids chosen here, so each line can name its header without waiting for the insert to answer.
+  const ids = entries.map(() => crypto.randomUUID())
+  const { error: entryErr } = await admin.from('journal_entries' as any).insert(entries.map((entry, i) => ({
+    id: ids[i],
+    fund_id: fundId,
+    portfolio_group: group,
+    vehicle_id: vehicleId,
+    entry_date: entry.entryDate,
+    memo: entry.memo ?? null,
+    source_type: entry.sourceType ?? 'manual',
+    source_ref: entry.sourceRef ?? null,
+    reference: entry.reference ?? null,
+    adjusting: entry.adjusting === true,
+    vendor_id: entry.vendorId ?? null,
+    status: 'draft',
+    book: ACTUAL_BOOK,
+    created_by: userId,
+    posted_at: null,
+  })))
+  if (entryErr) return { error: entryErr.message }
+  const discard = () => admin.from('journal_entries' as any).delete().in('id', ids).eq('fund_id', fundId)
+
+  const { error: postErr } = await admin.from('journal_postings' as any).insert(entries.flatMap((entry, i) =>
+    entry.postings.map(p => ({
+      fund_id: fundId,
+      portfolio_group: group,
+      vehicle_id: vehicleId,
+      journal_entry_id: ids[i],
+      account_id: p.accountId,
+      amount: p.amount,
+      currency: p.currency,
+      lp_entity_id: p.lpEntityId ?? null,
+    }))))
+  if (postErr) {
+    await discard()
+    return { error: postErr.message }
+  }
+
+  // The same adoption step persistEntry runs before the flip. These entries carry no investment
+  // lines, so it adopts nothing; one that would is refused rather than adopted in bulk.
+  const adoptions = await Promise.all(entries.map((entry, i) => adoptEntry(admin, fundId, {
+    entryId: ids[i], vehicleId, entryDate: entry.entryDate, memo: entry.memo ?? null,
+    sourceRef: entry.sourceRef ?? null, postings: entry.postings,
+  })))
+  const adopted = adoptions.flatMap(a => 'adoptedIds' in a ? a.adoptedIds : [])
+  const refused = adoptions.findIndex(a => 'refused' in a || a.adoptedIds.length > 0)
+  if (refused >= 0) {
+    const removed = await removeAdopted(admin, fundId, adopted)
+    if (removed.error) return { error: keptAsDraft(ids[refused], removed.error), entryIndex: refused }
+    await discard()
+    const a = adoptions[refused]
+    return { error: 'refused' in a ? a.refused : 'This entry carries investment lines; post it on its own.', entryIndex: refused }
+  }
+
+  const { data: flipped, error: flipErr } = await admin.from('journal_entries' as any)
+    .update({ status: 'posted', posted_at: new Date().toISOString() })
+    .in('id', ids).eq('fund_id', fundId).eq('book', ACTUAL_BOOK).eq('status', 'draft').select('id')
+  if (flipErr || ((flipped as any[]) ?? []).length !== ids.length) {
+    // Fresh ids nobody else knows, so a short count means the update failed part-way: undo it all.
+    await admin.from('journal_entries' as any).update({ status: 'draft', posted_at: null }).in('id', ids).eq('fund_id', fundId)
+    await discard()
+    return { error: flipErr?.message ?? 'Not every entry could be posted, so none were.' }
+  }
+
+  const { allocatePostedEntry, rollbackGeneratedAllocations } = await import('./continuous-allocation')
+  for (const [i, entry] of entries.entries()) {
+    const allocated = await allocatePostedEntry(admin, fundId, group, userId, ids[i], entry, { fresh: true })
+    if ('error' in allocated) {
+      await rollbackGeneratedAllocations(admin, fundId, ids[i])
+      return { error: `Entry was not posted because its partner allocation failed: ${allocated.error}`, entryIndex: i }
+    }
+  }
+  return { entryIds: ids }
+}
+
+/**
  * Why these postings may not be written to this fund's `group` (vehicle `vehicleId`), or null when
  * they may. Shared by every path that writes postings: persistEntry, and editing a draft in place
  * (PUT /api/accounting/journal), which used to insert the body's account and partner ids as given.

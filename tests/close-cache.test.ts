@@ -32,6 +32,10 @@ const CASES: [string, FixtureOptions, string][] = [
 ]
 
 async function closeTwice(opts: FixtureOptions, through: string, cache: boolean) {
+  // The close chooses its allocation entries' ids itself (persistEntriesTogether); number them so
+  // two runs can be compared.
+  let n = 0
+  vi.spyOn(globalThis.crypto, 'randomUUID').mockImplementation(() => `00000000-0000-4000-8000-${String(++n).padStart(12, '0')}` as any)
   const m = buildFixture(opts)
   const io = instrument(m.admin)
   // Two requests, as a long re-close is: the second starts from periods the first closed.

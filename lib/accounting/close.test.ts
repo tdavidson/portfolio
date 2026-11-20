@@ -2,7 +2,7 @@ import { describe, it, expect, vi } from 'vitest'
 import { balanceSheet } from './statements'
 import { computeCapitalAccounts, rollForwardTies } from './capital-account'
 import { allocateAmount } from './allocation'
-import { monthWindows, loadWalletCloseInputs, checkReadiness, snapshotRefusal, fitsAnotherMonth, closeMonthsWithinBudget } from './close'
+import { monthWindows, loadWalletCloseInputs, loadQuoteCloseInputs, checkReadiness, snapshotRefusal, fitsAnotherMonth, closeMonthsWithinBudget } from './close'
 import { memoryAdmin } from '@/tests/helpers/memory-admin'
 import type { Account, Posting } from './types'
 
@@ -247,8 +247,14 @@ describe('the quoted-positions check on a failed read', () => {
       m.failNext(table, 'select', 'boom')
       const { forgetFundCurrency } = await import('./currency')
       forgetFundCurrency('f')
-      const readiness = await checkReadiness(m.admin as any, 'f', 'Fund I', '2026-01-01', '2026-03-31')
-      expect(readiness.blockers).toContainEqual(expect.stringMatching(/quoted positions could not be checked: .*boom/))
+      await expect(loadQuoteCloseInputs(m.admin as any, 'f', 'Fund I', '2026-03-31')).rejects.toThrow(/boom/)
+      // The readiness checks read side by side, so the failure lands on whichever check reads that
+      // table first. Whichever it is, it blocks the close rather than reading as "nothing to check".
+      const b = memoryAdmin(seed())
+      b.failNext(table, 'select', 'boom')
+      forgetFundCurrency('f')
+      const readiness = await checkReadiness(b.admin as any, 'f', 'Fund I', '2026-01-01', '2026-03-31')
+      expect(readiness.blockers).toContainEqual(expect.stringMatching(/could not be (checked|read): .*boom/))
     })
   }
 })

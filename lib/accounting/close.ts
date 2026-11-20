@@ -37,7 +37,7 @@ import { holdersAsOf, walletsForEntity } from '@/lib/portfolio/holding-entities'
 import { lotIssues, isLotMethod, type LotMethod } from '@/lib/portfolio/lots'
 import { buildSoiPositions, type SoiCompany } from './soi'
 import { fundCurrency } from './currency'
-import { accountIdByCode, ensureCapitalAccounts, persistEntry } from './persist'
+import { accountIdByCode, ensureCapitalAccounts, persistEntriesTogether, persistEntry } from './persist'
 import { allocateAmountCumulatively } from './allocation'
 import { postingsInPeriod } from './statements'
 import { computeCapitalAccounts, bucketForSourceType, emptyAccount, type CapitalAccount } from './capital-account'
@@ -64,7 +64,7 @@ import {
 } from './terms'
 import { exportLedgerText } from './text-ledger-run'
 import { withCloseCache } from './close-cache-scope'
-import { forgetRows } from './close-cache'
+import { forgetRows, forgetTailPostings } from './close-cache'
 import { isMissingSchema, prepareCloseBundle, storeCloseBundle } from './close-bundle'
 import type { CloseBundle } from '@portfolio/fund-engine'
 import { vehicleIdByName } from './vehicle-id'
@@ -222,6 +222,12 @@ export async function previewClose(
   // at the period end, the allocation is the period's own P&L, the gap check looks before the start,
   // and an entry's allocation status is read from its own lines. Later entries were dead weight on
   // every month of a re-close.
+  //
+  // The rounding carried from earlier closes is read alongside, though owner-mode books (known
+  // only once the kind is in) have no use for it: one small read beats a round trip in sequence.
+  const residualsRead = shadowResiduals ? null : vehicleIdByName(admin, fundId, group)
+    .then(id => id ? allocationResiduals(admin, fundId, id, periodStart) : new Map<string, number>())
+    .then(ok => ({ ok }), (failed: unknown) => ({ failed }))
   const [{ accounts, capitalPostings, sourcedPostings }, owners, names, basis, terms, commitmentEvents, kind] = await Promise.all([
     loadPostedLedger(admin, fundId, group, periodEnd),
     loadOwnership(admin, fundId, group),
@@ -240,12 +246,12 @@ export async function previewClose(
   const ownerMode = closesToOwnerEquity(kind)
   const vehicleId = await vehicleIdByName(admin, fundId, group)
   let priorResiduals: Map<string, number>
-  try {
-    priorResiduals = shadowResiduals ?? (ownerMode || !vehicleId
-      ? new Map<string, number>()
-      : await allocationResiduals(admin, fundId, vehicleId, periodStart))
-  } catch (error) {
-    return { error: `Could not read the rounding carried from earlier closes: ${(error as any)?.message ?? String(error)}` }
+  if (shadowResiduals) priorResiduals = shadowResiduals
+  else if (ownerMode || !vehicleId) priorResiduals = new Map<string, number>()
+  else {
+    const read = await residualsRead!
+    if ('failed' in read) return { error: `Could not read the rounding carried from earlier closes: ${(read.failed as any)?.message ?? String(read.failed)}` }
+    priorResiduals = read.ok
   }
 
   // The basis amount per partner, as of the PERIOD END — not today. Closing an old
@@ -546,7 +552,7 @@ export interface CloseThroughPreview {
 
 async function persistCloseReview(
   admin: SupabaseClient, fundId: string, group: string, vehicleId: string, periodId: string,
-  userId: string | null, readiness: CloseReadiness, snapshot: string, periodEnd: string,
+  userId: string | null, readiness: CloseReadiness, periodEnd: string,
   bundle: { sha256: string; engineVersion: string; auditHead: { headSeq: number; headHash: string } | null } | { error: string },
 ): Promise<{ error?: string }> {
   const { accounts, postings } = await loadPostedLedger(admin, fundId, group, periodEnd)
@@ -583,7 +589,11 @@ async function persistCloseReview(
   const { data: review, error } = await admin.from('close_reviews' as any).upsert({
     fund_id: fundId, vehicle_id: vehicleId, fiscal_period_id: periodId, status: 'prepared',
     prepared_by: userId, approved_by: null, approved_at: null, attestation: null,
-    trial_balance: tb, snapshot_text: snapshot, updated_at: new Date().toISOString(),
+    // The ledger snapshot is kept once, in the close's bundle (close_bundles.ledger_text). A copy
+    // here and on the period too wrote the whole ledger three times a month, growing with
+    // history, which is most of what a long re-close writes to disk. Without a bundle the review
+    // keeps nothing and the period keeps the copy (see the lock below).
+    trial_balance: tb, snapshot_text: null, updated_at: new Date().toISOString(),
   }, { onConflict: 'fiscal_period_id' }).select('id').single()
   if (error) return { error: error.message }
   const reviewId = (review as any).id
@@ -645,7 +655,7 @@ async function loadFofCloseInputs(
  * count it ran before and none of this code path executes. Same shape as the FoF loader above,
  * for the same reason: the check itself is pure, and lives in lib/portfolio/quotes.ts.
  */
-async function loadQuoteCloseInputs(
+export async function loadQuoteCloseInputs(
   admin: SupabaseClient,
   fundId: string,
   group: string,
@@ -780,11 +790,15 @@ async function loadLotIssues(
   group: string,
   asOf: string,
 ): Promise<string[]> {
-  const [{ data: settings }, { data: txnRows }, { data: companyRows }] = await Promise.all([
+  const [{ data: settings, error: settingsErr }, { data: txnRows, error: txnErr }, { data: companyRows, error: companyErr }] = await Promise.all([
     (admin as any).from('fund_settings').select('lot_method').eq('fund_id', fundId).maybeSingle(),
     (admin as any).from('investment_transactions').select('*').eq('fund_id', fundId),
     (admin as any).from('companies').select('id, name, holding_type').eq('fund_id', fundId),
   ])
+  // A read that failed is not "no lot issues": checkReadiness turns it into a blocker, as it does
+  // for every other check it could not run.
+  const readErr = settingsErr ?? txnErr ?? companyErr
+  if (readErr) throw new Error(readErr.message)
   const raw = (settings as any)?.lot_method
   const method: LotMethod = isLotMethod(raw) ? raw : 'fifo'
 
@@ -848,19 +862,35 @@ export async function checkReadiness(
 ): Promise<CloseReadiness> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
 
-  const [{ data: drafts }, { data: bankTxns }] = await Promise.all([
-    admin.from('journal_entries' as any)
-      .select('id, entry_date, memo, journal_postings(amount)')
-      .eq('book', ACTUAL_BOOK)
-      .eq('fund_id', fundId).eq('vehicle_id', vehicleId)
-      .eq('status', 'draft')
-      .gte('entry_date', start).lte('entry_date', end)
-      .order('entry_date'),
-    admin.from('bank_transactions' as any)
-      .select('id, amount, status')
-      .eq('fund_id', fundId).eq('vehicle_id', vehicleId)
-      .gte('txn_date', start).lte('txn_date', end)
-      .in('status', ['unmatched', 'drafted']),
+  // Every check below reads on its own, so they all read at once: one round of trips, not eight
+  // one after another. Each keeps its own failure (a check that cannot run is a blocker), and the
+  // blockers and warnings are still listed in the order the checks are written in.
+  const settle = <T,>(p: Promise<T>): Promise<{ ok: T } | { failed: Error }> =>
+    p.then(ok => ({ ok }), e => ({ failed: e instanceof Error ? e : new Error(String(e)) }))
+  const strandedCheck: Promise<{ stranded: boolean; message: string | null }> = vehicleKindByName(admin, fundId, group).then(
+    (kind): Promise<{ stranded: boolean; message: string | null }> | { stranded: boolean; message: string | null } =>
+      closesToOwnerEquity(kind) ? { stranded: false, message: '' } : loadStrandedCapital(admin, fundId, group))
+  const [[{ data: drafts }, { data: bankTxns }], stranded, fofRead, quotedRead, walletRead, lotIssues, bank] = await Promise.all([
+    Promise.all([
+      admin.from('journal_entries' as any)
+        .select('id, entry_date, memo, journal_postings(amount)')
+        .eq('book', ACTUAL_BOOK)
+        .eq('fund_id', fundId).eq('vehicle_id', vehicleId)
+        .eq('status', 'draft')
+        .gte('entry_date', start).lte('entry_date', end)
+        .order('entry_date'),
+      admin.from('bank_transactions' as any)
+        .select('id, amount, status')
+        .eq('fund_id', fundId).eq('vehicle_id', vehicleId)
+        .gte('txn_date', start).lte('txn_date', end)
+        .in('status', ['unmatched', 'drafted']),
+    ]),
+    strandedCheck,
+    settle(loadFofCloseInputs(admin, fundId, group, end)),
+    settle(loadQuoteCloseInputs(admin, fundId, group, end)),
+    settle(loadWalletCloseInputs(admin, fundId, group, end)),
+    settle(loadLotIssues(admin, fundId, group, end)),
+    bankRecAsOf(admin, fundId, group, vehicleId, end),
   ])
 
   const draftRows = ((drafts as any[]) ?? [])
@@ -882,8 +912,6 @@ export async function checkReadiness(
   // those partners: the close would compute each partner's share from capital balances that
   // read 0, and lock the period on top of the result. Block, don't warn. Not a question an
   // owner's-equity vehicle can be asked — it has one equity account and no partners.
-  const kind = await vehicleKindByName(admin, fundId, group)
-  const stranded = closesToOwnerEquity(kind) ? { stranded: false, message: '' } : await loadStrandedCapital(admin, fundId, group)
   if (stranded.stranded) {
     blockers.push(
       `LP capital is not attributed to partner accounts. ${stranded.message} ` +
@@ -896,12 +924,8 @@ export async function checkReadiness(
   // derived from the data, never a setting (lib/portfolio/fof.ts).
   // A register that could not be read is a blocker, not "holds no funds": closing on it would lock
   // a period whose fund marks nobody checked.
-  let fof: Awaited<ReturnType<typeof loadFofCloseInputs>> = null
-  try {
-    fof = await loadFofCloseInputs(admin, fundId, group, end)
-  } catch (e) {
-    blockers.push(`The fund holdings could not be checked: ${(e as Error).message}. Try again before closing.`)
-  }
+  const fof = 'ok' in fofRead ? fofRead.ok : null
+  if ('failed' in fofRead) blockers.push(`The fund holdings could not be checked: ${fofRead.failed.message}. Try again before closing.`)
   if (fof) {
     const issues = fofCloseIssues(fof.positions, fof.ledgerCarrying, end, fof.pendingNotices)
     blockers.push(...issues.blockers)
@@ -912,12 +936,8 @@ export async function checkReadiness(
   // unaffected — same posture as the FoF block above.
   // A quote check that could not run is a blocker, not "no feeds" — same rule as the FoF and wallet
   // blocks around it.
-  let quoted: Awaited<ReturnType<typeof loadQuoteCloseInputs>> = null
-  try {
-    quoted = await loadQuoteCloseInputs(admin, fundId, group, end)
-  } catch (e) {
-    blockers.push(`The quoted positions could not be checked: ${(e as Error).message}. Try again before closing.`)
-  }
+  const quoted = 'ok' in quotedRead ? quotedRead.ok : null
+  if ('failed' in quotedRead) blockers.push(`The quoted positions could not be checked: ${quotedRead.failed.message}. Try again before closing.`)
   if (quoted) {
     const issues = quoteCloseIssues(
       quoted.positions, quoted.feeds, quoted.observations, end, quoted.currency, vehicleId,
@@ -931,12 +951,8 @@ export async function checkReadiness(
   // quantity disagreement is a decision the fund makes rather than a stop.
   // A wallet read that fails is a blocker, not "no wallets": closing on it would lock a period
   // whose chain balances nobody could see.
-  let walletInputs: Awaited<ReturnType<typeof loadWalletCloseInputs>> = null
-  try {
-    walletInputs = await loadWalletCloseInputs(admin, fundId, group, end)
-  } catch (e) {
-    blockers.push(`The watched wallets could not be read: ${(e as Error).message}. Try again before closing.`)
-  }
+  const walletInputs = 'ok' in walletRead ? walletRead.ok : null
+  if ('failed' in walletRead) blockers.push(`The watched wallets could not be read: ${walletRead.failed.message}. Try again before closing.`)
   if (walletInputs) {
     const issues = walletCloseIssues(
       walletInputs.positions, walletInputs.wallets, walletInputs.balances, end,
@@ -948,7 +964,8 @@ export async function checkReadiness(
   // Cost basis on partial disposals. Warnings, not blockers: the recorded figure is what the
   // books use and a fund may have a deliberate reason for it, so this reports the disagreement
   // rather than overruling it. See lib/portfolio/lots.ts.
-  warnings.push(...await loadLotIssues(admin, fundId, group, end))
+  if ('ok' in lotIssues) warnings.push(...lotIssues.ok)
+  else blockers.push(`The cost-basis lots could not be checked: ${lotIssues.failed.message}. Try again before closing.`)
 
   if (bankRows.length > 0) {
     const total = roundCents(bankRows.reduce((s, t) => s + Number(t.amount), 0))
@@ -972,7 +989,7 @@ export async function checkReadiness(
       count: bankRows.length,
       total: roundCents(bankRows.reduce((s, t) => s + Number(t.amount), 0)),
     },
-    bank: await bankRecAsOf(admin, fundId, group, vehicleId, end),
+    bank,
     blockers,
     warnings,
     blockerLinks,
@@ -1311,10 +1328,13 @@ export async function closePeriodWithAllocation(
   // The closed-period list the request keeps for the lock check (periods.ts) goes stale whenever
   // a month is opened, locked or rolled back here: drop it before and after, whatever happens.
   forgetRows(admin, 'closed-periods|')
+  // The open entries' lines are reused within one month of the close and no further (close-cache.ts).
+  forgetTailPostings(admin)
   try {
     return await closeOnePeriod(admin, fundId, group, userId, periodStart, periodEnd, label)
   } finally {
     forgetRows(admin, 'closed-periods|')
+    forgetTailPostings(admin)
   }
 }
 
@@ -1327,6 +1347,16 @@ async function closeOnePeriod(
   periodEnd: string,
   label?: string
 ): Promise<{ id: string; entryIds: string[]; netIncome: number } | { error: string }> {
+  // Whether this exact range already has a period row is read alongside the preview (both only read).
+  const existingRead = vehicleIdByName(admin, fundId, group).then(vid => admin
+    .from('fiscal_periods' as any)
+    .select('id')
+    .eq('fund_id', fundId)
+    .eq('vehicle_id', vid)
+    .eq('period_start', periodStart)
+    .eq('period_end', periodEnd)
+    .maybeSingle())
+  existingRead.then(undefined, () => {})
   const preview = await previewClose(admin, fundId, group, periodStart, periodEnd)
   if ('error' in preview) return preview
 
@@ -1341,14 +1371,7 @@ async function closeOnePeriod(
   // 1. The period must exist and be OPEN so the allocation entries can post into it.
   //    Reuse an existing row for this exact range — reopening leaves the row behind as
   //    a record, and inserting blindly would pile up a duplicate on every re-close.
-  const { data: existingPeriod } = await admin
-    .from('fiscal_periods' as any)
-    .select('id')
-    .eq('fund_id', fundId)
-    .eq('vehicle_id', vehicleId)
-    .eq('period_start', periodStart)
-    .eq('period_end', periodEnd)
-    .maybeSingle()
+  const { data: existingPeriod } = await existingRead
 
   let periodId: string
   if (existingPeriod) {
@@ -1405,18 +1428,19 @@ async function closeOnePeriod(
     const entries = ownerCloseEntries(preview.categories, {
       fundId, bridgeId, ownerCapitalId: (ownerAcct as any).id, periodStart, periodEnd, sourceRef, label, ownerNoun: ownerNoun(kind),
     })
-    for (const entry of entries) {
-      const result = await persistEntry(admin, fundId, group, userId, entry, 'posted')
-      if ('error' in result) {
-        await reopenPeriodWithReversal(admin, fundId, group, periodId)
-        await admin.from('fiscal_periods' as any).delete().eq('id', periodId).eq('fund_id', fundId)
-        return { error: `Close failed (${entry.memo}): ${result.error}` }
-      }
-      entryIds.push(result.entryId)
+    // Posted together: three writes for the month, not three or four per entry.
+    const result = await persistEntriesTogether(admin, fundId, group, userId, entries)
+    if ('error' in result) {
+      await reopenPeriodWithReversal(admin, fundId, group, periodId)
+      await admin.from('fiscal_periods' as any).delete().eq('id', periodId).eq('fund_id', fundId)
+      const which = result.entryIndex != null ? entries[result.entryIndex]?.memo : null
+      return { error: `Close failed${which ? ` (${which})` : ''}: ${result.error}` }
     }
+    entryIds.push(...result.entryIds)
   }
 
   // 2. Post one allocation entry per category, tagged so reopening can find them.
+  const allocationEntries: { entry: JournalEntry; label: string }[] = []
   for (const cat of preview.mode === 'owner' ? [] : preview.categories) {
     const postings: Posting[] = [
       // The bridge takes the whole category; each partner takes their share.
@@ -1438,14 +1462,20 @@ async function closeOnePeriod(
       sourceRef,
       postings,
     }
-    const result = await persistEntry(admin, fundId, group, userId, entry, 'posted')
+    allocationEntries.push({ entry, label: cat.label })
+  }
+  // Every category's entry is built before any is written (a missing capital account refuses
+  // the month with nothing posted), then they post together: three writes, not three or four each.
+  {
+    const result = await persistEntriesTogether(admin, fundId, group, userId, allocationEntries.map(a => a.entry))
     if ('error' in result) {
       // Roll back: void anything already posted and drop the period.
       await reopenPeriodWithReversal(admin, fundId, group, periodId)
       await admin.from('fiscal_periods' as any).delete().eq('id', periodId).eq('fund_id', fundId)
-      return { error: `Allocation failed (${cat.label}): ${result.error}` }
+      const which = result.entryIndex != null ? allocationEntries[result.entryIndex]?.label : null
+      return { error: `Allocation failed${which ? ` (${which})` : ''}: ${result.error}` }
     }
-    entryIds.push(result.entryId)
+    entryIds.push(...result.entryIds)
   }
 
   // 2b. ACCRUE NOTE INTEREST — before carry, because it is income, and carry is computed on the
@@ -1521,15 +1551,26 @@ async function closeOnePeriod(
     }
   }
 
-  // 3. Snapshot and lock.
-  let snapshot: string
-  try {
-    snapshot = await exportLedgerText(admin, fundId, group, periodEnd)
-  } catch (e) {
+  // 3. Snapshot and lock. The snapshot, the readiness checks and the bundle built from the
+  // snapshot only read, and nothing writes between them, so they run side by side. Their outcomes
+  // are still weighed in the order they always were: the snapshot, then the checks, then the bundle.
+  const snapshotRead = exportLedgerText(admin, fundId, group, periodEnd)
+  const bundleRead = snapshotRead.then(snap => prepareCloseBundle(admin, {
+    fundId, group, vehicleId: vehicleId!, fiscalPeriodId: periodId, periodStart, periodEnd, snapshot: snap,
+  }))
+  bundleRead.catch(() => {}) // weighed below; never an unhandled rejection when an earlier step returns
+  const [snapshotResult, readinessResult] = await Promise.all([
+    snapshotRead.then(ok => ({ ok }), (e: unknown) => ({ failed: e })),
+    checkReadiness(admin, fundId, group, periodStart, periodEnd).then(ok => ({ ok }), (e: unknown) => ({ failed: e })),
+  ])
+  if ('failed' in snapshotResult) {
+    const e = snapshotResult.failed
     await reopenPeriodWithReversal(admin, fundId, group, periodId)
     return { error: `The ledger snapshot could not be taken, so the period was not closed: ${e instanceof Error ? e.message : String(e)}` }
   }
-  const readiness = await checkReadiness(admin, fundId, group, periodStart, periodEnd)
+  const snapshot = snapshotResult.ok
+  if ('failed' in readinessResult) throw readinessResult.failed
+  const readiness = readinessResult.ok
   // closeThrough refused on any blocker before this month was touched, so a blocker now is new — a
   // read that failed this time, or this month's own check finding what the span's did not. Fail
   // closed: undo this month's entries rather than lock a period whose review says "blocked".
@@ -1538,19 +1579,19 @@ async function closeOnePeriod(
     await reopenPeriodWithReversal(admin, fundId, group, periodId)
     return { error: refusal }
   }
-  // The reproducibility bundle: built now, from the snapshot this close locks, so its hash can go
+  // The reproducibility bundle: built from the snapshot this close locks, so its hash can go
   // into the period.close audit event. Best-effort — a bundle that cannot be built is recorded as
   // such and never refuses the close (lib/accounting/close-bundle.ts).
   const bundleInput = { fundId, group, vehicleId: vehicleId!, fiscalPeriodId: periodId, periodStart, periodEnd, snapshot }
   let bundle: CloseBundle | null = null
   let bundleError: string | null = null
   try {
-    bundle = await prepareCloseBundle(admin, bundleInput)
+    bundle = await bundleRead
   } catch (e) {
     bundleError = `The reproducibility bundle could not be built: ${e instanceof Error ? e.message : String(e)}`
     console.error('[close] bundle', bundleError)
   }
-  const review = await persistCloseReview(admin, fundId, group, vehicleId!, periodId, userId, readiness, snapshot, periodEnd,
+  const review = await persistCloseReview(admin, fundId, group, vehicleId!, periodId, userId, readiness, periodEnd,
     bundle
       ? { sha256: bundle.sha256, engineVersion: bundle.manifest.engine.version, auditHead: bundle.manifest.auditChain }
       : { error: bundleError ?? 'not built' })
@@ -1558,7 +1599,8 @@ async function closeOnePeriod(
     await reopenPeriodWithReversal(admin, fundId, group, periodId)
     return { error: `Could not preserve the close review record: ${review.error}` }
   }
-  const lock = { status: 'closed', closed_at: new Date().toISOString(), closed_by: userId, snapshot_text: snapshot }
+  // The period keeps its own copy of the snapshot only when there is no bundle to hold it.
+  const lock = { status: 'closed', closed_at: new Date().toISOString(), closed_by: userId, snapshot_text: bundle ? null : snapshot }
   const lockPeriod = (values: Record<string, unknown>) => admin
     .from('fiscal_periods' as any)
     .update(values)
@@ -1578,15 +1620,25 @@ async function closeOnePeriod(
   if (bundle) {
     try {
       const stored = await storeCloseBundle(admin, bundleInput, bundle, userId)
-      if ('error' in stored) console.error('[close] bundle not stored', stored.error)
+      if ('error' in stored) {
+        console.error('[close] bundle not stored', stored.error)
+        await keepSnapshotOnPeriod(admin, fundId, periodId, snapshot)
+      }
     } catch (e) {
       console.error('[close] bundle not stored', e)
+      await keepSnapshotOnPeriod(admin, fundId, periodId, snapshot)
     }
   }
 
   await removeSupersededPeriods(admin, fundId, vehicleId, periodId, periodStart, periodEnd)
 
   return { id: periodId, entryIds, netIncome: preview.netIncome }
+}
+
+/** A bundle that could not be kept leaves the snapshot on the period instead, so one copy survives. */
+async function keepSnapshotOnPeriod(admin: SupabaseClient, fundId: string, periodId: string, snapshot: string): Promise<void> {
+  const { error } = await admin.from('fiscal_periods' as any).update({ snapshot_text: snapshot }).eq('id', periodId).eq('fund_id', fundId)
+  if (error) console.error('[close] snapshot not kept on the period', error.message)
 }
 
 /**
