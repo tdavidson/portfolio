@@ -6,6 +6,7 @@
  * — decrypting the webhook token, creating the first entity, persisting progress — is
  * lib/onboarding/wizard-server.ts.
  */
+import { parseSkippedSteps, type StepKey } from '@/lib/onboarding/progress'
 import { DEFAULT_FEATURE_VISIBILITY, type FeatureKey, type FeatureVisibilityMap } from '@/lib/types/features'
 import {
   PRODUCT_META,
@@ -203,7 +204,10 @@ export function stepsFor(products: readonly WizardProduct[]): WizardStep[] {
 /** What fund_settings.onboarding holds (20261011400000_fund_settings_onboarding.sql). */
 export interface OnboardingRecord {
   products?: WizardProduct[]
+  /** Wizard steps skipped (the first-run setup wizard, not the Getting started checklist). */
   skipped?: SkippableStep[]
+  /** Getting started checklist steps the fund skipped (lib/onboarding/progress.ts). */
+  checklist_skipped?: StepKey[]
   completed_at?: string
 }
 
@@ -215,6 +219,7 @@ export function parseOnboardingRecord(raw: unknown): OnboardingRecord | null {
   if (Array.isArray(r.skipped)) {
     out.skipped = r.skipped.filter((s): s is SkippableStep => s === 'inbound' || s === 'senders' || s === 'drive')
   }
+  if (Array.isArray(r.checklist_skipped)) out.checklist_skipped = parseSkippedSteps(r)
   if (typeof r.completed_at === 'string') out.completed_at = r.completed_at
   return out
 }

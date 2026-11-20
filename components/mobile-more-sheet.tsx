@@ -14,6 +14,7 @@ import {
   visibleChildrenFor,
   type NavItem,
 } from '@/components/app-sidebar'
+import { useSetupComplete } from '@/components/getting-started-banner'
 import { useAccess } from '@/components/access-context'
 import type { FeatureVisibilityMap } from '@/lib/types/features'
 
@@ -88,7 +89,8 @@ export function MobileMoreSheet({
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
 
-  const sections = navSectionsFor(!!isAdmin, access, { review: reviewBadge, approvals: approvalsBadge })
+  const setupComplete = useSetupComplete(!!isAdmin)
+  const sections = navSectionsFor(!!isAdmin, access, { review: reviewBadge, approvals: approvalsBadge, setupComplete })
 
   const badgeFor = (key: NavItem['badgeKey']) =>
     key === 'review' ? reviewBadge

@@ -1,73 +1,96 @@
 'use client'
 
 import Link from 'next/link'
-import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from 'react'
+import { useEffect, useState, useSyncExternalStore } from 'react'
 import { ArrowRight, ListChecks, X } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 
 // ---------------------------------------------------------------------------
-// Per-user "skip" and "dismiss" — browser-only conveniences.
-//
-// Nothing here is security-relevant: a skipped step is still computed from data and still shown
-// (as skipped) on /getting-started, and the banner is an affordance. Every read and write is
-// wrapped, because storage can throw (private windows, blocked site data) and the page has to
-// render the same without it.
+// Skips are fund-wide and stored on the server (fund_settings.onboarding.checklist_skipped), so the
+// counts from GET /api/onboarding/progress already leave them out. Only the banner's own "dismiss"
+// is per browser — a convenience, so every read and write is wrapped: storage can throw (private
+// windows, blocked site data) and the page has to render the same without it.
 // ---------------------------------------------------------------------------
 
-const skipKey = (userId: string) => `getting-started:skipped:${userId}`
 const dismissKey = (userId: string) => `getting-started:banner-dismissed:${userId}`
 
-export function readSkipped(userId: string): Set<string> {
+/** Fired after a skip is saved, so the sidebar and banner re-read the progress. */
+export const GETTING_STARTED_CHANGED = 'getting-started:changed'
+
+export interface ProgressPayload {
+  userId: string
+  done: number
+  total: number
+  complete: boolean
+  steps: { key: string; status: 'done' | 'todo' | 'blocked' | 'not_applicable'; skipped?: boolean }[]
+}
+
+/** GET /api/onboarding/progress, or null when it fails or the caller is not an admin. */
+export async function fetchSetupProgress(): Promise<ProgressPayload | null> {
   try {
-    const raw = window.localStorage.getItem(skipKey(userId))
-    const parsed = raw ? JSON.parse(raw) : []
-    return new Set(Array.isArray(parsed) ? parsed.filter((k): k is string => typeof k === 'string') : [])
+    const res = await fetch('/api/onboarding/progress')
+    if (!res.ok) return null
+    const data = (await res.json()) as ProgressPayload
+    return data?.userId && Array.isArray(data.steps) ? data : null
   } catch {
-    return new Set()
+    return null
   }
 }
 
-export function writeSkipped(userId: string, skipped: Set<string>): void {
-  try {
-    window.localStorage.setItem(skipKey(userId), JSON.stringify([...skipped]))
-  } catch {
-    // Storage unavailable: skipping simply does nothing in this browser.
-  }
-  window.dispatchEvent(new Event(SKIP_EVENT))
+// The sidebar's last answer, per browser, so a fund that finished setting up long ago never sees
+// the entry flash in and out on load. Only a hint for the first paint: the fetch decides.
+const NAV_HIDDEN_KEY = 'getting-started:nav-hidden'
+const NAV_EVENT = 'getting-started:nav-hidden-changed'
+
+function readNavHidden(): boolean {
+  try { return window.localStorage.getItem(NAV_HIDDEN_KEY) === '1' } catch { return false }
 }
 
-const SKIP_EVENT = 'getting-started:skips'
+function writeNavHidden(hidden: boolean): void {
+  try {
+    if (readNavHidden() === hidden) return
+    if (hidden) window.localStorage.setItem(NAV_HIDDEN_KEY, '1')
+    else window.localStorage.removeItem(NAV_HIDDEN_KEY)
+  } catch {
+    // Storage unavailable: the entry just shows until the fetch answers.
+  }
+  window.dispatchEvent(new Event(NAV_EVENT))
+}
 
-function subscribeSkips(onChange: () => void): () => void {
-  window.addEventListener(SKIP_EVENT, onChange)
+function subscribeNavHidden(onChange: () => void): () => void {
+  window.addEventListener(NAV_EVENT, onChange)
   window.addEventListener('storage', onChange)
   return () => {
-    window.removeEventListener(SKIP_EVENT, onChange)
+    window.removeEventListener(NAV_EVENT, onChange)
     window.removeEventListener('storage', onChange)
   }
 }
 
 /**
- * The viewer's skipped step keys and a toggle. Read through useSyncExternalStore so the server
- * render (nothing skipped) and the first client render agree, then storage takes over.
+ * Is every Getting started step done or skipped? Drives hiding the sidebar entry. Admins only
+ * (the entry is admin-only and so is the progress route); re-checked when a skip is saved.
+ * The server render says "not complete", so the entry is in the HTML and drops out on the client.
  */
-export function useSkippedSteps(userId: string): [Set<string>, (key: string) => void] {
-  const raw = useSyncExternalStore(
-    subscribeSkips,
-    () => {
-      try { return window.localStorage.getItem(skipKey(userId)) ?? '' } catch { return '' }
-    },
-    () => '',
-  )
-  // `raw` is the dependency: re-parse only when the stored string changes.
-  const skipped = useMemo(() => (raw ? readSkipped(userId) : new Set<string>()), [raw, userId])
-  const toggle = useCallback((key: string) => {
-    const next = new Set(readSkipped(userId))
-    if (next.has(key)) next.delete(key)
-    else next.add(key)
-    writeSkipped(userId, next)
-  }, [userId])
-  return [skipped, toggle]
+export function useSetupComplete(isAdmin: boolean): boolean {
+  const hidden = useSyncExternalStore(subscribeNavHidden, readNavHidden, () => false)
+
+  useEffect(() => {
+    if (!isAdmin) return
+    let cancelled = false
+    const check = () => {
+      fetchSetupProgress().then(data => {
+        if (!cancelled && data) writeNavHidden(data.complete)
+      })
+    }
+    check()
+    window.addEventListener(GETTING_STARTED_CHANGED, check)
+    return () => {
+      cancelled = true
+      window.removeEventListener(GETTING_STARTED_CHANGED, check)
+    }
+  }, [isAdmin])
+
+  return isAdmin && hidden
 }
 
 function readDismissed(userId: string): boolean {
@@ -86,18 +109,6 @@ function writeDismissed(userId: string): void {
   }
 }
 
-interface ProgressPayload {
-  userId: string
-  steps: { key: string; status: 'done' | 'todo' | 'blocked' | 'not_applicable' }[]
-}
-
-/** Done / total with the viewer's skipped (unfinished) steps left out of the total. */
-function count(steps: ProgressPayload['steps'], skipped: Set<string>) {
-  const counted = steps.filter(s => s.status !== 'not_applicable' && !(s.status !== 'done' && skipped.has(s.key)))
-  const done = counted.filter(s => s.status === 'done').length
-  return { done, total: counted.length }
-}
-
 /**
  * "Finish setting up — N of M done → Continue", at the top of /start and /dashboard.
  *
@@ -112,16 +123,12 @@ export function GettingStartedBanner({ isAdmin, className }: { isAdmin: boolean;
   useEffect(() => {
     if (!isAdmin) return
     let cancelled = false
-    fetch('/api/onboarding/progress')
-      .then(res => (res.ok ? (res.json() as Promise<ProgressPayload>) : null))
-      .then(data => {
-        if (cancelled || !data?.userId || !Array.isArray(data.steps)) return
-        if (readDismissed(data.userId)) return
-        const { done, total } = count(data.steps, readSkipped(data.userId))
-        if (total === 0 || done >= total) return
-        setState({ userId: data.userId, done, total })
-      })
-      .catch(() => {})
+    fetchSetupProgress().then(data => {
+      if (cancelled || !data) return
+      if (readDismissed(data.userId)) return
+      if (data.complete || data.total === 0) return
+      setState({ userId: data.userId, done: data.done, total: data.total })
+    })
     return () => { cancelled = true }
   }, [isAdmin])
 

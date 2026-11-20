@@ -1,5 +1,6 @@
 import type { AgentToolMeta } from '@/lib/accounting/agent-tools-manifest'
 import { VEHICLE_KINDS } from '@/lib/vehicle-kinds'
+import { STEP_KEYS } from '@/lib/onboarding/progress'
 
 // Setting a fund up without the web app: where setup stands, and one call that applies a plan
 // (lib/onboarding/setup-plan.ts). Admins only: both are gated on the `admin` domain, which no
@@ -42,7 +43,7 @@ export const SETUP_TOOL_MANIFEST: AgentToolMeta[] = [
     description:
       'Where this fund\'s setup stands, for an admin: the products that are on, its entities, the team and their access, ' +
       'how AI runs here (a server key, or the person\'s own assistant with no key, and what works each way), ' +
-      'and the getting-started checklist with each step\'s status. Each open step says which tool does it from chat ' +
+      'and the getting-started checklist with each step\'s status (and whether the fund skipped it). Each open step says which tool does it from chat ' +
       '(often setup_fund, add_partner, record_investment, post_ledger_text or close_period) or links the web page where it lives. ' +
       'Call this first when someone asks to set up the fund, and again after each change.',
     scope: 'read',
@@ -54,7 +55,7 @@ export const SETUP_TOOL_MANIFEST: AgentToolMeta[] = [
     name: 'setup_fund',
     description:
       'Set the fund up from a plan, in one call: its name, the products it runs, its entities (each gets a chart of accounts), ' +
-      'its team with their access, and the email addresses allowed to send company updates. Safe to re-run: entities match by name, ' +
+      'its team with their access, and the email addresses allowed to send company updates; it also skips or unskips getting-started steps. Safe to re-run: entities match by name, ' +
       'people and senders by email. Adding someone who has no account sends them an invitation email. ' +
       'Products: portfolio_reporting, fund_operations (books, carry, tax, compliance), lp_reporting (LP capital and portal), ' +
       'investment_workflow (deals and diligence), management_company. While the fund is new this is the full choice; once it is ' +
@@ -84,6 +85,18 @@ export const SETUP_TOOL_MANIFEST: AgentToolMeta[] = [
           description: 'Record that this fund runs AI through the person\'s own assistant, with no server key. setup_status lists what works that way and what needs a key.',
         },
         finish: { type: 'boolean', description: 'Mark setup as finished, so the web app stops showing the setup wizard.' },
+        skipSteps: {
+          type: 'array',
+          items: { type: 'string', enum: [...STEP_KEYS] },
+          description: 'Getting started checklist steps (setup_status checklist.steps[].step) to skip for the whole fund. ' +
+            'A skipped step stops counting against "done"; once every step is done or skipped, Getting started leaves the web app\'s sidebar. ' +
+            'Confirm with the person first.',
+        },
+        unskipSteps: {
+          type: 'array',
+          items: { type: 'string', enum: [...STEP_KEYS] },
+          description: 'Checklist steps to put back after a skip.',
+        },
       },
       additionalProperties: false,
     },

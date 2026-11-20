@@ -13,6 +13,7 @@ import type { FeatureKey, FeatureVisibilityMap } from '@/lib/types/features'
 import { domainForFeature, type Domain } from '@/lib/access/domains'
 import { useAccess } from '@/components/access-context'
 import type { AccessLevel } from '@/lib/access/effective'
+import { useSetupComplete } from '@/components/getting-started-banner'
 
 const THEME_CYCLE = ['system', 'light', 'dark'] as const
 const THEME_ICONS = { system: Monitor, light: Sun, dark: Moon }
@@ -94,7 +95,8 @@ const NAV_ITEMS: NavItem[] = [
   { href: '/start', label: 'Start', icon: Sparkles },
   // The setup checklist (lib/onboarding/progress.ts). Admin-only in the nav because setting a fund
   // up is an admin's job; the page itself gates on `portfolio` and filters its steps per grant.
-  // Shown whether or not setup is finished — knowing that would cost the sidebar a fetch.
+  // Hidden once every step is done or skipped (useSetupComplete, one admin-only fetch); an admin
+  // gets back to it from the button on Settings.
   { href: '/getting-started', label: 'Getting started', icon: ListChecks, adminOnly: true },
   { href: '/emails', label: 'Inbound', icon: Mail, domain: 'portfolio' },
   { href: '/deals', label: 'Deals', icon: Lightbulb, featureKey: 'deals' },
@@ -227,6 +229,7 @@ export function navSectionsFor(
     if (!canSee(item, isAdmin, access)) return false
     if (item.badgeKey === 'review' && (badges.review ?? 0) === 0) return false
     if (item.badgeKey === 'approvals' && (badges.approvals ?? 0) === 0) return false
+    if (item.href === '/getting-started' && badges.setupComplete) return false
     return true
   })
 }
@@ -330,7 +333,12 @@ function useNavPending(fundSeg: string | null, group: string | null, kind: strin
 export type { NavItem, NavChild }
 
 /** The counts that decide whether a conditional section (Review, Approvals) is shown at all. */
-export interface NavBadges { review?: number; approvals?: number }
+export interface NavBadges {
+  review?: number
+  approvals?: number
+  /** Every Getting started step is done or skipped: the entry leaves the nav (Settings links to it). */
+  setupComplete?: boolean
+}
 
 interface AppSidebarProps {
   reviewBadge: number
@@ -373,6 +381,7 @@ export function AppSidebar({ reviewBadge, approvalsBadge, settingsBadge, notesBa
   const fundSeg = useFundSeg()
   const { kind: vehicleKind, group: vehicleGroup } = useVehicle()
   const pending = useNavPending(fundSeg, vehicleGroup, vehicleKind)
+  const setupComplete = useSetupComplete(!!isAdmin)
 
   const currentTheme = (THEME_CYCLE.includes(theme as typeof THEME_CYCLE[number]) ? theme : 'system') as typeof THEME_CYCLE[number]
   const ThemeIcon = mounted ? THEME_ICONS[currentTheme] : Monitor
@@ -386,7 +395,7 @@ export function AppSidebar({ reviewBadge, approvalsBadge, settingsBadge, notesBa
   return (
     <div className="flex flex-col flex-1">
       <nav className={`flex-1 p-2 space-y-0.5 ${collapsed ? 'md:px-1' : ''}`}>
-        {navSectionsFor(!!isAdmin, access, { review: reviewBadge, approvals: approvalsBadge }).map((item) => {
+        {navSectionsFor(!!isAdmin, access, { review: reviewBadge, approvals: approvalsBadge, setupComplete }).map((item) => {
           const { href, label, icon: Icon, badgeKey, adminOnly, featureKey, beta } = item
           // The parent row is highlighted ONLY when it is the exact current page — never
           // merely because a child is open. Otherwise the highlight was inconsistent: Funds
