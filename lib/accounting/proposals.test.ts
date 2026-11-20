@@ -114,7 +114,12 @@ describe('the journal route and migration', () => {
     const route = read('app/api/accounting/journal/route.ts')
     expect(route).toContain("const finalStatus = !proposing && status === 'posted' ? 'posted' : 'draft'")
     expect(route).toContain('markProposed(')
-    expect(route.match(/proposerChangeProblem\(/g)?.length).toBe(2)
+    // Withdrawal (PATCH) checks in the route; the edit (PUT) goes through journal-edit.ts, shared
+    // with edit_draft_entry, which checks whenever the route says the caller is a proposer.
+    expect(route.match(/proposerChangeProblem\(/g)?.length).toBe(1)
+    expect(route).toContain('proposing: isProposer(await loadGateAccess(admin, gate), vehicleId)')
+    const edit = read('lib/accounting/journal-edit.ts')
+    expect(edit).toMatch(/if \(who\.proposing\) \{[\s\S]*?proposerChangeProblem\(/)
     expect(route).toContain("if (body?.action !== 'void') return NextResponse.json({ error: PROPOSER_REFUSAL }")
   })
 

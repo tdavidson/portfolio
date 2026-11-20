@@ -15,6 +15,11 @@
 - **Imported balances.** The warnings name the partners whose books differ from an import, by how much and on which date, say that statements use the books, and open that import on the LP capital page (`/lps/capital?vehicle=&asOf=`), where it can be compared and deleted.
 - **Partners' capital that reaches no partner.** The warning names the postings behind the gap (a line on a partner's own capital account with no partner tag, or anything on the pooled account). A new posting on a partner's own capital account now takes that partner automatically.
 
+### Edit a draft entry from Claude and ChatGPT
+- **`edit_draft_entry`** is the entry form's Save on a draft: it replaces the draft's lines (account by code or id, signed amount, and each line's partner) and, optionally, its date, memo, reference, payee or adjusting flag. With `unpost_entry` and `post_drafts` it closes the loop the journal already had: unpost, correct, post again.
+- **The same checks as the form.** `PUT /api/accounting/journal` and the tool now run one function (`lib/accounting/journal-edit.ts`): drafts only, accounts and partners from this entity, balanced, no closed period, investments write when a derived draft gives up its transaction, and a proposer only on their own proposals. The three-door parity test pairs the route and the tool.
+- **It stays a draft.** From a chat it runs at once, like `post_entry` with `status: 'draft'`; posting it is `post_drafts`, which stages. A memo or reference the tool leaves out is kept; the entry form is unchanged.
+
 ### LP report cards in bulk
 - **One build for a whole batch.** The live report cards' ZIP of PDFs (LP Reports → Individual PDFs) builds the fund's live report once and cuts every investor's card from it (`lib/lp-report-cards.ts`; the PDFs in `lib/lp-report-cards-zip.ts`), on the stored report when it is current. The on-screen batch reads the same builder.
 - **The ZIP matches the cards on screen.** Each PDF now carries the investor's own "As of" (the latest date their figures run through), their positions in connected funds, and only the investors the member's entities allow, exactly as `/lps/cards/<investor>`. Before, it printed one fund-wide date and left connected funds out.

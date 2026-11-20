@@ -99,6 +99,8 @@ const DRAFT_ONLY: Record<string, (input: Record<string, unknown>) => boolean> = 
   import_journal: () => true,
   categorize_bank_transactions: () => true,
   set_bank_transaction_account: () => true,
+  // Editing a draft keeps it a draft; posting it is post_drafts, which stages.
+  edit_draft_entry: () => true,
   // Settles only DRAFTED rows against declared calls and distributions, as drafts; posting them is
   // post_bank_transaction. Staging it would also send the ambiguous matches to the approver, not the chat.
   auto_match_bank_capital: () => true,
