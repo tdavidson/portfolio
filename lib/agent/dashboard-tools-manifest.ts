@@ -297,8 +297,8 @@ export const DASHBOARD_TOOL_MANIFEST: DashboardToolMeta[] = [
       'value by two result columns (say company by vehicle, or account by quarter), with row and column totals ' +
       'unless totals: false; ' +
       'text { text } is plain copy. Every data block has span (3, 4, 6, 8 or 12 of 12) and ' +
-      'source { tool, dataset, query }: tool is one of the query tools (query_portfolio, query_lps, query_deals, ' +
-      'query_diligence, query_ledger), dataset and columns are theirs, and query is what you would pass that tool ' +
+      'source { tool, dataset, query }: tool is one of the query tools (query_portfolio, query_lps, query_funds, ' +
+      'query_deals, query_diligence, query_ledger), dataset and columns are theirs, and query is what you would pass that tool ' +
       '(columns, where, group_by, aggregates, order_by, limit). value, x, y, y2, series, point_label and table columns name RESULT columns ' +
       '(an aggregate is named by its "as"). A source may add computed: [{ as, formula }], calculated columns over ' +
       'its result columns: numbers, column names, + - * /, parentheses and abs, min, max, round (say ' +

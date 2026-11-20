@@ -42,7 +42,7 @@ export const MAX_TABLE_COLUMNS = 12
 export class ViewSpecError extends Error {}
 
 export interface BlockSource {
-  /** A query tool: query_portfolio, query_lps, query_deals, query_diligence, query_ledger. */
+  /** A query tool: query_portfolio, query_lps, query_funds, query_deals, query_diligence, query_ledger. */
   tool: string
   dataset: string
   query: QuerySpec
