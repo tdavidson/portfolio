@@ -62,7 +62,7 @@ const statement = (lp = 'ent-1', vehicle = 'Fund I') => signReportLink({
   fundId: 'fund-1', userId: 'user-me', kind: 'lp_statement',
   args: { vehicle, lp, start: '2026-07-01', end: '2026-09-30', label: 'Q3 2026' },
 }).token
-const card = () => signReportLink({ fundId: 'fund-1', userId: 'user-me', kind: 'lp_report_card', args: { investor: 'inv-1' } }).token
+const card = (as_of: string | null = null) => signReportLink({ fundId: 'fund-1', userId: 'user-me', kind: 'lp_report_card', args: { investor: 'inv-1', as_of } }).token
 
 const cards = (investors: string[] | null = ['inv-1'], as_of: string | null = null) =>
   signReportLink({ fundId: 'fund-1', userId: 'user-me', kind: 'lp_report_cards', args: { investors, as_of } }).token
@@ -96,6 +96,10 @@ describe('a document link', () => {
     // The on-screen card's build (lib/lp-report-cards), so the investor's group comes with it.
     expect(builtCards).toHaveBeenLastCalledWith(store.admin, 'fund-1', expect.objectContaining({ investorIds: ['inv-1'], includeConnected: true }))
     expect(cardPdf).toHaveBeenLastCalledWith(store.admin, 'fund-1', expect.objectContaining({ investorId: 'inv-1', investorName: 'Acme' }))
+    expect((builtCards.mock.calls.at(-1) as any)[2].asOf).toBeUndefined()
+    // A dated link builds the card as of that date.
+    expect((await open(card('2026-09-30'))).status).toBe(200)
+    expect(builtCards).toHaveBeenLastCalledWith(store.admin, 'fund-1', expect.objectContaining({ asOf: '2026-09-30', investorIds: ['inv-1'] }))
     access = member({ lp_capital: 'read', gp_economics: 'read' }, false)
     expect((await open(card())).status).toBe(200)
     const opts = (builtCards.mock.calls.at(-1) as any)[2]

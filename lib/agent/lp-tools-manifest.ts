@@ -132,7 +132,7 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
     description:
       'A download link to an investor\'s LP report card as a PDF: their positions across every vehicle aggregated, with every ' +
       'investor grouped under them on the LPs page (a child investor gives its parent\'s card) — ' +
-      'commitment, paid-in, distributions, NAV, DPI, TVPI and IRR per vehicle and in total — on current figures. ' +
+      'commitment, paid-in, distributions, NAV, DPI, TVPI and IRR per vehicle and in total — on current figures, or as of a date. ' +
       'Use when the user asks for an investor\'s report, report card or summary as a file. The link works for an hour; ' +
       'give it to the user as a link. Call this again every time the document is asked for — never re-share a link ' +
       'from earlier in the conversation, which has likely expired.',
@@ -140,7 +140,10 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
     domain: 'lp',
     inputSchema: {
       type: 'object',
-      properties: { investor: { type: 'string', description: 'The investor (or one of their entities), by name, alternate name or id.' } },
+      properties: {
+        investor: { type: 'string', description: 'The investor (or one of their entities), by name, alternate name or id.' },
+        as_of: { type: 'string', description: 'Figures as of this date (YYYY-MM-DD). Omit for current figures.' },
+      },
       required: ['investor'],
     },
   },

@@ -73,7 +73,11 @@ describe('LP document links', () => {
     const out = await LP_HANDLERS.lp_report_card_pdf({ ...ctx, origin: 'https://fund.test' }, { investor: 'Cranmore' })
     expect(out).toMatchObject({ investor: 'Cranmore', vehicles: ['Fund I'] })
     expect(out.url).toMatch(/^https:\/\/fund\.test\/api\/agent\/reports\//)
-    expect(verifyReportLink(out.url.split('/').pop())).toMatchObject({ fundId: 'f1', userId: 'u1', kind: 'lp_report_card', args: { investor: 'i1' } })
+    expect(verifyReportLink(out.url.split('/').pop())).toMatchObject({ fundId: 'f1', userId: 'u1', kind: 'lp_report_card', args: { investor: 'i1', as_of: null } })
+    const dated = await LP_HANDLERS.lp_report_card_pdf(ctx, { investor: 'Cranmore', as_of: '2026-09-30' })
+    expect(dated).toMatchObject({ as_of: '2026-09-30' })
+    expect(verifyReportLink(dated.url.split('/').pop())).toMatchObject({ kind: 'lp_report_card', args: { investor: 'i1', as_of: '2026-09-30' } })
+    await expect(LP_HANDLERS.lp_report_card_pdf(ctx, { investor: 'Cranmore', as_of: '9/30/2026' })).rejects.toThrow(/YYYY-MM-DD/)
   })
   it('never issues one for an LP outside their entities, or for a credential with no member', async () => {
     await expect(LP_HANDLERS.lp_report_card_pdf(ctx, { investor: 'Aldis' })).rejects.toThrow(/No LP matching "Aldis"/)
