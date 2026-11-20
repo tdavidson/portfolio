@@ -8,6 +8,7 @@ import { AGENT_TOOL_MANIFEST, type AgentToolMeta } from './agent-tools-manifest'
 import type { Domain } from '@/lib/access/domains'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
 import { changeEntryState } from './journal-state'
+import { editDraftEntry } from './journal-edit'
 import { carryRecipientIds, combineCarryRecipients, seesIndividualCarry } from '@/lib/access/carry-visibility'
 import type { FeatureKey } from '@/lib/types/features'
 import { loadPostedLedger, loadEntityNames, loadOwnership, fetchAllRows } from './load'
@@ -558,6 +559,52 @@ const HANDLERS: Record<string, AgentToolHandler> = {
     if (!result.ok) throw new Error(String((result.error as any)?.message ?? result.error))
     const { changed, skipped, warnings, hasMore, cursor } = result.outcome
     return { posted: changed, skipped, warnings, hasMore, cursor }
+  },
+
+  // The entry form's Save on a draft (PUT /api/accounting/journal), through the same function:
+  // lib/accounting/journal-edit.ts. Accounts may be named by code (resolved in this entity's chart)
+  // or by id; either way validatePostings refuses an account or partner from elsewhere.
+  edit_draft_entry: async ({ admin, fundId, portfolioGroup, userId, access }, input) => {
+    const entryId = String(input?.entry_id ?? '')
+    if (!entryId) throw new Error('entry_id is required')
+    if (!Array.isArray(input?.postings) || input.postings.length === 0) throw new Error('postings must list every line of the entry')
+    const codes = await accountIdByCode(admin, fundId, portfolioGroup)
+    const postings = input.postings.map((p: any) => {
+      let accountId: string | undefined
+      if (p?.accountCode != null && p.accountCode !== '') {
+        accountId = codes.get(String(p.accountCode))
+        if (!accountId) throw new Error(`Unknown account code ${p.accountCode} for ${portfolioGroup}`)
+      } else if (typeof p?.accountId === 'string' && p.accountId) {
+        accountId = p.accountId
+      } else {
+        throw new Error('Each posting needs an accountCode or accountId')
+      }
+      return { accountId, amount: p?.amount, lpEntityId: p?.lpEntityId ?? null }
+    })
+    const vehicleId = await vehicleIdByName(admin, fundId, portfolioGroup)
+    const body: Record<string, unknown> = { id: entryId, postings }
+    for (const k of ['entryDate', 'memo', 'reference', 'vendorId', 'adjusting', 'sourceType']) {
+      if (input && k in input) body[k] = input[k]
+    }
+    const out = await editDraftEntry(admin, {
+      fundId, userId: userId ?? null,
+      proposing: !!access && isProposer(access, vehicleId),
+      mayTouchInvestments: async () => mayTouchInvestments(access),
+    }, portfolioGroup, vehicleId, body, { keepOmitted: true })
+    const removed = (out.body.removedTransactions as unknown[] | undefined) ?? []
+    const unlinked = (out.body.unlinkedRegisterRows as unknown[] | undefined) ?? []
+    if (out.status >= 400) {
+      const gone = removed.length > 0 ? ` These investment transactions were already deleted: ${JSON.stringify(removed)}.` : ''
+      throw new Error(String(out.body.error ?? 'The draft could not be saved.') + gone)
+    }
+    const e = out.body as any
+    return {
+      entryId, status: e.status ?? 'draft', entryDate: e.entry_date, memo: e.memo ?? null, reference: e.reference ?? null,
+      postings: ((e.journal_postings as any[]) ?? []).map(p => ({ accountId: p.account_id, amount: Number(p.amount), lpEntityId: p.lp_entity_id ?? null })),
+      ...(removed.length > 0 ? { removedTransactions: removed } : {}),
+      ...(unlinked.length > 0 ? { unlinkedRegisterRows: unlinked } : {}),
+      next: 'Still a draft. Post it with post_drafts (ids: [entryId]) once it looks right.',
+    }
   },
 
   // The journal's bulk discard (api/accounting/journal/bulk-void): drafts only, never a posted entry.

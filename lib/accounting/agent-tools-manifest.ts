@@ -675,6 +675,47 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
     },
   },
   {
+    name: 'edit_draft_entry',
+    description:
+      "Edit a DRAFT journal entry (the entry form's Save on a draft): replace its lines, and optionally its date, memo, reference, payee or adjusting flag. " +
+      'postings is the WHOLE entry, every line, not a patch: each line names its account (accountCode, or accountId as list_journal returns it), a signed amount ' +
+      '(debit positive, credit negative; the lines must sum to zero) and, for a line on a partner\'s capital, the partner (lpEntityId, from list_entities; null for none). ' +
+      'Read the entry with list_journal first and send back every line, changed or not. A memo or reference left out stays as it is; null clears it. ' +
+      'Refused for a posted entry (unpost it with unpost_entry first), in a closed period, or for an account or partner that is not this entity\'s. ' +
+      'If the draft was derived from an investment transaction, that transaction is deleted and the edited lines are adopted when the draft is posted. ' +
+      'It stays a draft: post it with post_drafts (ids: [entry_id]). From someone who can only propose, only their own proposals can be edited.',
+    scope: 'write',
+    proposable: true,
+    inputSchema: {
+      type: 'object',
+      required: ['entry_id', 'postings'],
+      properties: {
+        entry_id: { type: 'string', description: 'The draft entry id, from list_journal or proposed_entries.' },
+        entryDate: { type: 'string', description: 'ISO date YYYY-MM-DD; default: keep the current date' },
+        memo: { type: ['string', 'null'] },
+        reference: { type: ['string', 'null'], description: 'up to 80 characters' },
+        vendorId: { type: ['string', 'null'], description: "the payee: one of the fund's vendors; null clears it; leave out to keep it" },
+        adjusting: { type: 'boolean', description: 'mark as an adjusting entry; leave out to keep it' },
+        sourceType: { type: 'string', description: 'leave out to keep the current source type' },
+        postings: {
+          type: 'array',
+          minItems: 1,
+          items: {
+            type: 'object',
+            required: ['amount'],
+            properties: {
+              accountCode: { type: 'string', description: "this entity's account code" },
+              accountId: { type: 'string', description: 'the account id, as list_journal returns it; used when accountCode is not given' },
+              amount: { type: 'number', description: 'signed: debit positive, credit negative' },
+              lpEntityId: { type: ['string', 'null'], description: 'the partner this line belongs to (an LP entity id); null or left out for none' },
+            },
+          },
+        },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'discard_drafts',
     description: "Void DRAFT journal entries in bulk (the journal's Discard): drafts the user does not want, such as a duplicate import or a wrong categorization. Drafts only: a posted entry is never touched, and an entry in a closed period is skipped with its reason. Give ids for exactly those drafts, or a window (start/end, sourceType) for every draft in it; pages: repeat with afterId = the returned cursor while hasMore.",
     scope: 'write',

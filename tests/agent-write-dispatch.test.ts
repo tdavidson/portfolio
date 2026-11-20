@@ -433,6 +433,7 @@ describe('the same access rules as the web', () => {
     ['post_entry', 'api/accounting/journal'],
     ['post_drafts', 'api/accounting/journal'],
     ['discard_drafts', 'api/accounting/journal/bulk-void'],
+    ['edit_draft_entry', 'api/accounting/journal'],
     ['add_account', 'api/accounting/chart'],
     ['close_period', 'api/accounting/periods'],
     ['allocation', 'api/accounting/allocation'],
