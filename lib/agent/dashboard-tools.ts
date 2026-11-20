@@ -41,6 +41,9 @@ import { listVehicles } from '@/lib/accounting/load'
 import { areasFor, DASHBOARD_TIPS, helpText, type CanRead } from './getting-started'
 import type { ChartData, ChartPayload, HomePayload } from '@/lib/mcp-apps/payload'
 import { CHART_KINDS, CHART_MAX_POINTS, CHART_UNITS } from '@/lib/mcp-apps/payload'
+import { parseViewSpec, ViewSpecError } from '@/lib/custom-views/spec'
+import { resolveView } from '@/lib/custom-views/resolve'
+import { deleteView, getView, listViews, saveView, viewPath } from '@/lib/custom-views/store'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const r2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100
@@ -631,6 +634,63 @@ export const DASHBOARD_HANDLERS: Record<string, AgentToolHandler> = {
     return deleteDashboard(ctx.admin, ctx.fundId, requireUser(ctx), input?.dashboard, visible.resolvable)
   },
 }
+
+// ---------------------------------------------------------------------------------------------
+// Custom views (lib/custom-views): the spec is validated, then every block loads as the caller
+// ---------------------------------------------------------------------------------------------
+
+function specOrThrow(raw: unknown) {
+  try {
+    return parseViewSpec(raw)
+  } catch (e) {
+    // The message names what is allowed, so the assistant can fix the spec and try again.
+    if (e instanceof ViewSpecError) throw new Error(`The view spec needs fixing: ${e.message}`)
+    throw e
+  }
+}
+
+const viewUrl = (ctx: AgentToolContext, id: string) => (ctx.origin ? `${ctx.origin.replace(/\/$/, '')}${viewPath(id)}` : null)
+
+const resolveDeps = (ctx: AgentToolContext) => ({ admin: ctx.admin, fundId: ctx.fundId, userId: ctx.userId, access: ctx.access })
+
+const CUSTOM_VIEW_HANDLERS: Record<string, AgentToolHandler> = {
+  preview_custom_view: async (ctx: AgentToolContext, input: any) => {
+    const spec = specOrThrow(input?.spec)
+    return resolveView(resolveDeps(ctx), spec, input?.arguments, { id: null })
+  },
+
+  save_custom_view: async (ctx: AgentToolContext, input: any) => {
+    const userId = requireUser(ctx)
+    specOrThrow(input?.spec)
+    const saved = await saveView(ctx.admin, ctx.fundId, userId, { name: input?.name, spec: input?.spec, shared: input?.shared })
+    const url = viewUrl(ctx, saved.id)
+    return {
+      saved,
+      url,
+      note: `Saved. It is under Views in the app${url ? ` (${url})` : ''}, and "${saved.name}" opens it in any conversation.`,
+    }
+  },
+
+  open_custom_view: async (ctx: AgentToolContext, input: any) => {
+    const view = await getView(ctx.admin, ctx.fundId, requireUser(ctx), input?.view)
+    return resolveView(resolveDeps(ctx), view.spec, input?.arguments, { id: view.id, name: view.name, url: viewUrl(ctx, view.id) })
+  },
+
+  list_custom_views: async (ctx: AgentToolContext) => {
+    const views = await listViews(ctx.admin, ctx.fundId, requireUser(ctx))
+    return { views: views.map(v => ({ ...v, url: viewUrl(ctx, v.id) })) }
+  },
+
+  get_custom_view_spec: async (ctx: AgentToolContext, input: any) => {
+    const view = await getView(ctx.admin, ctx.fundId, requireUser(ctx), input?.view)
+    return { id: view.id, name: view.name, kind: view.kind, shared: view.shared, spec: view.spec }
+  },
+
+  delete_custom_view: async (ctx: AgentToolContext, input: any) =>
+    deleteView(ctx.admin, ctx.fundId, requireUser(ctx), input?.view),
+}
+
+Object.assign(DASHBOARD_HANDLERS, CUSTOM_VIEW_HANDLERS)
 
 export interface DashboardTool extends DashboardToolMeta {
   handler: AgentToolHandler

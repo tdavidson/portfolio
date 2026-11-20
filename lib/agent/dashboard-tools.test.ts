@@ -188,11 +188,14 @@ describe('the dashboard tool registry', () => {
     }
   })
 
-  it('marks only the saved-dashboard tools as personal, and only save and delete as writes', () => {
+  it('marks only the saved-dashboard and custom-view tools as personal, and only save and delete as writes', () => {
     expect(DASHBOARD_TOOLS.filter(t => t.personal).map(t => t.name).sort())
-      .toEqual(['delete_dashboard', 'list_dashboards', 'open_dashboard', 'save_dashboard', 'show_chart', 'show_home'])
+      .toEqual([
+        'delete_custom_view', 'delete_dashboard', 'get_custom_view_spec', 'list_custom_views', 'list_dashboards',
+        'open_custom_view', 'open_dashboard', 'preview_custom_view', 'save_custom_view', 'save_dashboard', 'show_chart', 'show_home',
+      ])
     expect(DASHBOARD_TOOLS.filter(t => t.scope === 'write').map(t => t.name).sort())
-      .toEqual(['delete_dashboard', 'save_dashboard'])
+      .toEqual(['delete_custom_view', 'delete_dashboard', 'save_custom_view', 'save_dashboard'])
   })
 })
 

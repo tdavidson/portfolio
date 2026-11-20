@@ -342,14 +342,63 @@ export interface ChartData {
 
 export type ChartPayload = Omit<PayloadBase<DashboardView, ChartData>, 'view'> & { view: 'chart' }
 
-export type DashboardPayload = PortfolioPayload | CompanyPayload | StatementsPayload | LpPayload | CallsPayload | HomePayload | ChartPayload
+// ---------------------------------------------------------------------------------------------
+// Custom view — a member's own layout of blocks over the query datasets (lib/custom-views)
+// ---------------------------------------------------------------------------------------------
+
+/** How a custom view writes a figure. Mirrors lib/custom-views/spec.ts VALUE_FORMATS. */
+export type CustomValueFormat = 'currency' | 'number' | 'percent' | 'multiple' | 'date' | 'text'
+
+/**
+ * One block, already loaded as the viewer. `status` says whether it could be: a block on a dataset
+ * the viewer cannot read is `denied` and carries no rows, so one view can serve colleagues with
+ * different access without failing for any of them.
+ */
+export interface CustomBlock {
+  id: string
+  type: 'kpi' | 'bar' | 'line' | 'table' | 'text'
+  label: string
+  /** Width out of 12. */
+  span: number
+  status: 'ok' | 'denied' | 'error'
+  message?: string
+  text?: string
+  format?: CustomValueFormat
+  /** kpi: the figure (first row of the value column). */
+  value?: number | string | null
+  sub?: string
+  /** bar / line: one measure. */
+  points?: { label: string; value: number }[]
+  /** table */
+  columns?: { key: string; label: string; format: CustomValueFormat }[]
+  rows?: Record<string, string | number | null>[]
+  truncated?: boolean
+}
+
+export interface CustomViewData {
+  /** Null for an unsaved preview. */
+  id: string | null
+  /** The view's page in the app, when it is saved. */
+  url: string | null
+  description: string | null
+  /** The filters the view offers, and the values it was opened with. */
+  params: ('vehicle' | 'as_of')[]
+  values: Record<string, string>
+  /** The entities the viewer may pick, when the view offers a vehicle filter. */
+  vehicles: string[]
+  blocks: CustomBlock[]
+}
+
+export type CustomViewPayload = Omit<PayloadBase<DashboardView, CustomViewData>, 'view'> & { view: 'custom' }
+
+export type DashboardPayload = PortfolioPayload | CompanyPayload | StatementsPayload | LpPayload | CallsPayload | HomePayload | ChartPayload | CustomViewPayload
 
 /** Narrowing guard for anything arriving over the wire. */
 export function isDashboardPayload(x: unknown): x is DashboardPayload {
   if (!x || typeof x !== 'object') return false
   const p = x as { view?: unknown; data?: unknown }
   return typeof p.view === 'string'
-    && ((DASHBOARD_VIEWS as readonly string[]).includes(p.view) || p.view === 'home' || p.view === 'chart')
+    && ((DASHBOARD_VIEWS as readonly string[]).includes(p.view) || p.view === 'home' || p.view === 'chart' || p.view === 'custom')
     && !!p.data && typeof p.data === 'object'
 }
 

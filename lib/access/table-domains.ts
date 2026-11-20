@@ -327,6 +327,8 @@ export const TABLE_RULES: Record<string, TableRule> = {
   demo_sessions: { scope: 'service', note: 'Anonymous demo telemetry, written server-side.' },
   vehicle_groups: { scope: 'service', note: 'Admin-defined sections for the entity lists. Read by api/vehicle-groups and api/settings/vehicle-groups with the service role, which filter the entity assignments by canSeeVehicle.' },
   saved_dashboards: { scope: 'service', note: 'A member\'s saved dashboard recipes (name, view, arguments; no figures). Read and written only by the MCP dashboard tools, which scope to the credential\'s fund and member and re-check the view\'s domain on open (lib/agent/dashboard-tools.ts).' },
+  custom_views: { scope: 'service', note: 'A member\'s custom view specs (blocks over the query datasets; no figures). Read and written only by /api/views and the MCP custom-view tools, which scope to the member\'s fund and member and check every block against the viewer\'s access when it loads (lib/custom-views).' },
+  custom_view_versions: { scope: 'service', note: 'Every saved spec of a custom view, written by lib/custom-views/store.ts with the service role.' },
   memo_agent_jobs: { scope: 'service', note: 'Already locked down by 20260509000002_memo_agent_jobs_lockdown.sql.' },
   api_idempotency_keys: { scope: 'service', note: 'Stored response bodies for /api/v1 financial approvals, replayed on retry.' },
   // ---- Tax reporting (merged from the SPV branch, 2026-09-03) ----------------------------------

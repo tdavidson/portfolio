@@ -115,6 +115,9 @@ const NAV_ITEMS: NavItem[] = [
       // What companies reported, searchable: the Company Updates corpus. Plain portfolio — it has
       // no feature switch of its own because it IS the reporting product's evidence layer.
       { href: '/company-updates', label: 'Updates', domain: 'portfolio' },
+      // Custom views: screens a member described to an assistant and saved (lib/custom-views).
+      // Each block is checked against the viewer's own access as it loads.
+      { href: '/views',        label: 'Views',        domain: 'portfolio' },
       // Letters are generated from PORTFOLIO data (the companies) and can be produced without
       // any LP tracking, so they live under Portfolio, not LPs.
       { href: '/letters',      label: 'Letters',      featureKey: 'lp_letters' },

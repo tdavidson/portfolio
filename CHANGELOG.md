@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Custom views (prototype)
+- **Describe a screen, get it built on live data.** Ask Claude over the MCP connector for a view ("NAV, unfunded and the largest positions, filterable by vehicle"). It writes a spec of blocks from a fixed set (KPI tiles, bar and line charts, tables, text), each bound to a query dataset (`query_portfolio`, `query_lps`, `query_deals`, `query_diligence`, `query_ledger`), and `preview_custom_view` draws it in the conversation with current figures. `save_custom_view` keeps it; `open_custom_view`, `list_custom_views`, `get_custom_view_spec` and `delete_custom_view` do the rest.
+- **Build one in the app.** Views → New view: describe it, and the fund's own model writes the spec (validated, with one retry that is told what was wrong), then the preview loads live as you. Change it in words ("make the positions a table"), name it, share it with the fund or not, and save. "Change" on a saved view reopens it in the builder; a colleague's shared view opens as a copy. Spend is logged as `custom_view_draft`; a fund with no AI key is pointed to the connector instead.
+- **One page for every view.** Saved views are listed under Portfolio → Views and open at `/views/<id>`, drawn with the app's own tiles, charts and tables, with the vehicle and as-of filters the view offers. No code or deploy per view.
+- **A recipe, never a result.** A view stores no figures, HTML or code. Every block loads as the person opening it, through the query tool's and the dataset's own access checks; a block they can't read shows as unavailable with no rows, so a shared view never carries its author's access. The spec is validated on save and again on every open.
+- Migration, additive: `20261120000000_custom_views.sql` (`custom_views` and `custom_view_versions`, service role only, RLS on with no policies).
+
 ### Security fixes (14 Nov 2026 review)
 - **Postmark: a sender can't vouch for themselves.** An inbound email's `Authentication-Results` header counts only when a server named in `POSTMARK_AUTHSERV_IDS` wrote it. Any other one is ignored, because the sender can put one in the message. Without that setting, Postmark's own `Received-SPF` decides (the first one only, with an aligned envelope sender). A forged header no longer hides the real SPF result either.
 - **Reprocessing keeps intake's sender decision.** Intake now records whether the sender was verified (`inbound_emails.sender_verified`). The Reprocess button and `reprocess_company_update` give a member's treatment only to mail that passed, instead of trusting the From address on the second run. Mail stored before this counts as unverified.

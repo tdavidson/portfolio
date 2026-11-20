@@ -12,7 +12,7 @@ import { button, dataTable, empty, note, section, segmented, tiles, type Column,
 import {
   STATEMENT_PRESETS, STATEMENT_PRESET_LABEL, VIEW_TOOL,
   type CallLine, type CallLineStatus, type CallSummary, type CallsPayload, type ChartData, type ChartPayload,
-  type CompanyMetricSeries, type CompanyPayload, type DashboardPayload, type HomePayload, type LpPayload, type LpRow,
+  type CompanyMetricSeries, type CompanyPayload, type CustomBlock, type CustomValueFormat, type CustomViewPayload, type DashboardPayload, type HomePayload, type LpPayload, type LpRow,
   type PartnerCapitalRow, type PortfolioPayload, type PortfolioPosition, type StatementPreset,
   type StatementsData, type StatementsPayload,
 } from '../payload'
@@ -46,6 +46,7 @@ export function renderView(payload: DashboardPayload, ctx: ViewContext): Node[] 
     case 'calls': return calls(payload, ctx)
     case 'home': return home(payload, ctx)
     case 'chart': return chart(payload, ctx)
+    case 'custom': return custom(payload, ctx)
   }
 }
 
@@ -103,6 +104,113 @@ function chart(payload: ChartPayload, ctx: ViewContext): Node[] {
   }
   // The source is the subtitle, under the title.
   const more = expandButton(ctx, 'Show the figures')
+  if (more) out.push(more)
+  return out
+}
+
+// ---------------------------------------------------------------------------------------------
+// Custom view — a member's own blocks, already loaded as them (lib/custom-views)
+// ---------------------------------------------------------------------------------------------
+
+function customFormat(format: CustomValueFormat | undefined, fmt: Formatters): { value: (v: number | string | null) => string; tick: (v: number) => string } {
+  const num = (f: (n: number) => string) => (v: number | string | null) => (typeof v === 'number' ? f(v) : v == null ? DASH : String(v))
+  switch (format) {
+    case 'currency': return { value: num(v => fmt.money(v)), tick: v => fmt.compact(v) }
+    case 'percent': return { value: num(v => percent(v)), tick: v => percent(v, 0) }
+    case 'multiple': return { value: num(v => multiple(v)), tick: v => multiple(v) }
+    case 'date': return { value: v => (typeof v === 'string' ? shortDate(v) : v == null ? DASH : String(v)), tick: v => fmt.number(v) }
+    case 'text': return { value: v => (v == null ? DASH : String(v)), tick: v => fmt.number(v) }
+    default: return { value: num(v => fmt.number(v)), tick: v => fmt.number(v) }
+  }
+}
+
+function customBlock(b: CustomBlock, ctx: ViewContext): Node | null {
+  if (b.status !== 'ok') return section(b.label || 'Block', note(b.message ?? 'Not available.', b.status === 'error' ? 'warning' : 'muted'))
+  const { value: format, tick } = customFormat(b.format, ctx.fmt)
+  if (b.type === 'text') {
+    return h('div', { class: 'section' }, ...(b.label ? [h('p', { class: 'eyebrow' }, b.label)] : []),
+      ...String(b.text ?? '').split(/\n\s*\n/).map(p => h('p', null, p)))
+  }
+  if (b.type === 'bar' || b.type === 'line') {
+    const points = b.points ?? []
+    if (points.length === 0) return section(b.label, empty('Nothing to chart.'))
+    if (b.type === 'bar') {
+      const data: BarDatum[] = points.map(p => ({
+        label: p.label,
+        value: Math.max(0, p.value),
+        valueLabel: b.format === 'currency' ? ctx.fmt.compact(p.value) : format(p.value),
+        tooltip: [{ value: format(p.value), label: b.label }],
+        ...(p.value < 0 ? { tone: 'loss' as const } : {}),
+      }))
+      return section(b.label, barChart(data, { valueName: b.label, ariaLabel: `${b.label} by ${points.length} categories` }))
+    }
+    const plot = h('div', null)
+    const last = points[points.length - 1]
+    queueMicrotask(() => ctx.onDispose(lineChart(plot, points, {
+      format: v => format(v),
+      formatTick: tick,
+      ariaLabel: `${b.label} over ${points.length} points, latest ${format(last.value)} at ${last.label}.`,
+    })))
+    return section(b.label, h('div', { class: 'metric-card' },
+      h('div', { class: 'metric-head' }, h('p', { class: 'metric-name' }, b.label), h('p', { class: 'metric-latest' }, format(last.value))),
+      h('p', { class: 'caption' }, last.label), plot))
+  }
+  if (b.type === 'table') {
+    const columns = b.columns ?? []
+    const rows = b.rows ?? []
+    if (rows.length === 0) return section(b.label, empty('No rows.'))
+    return section(b.label, dataTable(rows, columns.map(c => {
+      const f = customFormat(c.format, ctx.fmt).value
+      const numeric = c.format !== 'text' && c.format !== 'date'
+      return {
+        header: c.label,
+        numeric,
+        cell: (r: Record<string, string | number | null>) => f(r[c.key] ?? null),
+        sort: (r: Record<string, string | number | null>) => (r[c.key] ?? '') as number | string,
+      }
+    }), { caption: b.label, ...(ctx.compact ? { limit: 8 } : {}) }),
+      b.truncated ? note('Showing the first rows only.') : null)
+  }
+  return null
+}
+
+function custom(payload: CustomViewPayload, ctx: ViewContext): Node[] {
+  const { blocks, vehicles, params, id, description } = payload.data
+  const out: Node[] = []
+  if (description && !ctx.compact) out.push(note(description))
+
+  // The entity filter re-opens the saved view with the new value; an unsaved preview has no id to
+  // re-open, so it shows the figures it was built with.
+  if (id && params.includes('vehicle') && vehicles.length > 1) {
+    const select = h('select', {
+      class: 'picker', 'aria-label': 'Entity',
+      onchange: (e: Event) => {
+        const v = (e.target as HTMLSelectElement).value
+        const args = { ...payload.data.values, vehicle: v }
+        if (!v) delete (args as Record<string, string>).vehicle
+        ctx.open('open_custom_view', { view: id, arguments: args }, 'replace')
+      },
+    },
+      h('option', { value: '' }, 'All entities'),
+      ...vehicles.map(v => h('option', { value: v }, v)),
+    ) as HTMLSelectElement
+    select.value = vehicles.includes(payload.data.values.vehicle ?? '') ? payload.data.values.vehicle! : ''
+    out.push(h('div', { class: 'filters' }, select))
+  }
+
+  // Tiles side by side, as the dashboards lead with them; then every other block in order.
+  const kpis = blocks.filter(b => b.type === 'kpi' && b.status === 'ok')
+  if (kpis.length) {
+    out.push(tiles(kpis.map(b => ({ label: b.label, value: customFormat(b.format, ctx.fmt).value(b.value ?? null), ...(b.sub ? { sub: b.sub } : {}) }))))
+  }
+  const rest = blocks.filter(b => !(b.type === 'kpi' && b.status === 'ok'))
+  // The inline card carries the tiles and the first block that loaded; the rest is one tap away.
+  const lead = rest.find(b => b.status === 'ok' && b.type !== 'text') ?? rest[0]
+  for (const b of ctx.compact ? (lead ? [lead] : []) : rest) {
+    const node = customBlock(b, ctx)
+    if (node) out.push(node)
+  }
+  const more = rest.length > 1 ? expandButton(ctx, 'Open the full view') : null
   if (more) out.push(more)
   return out
 }
