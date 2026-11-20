@@ -144,6 +144,24 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
     },
   },
   {
+    name: 'lp_report_cards_zip',
+    description:
+      'A download link to many investors\' LP report cards at once: a ZIP with one PDF per investor, the same card ' +
+      'lp_report_card_pdf gives for one. The fund\'s figures are built once for the whole batch, so use this rather than ' +
+      'calling lp_report_card_pdf for each investor. Leave out `investors` for every investor the user can see. ' +
+      'The link works for an hour; give it to the user as a link. Call this again every time the documents are asked ' +
+      'for — never re-share a link from earlier in the conversation.',
+    scope: 'read',
+    domain: 'lp',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        investors: { type: 'array', items: { type: 'string' }, description: 'The investors (or one of their entities), by name or id. Omit for every investor.' },
+        as_of: { type: 'string', description: 'Figures as of this date (YYYY-MM-DD). Omit for current figures.' },
+      },
+    },
+  },
+  {
     name: 'lp_capital_calls',
     description: 'The capital calls issued in a vehicle: date, description, total, and each LP\'s share.',
     scope: 'read',

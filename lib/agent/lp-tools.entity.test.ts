@@ -79,4 +79,18 @@ describe('LP document links', () => {
     await expect(LP_HANDLERS.lp_report_card_pdf(ctx, { investor: 'Aldis' })).rejects.toThrow(/No LP matching "Aldis"/)
     await expect(LP_HANDLERS.lp_report_card_pdf({ ...ctx, userId: null }, { investor: 'Cranmore' })).rejects.toThrow(/signed-in member/)
   })
+
+  it('issues one ZIP link for many investors, or every investor they can see, and never one outside their entities', async () => {
+    process.env.ENCRYPTION_KEY = process.env.ENCRYPTION_KEY || 'test-key-for-report-links'
+    const { verifyReportLink } = await import('./report-links')
+    const named = await LP_HANDLERS.lp_report_cards_zip(ctx, { investors: ['Cranmore'], as_of: '2026-06-30' })
+    expect(named).toMatchObject({ investors: ['Cranmore'], as_of: '2026-06-30', vehicles: ['Fund I'] })
+    expect(verifyReportLink(named.url.split('/').pop())).toMatchObject({ kind: 'lp_report_cards', args: { investors: ['i1'], as_of: '2026-06-30' } })
+    const every = await LP_HANDLERS.lp_report_cards_zip(ctx, {})
+    expect(every.investors).toBe('every investor (1)')
+    expect(verifyReportLink(every.url.split('/').pop())).toMatchObject({ args: { investors: null, as_of: null } })
+    await expect(LP_HANDLERS.lp_report_cards_zip(ctx, { investors: ['Aldis'] })).rejects.toThrow(/No LP matching "Aldis"/)
+    await expect(LP_HANDLERS.lp_report_cards_zip(ctx, { as_of: '30/06/2026' })).rejects.toThrow(/YYYY-MM-DD/)
+    await expect(LP_HANDLERS.lp_report_cards_zip({ ...ctx, userId: null }, {})).rejects.toThrow(/signed-in member/)
+  })
 })

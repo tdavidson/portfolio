@@ -38,6 +38,7 @@ If the user wants to *look at* something rather than get an answer, show a dashb
 | One LP's capital account statement | `lp_statement` |
 | One LP's capital account statement **as a PDF** | `lp_statement_pdf` |
 | An investor's report card (every vehicle aggregated) **as a PDF** | `lp_report_card_pdf` |
+| Many investors' report cards at once **as a ZIP of PDFs** | `lp_report_cards_zip` |
 | Capital calls and who has funded them (including "says wired" from the LP portal) | `lp_capital_calls` |
 | Balance sheet, income statement, trial balance | `financial_statements` |
 | Budget and forecast against actuals | `forecast_variance`, `forecast_series` |

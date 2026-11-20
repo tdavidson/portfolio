@@ -39,6 +39,10 @@ vi.mock('@/lib/access/lp-scope', () => ({
 }))
 vi.mock('@/lib/accounting/lp-statement-pdf', () => ({ generateLpStatementPdf: (...a: unknown[]) => (statementPdf as any)(...a) }))
 vi.mock('@/lib/lp-report-pdf', () => ({ generateLiveInvestorReportPdf: (...a: unknown[]) => (cardPdf as any)(...a) }))
+const builtCards = vi.fn(async (..._a: unknown[]) => ({ asOf: '2026-09-30', refreshedAt: null, cards: [{ investorId: 'inv-1', investorName: 'Acme', rows: [], asOf: '2026-09-30' }] }))
+const cardsZip = vi.fn(async (..._a: unknown[]) => ({ zip: Buffer.from('PK-zip'), count: 1 }))
+vi.mock('@/lib/lp-report-cards', () => ({ buildLiveReportCards: (...a: unknown[]) => (builtCards as any)(...a) }))
+vi.mock('@/lib/lp-report-cards-zip', () => ({ renderReportCardsZip: (...a: unknown[]) => (cardsZip as any)(...a) }))
 const documentPdf = vi.fn(async (_admin: unknown, fundId: string, id: string) =>
   fundId === 'fund-1' && id === 'render-1' ? { pdf: Buffer.from('%PDF-letter'), fileName: 'Fund II Letter Q1 2026.pdf' } : null)
 vi.mock('@/lib/document-templates/pdf', () => ({ renderPdf: (...a: unknown[]) => (documentPdf as any)(...a) }))
@@ -57,6 +61,9 @@ const statement = (lp = 'ent-1', vehicle = 'Fund I') => signReportLink({
   args: { vehicle, lp, start: '2026-07-01', end: '2026-09-30', label: 'Q3 2026' },
 }).token
 const card = () => signReportLink({ fundId: 'fund-1', userId: 'user-me', kind: 'lp_report_card', args: { investor: 'inv-1' } }).token
+
+const cards = (investors: string[] | null = ['inv-1'], as_of: string | null = null) =>
+  signReportLink({ fundId: 'fund-1', userId: 'user-me', kind: 'lp_report_cards', args: { investors, as_of } }).token
 
 const letter = (render = 'render-1') => signReportLink({ fundId: 'fund-1', userId: 'user-me', kind: 'template_document', args: { render } }).token
 
@@ -88,6 +95,33 @@ describe('a document link', () => {
     access = member({ lp_capital: 'read', gp_economics: 'read' }, false)
     expect((await open(card())).status).toBe(200)
     expect(cardPdf).toHaveBeenLastCalledWith(store.admin, { fundId: 'fund-1', investorIds: ['inv-1'], groups: ['Fund I'], includeConnected: true })
+  })
+
+  it('opens a ZIP of report cards from one build, for the investors named or every one the member sees', async () => {
+    access = member({ lp_capital: 'read', gp_economics: 'read' })
+    store.tables.lp_investors = [{ id: 'inv-1', fund_id: 'fund-1', name: 'Acme' }, { id: 'inv-2', fund_id: 'fund-2', name: 'Northwind' }]
+    const res = await open(cards(['inv-1'], '2026-09-30'))
+    expect(res.status).toBe(200)
+    expect(res.headers.get('content-type')).toBe('application/zip')
+    expect(res.headers.get('content-disposition')).toContain('attachment')
+    expect(builtCards).toHaveBeenCalledTimes(1)
+    expect(builtCards).toHaveBeenLastCalledWith(store.admin, 'fund-1', expect.objectContaining({ asOf: '2026-09-30', investorIds: ['inv-1'], includeConnected: true }))
+    expect((await open(cards(null))).status).toBe(200)
+    expect(builtCards).toHaveBeenLastCalledWith(store.admin, 'fund-1', expect.objectContaining({ investorIds: null }))
+    // An investor of another fund refuses the whole link.
+    expect((await open(cards(['inv-1', 'inv-2']))).status).toBe(404)
+    // A scoped member: only their vehicles' rows, and no connected funds.
+    access = member({ lp_capital: 'read', gp_economics: 'read' }, false)
+    expect((await open(cards())).status).toBe(200)
+    const opts = (builtCards.mock.calls.at(-1) as any)[2]
+    expect(opts.includeConnected).toBe(false)
+    expect(opts.selectRows([{ portfolio_group: 'Fund I' }, { portfolio_group: 'Fund II' }])).toEqual([{ portfolio_group: 'Fund I' }])
+    // Without the grant, nothing is built.
+    builtCards.mockClear()
+    access = member({})
+    expect((await open(cards())).status).toBe(404)
+    expect(builtCards).not.toHaveBeenCalled()
+    delete store.tables.lp_investors
   })
 
   it('stops working when the member loses the grant, the fund, or agent access', async () => {

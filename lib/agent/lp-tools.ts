@@ -573,4 +573,45 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
       note: linkNote('It opens the PDF for an hour, and only for this member. If they ask again later, call this tool again rather than re-sharing this link.'),
     }
   },
+
+  // Many report cards in one ZIP: the fund's live report is built once at the click and every card
+  // cut from it (lib/lp-report-cards). The link names investor ids, or none for every investor the
+  // member can see then; the click re-checks both.
+  lp_report_cards_zip: async ({ admin, fundId, access, userId, origin }: AgentToolContext, input: any) => {
+    if (!userId) throw new Error('Documents are issued to a signed-in member; this credential has no user.')
+    const asOf = input?.as_of == null || input.as_of === '' ? null : String(input.as_of)
+    if (asOf && !/^\d{4}-\d{2}-\d{2}$/.test(asOf)) throw new Error('as_of must be YYYY-MM-DD.')
+    const refs: string[] = Array.isArray(input?.investors) ? input.investors.map(String).filter((r: string) => r.trim()) : []
+    const lpScope = await lpToolScope(admin, access)
+    const identities = await loadIdentities(admin, fundId, lpScope.entityIds)
+
+    let investorIds: string[] | null = null
+    const names = new Map<string, string>()
+    if (refs.length > 0) {
+      for (const ref of refs) {
+        const found = new Map<string, string>()
+        for (const m of resolveLp(identities, ref)) if (m.investorId) found.set(m.investorId, m.investorName ?? m.entityName)
+        if (found.size === 0) throw new Error(`"${ref}" has no investor record to report on.`)
+        if (found.size > 1) throw new Error(`"${ref}" matches ${found.size} investors (${[...found.values()].join(', ')}). Pass one.`)
+        const [[id, name]] = [...found]
+        names.set(id, name)
+      }
+      investorIds = [...names.keys()]
+    } else {
+      for (const i of identities.values()) if (i.investorId) names.set(i.investorId, i.investorName ?? i.entityName)
+      if (names.size === 0) throw new Error('There are no investors to report on.')
+    }
+
+    const { token, expiresAt } = signReportLink({ fundId, userId, kind: 'lp_report_cards', args: { investors: investorIds, as_of: asOf } })
+    return {
+      document: 'LP report cards (ZIP of PDFs)',
+      investors: investorIds ? [...names.values()] : `every investor (${names.size})`,
+      as_of: asOf ?? 'current figures',
+      // A member who sees only some entities gets report cards of only those.
+      vehicles: lpScope.names ?? 'all',
+      url: reportLinkUrl(origin ?? siteOrigin(), token),
+      expires_at: expiresAt,
+      note: linkNote('It downloads the ZIP for an hour, and only for this member; a large fund can take a minute to build. If they ask again later, call this tool again rather than re-sharing this link.'),
+    }
+  },
 }

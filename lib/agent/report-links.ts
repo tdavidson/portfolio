@@ -22,8 +22,9 @@ import { createHmac, hkdfSync, timingSafeEqual } from 'crypto'
 // an issued capital call, marked DRAFT, before it is published (preview_call_notices). `close_bundle`
 // is a closed period's reproducibility bundle as a ZIP (close_bundle; lib/accounting/close-bundle.ts).
 // `forecast_workbook` is a plan as the Forecast page's Excel model (lib/forecast/workbook.ts).
+// `lp_report_cards` is many investors' live report cards as a ZIP of PDFs (lib/lp-report-cards.ts).
 export const REPORT_KINDS = [
-  'lp_statement', 'lp_report_card', 'portal_statement', 'portal_letter',
+  'lp_statement', 'lp_report_card', 'lp_report_cards', 'portal_statement', 'portal_letter',
   'fund_performance', 'financial_statements', 'k1', 'lp_snapshot', 'tax_package', 'lp_letter',
   'template_document', 'call_notice_preview', 'close_bundle', 'forecast_workbook',
 ] as const
