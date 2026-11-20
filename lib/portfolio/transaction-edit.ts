@@ -5,7 +5,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { logActivity } from '@/lib/activity'
-import { draftEntryForTransaction, retractEntriesForTransaction } from '@/lib/accounting/from-portfolio'
+import { draftEntryForTransaction, retractEntriesForTransaction, releaseMarksAfterLastExit, exitReleaseWarning } from '@/lib/accounting/from-portfolio'
 import { validateConversionLink } from '@/lib/accounting/conversion-link'
 import { normalizeSecurityType, SECURITY_TYPES } from '@/lib/accounting/soi'
 import { TRANSACTION_TYPES, transactionRowError } from '@/lib/portfolio/transaction-checks'
@@ -371,6 +371,17 @@ export async function deleteInvestmentTransaction(
 
   if (who.userId) {
     logActivity(admin, existing.fund_id, who.userId, 'investment.delete', { companyId, transactionId: txnId })
+  }
+
+  // A deleted row dated before the holding's last exit changes what that exit should have
+  // unwound (a removed back-dated mark leaves its release behind): settle it.
+  if (existing.portfolio_group) {
+    const { data: company } = await (admin as any).from('companies').select('name').eq('id', companyId).maybeSingle()
+    const release = await releaseMarksAfterLastExit(admin, existing.fund_id, who.userId, {
+      companyId, group: existing.portfolio_group, companyName: company?.name ?? 'Investment',
+    })
+    const warning = exitReleaseWarning(release)
+    if (warning) return done({ ledger: { ...ledger, warning: [ledger.warning, warning].filter(Boolean).join(' ') } })
   }
 
   return done({ ledger })

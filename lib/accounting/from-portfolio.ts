@@ -114,7 +114,9 @@ export async function retractEntriesForTransaction(
       .select('id, status, entry_date, portfolio_group')
       .eq('book', ACTUAL_BOOK)
       .eq('fund_id', fundId)
-      .eq('source_ref', txnRef(txnId))
+      // Its own entry, and any release of marks the exit left behind (releaseMarksAfterLastExit):
+      // that release belongs to the exit and goes with it.
+      .in('source_ref', [txnRef(txnId), exitReleaseRef(txnId)])
       .neq('status', 'void')
     if (entriesError) return { retracted: 0, reason: `Could not read the transaction's journal entry (${entriesError.message}). Nothing was changed — try again.` }
 
@@ -461,6 +463,133 @@ async function gapOrThrow(
   const gap = roundCents(records - carried - own - rounding)
   // Cents of floating-point dust in shares × price are not a revaluation.
   return Math.abs(gap) < 0.5 ? 0 : gap
+}
+
+/** The `source_ref` of an entry that releases marks a closed holding still carried after its exit. */
+export const exitReleaseRef = (exitTxnId: string) => `exit-release:${exitTxnId}`
+
+/** Rows that book their own records true-up for the holding, so nothing after them needs releasing. */
+const TRUES_UP_HOLDING = new Set(['investment', 'unrealized_gain_change', 'cost_transfer'])
+
+export type ExitReleaseResult =
+  | { released: true; entryId: string; amount: number; exitTxnId: string; posted: boolean }
+  | { released: false; reason?: string }
+
+/**
+ * A HOLDING THE FUND NO LONGER OWNS CARRIES NO MARKS.
+ *
+ * An exit (a write-off is an exit with no proceeds) unwinds the marks the books carried for the
+ * holding when its entry was derived (exitPostings). That is a snapshot. A mark recorded LATER but
+ * dated BEFORE the exit (a back-filled mark-to-zero, say) lands in the books after the exit's entry
+ * was frozen, so the exit never unwinds it. Every other holding is kept at its records by the next
+ * entry derived for it (recordsGap), but a closed holding has no next entry: the markdown stays on
+ * 1200 for a company with no cost left, and cumulative P&L counts the loss twice, once as
+ * unrealized (4200) and again inside the realized loss the exit booked on full cost.
+ *
+ * So after anything changes a holding's books, look at its LAST exit. When the records value the
+ * holding at nothing after it, the books carry no cost for it on that date, and nothing later
+ * trues it up, release whatever unrealized (1200) and FX (1250) the books still carry, dated on
+ * the exit: Cr/Dr the asset, Dr/Cr 4200/4300. Like the exit's own unwind it is a reclassification,
+ * not a new gain or loss. The check settles the residual each time, so deleting the back-dated mark
+ * books the release back.
+ *
+ * `after` is the transaction just booked. When it is not before the last exit, the exit already saw
+ * it (or it is the exit), so the books are not read at all; that keeps an in-order backfill cheap.
+ *
+ * Best effort and never throws: a failure leaves the books as they were and says why.
+ */
+export async function releaseMarksAfterLastExit(
+  admin: SupabaseClient, fundId: string, userId: string | null,
+  args: { companyId: string; group: string; companyName: string; after?: any },
+): Promise<ExitReleaseResult> {
+  try {
+    const { companyId, group, companyName, after } = args
+    const { data, error } = await admin.from('investment_transactions' as any).select('*')
+      .eq('fund_id', fundId).eq('company_id', companyId)
+    if (error) return { released: false, reason: `Could not read the holding's transactions (${error.message}).` }
+    const rows = ((data as any[]) ?? [])
+      .filter(t => !after || t.id !== after.id)
+      .concat(after ? [after] : [])
+      .sort((x, y) => String(x.transaction_date).localeCompare(String(y.transaction_date)) || String(x.id).localeCompare(String(y.id)))
+    const ordered = sortForRollup(txnsForVehicle(rows, group))
+
+    let exitAt = -1
+    for (let n = ordered.length - 1; n >= 0; n--) {
+      if (ordered[n].transaction_type === 'proceeds' && ordered[n].portfolio_group === group) { exitAt = n; break }
+    }
+    if (exitAt < 0) return { released: false }
+    const exit = ordered[exitAt]
+    if (after) {
+      const at = ordered.indexOf(after)
+      if (at < 0 || at >= exitAt) return { released: false }
+    }
+    // Something after the exit books its own true-up for this holding.
+    if (ordered.slice(exitAt + 1).some(t => TRUES_UP_HOLDING.has(t.transaction_type))) return { released: false }
+
+    const exitDate = exit.transaction_date
+    if (!exitDate) return { released: false }
+    // The records still value the holding (a round the exit did not sell): its marks are live.
+    const records = computeSummary(ordered.slice(0, exitAt + 1), 'active', new Date(`${exitDate}T23:59:59Z`)).unrealizedValue
+    if (Math.abs(records) >= 0.5) return { released: false }
+
+    const vehicleId = await vehicleIdByName(admin, fundId, group)
+    if (!vehicleId) return { released: false }
+    const accts = await ensureInvestmentAccounts(admin, fundId, group, [{ id: companyId, name: companyName }])
+    const a = accts.get(companyId)
+    if (!a) return { released: false }
+
+    const ledger = await loadPostedLedger(admin, fundId, group)
+    const lines = ((ledger.sourcedPostings ?? ledger.postings ?? []) as { accountId: string; amount: number; entryDate?: string | null }[])
+      .filter(p => (p.entryDate ?? '') <= exitDate)
+    const sum = (accountId: string) => roundCents(lines.filter(p => p.accountId === accountId).reduce((s, p) => s + p.amount, 0))
+    // Cost still on the books means the books do not see the holding as closed; that is a cost
+    // problem the tie-out surfaces, not marks to release.
+    if (Math.abs(sum(a.costId)) >= 0.5) return { released: false }
+    const unrealized = sum(a.unrealizedId)
+    const fx = sum(a.fxId)
+
+    const codes = await accountIdByCode(admin, fundId, group)
+    const unrealizedIncomeId = codes.get(UNREALIZED_INCOME)
+    const fxIncomeId = codes.get(FX_INCOME)
+    const postings: Posting[] = []
+    if (Math.abs(unrealized) >= 0.5 && unrealizedIncomeId) {
+      postings.push({ accountId: a.unrealizedId, amount: roundCents(-unrealized), currency: 'USD', lpEntityId: null })
+      postings.push({ accountId: unrealizedIncomeId, amount: unrealized, currency: 'USD', lpEntityId: null })
+    }
+    if (Math.abs(fx) >= 0.5 && fxIncomeId) {
+      postings.push({ accountId: a.fxId, amount: roundCents(-fx), currency: 'USD', lpEntityId: null })
+      postings.push({ accountId: fxIncomeId, amount: fx, currency: 'USD', lpEntityId: null })
+    }
+    if (postings.length === 0) return { released: false }
+
+    const entry: JournalEntry = {
+      fundId,
+      entryDate: exitDate,
+      sourceType: 'valuation',
+      memo: `Exit — marks released — ${companyName}${exit.round_name ? ` (${exit.round_name})` : ''}`,
+      sourceRef: exitReleaseRef(exit.id),
+      postings,
+    }
+    const amount = roundCents(-(unrealized + fx))
+    const result = await persistEntry(admin, fundId, group, userId, entry, 'posted')
+    if ('error' in result) {
+      if ('allocationFailed' in result && result.allocationFailed) {
+        const draft = await persistEntry(admin, fundId, group, userId, entry, 'draft')
+        if ('error' in draft) return { released: false, reason: draft.error }
+        return { released: true, entryId: draft.entryId, amount, exitTxnId: exit.id, posted: false }
+      }
+      return { released: false, reason: result.error }
+    }
+    return { released: true, entryId: result.entryId, amount, exitTxnId: exit.id, posted: true }
+  } catch (e) {
+    return { released: false, reason: e instanceof Error ? e.message : 'Could not release the marks left after the exit.' }
+  }
+}
+
+/** Said back when a later exit still carries marks the release could not post. */
+export function exitReleaseWarning(r: ExitReleaseResult): string | undefined {
+  if (r.released || !r.reason) return undefined
+  return `A later exit of this holding still carries unrealized marks that could not be released: ${r.reason.replace(/\.\s*$/, '')}.`
 }
 
 export interface BuiltEntry {
@@ -886,7 +1015,10 @@ export async function draftEntryForTransaction(
     // exactly one (investment-bank-match.ts). Dynamic import — that module imports this one.
     const { linkOpenBankRow } = await import('./investment-bank-match')
     await linkOpenBankRow(admin, fundId, result.entryId)
-    return { drafted: true, posted: true, entryId: result.entryId, kind, amount, vehicle: group }
+    // A back-dated row lands before an exit whose entry is already frozen: release what it left.
+    const release = await releaseMarksAfterLastExit(admin, fundId, userId, { companyId: txn.company_id, group, companyName, after: txn })
+    const warning = exitReleaseWarning(release)
+    return { drafted: true, posted: true, entryId: result.entryId, kind, amount, vehicle: group, ...(warning ? { warning } : {}) }
   } catch (e) {
     // The portfolio write already succeeded. A ledger failure must not undo it.
     return skip(e instanceof Error ? e.message : 'Could not draft a journal entry.')

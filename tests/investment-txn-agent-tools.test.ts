@@ -4,7 +4,10 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import { memoryAdmin } from '@/tests/helpers/memory-admin'
 
 const s = vi.hoisted(() => ({ retract: vi.fn(), redraft: vi.fn() }))
-vi.mock('@/lib/accounting/from-portfolio', () => ({ retractEntriesForTransaction: s.retract, draftEntryForTransaction: s.redraft }))
+vi.mock('@/lib/accounting/from-portfolio', () => ({
+  retractEntriesForTransaction: s.retract, draftEntryForTransaction: s.redraft,
+  releaseMarksAfterLastExit: async () => ({ released: false }), exitReleaseWarning: () => undefined,
+}))
 vi.mock('@/lib/activity', () => ({ logActivity: () => {} }))
 import { PORTFOLIO_HANDLERS } from '@/lib/agent/portfolio-tools'
 
