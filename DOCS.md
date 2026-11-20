@@ -571,7 +571,8 @@ Minting a URL changes no record, so it runs at once even from a chat; the regist
 | Tool | Datasets | Needs |
 |---|---|---|
 | `query_portfolio` | `positions`, `companies`, `transactions`, `kpis` | Portfolio (transactions: the Investments switch) |
-| `query_lps` | `lp_positions`, `capital_call_lines` | LP capital |
+| `query_lps` | `lp_positions`, `capital_accounts`, `capital_call_lines` | LP capital |
+| `query_funds` | `fund_performance`, `pnl_by_month`, `cash_by_month`, `forecast_by_month` | Accounting |
 | `query_deals` | `inbound_deals` | Deal flow |
 | `query_diligence` | `diligence_deals` | Diligence |
 | `query_ledger` | `journal_lines` | Accounting |

@@ -29,7 +29,7 @@ describe('draftSystemPrompt', () => {
   it('names every dataset and the block types, and carries no fund data', () => {
     const prompt = draftSystemPrompt()
     for (const d of ['positions', 'lp_positions', 'journal_lines', 'diligence_deals']) expect(prompt).toContain(`"${d}"`)
-    for (const t of ['"kpi"', '"bar" | "line"', '"table"', '"text"']) expect(prompt).toContain(t)
+    for (const t of ['"kpi"', '"column"', '"scatter"', '"waterfall"', '"table"', '"text"']) expect(prompt).toContain(t)
   })
 })
 

@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useParams, useRouter } from 'next/navigation'
-import { ArrowLeft, Loader2, RefreshCw, Sparkles } from 'lucide-react'
+import { ArrowLeft, FileSpreadsheet, FileText, Loader2, RefreshCw, Sparkles } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Badge } from '@/components/ui/badge'
@@ -27,15 +27,13 @@ export default function CustomViewPage() {
   const [data, setData] = useState<Loaded | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  const [vehicle, setVehicle] = useState('')
-  const [asOf, setAsOf] = useState('')
+  // vehicle, as_of and the view's own filter.<column> values, exactly as the API takes them.
+  const [args, setArgs] = useState<Record<string, string>>({})
   const [confirmDelete, setConfirmDelete] = useState(false)
 
   // Callers that change the filters set `loading` first; the first load starts with it set.
-  const load = useCallback(async (filters: { vehicle: string; asOf: string }) => {
-    const qs = new URLSearchParams()
-    if (filters.vehicle) qs.set('vehicle', filters.vehicle)
-    if (filters.asOf) qs.set('as_of', filters.asOf)
+  const load = useCallback(async (filters: Record<string, string>) => {
+    const qs = new URLSearchParams(Object.entries(filters).filter(([, v]) => v))
     try {
       const r = await fetch(`/api/views/${encodeURIComponent(id)}${qs.size ? `?${qs}` : ''}`)
       const body = await r.json().catch(() => ({}))
@@ -51,7 +49,14 @@ export default function CustomViewPage() {
 
   // load() sets state only after its fetch resolves; the rule cannot see past the await.
   // eslint-disable-next-line react-hooks/set-state-in-effect
-  useEffect(() => { load({ vehicle: '', asOf: '' }) }, [load])
+  useEffect(() => { load({}) }, [load])
+
+  const setArg = (key: string, value: string) => {
+    const next = { ...args, [key]: value }
+    setArgs(next)
+    setLoading(true)
+    load(next)
+  }
 
   const remove = async () => {
     const r = await fetch(`/api/views/${encodeURIComponent(id)}`, { method: 'DELETE' })
@@ -61,6 +66,13 @@ export default function CustomViewPage() {
 
   const payload = data?.payload
   const params = payload?.data.params ?? []
+
+  // The file is built on the server with the same filters, loaded as the viewer again.
+  const exportHref = (format: 'pdf' | 'xlsx') => {
+    const qs = new URLSearchParams({ ...Object.fromEntries(Object.entries(args).filter(([, v]) => v)), format })
+    try { qs.set('tz', Intl.DateTimeFormat().resolvedOptions().timeZone) } catch { /* the server uses UTC */ }
+    return `/api/views/${encodeURIComponent(id)}/export?${qs}`
+  }
 
   return (
     <div className="p-4 md:p-8 space-y-6">
@@ -87,8 +99,8 @@ export default function CustomViewPage() {
               <select
                 aria-label="Entity"
                 className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                value={vehicle}
-                onChange={e => { setVehicle(e.target.value); setLoading(true); load({ vehicle: e.target.value, asOf }) }}
+                value={args.vehicle ?? ''}
+                onChange={e => setArg('vehicle', e.target.value)}
               >
                 <option value="">All entities</option>
                 {payload!.data.vehicles.map(v => <option key={v} value={v}>{v}</option>)}
@@ -99,13 +111,23 @@ export default function CustomViewPage() {
                 type="date"
                 aria-label="As of"
                 className="h-9 w-[160px]"
-                value={asOf}
-                onChange={e => { setAsOf(e.target.value); setLoading(true); load({ vehicle, asOf: e.target.value }) }}
+                value={args.as_of ?? ''}
+                onChange={e => setArg('as_of', e.target.value)}
               />
             )}
-            <Button variant="outline" size="sm" onClick={() => { setLoading(true); load({ vehicle, asOf }) }} disabled={loading}>
+            <Button variant="outline" size="sm" onClick={() => { setLoading(true); load(args) }} disabled={loading}>
               <RefreshCw className={loading ? 'animate-spin' : ''} /> Refresh
             </Button>
+            {data && (
+              <>
+                <Button asChild variant="outline" size="sm" className="text-muted-foreground">
+                  <a href={exportHref('pdf')} target="_blank" rel="noopener"><FileText /> PDF</a>
+                </Button>
+                <Button asChild variant="outline" size="sm" className="text-muted-foreground">
+                  <a href={exportHref('xlsx')}><FileSpreadsheet /> Excel</a>
+                </Button>
+              </>
+            )}
             {data && (
               <Button asChild variant="outline" size="sm">
                 <Link href={`/views/new?from=${encodeURIComponent(id)}`}><Sparkles /> {data.view.kind === 'mine' ? 'Change' : 'Copy and change'}</Link>
@@ -124,6 +146,42 @@ export default function CustomViewPage() {
           </div>
         </div>
       </div>
+
+      {(payload?.data.filters?.length ?? 0) > 0 && (
+        <div className="flex flex-wrap items-end gap-3">
+          {payload!.data.filters!.map(f => f.kind === 'pick' ? (
+            <label key={f.column} className="space-y-1">
+              <span className="block text-caption text-muted-foreground">{f.label}</span>
+              <select
+                className="h-9 min-w-[160px] rounded-md border border-input bg-background px-2 text-sm"
+                value={args[`filter.${f.column}`] ?? ''}
+                onChange={e => setArg(`filter.${f.column}`, e.target.value)}
+              >
+                <option value="">All</option>
+                {(f.options ?? []).map(o => <option key={o} value={o}>{o}</option>)}
+              </select>
+            </label>
+          ) : (
+            <div key={f.column} className="space-y-1">
+              <span className="block text-caption text-muted-foreground">{f.label}</span>
+              <div className="flex items-center gap-1.5">
+                {(['from', 'to'] as const).map((end, i) => (
+                  <span key={end} className="contents">
+                    {i === 1 && <span className="text-sm text-muted-foreground">to</span>}
+                    <Input
+                      type={f.input === 'date' ? 'date' : 'number'}
+                      aria-label={`${f.label} ${end}`}
+                      className="h-9 w-[150px]"
+                      value={args[`filter.${f.column}.${end}`] ?? ''}
+                      onChange={e => setArg(`filter.${f.column}.${end}`, e.target.value)}
+                    />
+                  </span>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
 
       {error ? (
         <p className="text-sm text-destructive">{error}</p>

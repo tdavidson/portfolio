@@ -8,6 +8,12 @@
 - **From Claude and ChatGPT.** `lp_report_cards_zip` returns a one-hour link to a ZIP of report cards for the investors named, or every investor the member can see. Opening it re-checks access the way `lp_report_card_pdf` does (LP capital, entities, carry without GP economics).
 - The single card is unchanged.
 
+### Custom views: charts, report features, data and export
+- **Charts:** stacked and grouped bars, vertical columns, area, pie and donut, scatter, combo (bars and a line on a second axis), waterfall, funnel, heatmap, gauge, and sparklines in KPI tiles. A chart can also draw several measures side by side.
+- **Report features:** totals and subtotal rows, pivot tables, calculated columns (a small arithmetic language with no code), KPIs worked out from other tiles across data sets, KPI changes against the prior month, quarter or year, conditional colour (sign or scale), click-through from a table to the company, and filters on the page (pick lists and from/to ranges).
+- **Export:** each view prints to PDF and exports to Excel, with real numbers and number formats, from the app (PDF and Excel buttons) or from Claude (`export_custom_view`, a one-hour link).
+- **Data:** `query_funds` (fund performance per vehicle, monthly P&L and cash, the forecast) and `capital_accounts` on `query_lps`, for views and for the query tools.
+
 ### Custom views (prototype)
 - **Describe a screen, get it built on live data.** Ask Claude over the MCP connector for a view ("NAV, unfunded and the largest positions, filterable by vehicle"). It writes a spec of blocks from a fixed set (KPI tiles, bar and line charts, tables, text), each bound to a query dataset (`query_portfolio`, `query_lps`, `query_deals`, `query_diligence`, `query_ledger`), and `preview_custom_view` draws it in the conversation with current figures. `save_custom_view` keeps it; `open_custom_view`, `list_custom_views`, `get_custom_view_spec` and `delete_custom_view` do the rest.
 - **Build one in the app.** Views → New view: describe it, and the fund's own model writes the spec (validated, with one retry that is told what was wrong), then the preview loads live as you. Change it in words ("make the positions a table"), name it, share it with the fund or not, and save. "Change" on a saved view reopens it in the builder; a colleague's shared view opens as a copy. Spend is logged as `custom_view_draft`; a fund with no AI key is pointed to the connector instead.

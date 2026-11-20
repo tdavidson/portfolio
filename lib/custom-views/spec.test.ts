@@ -63,7 +63,7 @@ describe('parseViewSpec', () => {
   })
 
   it('refuses unknown block types, params and formats', () => {
-    fails({ ...valid, blocks: [{ type: 'html', label: 'X' }] }, /type must be one of: kpi, bar, line, table, text/)
+    fails({ ...valid, blocks: [{ type: 'html', label: 'X' }] }, /type must be one of: kpi, gauge, bar, column, line, area, pie, scatter, combo, waterfall, funnel, table, pivot, heatmap, text/)
     fails({ ...valid, params: ['company'] }, /params must be one of: vehicle, as_of/)
     fails({ ...valid, blocks: [{ ...valid.blocks[0], format: 'emoji' }] }, /format must be one of/)
   })
@@ -81,6 +81,31 @@ describe('parseViewSpec', () => {
   })
 })
 
+describe('chart series', () => {
+  const stacked = (extra: Record<string, unknown> = {}) => ({
+    title: 'Stacked',
+    blocks: [{
+      type: 'bar', label: 'Fair value by stage and status',
+      source: positions({ group_by: ['stage', 'status'], aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] }),
+      x: 'stage', y: 'fv', series: 'status', format: 'currency', ...extra,
+    }],
+  })
+
+  it('keeps a series that is a result column', () => {
+    expect(parseViewSpec(stacked()).blocks[0]).toMatchObject({ type: 'bar', x: 'stage', y: 'fv', series: 'status' })
+  })
+
+  it('leaves series off a chart that does not split', () => {
+    expect(parseViewSpec(valid).blocks[1]).not.toHaveProperty('series')
+    expect(parseViewSpec(stacked({ series: '' })).blocks[0]).not.toHaveProperty('series')
+  })
+
+  it('refuses a series outside the result, or the same as x or y', () => {
+    fails(stacked({ series: 'industry' }), /series must be a column of the result: stage, status, fv/)
+    fails(stacked({ series: 'stage' }), /series must be a different column from x and y/)
+  })
+})
+
 describe('cleanParams', () => {
   const spec = parseViewSpec({ ...valid, params: ['vehicle', 'as_of'] })
 
@@ -92,5 +117,96 @@ describe('cleanParams', () => {
 
   it('refuses a date that is not a real day', () => {
     expect(() => cleanParams(spec, { as_of: '2026-02-31' })).toThrow(/real date/)
+  })
+})
+
+describe('chart types', () => {
+  const chart = (block: Record<string, unknown>) => ({ title: 'Charts', blocks: [{ label: 'C', format: 'currency', ...block }] })
+  const byStage = positions({ group_by: ['stage'], aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }, { fn: 'sum', column: 'cost', as: 'cost' }] })
+
+  it('accepts every chart type with its own options', () => {
+    const spec = parseViewSpec({
+      title: 'Charts',
+      blocks: [
+        { type: 'column', label: 'A', source: positions({ group_by: ['stage', 'status'], aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] }), x: 'stage', y: 'fv', series: 'status', stack: 'grouped' },
+        { type: 'area', label: 'B', source: byStage, x: 'stage', y: 'fv' },
+        { type: 'pie', label: 'C', source: byStage, x: 'stage', y: 'fv', donut: true },
+        { type: 'scatter', label: 'D', source: positions({ columns: ['company', 'cost', 'moic'] }), x: 'cost', y: 'moic', point_label: 'company', x_format: 'currency', format: 'multiple' },
+        { type: 'combo', label: 'E', source: byStage, x: 'stage', y: 'cost', y2: 'fv', format2: 'currency' },
+        { type: 'waterfall', label: 'F', source: byStage, x: 'stage', y: 'fv', total: false },
+        { type: 'funnel', label: 'G', source: byStage, x: 'stage', y: 'fv' },
+      ],
+    })
+    expect(spec.blocks.map(b => b.type)).toEqual(['column', 'area', 'pie', 'scatter', 'combo', 'waterfall', 'funnel'])
+    expect(spec.blocks[0]).toMatchObject({ series: 'status', stack: 'grouped' })
+    expect(spec.blocks[2]).toMatchObject({ donut: true })
+    expect(spec.blocks[3]).toMatchObject({ point_label: 'company', x_format: 'currency' })
+    expect(spec.blocks[4]).toMatchObject({ y2: 'fv', format2: 'currency' })
+    expect(spec.blocks[5]).toMatchObject({ total: false })
+  })
+
+  it('needs y2 on a combo, and series only where it means something', () => {
+    fails(chart({ type: 'combo', source: byStage, x: 'stage', y: 'cost' }), /y2 must be a column of the result/)
+    fails(chart({ type: 'pie', source: byStage, x: 'stage', y: 'fv', series: 'cost' }), /series works on bar, column, line and area/)
+    fails(chart({ type: 'column', source: positions({ group_by: ['stage', 'status'], aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] }), x: 'stage', y: 'fv', series: 'status', stack: 'sideways' }), /stack must be one of: stacked, grouped/)
+  })
+})
+
+describe('report features in the spec', () => {
+  const src = (extra: object = {}) => ({ tool: 'query_portfolio', dataset: 'positions', query: { columns: ['company', 'fair_value', 'cost'] }, ...extra })
+
+  it('takes calculated columns as result columns, and refuses a bad formula with its reason', () => {
+    const spec = parseViewSpec({ title: 'T', blocks: [{ type: 'bar', label: 'G', x: 'company', y: 'gain', source: src({ computed: [{ as: 'gain', formula: 'fair_value - cost' }] }) }] })
+    expect(spec.blocks[0]).toMatchObject({ y: 'gain', source: { computed: [{ as: 'gain', formula: 'fair_value - cost' }] } })
+    fails({ title: 'T', blocks: [{ type: 'table', label: 'G', source: src({ computed: [{ as: 'gain', formula: 'fair_value - nav' }] }) }] }, /computed "gain": "nav" is not a column/)
+    fails({ title: 'T', blocks: [{ type: 'table', label: 'G', source: src({ computed: [{ as: 'cost', formula: '1' }] }) }] }, /already a column/)
+  })
+
+  it('checks a pivot\'s three columns and a kpi comparison', () => {
+    const grouped = { tool: 'query_portfolio', dataset: 'positions', query: { group_by: ['status', 'stage'], aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] } }
+    expect(parseViewSpec({ title: 'P', blocks: [{ type: 'pivot', label: 'P', source: grouped, rows: 'status', columns: 'stage', value: 'fv' }] }).blocks[0])
+      .toMatchObject({ type: 'pivot', rows: 'status', columns: 'stage', value: 'fv', format: 'number' })
+    fails({ title: 'P', blocks: [{ type: 'pivot', label: 'P', source: grouped, rows: 'status', columns: 'status', value: 'fv' }] }, /three different columns/)
+    fails({ title: 'K', blocks: [{ type: 'kpi', label: 'K', source: grouped, value: 'fv', compare: 'last_week' }] }, /compare must be one of/)
+  })
+
+  it('keeps filters on dataset columns, a range only on dates or numbers', () => {
+    const spec = parseViewSpec({ title: 'F', filters: ['stage', { column: 'fair_value', kind: 'range', label: 'Fair value' }], blocks: [{ type: 'table', label: 'T', source: src() }] })
+    expect(spec.filters).toEqual([{ column: 'stage', label: 'Stage', kind: 'pick' }, { column: 'fair_value', label: 'Fair value', kind: 'range' }])
+    fails({ title: 'F', filters: ['nope'], blocks: [{ type: 'table', label: 'T', source: src() }] }, /Filter 1/)
+    fails({ title: 'F', filters: [{ column: 'stage', kind: 'range' }], blocks: [{ type: 'table', label: 'T', source: src() }] }, /range needs a date or number/)
+  })
+})
+
+describe('more blocks and table options', () => {
+  const pos = (query: object) => ({ tool: 'query_portfolio', dataset: 'positions', query })
+  const fv = pos({ aggregates: [{ fn: 'sum', column: 'fair_value', as: 'fv' }] })
+
+  it('checks a formula tile against the other tiles\' ids', () => {
+    const spec = parseViewSpec({ title: 'F', blocks: [
+      { id: 'fair_value', type: 'kpi', label: 'FV', source: fv, value: 'fv' },
+      { id: 'nav', type: 'kpi', label: 'NAV', source: { tool: 'query_lps', dataset: 'lp_positions', query: { aggregates: [{ fn: 'sum', column: 'nav', as: 'nav' }] } }, value: 'nav' },
+      { type: 'kpi', label: 'NAV / FV', formula: 'nav / fair_value', format: 'multiple' },
+    ] })
+    expect(spec.blocks[2]).toMatchObject({ type: 'kpi', formula: 'nav / fair_value', format: 'multiple' })
+    fails({ title: 'F', blocks: [{ id: 'a', type: 'kpi', label: 'A', source: fv, value: 'fv' }, { type: 'kpi', label: 'B', formula: 'a / b' }] }, /"b" is not the id of another kpi block/)
+  })
+
+  it('needs a gauge maximum, defaulting a percent to 100', () => {
+    expect(parseViewSpec({ title: 'G', blocks: [{ type: 'gauge', label: 'G', source: fv, value: 'fv', format: 'percent' }] }).blocks[0]).toMatchObject({ max: 100 })
+    fails({ title: 'G', blocks: [{ type: 'gauge', label: 'G', source: fv, value: 'fv', format: 'currency' }] }, /needs max/)
+  })
+
+  it('takes measures, a trend, subtotals, tones and company links', () => {
+    const spec = parseViewSpec({ title: 'T', blocks: [
+      { type: 'column', label: 'C', source: pos({ columns: ['company', 'cost', 'fair_value'] }), x: 'company', y: 'cost', measures: ['fair_value', 'cost'] },
+      { type: 'kpi', label: 'K', source: fv, value: 'fv', trend: { source: pos({ columns: ['company', 'fair_value'] }), x: 'company', y: 'fair_value' } },
+      { type: 'table', label: 'T', source: pos({ columns: ['company', 'company_id', 'stage', 'unrealized'] }), subtotal_by: 'stage', columns: [{ column: 'company', link: 'company' }, { column: 'unrealized', tone: 'sign' }] },
+    ] })
+    expect(spec.blocks[0]).toMatchObject({ measures: ['fair_value'] })
+    expect(spec.blocks[1]).toMatchObject({ trend: { x: 'company', y: 'fair_value' } })
+    expect(spec.blocks[2]).toMatchObject({ subtotal_by: 'stage', columns: [{ column: 'company', link: 'company' }, { column: 'unrealized', tone: 'sign' }] })
+    fails({ title: 'T', blocks: [{ type: 'table', label: 'T', source: pos({ columns: ['company'] }), columns: [{ column: 'company', link: 'company' }] }] }, /must return company_id/)
+    fails({ title: 'T', blocks: [{ type: 'pie', label: 'P', source: pos({ columns: ['company', 'cost', 'fair_value'] }), x: 'company', y: 'cost', measures: ['fair_value'] }] }, /measures work on/)
   })
 })

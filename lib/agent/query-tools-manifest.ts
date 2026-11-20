@@ -10,9 +10,11 @@ import type { AgentToolMeta } from '@/lib/accounting/agent-tools-manifest'
 import { QUERY_CATALOG, type DatasetMeta } from './query/catalog'
 import { querySchema } from './query/engine'
 
-const AREA: Record<string, { domain: NonNullable<AgentToolMeta['domain']>; label: string }> = {
+const AREA: Record<string, { domain: NonNullable<AgentToolMeta['domain']>; accessDomain?: AgentToolMeta['accessDomain']; label: string }> = {
   query_portfolio: { domain: 'portfolio', label: 'the portfolio: positions, companies, investment transactions and KPIs' },
-  query_lps: { domain: 'lp', label: "LPs: each partner's position and capital call lines" },
+  query_lps: { domain: 'lp', label: "LPs: each partner's position, capital account and capital call lines" },
+  // The books' fund-level figures, as fund_performance and forecast_series read them: gated like them.
+  query_funds: { domain: 'portfolio', accessDomain: 'accounting', label: "the funds' performance and financials: net LP figures per vehicle, monthly P&L and cash, and the forecast" },
   query_deals: { domain: 'deals', label: 'the inbound deal pipeline' },
   query_diligence: { domain: 'diligence', label: 'deals in diligence' },
   query_ledger: { domain: 'ledger', label: "one vehicle's posted journal lines" },
@@ -33,6 +35,7 @@ export const QUERY_TOOL_MANIFEST: AgentToolMeta[] = Object.entries(QUERY_CATALOG
       `this member. Prefer a named tool when one answers the question. Datasets — ${describe(sets)}`,
     scope: 'read' as const,
     domain: area.domain,
+    ...(area.accessDomain ? { accessDomain: area.accessDomain } : {}),
     inputSchema: {
       type: 'object',
       properties: {

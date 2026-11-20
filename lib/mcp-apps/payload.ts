@@ -354,9 +354,12 @@ export type CustomValueFormat = 'currency' | 'number' | 'percent' | 'multiple' |
  * the viewer cannot read is `denied` and carries no rows, so one view can serve colleagues with
  * different access without failing for any of them.
  */
+/** The chart blocks a custom view can draw (lib/custom-views/spec.ts CHART_TYPES). */
+export type CustomChartType = 'bar' | 'column' | 'line' | 'area' | 'pie' | 'scatter' | 'combo' | 'waterfall' | 'funnel'
+
 export interface CustomBlock {
   id: string
-  type: 'kpi' | 'bar' | 'line' | 'table' | 'text'
+  type: 'kpi' | 'gauge' | CustomChartType | 'table' | 'pivot' | 'heatmap' | 'text'
   label: string
   /** Width out of 12. */
   span: number
@@ -367,12 +370,72 @@ export interface CustomBlock {
   /** kpi: the figure (first row of the value column). */
   value?: number | string | null
   sub?: string
-  /** bar / line: one measure. */
-  points?: { label: string; value: number }[]
+  /** kpi with a comparison: the same figure at the earlier date, and how to name that date. */
+  previous?: number | null
+  previousLabel?: string
+  /** kpi with a trend: a sparkline, oldest first. */
+  spark?: { label: string; value: number }[]
+  /** gauge: the dial's maximum (null when it could not be read) and an optional target mark. */
+  gaugeMax?: number | null
+  target?: number
+  /**
+   * bar / line. `value` is the point's total. When the block splits by a series, `series` names
+   * them (largest first, at most 8 with the rest as "Other") and each point's `values` holds one
+   * figure per series, in that order: bars stack them, a line chart draws one line each.
+   */
+  points?: { label: string; value: number; values?: number[]; value2?: number }[]
+  series?: string[]
+  /** bar / column with a series: stacked (default) or side by side. */
+  stack?: 'stacked' | 'grouped'
+  /** pie: drawn as a ring. */
+  donut?: boolean
+  /** waterfall: ends with a total bar. */
+  total?: boolean
+  /** combo: the line's name and format (its figures are each point's value2). */
+  label2?: string
+  format2?: CustomValueFormat
+  /** scatter: one dot per row, and the format of x. */
+  dots?: { label: string; x: number; y: number }[]
+  xFormat?: CustomValueFormat
   /** table */
-  columns?: { key: string; label: string; format: CustomValueFormat }[]
+  columns?: {
+    key: string
+    label: string
+    format: CustomValueFormat
+    /** Conditional colour: sign (losses red, gains green) or scale (shaded by size in the column). */
+    tone?: 'sign' | 'scale'
+    /** Click through: the cell's target, in `links`. */
+    link?: 'company'
+  }[]
   rows?: Record<string, string | number | null>[]
   truncated?: boolean
+  /** table with totals: the sum of each currency or number column (null for the others). */
+  totalsRow?: Record<string, number | null>
+  /** table grouped by a column: a subtotal row after row `after` (an index into rows). */
+  subtotals?: { after: number; label: string; values: Record<string, number | null> }[]
+  /** Per row, per linked column: what the cell opens ("company:<id>"). */
+  links?: Record<string, string>[]
+  /** pivot and heatmap: one row per value of the row column, one column per value of the column column. */
+  pivot?: {
+    rowLabel: string
+    rows: string[]
+    columns: string[]
+    cells: (number | null)[][]
+    rowTotals?: number[]
+    columnTotals?: number[]
+    grandTotal?: number
+  }
+}
+
+export interface CustomViewFilter {
+  column: string
+  label: string
+  kind: 'pick' | 'range'
+  /** pick: the values the viewer's rows hold. */
+  options?: string[]
+  /** range: what the from and to boxes take. */
+  input?: 'date' | 'number'
+  value?: { pick?: string; from?: string; to?: string }
 }
 
 export interface CustomViewData {
@@ -386,6 +449,8 @@ export interface CustomViewData {
   values: Record<string, string>
   /** The entities the viewer may pick, when the view offers a vehicle filter. */
   vehicles: string[]
+  /** The view's own filters on result columns, with their choices and current values. */
+  filters?: CustomViewFilter[]
   blocks: CustomBlock[]
 }
 

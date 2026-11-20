@@ -192,19 +192,77 @@ export const custom: CustomViewPayload = {
   data: {
     id: 'view-1', url: 'https://app.fund.example/views/view-1', description: 'Where the portfolio stands, for the Monday meeting.',
     params: ['vehicle'], values: {}, vehicles: ['Fernhill Fund I', 'Fernhill Fund II'],
+    filters: [{ column: 'stage', label: 'Stage', kind: 'pick', options: ['Seed', 'Series A', 'Series B'] }],
     blocks: [
-      { id: 'fv', type: 'kpi', label: 'Fair value', span: 3, status: 'ok', format: 'currency', value: tf },
-      { id: 'cost', type: 'kpi', label: 'Cost', span: 3, status: 'ok', format: 'currency', value: tc },
+      { id: 'fv', type: 'kpi', label: 'Fair value', span: 3, status: 'ok', format: 'currency', value: tf, previous: Math.round(tf * 0.9), previousLabel: 'vs Jun 30, 2026' },
+      { id: 'cost', type: 'kpi', label: 'Cost', span: 3, status: 'ok', format: 'currency', value: tc,
+        spark: [{ label: '2026-Q1', value: tc * 0.8 }, { label: '2026-Q2', value: tc * 0.9 }, { label: '2026-Q3', value: tc * 0.95 }, { label: '2026-Q4', value: tc }] },
       { id: 'n', type: 'kpi', label: 'Active companies', span: 3, status: 'ok', format: 'number', value: positions.filter(p => p.status === 'active').length },
       { id: 'nav', type: 'kpi', label: 'LP NAV', span: 3, status: 'denied', message: 'Needs access to LP capital.' },
+      { id: 'called', type: 'gauge', label: 'Called of committed', span: 4, status: 'ok', format: 'currency', value: 18_000_000, gaugeMax: 30_000_000, target: 21_000_000 },
       {
         id: 'bars', type: 'bar', label: 'Largest positions by fair value', span: 6, status: 'ok', format: 'currency',
         points: positions.slice(0, 8).map(p => ({ label: p.company, value: p.fairValue })),
       },
       {
         id: 'tbl', type: 'table', label: 'Below cost', span: 6, status: 'ok',
-        columns: [{ key: 'company', label: 'Company', format: 'text' }, { key: 'cost', label: 'Cost', format: 'currency' }, { key: 'moic', label: 'MOIC', format: 'multiple' }],
+        columns: [{ key: 'company', label: 'Company', format: 'text' }, { key: 'cost', label: 'Cost', format: 'currency' }, { key: 'moic', label: 'MOIC', format: 'multiple', tone: 'scale' }],
         rows: positions.filter(p => p.fairValue < p.cost).map(p => ({ company: p.company, cost: p.cost, moic: p.moic })),
+        subtotals: [{ after: 2, label: 'First three', values: { company: null, cost: positions.filter(p => p.fairValue < p.cost).slice(0, 3).reduce((s, p) => s + p.cost, 0), moic: null } }],
+        totalsRow: { company: null, cost: positions.filter(p => p.fairValue < p.cost).reduce((s, p) => s + p.cost, 0), moic: null },
+      },
+      {
+        id: 'heat', type: 'heatmap', label: 'ARR growth by company and quarter', span: 12, status: 'ok', format: 'percent',
+        pivot: {
+          rowLabel: 'Company', rows: ['Acme', 'Northwind', 'Globex'], columns: ['2026-Q1', '2026-Q2', '2026-Q3'],
+          cells: [[12, 18, 25], [4, -3, 6], [30, 22, null]],
+        },
+      },
+      {
+        id: 'flows', type: 'column', label: 'Called and distributed by quarter', span: 6, status: 'ok', format: 'currency', stack: 'grouped',
+        series: ['Called', 'Distributed'],
+        points: [
+          { label: '2026-Q1', value: 1_500_000, values: [1_000_000, 500_000] },
+          { label: '2026-Q2', value: 2_000_000, values: [1_500_000, 500_000] },
+          { label: '2026-Q3', value: 1_250_000, values: [500_000, 750_000] },
+        ],
+      },
+      {
+        id: 'cross', type: 'pivot', label: 'Fair value by stage and vehicle', span: 12, status: 'ok', format: 'currency',
+        pivot: {
+          rowLabel: 'Stage', rows: ['Seed', 'Series A', 'Series B'], columns: ['Example Fund I', 'Example Fund II'],
+          cells: [[2_000_000, 1_000_000], [1_000_000, 1_500_000], [null, 1_000_000]],
+          rowTotals: [3_000_000, 2_500_000, 1_000_000], columnTotals: [3_000_000, 3_500_000], grandTotal: 6_500_000,
+        },
+      },
+      {
+        id: 'stacked', type: 'bar', label: 'Fair value by stage and vehicle', span: 6, status: 'ok', format: 'currency',
+        series: ['Example Fund I', 'Example Fund II'],
+        points: [
+          { label: 'Seed', value: 3_000_000, values: [2_000_000, 1_000_000] },
+          { label: 'Series A', value: 2_500_000, values: [1_000_000, 1_500_000] },
+          { label: 'Series B', value: 1_000_000, values: [0, 1_000_000] },
+        ],
+      },
+      {
+        id: 'mix', type: 'pie', label: 'Fair value by sector', span: 6, status: 'ok', format: 'currency', donut: true,
+        points: [{ label: 'Software', value: 12_000_000 }, { label: 'Health', value: 8_000_000 }, { label: 'Energy', value: 4_000_000 }, { label: 'Other', value: 3_190_000 }],
+      },
+      {
+        id: 'walk', type: 'waterfall', label: 'NAV walk this quarter', span: 6, status: 'ok', format: 'currency', total: true,
+        points: [{ label: 'Opening NAV', value: 25_000_000 }, { label: 'Calls', value: 2_000_000 }, { label: 'Distributions', value: -1_500_000 }, { label: 'Marks', value: 1_690_000 }],
+      },
+      {
+        id: 'calls', type: 'combo', label: 'Calls', span: 12, status: 'ok', format: 'currency', label2: 'NAV', format2: 'currency',
+        points: [{ label: '2026-Q1', value: 1_000_000, value2: 22_000_000 }, { label: '2026-Q2', value: 1_500_000, value2: 24_000_000 }, { label: '2026-Q3', value: 500_000, value2: 27_190_000 }],
+      },
+      {
+        id: 'dots', type: 'scatter', label: 'MOIC against invested', span: 6, status: 'ok', format: 'multiple', xFormat: 'currency',
+        dots: positions.slice(0, 10).map(p => ({ label: p.company, x: p.cost, y: p.moic ?? 0 })),
+      },
+      {
+        id: 'pipe', type: 'funnel', label: 'Deals by stage', span: 6, status: 'ok', format: 'number',
+        points: [{ label: 'Sourced', value: 120 }, { label: 'First call', value: 48 }, { label: 'Diligence', value: 14 }, { label: 'Invested', value: 4 }],
       },
       { id: 'note', type: 'text', label: '', span: 12, status: 'ok', text: 'Figures load live each time the view opens.' },
     ],

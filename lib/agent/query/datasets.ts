@@ -12,6 +12,11 @@ import { PORTFOLIO_HANDLERS } from '@/lib/agent/portfolio-tools'
 import { LP_HANDLERS } from '@/lib/agent/lp-tools'
 import { DEALS_HANDLERS } from '@/lib/agent/deals-tools'
 import { DILIGENCE_HANDLERS } from '@/lib/agent/diligence-tools'
+import { resolveVehicle } from '@/lib/accounting/vehicle-resolver'
+import { loadPostedLedger, loadEntityNames } from '@/lib/accounting/load'
+import { computeCapitalAccounts } from '@/lib/accounting/capital-account'
+import { combineCarryRecipients } from '@/lib/access/carry-visibility'
+import { getSeries, listPlans, type ForecastServiceContext } from '@/lib/forecast/service'
 
 export interface DatasetParams { vehicle?: string; as_of?: string }
 type Loader = (ctx: AgentToolContext, params: DatasetParams) => Promise<Record<string, unknown>[]>
@@ -105,6 +110,98 @@ const capitalCallLines: Loader = async (ctx, p) => {
   })))
 }
 
+/**
+ * The vehicle a per-vehicle dataset reads, for a tool that is not a ledger tool: the one named, or
+ * the member's only one. Only their own entities, and never a management company (whose books
+ * answer to a grant these datasets do not check).
+ */
+const vehicleFor = (ctx: AgentToolContext, p: DatasetParams) =>
+  ctx.portfolioGroup || resolveVehicle(ctx.admin, ctx.fundId, p.vehicle, { access: ctx.access })
+
+const capitalAccounts: Loader = async (ctx, p) => {
+  const group = await vehicleFor(ctx, p)
+  // As capital_accounts builds it, with the as-of date the tool leaves at "everything posted".
+  const [{ capitalPostings }, names] = await Promise.all([
+    loadPostedLedger(ctx.admin, ctx.fundId, group, p.as_of),
+    loadEntityNames(ctx.admin, ctx.fundId, group),
+  ])
+  const all = Array.from(computeCapitalAccounts(capitalPostings).entries()).map(([id, a]) => ({ id, name: names.get(id) ?? id, ...a }))
+  const rows = seesIndividualCarry(ctx.access) ? all : combineCarryRecipients(all, await carryRecipientIds(ctx.admin, ctx.fundId, group)).rows
+  return rows.map(r => ({
+    partner: r.name, contributions: r.contributions, distributions: r.distributions,
+    management_fees: r.managementFees, expenses: r.expenses, operating_income: r.operatingIncome,
+    realized_gains: r.realizedGains, unrealized_gains: r.unrealizedGains, fx_translation: r.fxTranslation,
+    transfers: r.transfers, carried_interest: r.carriedInterest, unclassified: r.unclassified, ending: r.ending,
+  }))
+}
+
+// ---------------------------------------------------------------------------------------------
+// Fund performance and financials
+// ---------------------------------------------------------------------------------------------
+
+const fundPerformance: Loader = async (ctx, p) => {
+  const rows = await PORTFOLIO_HANDLERS.fund_performance(ctx, { vehicle: p.vehicle, as_of: p.as_of }) as any[]
+  return rows.map(v => ({
+    vehicle: v.vehicle, committed: v.committed, called: v.called, unfunded: v.unfunded, distributed: v.distributed, nav: v.nav,
+    dpi: v.dpi, rvpi: v.rvpi, tvpi: v.tvpi,
+    net_lp_irr: typeof v.net_lp_irr === 'number' ? Math.round(v.net_lp_irr * 10000) / 100 : null,
+    carry_accrued: v.carry_accrued, gross_nav: v.whole_fund?.nav ?? null, gross_tvpi: v.whole_fund?.tvpi ?? null,
+    basis: String(v.basis ?? '').startsWith('From imported') ? 'imported balances' : String(v.basis ?? '').includes('plus imported') ? 'mixed' : 'books',
+  }))
+}
+
+const forecastCtx = ({ admin, fundId, userId, access }: AgentToolContext): ForecastServiceContext => ({ admin, fundId, userId: userId ?? '', access })
+
+/** YYYY-MM, shifted by whole months. */
+function monthKey(iso: string | undefined, shift: number): string {
+  const d = iso ? new Date(`${iso.slice(0, 10)}T00:00:00Z`) : new Date()
+  const m = d.getUTCFullYear() * 12 + d.getUTCMonth() + shift
+  return `${Math.floor(m / 12)}-${String((m % 12) + 1).padStart(2, '0')}`
+}
+
+function lineRows(series: Awaited<ReturnType<typeof getSeries>>, extra: Row = {}): Row[] {
+  const rows: Row[] = []
+  series.periods.forEach((period, i) => {
+    for (const l of series.lines) {
+      const amount = l.values[i] ?? 0
+      if (!amount) continue
+      rows.push({
+        ...extra, month: `${period.key.slice(0, 7)}-01`, account_code: l.code, account_name: l.name, type: l.type,
+        amount: Math.round(amount * 100) / 100, net: Math.round((l.type === 'income' ? amount : -amount) * 100) / 100, status: period.status,
+      })
+    }
+  })
+  return rows
+}
+
+const pnlByMonth: Loader = async (ctx, p) => {
+  const vehicle = await vehicleFor(ctx, p)
+  const series = await getSeries(forecastCtx(ctx), { vehicle, view: 'actual', start: monthKey(p.as_of, -35), end: monthKey(p.as_of, 0), interval: 'month' })
+  return lineRows(series)
+}
+
+const cashByMonth: Loader = async (ctx, p) => {
+  const vehicle = await vehicleFor(ctx, p)
+  const s = await getSeries(forecastCtx(ctx), { vehicle, view: 'actual', start: monthKey(p.as_of, -35), end: monthKey(p.as_of, 0), interval: 'month' })
+  const flow = (k: string, i: number) => (s.cashFlows ? (s.cashFlows as Record<string, number[]>)[k]?.[i] ?? 0 : null)
+  return s.periods.map((period, i) => ({
+    month: `${period.key.slice(0, 7)}-01`,
+    opening: s.cash[i]?.opening ?? null, movement: s.cash[i]?.movement ?? null, ending: s.cash[i]?.ending ?? null,
+    operating: flow('operating', i), invested: flow('invested', i), proceeds: flow('proceeds', i), called: flow('called', i),
+    distributed: flow('distributed', i), borrowed: flow('borrowed', i), repaid: flow('repaid', i),
+    status: period.status,
+  }))
+}
+
+const forecastByMonth: Loader = async (ctx, p) => {
+  const vehicle = await vehicleFor(ctx, p)
+  const { plans } = await listPlans(forecastCtx(ctx), { vehicle })
+  const plan = plans.find(x => x.kind === 'rolling_forecast') ?? plans[0]
+  if (!plan) throw new Error(`${vehicle} has no forecast plan yet. Make one on its Forecast page.`)
+  const series = await getSeries(forecastCtx(ctx), { vehicle, planId: plan.id, view: 'combined', start: monthKey(p.as_of, -12), end: monthKey(p.as_of, 24), interval: 'month' })
+  return lineRows(series, { plan: plan.name })
+}
+
 // ---------------------------------------------------------------------------------------------
 // Deals and diligence
 // ---------------------------------------------------------------------------------------------
@@ -165,7 +262,8 @@ const journalLines: Loader = async (ctx, p) => {
 /** By dataset name (catalog.ts). */
 export const QUERY_LOADERS: Record<string, Loader> = {
   positions, companies, transactions, kpis,
-  lp_positions: lpPositions, capital_call_lines: capitalCallLines,
+  lp_positions: lpPositions, capital_call_lines: capitalCallLines, capital_accounts: capitalAccounts,
+  fund_performance: fundPerformance, pnl_by_month: pnlByMonth, cash_by_month: cashByMonth, forecast_by_month: forecastByMonth,
   inbound_deals: inboundDeals, diligence_deals: diligenceDeals,
   journal_lines: journalLines,
 }
