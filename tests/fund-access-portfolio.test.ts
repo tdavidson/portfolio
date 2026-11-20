@@ -28,6 +28,14 @@ import { AREAS, RECORD_AREAS as SPEC_RECORD_AREAS, STANDARD_AREAS } from '@/spec
 
 const SWITCH = { everyone: 'everyone', admins: 'admin', off: 'off' } as const
 
+/**
+ * Areas Portfolio defines beyond the standard ones, which the spec allows (engine/areas.ts).
+ * Vectors never name them. `records` is the switch above the spec's record rules: members start at
+ * none and an admin grants it. The adapter gives every party that grant, so the vectors test the
+ * spec's area and entity rules underneath it; records.test.ts covers the switch itself.
+ */
+const PORTFOLIO_ONLY_AREAS: Partial<Record<Domain, AccessLevel>> = { records: 'write' }
+
 function toAccess(v: Vector): AccessContext {
   const features = { ...DEFAULT_FEATURE_VISIBILITY, ...Object.fromEntries(Object.keys(DEFAULT_FEATURE_VISIBILITY).map(k => [k, 'everyone'])) } as FeatureVisibilityMap
   for (const [area, sw] of Object.entries(v.fund.switches ?? {})) {
@@ -40,7 +48,7 @@ function toAccess(v: Vector): AccessContext {
   const caps = Object.fromEntries((list ?? []).filter(e => e.cap).map(e => [e.id, e.cap!]))
   return {
     fundId: 'f1', userId: 'u1', role, features,
-    grants: (v.party.grants ?? {}) as Partial<Record<Domain, AccessLevel>>,
+    grants: { ...PORTFOLIO_ONLY_AREAS, ...(v.party.grants ?? {}) } as Partial<Record<Domain, AccessLevel>>,
     defaults: (v.fund.defaults ?? {}) as Partial<Record<Domain, AccessLevel>>,
     vehicles: role === 'admin' || !list
       ? { all: true, ids: [] }
@@ -106,7 +114,7 @@ function portfolioDecides(v: Vector): Outcome {
 
 describe('Portfolio uses the standard areas', () => {
   it('has every standard area, related the same way', () => {
-    expect(Object.keys(DOMAIN_META).sort()).toEqual([...AREAS].sort())
+    expect(Object.keys(DOMAIN_META).sort()).toEqual([...AREAS, ...Object.keys(PORTFOLIO_ONLY_AREAS)].sort())
     for (const a of AREAS) {
       const m = DOMAIN_META[a as Domain] as { proposable?: boolean; requires?: string; impliedBy?: string; defaultFrom?: string; adminOnly?: boolean }
       const d = STANDARD_AREAS[a]

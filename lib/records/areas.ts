@@ -7,6 +7,9 @@
 // else. An auditor with read on accounting files their session summary there. A credential still
 // has to carry write to file, and the read-only demo files nothing.
 //
+// Above both sits the Records access right (DOMAIN_META.records): read on it to list or open any
+// record, write on it to file one. The area check still applies underneath it.
+//
 // The entity is the other half (canSeeVehicle): a record on an entity outside the caller's scope
 // is invisible to them, and a fund-wide record (no entity) is visible only to someone who sees
 // every entity.
@@ -14,7 +17,7 @@
 import { DOMAIN_META, type Domain } from '@/lib/access/domains'
 import { hasAccess, type AccessContext } from '@/lib/access/effective'
 
-/** Every area a record can be filed in: each access domain but admin. */
+/** Every area a record can be filed in: each access domain but admin and records itself. */
 export const RECORD_AREAS = [
   'portfolio', 'relationships', 'dealflow', 'diligence', 'accounting', 'management_company',
   'lp_capital', 'gp_economics', 'lp_relations', 'compliance', 'tax',
@@ -31,9 +34,15 @@ export function isRecordArea(v: unknown): v is RecordArea {
   return typeof v === 'string' && (RECORD_AREAS as readonly string[]).includes(v)
 }
 
-/** The areas this person may read, and so file in. */
+/** The areas this person may read records in. None without read on Records itself. */
 export function readableAreas(access: AccessContext): RecordArea[] {
+  if (!hasAccess(access, 'records', 'read')) return []
   return RECORD_AREAS.filter(a => hasAccess(access, a, 'read'))
+}
+
+/** May this person file records at all (write on Records)? The area is checked separately. */
+export function canFileRecords(access: AccessContext): boolean {
+  return access.role !== 'viewer' && hasAccess(access, 'records', 'write')
 }
 
 export function areaLabel(area: RecordArea): string {
@@ -49,6 +58,8 @@ export function recordAccessProblem(
   args: { area?: unknown; filing: boolean },
 ): string | null {
   if (args.filing && access.role === 'viewer') return 'The read-only demo cannot file records.'
+  if (!hasAccess(access, 'records', 'read')) return 'You do not have access to Records.'
+  if (args.filing && !hasAccess(access, 'records', 'write')) return 'You can read records but not file them.'
   if (args.area === undefined || args.area === null || args.area === '') {
     if (args.filing) return `Name the area to file in: one of ${RECORD_AREAS.join(', ')}.`
     return readableAreas(access).length > 0 ? null : 'You have no area of the fund to keep records in.'

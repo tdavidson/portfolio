@@ -26,6 +26,7 @@ export type Domain =
   | 'lp_relations'
   | 'compliance'
   | 'tax'
+  | 'records'
   | 'admin'
 
 /**
@@ -46,6 +47,7 @@ export const DOMAINS: Domain[] = [
   'lp_relations',
   'compliance',
   'tax',
+  'records',
   'admin',
 ]
 
@@ -258,6 +260,23 @@ export const DOMAIN_META: Record<Domain, DomainMeta> = {
      */
     requires: 'accounting',
     defaultFrom: 'accounting',
+  },
+  records: {
+    label: 'Records',
+    description:
+      'Session records: summaries, decisions, memos and notes filed by people and their assistants. Each record is still shown only to someone who can read its area and see its entity.',
+    primaryFeature: null,
+    features: [],
+    /**
+     * WHETHER YOU MAY USE RECORDS AT ALL, ON TOP OF THE AREA CHECK. A record lives in one area
+     * (accounting, tax ...) and lib/records/areas.ts still requires read on that area to see it.
+     * This grant is the switch above that: read to list and open records, write to file one. So an
+     * admin can keep the page and the record tools away from a member who reads accounting, or give
+     * an auditor read on accounting and write here so they can file their journal review.
+     *
+     * Members start at none (20261120230000 seeds every fund's default at none, and no `defaultFrom`
+     * means the same before it is applied); an admin grants it per person. Admins always have it.
+     */
   },
   admin: {
     label: 'Administration',

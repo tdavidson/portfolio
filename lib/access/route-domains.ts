@@ -361,9 +361,9 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // Fund-of-funds holdings and their register. Portfolio, not accounting: an underlying fund
   // is a holding, and confirming a register row posts through the same investments path.
   'api/portfolio/sheet': { domain: 'portfolio' },
-  // Fund records: a record's domain is the area the request names, and lib/records/areas.ts checks
-  // read on it in the handler, as the record tools do. Level 'any' only keeps non-members out.
-  'api/records': { domain: 'portfolio', level: 'any' },
+  // Fund records: read on Records to list or open, write to file. The record's own area (which the
+  // request names) is checked in the handler by lib/records/areas.ts, as the record tools do.
+  'api/records': { domain: 'records' },
   // Custom views (lib/custom-views): a member's own list, like a saved dashboard. Every block of a
   // view is checked against its dataset's gate and the caller's entities when it loads
   // (lib/custom-views/resolve.ts), so level 'any' only keeps non-members out.

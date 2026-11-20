@@ -21,7 +21,9 @@ export const PRODUCT_META: Record<ProductKey, ProductMeta> = {
     description: 'Inbound updates, metrics, the review queue, dashboards, asks, and fund notes.',
     order: 1,
     shipsOn: true,
-    domains: ['portfolio', 'relationships'],
+    // `records` spans every product (a record is filed in any area), and it has no fund switch of
+    // its own, so it sits with the product that always ships on.
+    domains: ['portfolio', 'relationships', 'records'],
     features: ['investments', 'imports', 'asks', 'interactions', 'notes'],
   },
   investment_workflow: {
