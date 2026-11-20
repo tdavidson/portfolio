@@ -43,7 +43,8 @@ export default function LiveCardPage() {
   }, [investorId])
   useEffect(() => { load() }, [load])
 
-  const investor = data?.investors.find(i => i.investorId === investorId)
+  // An investor grouped under a parent opens the parent's card (the only one returned).
+  const investor = data?.investors.find(i => i.investorId === investorId) ?? (data?.investors.length === 1 ? data.investors[0] : undefined)
 
   return (
     <div className="p-4 md:py-8 md:pl-8 md:pr-4 w-full print:p-0">

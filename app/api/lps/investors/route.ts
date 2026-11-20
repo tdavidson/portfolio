@@ -56,11 +56,11 @@ export async function POST(req: NextRequest) {
   if (writeCheck.role !== 'admin') return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
 
   const body = await req.json().catch(() => ({}))
-  return outcomeResponse(await createInvestor(admin, writeCheck.fundId, body?.name))
+  return outcomeResponse(await createInvestor(admin, writeCheck.fundId, body?.name, body?.alternateName))
 }
 
 // ---------------------------------------------------------------------------
-// PUT — update investor name
+// PUT — update investor name, alternate name or parent
 // ---------------------------------------------------------------------------
 
 export async function PUT(req: NextRequest) {
@@ -74,7 +74,7 @@ export async function PUT(req: NextRequest) {
   if (writeCheck.role !== 'admin') return NextResponse.json({ error: 'Admin access required' }, { status: 403 })
 
   const body = await req.json()
-  const { id: bodyId, entityId, name, parentId } = body
+  const { id: bodyId, entityId, name, parentId, alternateName } = body
 
   if (!bodyId && !entityId) return NextResponse.json({ error: 'id or entityId is required' }, { status: 400 })
 
@@ -91,7 +91,7 @@ export async function PUT(req: NextRequest) {
     id = entity.investor_id
   }
 
-  return outcomeResponse(await updateInvestor(admin, writeCheck.fundId, id, { name, parentId }))
+  return outcomeResponse(await updateInvestor(admin, writeCheck.fundId, id, { name, parentId, alternateName }))
 }
 
 // ---------------------------------------------------------------------------

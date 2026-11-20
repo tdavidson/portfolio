@@ -3,7 +3,7 @@ import JSZip from 'jszip'
 import puppeteer from 'puppeteer-core'
 import type { LiveCard } from '@/lib/lp-report-cards'
 import { formatAsOf } from '@/lib/report-card-footer'
-import { buildReportHtml, computeRow, computeTotals, getChromeConfig, runPool, type InvestmentRow } from '@/lib/lp-report-pdf'
+import { buildReportHtml, computeRow, computeTotals, getChromeConfig, renderHtmlToPdf, runPool, type InvestmentRow } from '@/lib/lp-report-pdf'
 import { contactBlock, fundLetterhead, loadFundEmail, loadVehicleLetterheads, pickLetterhead } from '@/lib/vehicle-letterhead'
 import { displayFontOf } from '@/lib/theme'
 
@@ -40,17 +40,10 @@ export function uniqueFileNames(names: string[], suffix: string): string[] {
   })
 }
 
-/**
- * Render cards to one PDF each, in a zip. One browser, a pool of pages; the HTML is the same
- * template as the single card's PDF (buildReportHtml), with each card's own letterhead and date.
- * `excludedGroups` leaves those vehicles off every card and says so in its footnote.
- */
-export async function renderReportCardsZip(
-  admin: SupabaseClient,
-  fundId: string,
-  cards: LiveCard[],
-  opts: { excludedGroups?: Set<string>; fileSuffix?: string; concurrency?: number } = {},
-): Promise<{ zip: Buffer; count: number }> {
+interface CardDoc { investorName: string; html: string }
+
+/** Each card's HTML: the single card's PDF template (buildReportHtml), with its own letterhead and date. */
+async function cardDocs(admin: SupabaseClient, fundId: string, cards: LiveCard[], excluded: Set<string>): Promise<CardDoc[]> {
   const [{ data: fund }, { data: settings }, vehicleLetterheads, email] = await Promise.all([
     (admin as any).from('funds').select('name, logo_url, address').eq('id', fundId).maybeSingle(),
     (admin as any).from('fund_settings').select('currency, lp_report_description, lp_report_footer, theme').eq('fund_id', fundId).maybeSingle(),
@@ -59,9 +52,8 @@ export async function renderReportCardsZip(
   ])
   const fundHead = { ...fundLetterhead(fund as any), email }
   const s = (settings ?? {}) as any
-  const excluded = opts.excludedGroups ?? new Set<string>()
 
-  const docs: { investorName: string; html: string }[] = []
+  const docs: CardDoc[] = []
   for (const card of cards) {
     const all = cardInvestmentRows(card)
     const excludedGroupNames = Array.from(new Set(all.filter(r => excluded.has(r.portfolio_group) && Number(r.commitment) > 0).map(r => r.portfolio_group)))
@@ -80,6 +72,31 @@ export async function renderReportCardsZip(
       }),
     })
   }
+  return docs
+}
+
+/** One card as a PDF: the assistant's single report card link (lp_report_card_pdf). */
+export async function renderReportCardPdf(
+  admin: SupabaseClient, fundId: string, card: LiveCard,
+): Promise<{ pdf: Buffer; fileName: string } | null> {
+  const [doc] = await cardDocs(admin, fundId, [card], new Set())
+  if (!doc) return null
+  const safeName = doc.investorName.replace(/[^a-zA-Z0-9 _-]/g, '').trim() || 'Report'
+  return { pdf: await renderHtmlToPdf(doc.html), fileName: `${safeName} - Capital Statement.pdf` }
+}
+
+/**
+ * Render cards to one PDF each, in a zip. One browser, a pool of pages; the HTML is the same
+ * template as the single card's PDF (buildReportHtml), with each card's own letterhead and date.
+ * `excludedGroups` leaves those vehicles off every card and says so in its footnote.
+ */
+export async function renderReportCardsZip(
+  admin: SupabaseClient,
+  fundId: string,
+  cards: LiveCard[],
+  opts: { excludedGroups?: Set<string>; fileSuffix?: string; concurrency?: number } = {},
+): Promise<{ zip: Buffer; count: number }> {
+  const docs = await cardDocs(admin, fundId, cards, opts.excludedGroups ?? new Set<string>())
   const fileNames = uniqueFileNames(docs.map(d => d.investorName), opts.fileSuffix ?? 'LP Report')
 
   const zip = new JSZip()

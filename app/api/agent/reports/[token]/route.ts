@@ -11,7 +11,7 @@ import { generateLpStatementPdf } from '@/lib/accounting/lp-statement-pdf'
 import { isStatementBasis } from '@/lib/accounting/statement-basis'
 import { generateInvestorReportPdf, generateLetterPdf, generateLiveInvestorReportPdf } from '@/lib/lp-report-pdf'
 import { buildLiveReportCards } from '@/lib/lp-report-cards'
-import { renderReportCardsZip } from '@/lib/lp-report-cards-zip'
+import { renderReportCardPdf, renderReportCardsZip } from '@/lib/lp-report-cards-zip'
 import { isExpiredReportLink, verifyReportLink, type ReportLinkClaims } from '@/lib/agent/report-links'
 import { SEND_ATTACHMENT_PURPOSE } from '@/lib/agent/remote-pdf'
 import { PERFORMANCE_GROUPINGS, type PerformanceGrouping } from '@/lib/accounting/fund-performance'
@@ -114,7 +114,18 @@ export async function GET(req: NextRequest, props: { params: Promise<{ token: st
         const groups = scope.vehicleNames === null ? await listVehicles(admin, claims.fundId) : scope.vehicleNames
         omit = new Map(await Promise.all(groups.map(async g => [g, await carryRecipientIds(admin, claims.fundId, g)] as [string, Set<string>])))
       }
-      result = await generateLiveInvestorReportPdf(admin, { fundId: claims.fundId, investorIds: [investor], groups: scope.vehicleNames, ...(omit ? { omit } : {}), includeConnected: true })
+      // The card /lps/cards/<investor> shows: an investor grouped under a parent gives the
+      // parent's card, with every investor in the group (lib/lp-report-cards).
+      const groups = scope.vehicleNames
+      const built = await buildLiveReportCards(admin, claims.fundId, {
+        investorIds: [investor],
+        selectRows: groups === null ? undefined : rows => rows.filter(r => groups.includes(r.portfolio_group)),
+        ...(omit ? { omit } : {}),
+        // Connected funds only for a member who sees every entity, as before.
+        includeConnected: groups === null,
+        omitConnectedCarry: !!omit,
+      })
+      result = built.cards[0] ? await renderReportCardPdf(admin, claims.fundId, built.cards[0]) : null
     }
   } catch (e) {
     // NOT notFound(). Every check above has passed by now, so saying so reveals nothing — and

@@ -130,7 +130,8 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
   {
     name: 'lp_report_card_pdf',
     description:
-      'A download link to an investor\'s LP report card as a PDF: their positions across every vehicle aggregated — ' +
+      'A download link to an investor\'s LP report card as a PDF: their positions across every vehicle aggregated, with every ' +
+      'investor grouped under them on the LPs page (a child investor gives its parent\'s card) — ' +
       'commitment, paid-in, distributions, NAV, DPI, TVPI and IRR per vehicle and in total — on current figures. ' +
       'Use when the user asks for an investor\'s report, report card or summary as a file. The link works for an hour; ' +
       'give it to the user as a link. Call this again every time the document is asked for — never re-share a link ' +
@@ -139,7 +140,7 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
     domain: 'lp',
     inputSchema: {
       type: 'object',
-      properties: { investor: { type: 'string', description: 'The investor (or one of their entities), by name or id.' } },
+      properties: { investor: { type: 'string', description: 'The investor (or one of their entities), by name, alternate name or id.' } },
       required: ['investor'],
     },
   },
@@ -156,7 +157,7 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
     inputSchema: {
       type: 'object',
       properties: {
-        investors: { type: 'array', items: { type: 'string' }, description: 'The investors (or one of their entities), by name or id. Omit for every investor.' },
+        investors: { type: 'array', items: { type: 'string' }, description: 'The investors (or one of their entities), by name, alternate name or id. Omit for every investor. One PDF per group: investors grouped under a parent share its card.' },
         as_of: { type: 'string', description: 'Figures as of this date (YYYY-MM-DD). Omit for current figures.' },
       },
     },
@@ -273,7 +274,8 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
     name: 'lp_list_investors',
     description:
       'The fund\'s LPs. An investor (a person, family or institution) may hold through several legal entities; the positions are ' +
-      'keyed on the entities, and this returns both levels so you can roll up correctly.',
+      'keyed on the entities, and this returns both levels so you can roll up correctly. Investors grouped under a parent (to join ' +
+      'different names for one LP) are listed under it, as on the LPs page and the report cards; an investor\'s alternate name is also_known_as.',
     scope: 'read',
     domain: 'lp',
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
@@ -303,11 +305,18 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
     description: 'Add an investor (a person, family or institution) to the LP register. Add their legal entities with lp_create_entity. Admin only.',
     scope: 'write',
     domain: 'lp',
-    inputSchema: { type: 'object', properties: { name: { type: 'string' } }, required: ['name'] },
+    inputSchema: {
+      type: 'object',
+      properties: {
+        name: { type: 'string' },
+        alternate_name: { type: 'string', description: 'Optional second name to find them by (the person behind an entity, or the entity behind a person). Search only.' },
+      },
+      required: ['name'],
+    },
   },
   {
     name: 'lp_update_investor',
-    description: 'Rename an investor, or set the investor it rolls up to (parent). Admin only.',
+    description: 'Rename an investor, set its alternate name (a second name searches find it by), or set the investor it rolls up to (parent: it then shares the parent\'s report card). Admin only.',
     scope: 'write',
     domain: 'lp',
     inputSchema: {
@@ -315,6 +324,7 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
       properties: {
         investor: { type: 'string', description: 'The investor, by name or id.' },
         name: { type: 'string', description: 'The new name.' },
+        alternate_name: { type: 'string', description: 'The alternate name, or an empty string to clear it.' },
         parent: { type: 'string', description: 'The parent investor by name or id, or an empty string to clear it.' },
       },
       required: ['investor'],

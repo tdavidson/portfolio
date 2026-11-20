@@ -31,6 +31,7 @@ import { CarryRecipientStatementError, carryRecipientIds, seesIndividualCarry } 
 import { siteOrigin } from '@/lib/site-links'
 import { reviewCallNotices } from '@/lib/accounting/call-notice-review'
 import { unwrap } from '@/lib/service-outcome'
+import { investorGroups, type InvestorRecord } from '@/lib/lps/investor-groups'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const STATEMENT_PRESETS: PeriodPreset[] = ['this_quarter', 'last_quarter', 'ytd', 'prior_year', 'itd']
@@ -57,6 +58,12 @@ export interface EntityIdentity {
   entityName: string
   investorId: string | null
   investorName: string | null
+  /** The investor's second name (a person behind an entity, a trust's family), for search. */
+  alternateName?: string | null
+  /** The investor this one rolls up to on the report (lp_investors.parent_id, followed to the
+   *  top; itself when ungrouped). Report cards are one per group. */
+  groupId?: string | null
+  groupName?: string | null
 }
 
 /**
@@ -74,44 +81,69 @@ export async function loadIdentities(
   visibleEntityIds: string[] | null,
 ): Promise<Map<string, EntityIdentity>> {
   // Paged: past PostgREST's 1000-row cap the remaining LPs would silently drop out of every LP tool.
-  const data = await fetchAllRows<any>((f, t) => (admin as any)
-    .from('lp_entities')
-    .select('id, entity_name, investor_id, lp_investors(id, name)')
-    .eq('fund_id', fundId)
-    .order('id')
-    .range(f, t))
+  const [data, investors] = await Promise.all([
+    fetchAllRows<any>((f, t) => (admin as any)
+      .from('lp_entities')
+      .select('id, entity_name, investor_id, lp_investors(id, name)')
+      .eq('fund_id', fundId)
+      .order('id')
+      .range(f, t)),
+    fetchAllRows<InvestorRecord>((f, t) => (admin as any)
+      .from('lp_investors')
+      .select('id, name, parent_id, alternate_name')
+      .eq('fund_id', fundId)
+      .order('id')
+      .range(f, t)),
+  ])
+  const groups = investorGroups(investors)
+  const byId = new Map(investors.map(i => [i.id, i]))
   const out = new Map<string, EntityIdentity>()
   for (const e of data) {
     if (visibleEntityIds !== null && !visibleEntityIds.includes(e.id)) continue
     const inv = Array.isArray(e.lp_investors) ? e.lp_investors[0] : e.lp_investors
+    const investorId: string | null = e.investor_id ?? null
+    const investorName: string | null = inv?.name ?? null
+    const groupId = investorId ? groups.topOf(investorId) : null
     out.set(e.id, {
       entityId: e.id,
       entityName: e.entity_name,
-      investorId: e.investor_id ?? null,
-      investorName: inv?.name ?? null,
+      investorId,
+      investorName,
+      alternateName: investorId ? byId.get(investorId)?.alternate_name ?? null : null,
+      groupId,
+      groupName: groupId ? groups.nameOf(groupId) ?? investorName : null,
     })
   }
   return out
 }
 
-/** Resolve an LP by entity id, entity name, or investor name. There is no alias table for LPs. */
+/**
+ * Resolve an LP by entity id, entity name, investor name, the investor's alternate name, or the
+ * name of the group it rolls up to (which gives every entity in the group).
+ */
 export function resolveLp(identities: Map<string, EntityIdentity>, ref: string): EntityIdentity[] {
   if (identities.has(ref)) return [identities.get(ref)!]
   const needle = ref.trim().toLowerCase()
   const all = Array.from(identities.values())
+  const names = (i: EntityIdentity) => [i.entityName, i.investorName, i.alternateName, i.groupName]
+    .filter((n): n is string => !!n).map(n => n.trim().toLowerCase())
 
-  const exact = all.filter(i =>
-    i.entityName.trim().toLowerCase() === needle ||
-    (i.investorName ?? '').trim().toLowerCase() === needle
-  )
+  const exact = all.filter(i => names(i).some(n => n === needle))
   if (exact.length > 0) return exact   // an investor legitimately maps to several entities
 
-  const near = all.filter(i =>
-    i.entityName.toLowerCase().includes(needle) ||
-    (i.investorName ?? '').toLowerCase().includes(needle)
-  )
+  const near = all.filter(i => names(i).some(n => n.includes(needle)))
   if (near.length > 0) return near
   throw new Error(`No LP matching "${ref}" in this fund.`)
+}
+
+/** The report-card groups among some matches: group id → the name its card prints. */
+export function cardGroupsOf(matches: EntityIdentity[]): Map<string, string> {
+  const out = new Map<string, string>()
+  for (const m of matches) {
+    const id = m.groupId ?? m.investorId
+    if (id) out.set(id, m.groupName ?? m.investorName ?? m.entityName)
+  }
+  return out
 }
 
 /** A snapshot by id or name; omitted = the most recent by as_of_date. */
@@ -145,6 +177,10 @@ const metrics = (r: any) => ({
   tvpi: r.tvpi === null || r.tvpi === undefined ? null : Number(r.tvpi),
   irr: r.irr === null || r.irr === undefined ? null : Number(r.irr),
 })
+
+/** The group an investor rolls up to, on a row, when it is not the investor itself. */
+const groupField = (id: EntityIdentity | undefined) =>
+  (id?.groupName && id.groupName !== id.investorName ? { group: id.groupName } : {})
 
 /** Narrow a row set to one LP / one vehicle, when the caller asked for that. */
 function applyFilters<T extends { entity_id?: string; portfolio_group?: string }>(
@@ -181,15 +217,28 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
   lp_list_investors: async ({ admin, fundId, access }: AgentToolContext) => {
     const lp = await lpToolScope(admin, access)
     const identities = await loadIdentities(admin, fundId, lp.entityIds)
-    const byInvestor = new Map<string, { investor: string; entities: string[] }>()
+    // One line per GROUP, as the LPs page and the report cards roll them up: an investor grouped
+    // under a parent is listed under it, by its own name, with its entities.
+    const byGroup = new Map<string, { investor: string; also_known_as: Set<string>; grouped: Set<string>; entities: string[] }>()
     for (const i of Array.from(identities.values())) {
-      const key = i.investorName ?? i.entityName
-      if (!byInvestor.has(key)) byInvestor.set(key, { investor: key, entities: [] })
-      byInvestor.get(key)!.entities.push(i.entityName)
+      const key = i.groupName ?? i.investorName ?? i.entityName
+      if (!byGroup.has(key)) byGroup.set(key, { investor: key, also_known_as: new Set(), grouped: new Set(), entities: [] })
+      const g = byGroup.get(key)!
+      if (i.alternateName) g.also_known_as.add(i.alternateName)
+      if (i.investorName && i.investorName !== key) g.grouped.add(i.investorName)
+      g.entities.push(i.entityName)
     }
     return {
-      note: 'Positions are keyed on entities. Roll up by summing at the investor level, then compute ratios — never average per-entity ratios.',
-      investors: Array.from(byInvestor.values()).sort((a, b) => a.investor.localeCompare(b.investor)),
+      note: 'Positions are keyed on entities. Roll up by summing at the investor level, then compute ratios — never average per-entity ratios. ' +
+        '`grouped_investors` are investors rolled up under this one on the report; they share its report card.',
+      investors: Array.from(byGroup.values())
+        .map(g => ({
+          investor: g.investor,
+          ...(g.also_known_as.size ? { also_known_as: [...g.also_known_as].sort() } : {}),
+          ...(g.grouped.size ? { grouped_investors: [...g.grouped].sort() } : {}),
+          entities: g.entities,
+        }))
+        .sort((a, b) => a.investor.localeCompare(b.investor)),
     }
   },
 
@@ -215,6 +264,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
         const id = identities.get(r.entity_id)
         return {
           investor: id?.investorName ?? null,
+          ...groupField(id),
           entity: id?.entityName ?? r.entity_id,
           vehicle: r.portfolio_group,
           ...metrics(r),
@@ -249,6 +299,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
         const id = identities.get(r.entity_id)
         return {
           investor: id?.investorName ?? report.entityNames.get(r.entity_id) ?? null,
+          ...groupField(id),
           entity: id?.entityName ?? report.entityNames.get(r.entity_id) ?? r.entity_id,
           vehicle: r.portfolio_group,
           ...metrics(r),
@@ -554,8 +605,8 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     if (!userId) throw new Error('Documents are issued to a signed-in member; this credential has no user.')
     const lpScope = await lpToolScope(admin, access)
     const matches = resolveLp(await loadIdentities(admin, fundId, lpScope.entityIds), String(input?.investor ?? ''))
-    const investors = new Map<string, string>()
-    for (const m of matches) if (m.investorId) investors.set(m.investorId, m.investorName ?? m.entityName)
+    // One card per group: an investor grouped under a parent is on the parent's card.
+    const investors = cardGroupsOf(matches)
     if (investors.size === 0) throw new Error(`"${input?.investor}" has no investor record to report on.`)
     if (investors.size > 1) {
       throw new Error(`"${input.investor}" matches ${investors.size} investors (${[...investors.values()].join(', ')}). Pass one.`)
@@ -589,8 +640,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     const names = new Map<string, string>()
     if (refs.length > 0) {
       for (const ref of refs) {
-        const found = new Map<string, string>()
-        for (const m of resolveLp(identities, ref)) if (m.investorId) found.set(m.investorId, m.investorName ?? m.entityName)
+        const found = cardGroupsOf(resolveLp(identities, ref))
         if (found.size === 0) throw new Error(`"${ref}" has no investor record to report on.`)
         if (found.size > 1) throw new Error(`"${ref}" matches ${found.size} investors (${[...found.values()].join(', ')}). Pass one.`)
         const [[id, name]] = [...found]
@@ -598,7 +648,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
       }
       investorIds = [...names.keys()]
     } else {
-      for (const i of identities.values()) if (i.investorId) names.set(i.investorId, i.investorName ?? i.entityName)
+      for (const [id, name] of cardGroupsOf([...identities.values()])) names.set(id, name)
       if (names.size === 0) throw new Error('There are no investors to report on.')
     }
 

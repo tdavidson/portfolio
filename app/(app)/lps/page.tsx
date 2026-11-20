@@ -32,6 +32,7 @@ import { SortTh, nextSort, compareVals, type SortState } from '@/components/sort
 import { Metric as Stat } from '@/components/ui/metric'
 import { CapitalCharts } from '@/components/capital-charts'
 import { known } from '@/lib/charts/capital'
+import { investorNameMatches } from '@/lib/lps/investor-groups'
 
 interface LiveRow {
   entity_id: string
@@ -57,7 +58,7 @@ interface Payload {
   asOf: string | null
   rows: LiveRow[]
 }
-interface InvestorMeta { id: string; name: string; parent_id: string | null }
+interface InvestorMeta { id: string; name: string; parent_id: string | null; alternate_name: string | null }
 
 interface Totals {
   commitment: number; paid_in_capital: number | null; distributions: number | null; nav: number | null
@@ -133,7 +134,7 @@ function LpsInner() {
       setData(rep)
       if (invRes.ok) {
         const inv = await invRes.json()
-        setMeta((Array.isArray(inv) ? inv : inv.investors ?? []).map((i: any) => ({ id: i.id, name: i.name, parent_id: i.parent_id ?? null })))
+        setMeta((Array.isArray(inv) ? inv : inv.investors ?? []).map((i: any) => ({ id: i.id, name: i.name, parent_id: i.parent_id ?? null, alternate_name: i.alternate_name ?? null })))
       }
     } catch (e) {
       setError((e as Error).message)
@@ -158,6 +159,7 @@ function LpsInner() {
   // parent so a family/institution shows as one line. Then apply the search.
   const parentOf = useMemo(() => new Map(meta.map(m => [m.id, m.parent_id])), [meta])
   const nameOf = useMemo(() => new Map(meta.map(m => [m.id, m.name])), [meta])
+  const metaOf = useMemo(() => new Map(meta.map(m => [m.id, m])), [meta])
 
   const investors = useMemo(() => {
     const roll = (id: string) => { // resolve to the topmost parent
@@ -175,11 +177,14 @@ function LpsInner() {
     let list = Array.from(byInvestor.values()).map(i => ({ ...i, totals: total(i.rows) }))
     if (search.trim()) {
       const q = search.trim().toLowerCase()
-      list = list.filter(i => i.name.toLowerCase().includes(q) || i.rows.some(r => r.entity_name.toLowerCase().includes(q)))
+      // The group's name, any grouped investor's name or alternate name, or an entity's name.
+      const investorHit = (id: string) => { const m = metaOf.get(id); return !!m && investorNameMatches(m, q) }
+      list = list.filter(i => i.name.toLowerCase().includes(q) || investorHit(i.id)
+        || i.rows.some(r => r.entity_name.toLowerCase().includes(q) || investorHit(r.investor_id)))
     }
     const val = (i: typeof list[number]) => (sort.key === 'name' ? i.name : (i.totals as any)[sort.key] as number | null)
     return list.sort((a, b) => compareVals(val(a), val(b), sort.dir) || a.name.localeCompare(b.name))
-  }, [visibleRows, parentOf, nameOf, search, sort])
+  }, [visibleRows, parentOf, nameOf, metaOf, search, sort])
 
   const grand = useMemo(() => total(visibleRows), [visibleRows])
 
@@ -376,7 +381,7 @@ function LpsInner() {
                                 <span className="flex items-center gap-1">
                                   {multi ? (open ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />) : <span className="w-3.5 shrink-0" />}
                                   {/* Long names truncate at a fixed cap rather than wrapping or collapsing the column. */}
-                                  <span className="truncate max-w-[240px]" title={inv.name}>{inv.name}</span>
+                                  <span className="truncate max-w-[240px]" title={metaOf.get(inv.id)?.alternate_name ? `${inv.name} (also known as ${metaOf.get(inv.id)!.alternate_name})` : inv.name}>{inv.name}</span>
                                   {multi && <span className="text-xs text-muted-foreground font-normal ml-1 shrink-0">({inv.rows.length})</span>}
                                   {/* One vehicle, several in scope: there is no expander to open, so the
                                       vehicle is named here. Otherwise the row is silent about the one
@@ -393,7 +398,7 @@ function LpsInner() {
                                   {isAdmin && (
                                     <span className="flex items-center gap-1.5 ml-2 text-muted-foreground opacity-0 group-hover:opacity-100 transition-opacity" onClick={e => e.stopPropagation()}>
                                       <Link href={`/lps/cards/${inv.id}`} title="Report card" className="hover:text-foreground"><FileText className="h-3.5 w-3.5" /></Link>
-                                      <button onClick={() => setRename({ id: inv.id, name: inv.name })} title="Rename" className="hover:text-foreground"><Pencil className="h-3.5 w-3.5" /></button>
+                                      <button onClick={() => setRename({ id: inv.id, name: inv.name })} title="Rename or set an alternate name" className="hover:text-foreground"><Pencil className="h-3.5 w-3.5" /></button>
                                       <button onClick={() => setGrouping({ id: inv.id, name: inv.name })} title="Group under another investor" className="hover:text-foreground"><Users className="h-3.5 w-3.5" /></button>
                                       <button onClick={() => deleteInvestor(inv)} title="Delete this LP (for duplicates/ghosts)" className="hover:text-destructive"><Trash2 className="h-3.5 w-3.5" /></button>
                                     </span>
@@ -470,7 +475,7 @@ function LpsInner() {
           ) : null}
 
           {settingsOpen && <ReportSettingsDialog onClose={() => setSettingsOpen(false)} />}
-          {rename && <RenameInvestorDialog target={{ investorId: rename.id, name: rename.name }} onClose={() => setRename(null)} onSaved={() => { setRename(null); load(applied) }} />}
+          {rename && <RenameInvestorDialog target={{ investorId: rename.id, name: rename.name, alternateName: metaOf.get(rename.id)?.alternate_name ?? null }} onClose={() => setRename(null)} onSaved={() => { setRename(null); load(applied) }} />}
           {grouping && <GroupDialog investor={grouping} candidates={investors.map(i => ({ id: i.id, name: i.name }))} onClose={() => setGrouping(null)} onSaved={() => { setGrouping(null); load(applied) }} />}
 
           {/* Share freezes the current live report into a fixed snapshot, then lets you pick which
