@@ -129,12 +129,14 @@ export function isGeneratedAllocation(sourceRef?: string | null): boolean {
 export async function allocatePostedEntry(
   admin: SupabaseClient, fundId: string, group: string, userId: string | null,
   sourceEntryId: string, entry: JournalEntry,
+  /** fresh: the entry was written just now (persistEntriesTogether), so it has no earlier allocation to look for. */
+  opts: { fresh?: boolean } = {},
 ): Promise<{ allocationEntryIds: string[] } | { error: string }> {
   if (isGeneratedAllocation(entry.sourceRef)) return { allocationEntryIds: [] }
   const vehicleId = await vehicleIdByName(admin, fundId, group)
   if (!vehicleId) return { error: `Unknown vehicle "${group}"` }
 
-  const { data: existing } = await admin.from('journal_entry_allocations' as any)
+  const { data: existing } = opts.fresh ? { data: [] } : await admin.from('journal_entry_allocations' as any)
     .select('allocation_entry_id').eq('source_entry_id', sourceEntryId)
   if (((existing as any[]) ?? []).length > 0) {
     const ids = Array.from(new Set(((existing as any[]) ?? []).map(row => row.allocation_entry_id as string)))

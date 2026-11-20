@@ -59,6 +59,11 @@ interface Scope {
   exported: Map<string, Frozen<any, never>>
   /** Small lists a close re-reads many times a month (chart, closed periods, LP rows), by key. */
   rows: Map<string, Promise<any[]>>
+  /**
+   * The postings of entries dated outside the frozen window, by vehicle key then entry id, as the
+   * month's tail reads found them. Kept for one month of a close (forgetTailPostings).
+   */
+  tailPostings: Map<string, Map<string, any[]>>
   stats: CloseCacheStats
 }
 
@@ -84,7 +89,7 @@ function scopeFor(admin: SupabaseClient): Scope | null {
   if (!scopes) return null
   let scope = scopes.get(admin as object)
   if (!scope) {
-    scope = { vehicleIds: new Map(), vehicleKinds: new Map(), posted: new Map(), exported: new Map(), rows: new Map(), stats: { fullReads: 0, tailReads: 0 } }
+    scope = { vehicleIds: new Map(), vehicleKinds: new Map(), posted: new Map(), exported: new Map(), rows: new Map(), tailPostings: new Map(), stats: { fullReads: 0, tailReads: 0 } }
     scopes.set(admin as object, scope)
   }
   return scope
@@ -143,6 +148,14 @@ export function forgetRows(admin: SupabaseClient, prefix: string): void {
   const scope = scopeFor(admin)
   if (!scope) return
   for (const k of Array.from(scope.rows.keys())) if (k.startsWith(prefix)) scope.rows.delete(k)
+}
+
+/**
+ * Drop the postings kept from this month's tail reads. The close calls it at each month's start
+ * and end, so a month re-reads the postings of the open entries once and no more.
+ */
+export function forgetTailPostings(admin: SupabaseClient): void {
+  scopeFor(admin)?.tailPostings.clear()
 }
 
 const CHART_COLS = 'id, code, name, type, subtype, lp_entity_id, company_id'
@@ -342,7 +355,7 @@ export async function cachedPostedRows(
   // and put back in entry order (each entry's own postings keep the order they came in), which is
   // the order they were written in and so the order a full read returns them in. Past that, one
   // full read of the vehicle's postings is fewer round trips than the chunks.
-  const postingsOf = async (ids: string[]) => {
+  const readPostingsOf = async (ids: string[]) => {
     if (ids.length === 0) return []
     if (ids.length > BY_ID_LIMIT) {
       const wanted = new Set(ids)
@@ -357,6 +370,24 @@ export async function cachedPostedRows(
       .sort((a, b) => (position.get(a.p.journal_entry_id)! - position.get(b.p.journal_entry_id)!) || a.i - b.i)
       .map(x => x.p)
   }
+  // A month reads the open entries four or five times (the preview, the accruals, the checks, the
+  // review), and between reads the close only ADDS entries or changes their status: a posted
+  // entry's lines are not rewritten by anything the close does. The entries themselves are still
+  // read every time (which ones are posted is what changes), but the lines of an entry already
+  // seen this month are reused, and only new entries' lines are fetched. Same rows, same order.
+  const vehicleKey = `${fundId}|${vehicleId}`
+  const postingsOf = async (ids: string[]) => {
+    let seen = scope.tailPostings.get(vehicleKey)
+    if (!seen) scope.tailPostings.set(vehicleKey, seen = new Map())
+    const missing = ids.filter(id => !seen!.has(id))
+    if (missing.length > 0) {
+      const fetched = await readPostingsOf(missing)
+      const byEntry = new Map<string, any[]>(missing.map(id => [id, []]))
+      for (const p of fetched) byEntry.get(p.journal_entry_id)?.push(p)
+      for (const [id, list] of Array.from(byEntry)) seen.set(id, list)
+    }
+    return ids.flatMap(id => seen!.get(id) ?? [])
+  }
   const rows = await readThrough<any, any>(
     scope, scope.posted, `${fundId}|${vehicleId}`, periods, asOf,
     async () => {
@@ -370,7 +401,7 @@ export async function cachedPostedRows(
       // Up to a date: the entries first, then only their postings. Postings carry no date, so the
       // uncached read pages through every posting the vehicle has, later ones included.
       const entries = await pagedAll((f, t) => entryQuery().range(f, t))
-      return { entries, postings: await postingsOf(entries.map(e => e.id as string)) }
+      return { entries, postings: await readPostingsOf(entries.map(e => e.id as string)) }
     },
     async w => {
       // Unordered, like the full read: the rows come back in the table's own order, so the tail keeps
