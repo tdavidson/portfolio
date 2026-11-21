@@ -7,6 +7,7 @@ import { AnalystToggleButton } from '@/components/analyst-button'
 import { AnalystPanel } from '@/components/analyst-panel'
 import { SourceFilter } from '@/components/audit/source-filter'
 import { CHANGE_SOURCE_LABEL, type ChangeSourceKey } from '@/lib/audit/source-labels'
+import { actionLabel, categorizeActions } from '@/lib/activity-feed'
 
 interface DailyRow {
   date: string
@@ -38,6 +39,7 @@ interface RecentActivity {
   action: string
   metadata: Record<string, unknown>
   source?: ChangeSourceKey | null
+  kind?: 'activity' | 'books'
   createdAt: string
 }
 
@@ -68,39 +70,6 @@ function formatTokens(n: number) {
 
 function formatCost(n: number) {
   return `$${n.toFixed(4)}`
-}
-
-const ACTION_LABELS: Record<string, string> = {
-  'login': 'Login',
-  'logout': 'Logout',
-  'company.create': 'Create Company',
-  'company.update': 'Update Company',
-  'company.summary': 'Generate Summary',
-  'company.document_upload': 'Upload Document',
-  'import.data': 'Import Data',
-  'import.documents': 'Import Documents',
-  'review.resolve': 'Resolve Review',
-  'requests.send': 'Send Requests',
-  'settings.update': 'Update Settings',
-  'note.create': 'Create Note',
-}
-
-function actionLabel(action: string) {
-  return ACTION_LABELS[action] ?? action
-}
-
-function categorizeActions(actions: Record<string, number>) {
-  let logins = 0
-  let companies = 0
-  let imports = 0
-  let other = 0
-  for (const [action, count] of Object.entries(actions)) {
-    if (action === 'login' || action === 'logout') logins += count
-    else if (action.startsWith('company.')) companies += count
-    else if (action.startsWith('import.')) imports += count
-    else other += count
-  }
-  return { logins, companies, imports, other }
 }
 
 function timeAgo(dateString: string) {
@@ -306,9 +275,10 @@ export function UsageDashboard() {
               <thead>
                 <tr className="border-b bg-muted/50">
                   <th className="text-left font-medium px-4 py-2.5">User</th>
-                  <th className="text-right font-medium px-4 py-2.5">Logins</th>
+                  <th className="text-right font-medium px-4 py-2.5">Sign-ins</th>
                   <th className="text-right font-medium px-4 py-2.5">Companies</th>
                   <th className="text-right font-medium px-4 py-2.5">Imports</th>
+                  <th className="text-right font-medium px-4 py-2.5">Books</th>
                   <th className="text-right font-medium px-4 py-2.5">Other</th>
                   <th className="text-right font-medium px-4 py-2.5">Total</th>
                 </tr>
@@ -324,9 +294,10 @@ export function UsageDashboard() {
                           <div className="text-xs text-muted-foreground">{u.email}</div>
                         )}
                       </td>
-                      <td className="px-4 py-2.5 text-right tabular-nums">{cats.logins}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">{cats.signins}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums">{cats.companies}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums">{cats.imports}</td>
+                      <td className="px-4 py-2.5 text-right tabular-nums">{cats.books}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums">{cats.other}</td>
                       <td className="px-4 py-2.5 text-right tabular-nums font-medium">{u.total}</td>
                     </tr>
@@ -356,7 +327,7 @@ export function UsageDashboard() {
                 </tr>
               </thead>
               <tbody>
-                {activity.recent.filter(e => !activitySource || e.source === activitySource).map((entry, i) => (
+                {activity.recent.filter(e => !activitySource || e.source === activitySource).slice(0, 50).map((entry, i) => (
                   <tr key={i} className="border-b last:border-0">
                     <td className="px-4 py-2.5 text-muted-foreground whitespace-nowrap">{timeAgo(entry.createdAt)}</td>
                     <td className="px-4 py-2.5">{entry.displayName || entry.email}</td>

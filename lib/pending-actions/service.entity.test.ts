@@ -11,7 +11,7 @@ import { listPendingActions, approvePendingAction, rejectPendingAction } from '.
 const row = (id: string, vehicle: string, vehicleId: string | null = vehicle === 'Fund I' ? 'v1' : 'v2') => ({
   id, fund_id: 'f1', vehicle_id: vehicleId, domain: 'lp_capital', action_type: 'issue_capital_call',
   args: { vehicle }, preview: { summary: `call on ${vehicle}`, details: {} }, status: 'pending',
-  created_by: 'admin', created_via: 'analyst', approved_by: null, approved_at: null, applied_result: null,
+  created_by: 'u1', created_via: 'analyst', approved_by: null, approved_at: null, applied_result: null,
   error: null, created_at: '2026-10-01T00:00:00Z', updated_at: '2026-10-01T00:00:00Z',
 })
 const rows = [
@@ -88,5 +88,26 @@ describe('pending actions — only the caller\'s entities', () => {
     expect(a.updates).toEqual([])
     expect(m.execute).not.toHaveBeenCalled()
     rows.pop()
+  })
+
+  it('a member sees and decides only the changes they staged; an admin sees every one', async () => {
+    const theirs = { ...row('00000000-0000-4000-8000-000000000005', 'Fund I'), created_by: 'someone-else' }
+    rows.push(theirs)
+    try {
+      const member = principal(true)
+      const listed = (await listPendingActions(admin(), member, { limit: 20 })).actions.map(a => a.id)
+      expect(listed).not.toContain(theirs.id)
+      expect(listed).toHaveLength(3)
+      const a = admin()
+      await expect(approvePendingAction(a, member, theirs.id)).rejects.toMatchObject({ status: 404 })
+      await expect(rejectPendingAction(a, member, theirs.id)).rejects.toMatchObject({ status: 404 })
+      expect(a.updates).toEqual([])
+
+      const fundAdmin = { ...principal(true), role: 'admin' }
+      fundAdmin.access = { ...fundAdmin.access, role: 'admin' }
+      expect((await listPendingActions(admin(), fundAdmin, { limit: 20 })).actions.map(a => a.id)).toContain(theirs.id)
+    } finally {
+      rows.pop()
+    }
   })
 })

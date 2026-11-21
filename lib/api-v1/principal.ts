@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { logConnection } from '@/lib/activity'
 import { bearerToken } from '@/lib/accounting/api-keys'
 import { loadAccessContext } from '@/lib/access/effective'
 import type { AnalystPrincipal } from '@/lib/ai/analyst/types'
@@ -59,6 +60,9 @@ export async function resolveV1Principal(
   }
 
   const access = await loadAccessContext(admin, resolved.fundId, resolved.userId, membership.role)
+  // The day's first call from this app shows on the Usage page, as a web login does. Named 'api'
+  // here rather than read from the request: the read-only v1 routes are not wrapped in one.
+  await logConnection(admin, resolved.fundId, resolved.userId, 'api', `v1:${resolved.clientId}`)
   return {
     userId: resolved.userId,
     fundId: resolved.fundId,

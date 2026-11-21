@@ -12,6 +12,7 @@ import { credentialSources } from '@/lib/credentials/env'
 import { applyConnectionUpdate, connectionSettingsOf, parseConnectionUpdate } from '@/lib/onboarding/connection-settings'
 import { validateBaseUrlResolved } from '@/lib/validate-url'
 import { parseSkipChange, saveChecklistSkips } from '@/lib/onboarding/checklist-skips'
+import { parseFeatureAccess, saveFeatureAccess, visibilityOf } from '@/lib/onboarding/feature-access'
 
 /** How each checklist step is done from chat, where a tool does it. The rest link to the web page. */
 export const STEP_TOOLS: Partial<Record<StepKey, string>> = {
@@ -46,6 +47,9 @@ export const SETUP_HANDLERS: Record<string, AgentToolHandler> = {
     return {
       fund: fund?.name ?? null,
       products: productsFromVisibility(settings?.feature_visibility ?? null),
+      // Who may open each feature: everyone (members subject to their grants), admin (admins only)
+      // or off. setup_fund's featureAccess moves one between everyone and admin.
+      featureAccess: visibilityOf(settings?.feature_visibility ?? null),
       agentAccess: !!settings?.agent_api_enabled,
       ai: aiStatus(hasAnyAIKey(settings), settings?.ai_mode),
       finished: !!parseOnboardingRecord(settings?.onboarding)?.completed_at,
@@ -97,19 +101,30 @@ export const SETUP_HANDLERS: Record<string, AgentToolHandler> = {
 
   setup_fund: async ({ admin, fundId, userId }, input) => {
     if (!userId) throw new Error('setup_fund needs a person behind the credential.')
-    const { skipSteps, unskipSteps, ...rest } = (input ?? {}) as Record<string, unknown>
+    const { skipSteps, unskipSteps, featureAccess, ...rest } = (input ?? {}) as Record<string, unknown>
     const wantsSkips = skipSteps !== undefined || unskipSteps !== undefined
     // Validate everything before writing anything, so a bad step key does not leave half a plan applied.
     const change = wantsSkips ? parseSkipChange({ skip: skipSteps, unskip: unskipSteps }) : null
     if (change && 'error' in change) throw new Error(change.error)
+    const access = featureAccess !== undefined ? parseFeatureAccess(featureAccess) : null
+    if (access && 'error' in access) throw new Error(access.error)
     const plan = parseSetupPlan(rest)
     if ('error' in plan) throw new Error(plan.error)
 
     const hasPlan = Object.keys(rest).length > 0
-    const result = hasPlan || !wantsSkips ? await applySetupPlan(admin, { fundId, actorId: userId }, plan) : null
-    if (!change) return result
-    const saved = await saveChecklistSkips(admin, fundId, change)
-    if (!saved.ok) throw new Error(saved.error)
-    return { ...(result ?? {}), checklistSkipped: saved.skipped }
+    const result = hasPlan || (!wantsSkips && !access) ? await applySetupPlan(admin, { fundId, actorId: userId }, plan) : null
+    let out: Record<string, unknown> = { ...(result ?? {}) }
+    // After the plan, so products it turns on can be narrowed to admins in the same call.
+    if (access) {
+      const saved = await saveFeatureAccess(admin, fundId, access)
+      const warnings = [...(((out.warnings as string[] | undefined) ?? [])), ...saved.warnings]
+      out = { ...out, featureAccess: saved.featureAccess, ...(warnings.length ? { warnings } : {}) }
+    }
+    if (change) {
+      const saved = await saveChecklistSkips(admin, fundId, change)
+      if (!saved.ok) throw new Error(saved.error)
+      out = { ...out, checklistSkipped: saved.skipped }
+    }
+    return out
   },
 }

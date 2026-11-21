@@ -96,7 +96,8 @@ export const DASHBOARD_TIPS = [
   'Say "save this as Q3 LP review" to keep a dashboard; it always reopens on current figures.',
   'Say "open my Q3 LP review" in any later conversation, in Claude or ChatGPT.',
   'Click a company or change the period inside a dashboard, then ask about what you see.',
-  'Ask "what can you do?" to come back here.',
+  'Say "show me the starter views" to begin from a commonly used layout, or describe a view of your own.',
+  'Ask "what can you do?" to come back here, or ask for help with views, charts, exports or approvals.',
 ]
 
 export function areasFor(canRead?: CanRead): Area[] {
@@ -240,13 +241,24 @@ export function renderPrompt(p: PromptTemplate, raw: unknown) {
 // Help, as text — for the model, and for any host that cannot draw the home dashboard
 // ---------------------------------------------------------------------------------------------
 
-export function helpText(opts: { fundName?: string | null; canRead?: CanRead; dashboards: string[]; saved: string[] }): string {
+export function helpText(opts: {
+  fundName?: string | null
+  canRead?: CanRead
+  dashboards: string[]
+  saved: string[]
+  /** The member's saved and shared custom views, by name. */
+  views?: string[]
+  /** The starter views their access allows, by name. */
+  starters?: string[]
+}): string {
   const areas = areasFor(opts.canRead)
   const lines: string[] = []
   lines.push(`You are connected to ${opts.fundName ?? 'the fund'}'s Portfolio deployment, signed in as this member. Everything here is limited to what their own access allows.`)
   lines.push('')
   lines.push(`Dashboards you can open: ${opts.dashboards.join(', ') || 'none for this access'}.`)
   if (opts.saved.length) lines.push(`Saved dashboards: ${opts.saved.join(', ')}.`)
+  if (opts.views?.length) lines.push(`Custom views: ${opts.views.join(', ')}.`)
+  if (opts.starters?.length) lines.push(`Starter views, ready to open and save: ${opts.starters.join(', ')}.`)
   lines.push('')
   lines.push('Things to ask:')
   for (const a of areas) lines.push(`- ${a.label} (${a.blurb}) e.g. "${a.questions[0]}"`)

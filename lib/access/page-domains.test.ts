@@ -126,7 +126,6 @@ describe('the pages that leaked, pinned individually', () => {
   // Named rather than left to the sweep above: each of these rendered fund data to anyone in the
   // fund with the URL, in a fund where the nav had correctly hidden it.
   it.each([
-    ['emails/[id]', 'portfolio'],
     ['deals', 'dealflow'],
     ['deals/[id]', 'dealflow'],
     ['dashboard', 'portfolio'],

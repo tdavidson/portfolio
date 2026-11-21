@@ -121,12 +121,22 @@ async function loadAction(admin: SupabaseClient, fundId: string, id: string): Pr
   return (data as PendingActionRow | null) ?? null
 }
 
+/** Admins see the whole queue; everyone else sees only the changes they staged themselves. */
+export function seesEveryApproval(principal: Pick<AnalystPrincipal, 'role'>): boolean {
+  return principal.role === 'admin'
+}
+
 /**
  * Is this staged action about one of the caller's entities? Each action's preview resolves its
  * company or vehicle through the caller's access and throws on anything outside it, so the preview
  * IS the rule — re-run here rather than restated per action type. Unscoped callers see every action.
  */
 async function visibleToCaller(admin: SupabaseClient, principal: AnalystPrincipal, row: PendingActionRow): Promise<boolean> {
+  // A member's Approvals are their own: only what they staged (from their chat, a key or the
+  // Analyst). Admins see and decide every change. Anyone else's row is "not found", for listing,
+  // approving, rejecting and undoing alike, and the read policy on pending_actions says the same
+  // (20261121120000), so the Approvals badge counts only the member's own.
+  if (!seesEveryApproval(principal) && row.created_by !== principal.userId) return false
   if (principal.access.vehicles.all) return true
   const action = stagedAction(row.action_type, row.args)
   if (!action) return false

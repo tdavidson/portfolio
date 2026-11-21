@@ -13,6 +13,7 @@ export const FEATURE_META: Record<FeatureKey, { label: string; description: stri
   notes: { label: 'Notes', description: 'Internal team notes and comments on companies', href: '/support#notes' },
   lp_letters: { label: 'LP Letters', description: 'Generate and manage quarterly LP update letters', href: '/support#letters' },
   imports: { label: 'Imports', description: 'Bulk import companies and metrics from CSV files', href: '/support#import' },
+  inbound: { label: 'Inbound', description: 'The Inbound page: every email the fund received, with bodies and attachments. Set it to Admins only to keep the mailbox to admins; the review queue and company updates are unaffected.', href: '/support#inbound' },
   asks: { label: 'Asks', description: 'Track and send portfolio company requests to your network', href: '/support#asks' },
   lps: { label: 'LPs', description: 'Investor-level report cards with consolidated performance across fund vehicles', href: '/support#lps' },
   lp_tracking: { label: 'LP Capital Accounts', description: 'Per-vehicle limited-partner capital detail, separate from funds capital accounts if used.', href: '/support#lps' },

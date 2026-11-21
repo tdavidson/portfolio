@@ -374,6 +374,8 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // The New view page's builder: the fund's model sees only the catalog's names, and the preview's
   // blocks are checked against the caller as they load.
   'api/views/draft': { domain: 'portfolio', level: 'any' },
+  // Starter views: the catalog filtered to what the member can read, each block checked as it loads.
+  'api/views/starters': { domain: 'portfolio', level: 'any' },
   'api/entities': { domain: 'portfolio', level: 'any' },
   // The sections every entity list renders in. Labels, not figures, read by lists in four domains;
   // the handler filters the entity assignments (and a scoped caller's groups) by canSeeVehicle.
@@ -409,18 +411,23 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   //
   // Promoting an email INTO a deal or a diligence data room is the deal-flow act, and stays gated
   // on the destination: see accept-to-diligence below, and the in-handler check on reroute.
-  'api/emails': { domain: 'portfolio' },
-  'api/emails/[id]': { domain: 'portfolio' },
-  'api/emails/[id]/attachment/[index]': { domain: 'portfolio' },
-  'api/emails/[id]/attachments': { domain: 'portfolio' },
-  'api/emails/[id]/reprocess': { domain: 'portfolio' },
-  'api/emails/[id]/reviews': { domain: 'portfolio' },
-  'api/emails/save-to-drive': { domain: 'portfolio' },
+  //
+  // Every mailbox route also answers to the `inbound` switch, so an admin who makes the Inbound
+  // page "Admins only" closes the mailbox's API and its MCP tools (inbox_*) with it, not just the
+  // link. The review queue (api/review) and the company updates filed from the mail stay plain
+  // portfolio.
+  'api/emails': { domain: 'portfolio', feature: 'inbound' },
+  'api/emails/[id]': { domain: 'portfolio', feature: 'inbound' },
+  'api/emails/[id]/attachment/[index]': { domain: 'portfolio', feature: 'inbound' },
+  'api/emails/[id]/attachments': { domain: 'portfolio', feature: 'inbound' },
+  'api/emails/[id]/reprocess': { domain: 'portfolio', feature: 'inbound' },
+  'api/emails/[id]/reviews': { domain: 'portfolio', feature: 'inbound' },
+  'api/emails/save-to-drive': { domain: 'portfolio', feature: 'inbound' },
   // Rerouting to 'reporting' / 'interactions' / 'audit' is portfolio work; rerouting to 'deals'
   // creates a deal, so the handler requires `dealflow` for that target specifically. One domain
   // per entry is the minimum to CALL the route — the payload that straddles domains is gated
   // inside it.
-  'api/emails/[id]/reroute': { domain: 'portfolio' },
+  'api/emails/[id]/reroute': { domain: 'portfolio', feature: 'inbound' },
 
   // ── Relationships: candid internal commentary ──────────────────────────────
   'api/companies/[id]/interactions': { domain: 'relationships', feature: 'interactions' },

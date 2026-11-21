@@ -131,6 +131,8 @@ export const UPLOAD_TOOL_MANIFEST: AgentToolMeta[] = [
       'add_email_attachment. If it is a company update, call reprocess_company_update so the pipeline reads the new file.',
     scope: 'write',
     domain: 'portfolio',
+    // Like api/emails/[id]/attachments: closed with the Inbound page when it is "Admins only".
+    accessFeature: 'inbound',
     runsDirectly: true,
     inputSchema: { type: 'object', properties: { ...EMAIL_OR_DEAL, ...FILE_PROPS }, required: ['fileName'] },
   },
@@ -141,6 +143,8 @@ export const UPLOAD_TOOL_MANIFEST: AgentToolMeta[] = [
       'and listed with the email\'s attachments, as the email page\'s Upload document does.',
     scope: 'write',
     domain: 'portfolio',
+    // Like api/emails/[id]/attachments: closed with the Inbound page when it is "Admins only".
+    accessFeature: 'inbound',
     inputSchema: {
       type: 'object',
       properties: {

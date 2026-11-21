@@ -1,4 +1,4 @@
-export type FeatureKey = 'interactions' | 'investments' | 'notes' | 'lp_letters' | 'imports' | 'asks' | 'lps' | 'lp_tracking' | 'lp_portal' | 'lp_activity' | 'compliance' | 'deals' | 'diligence' | 'accounting' | 'gp_economics' | 'tax_reporting' | 'management_company'
+export type FeatureKey = 'interactions' | 'investments' | 'notes' | 'lp_letters' | 'imports' | 'asks' | 'inbound' | 'lps' | 'lp_tracking' | 'lp_portal' | 'lp_activity' | 'compliance' | 'deals' | 'diligence' | 'accounting' | 'gp_economics' | 'tax_reporting' | 'management_company'
 
 export type FeatureVisibility = 'everyone' | 'admin' | 'hidden' | 'off'
 
@@ -16,6 +16,10 @@ export const DEFAULT_FEATURE_VISIBILITY: FeatureVisibilityMap = {
   lp_letters: 'off',
   imports: 'everyone',
   asks: 'admin',
+  // The Inbound page: the fund's mailbox, every email that came in (updates, pitches, unmatched
+  // mail), with bodies and attachments. On for every member by default; an admin can make it
+  // "Admins only". The review queue and the company updates filed from it stay plain portfolio.
+  inbound: 'everyone',
   lps: 'off',
   // LP capital: per-vehicle LP capital. Its source is NOT a mode the user picks — capital is
   // derived from the ledger for a vehicle that keeps books (accounting on + set up), and pasted

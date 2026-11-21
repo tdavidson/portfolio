@@ -133,7 +133,7 @@ export const DOMAIN_META: Record<Domain, DomainMeta> = {
     label: 'Portfolio',
     description: 'Companies, metrics, dashboard, review queue, imports, investments, asks.',
     primaryFeature: null,
-    features: ['investments', 'imports', 'asks'],
+    features: ['investments', 'imports', 'asks', 'inbound'],
   },
   relationships: {
     label: 'Notes',
