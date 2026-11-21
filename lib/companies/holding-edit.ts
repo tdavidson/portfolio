@@ -1,4 +1,5 @@
-// Editing a holding's record (its name, aliases, status, contact emails and profile) and what kind
+// Editing a holding's record (its name, aliases, status, contact emails, profile and which optional
+// page sections it shows: metrics, the AI analyst, a price feed) and what kind
 // of holding it is, for the `update_company` and `set_holding_type` agent tools and the chat's
 // staged `update_company` action.
 //
@@ -47,6 +48,10 @@ export interface CompanyChange {
   whyInvested?: string | null
   currentUpdate?: string | null
   notes?: string | null
+  /** Page sections, as the edit dialog's switches set them. */
+  metricsEnabled?: boolean
+  analystEnabled?: boolean
+  priceFeedEnabled?: boolean
 }
 
 // The profile's free-text fields: the change's key, then the column. Blank clears it.
@@ -59,7 +64,12 @@ const LIST_FIELDS = [
   ['aliases', 'aliases'], ['tags', 'tags'], ['industry', 'industry'], ['contactEmails', 'contact_email'],
 ] as const
 
-const COMPANY_COLUMNS = 'id, name, status, portfolio_group, aliases, tags, industry, contact_email, stage, country, founded_year, overview, founders, why_invested, current_update, notes'
+const COMPANY_COLUMNS = 'id, name, status, holding_type, portfolio_group, aliases, tags, industry, contact_email, stage, country, founded_year, overview, founders, why_invested, current_update, notes, metrics_enabled, analyst_enabled, price_feed_enabled'
+
+// The page-section switches: the change's key, then the column.
+const SECTION_FIELDS = [
+  ['metricsEnabled', 'metrics_enabled'], ['analystEnabled', 'analyst_enabled'], ['priceFeedEnabled', 'price_feed_enabled'],
+] as const
 
 const isEmail = (s: string) => /^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(s)
 
@@ -125,6 +135,16 @@ export async function planCompanyChange(
     updates[column] = typeof v === 'string' && v.trim() ? v.trim() : null
   }
 
+  for (const [key, column] of SECTION_FIELDS) {
+    const v = change[key]
+    if (v === undefined) continue
+    if (typeof v !== 'boolean') return fail(400, `${column} must be true or false.`)
+    if (column === 'price_feed_enabled' && company.holding_type === 'fund') {
+      return fail(400, 'A fund holding is valued from its NAV statements, not a price feed.')
+    }
+    updates[column] = v
+  }
+
   if (change.foundedYear !== undefined) {
     const y = change.foundedYear === null ? null : Number(change.foundedYear)
     if (y !== null && (!Number.isInteger(y) || y < 1800 || y > 2100)) return fail(400, 'founded_year must be a year, like 2019.')
@@ -186,6 +206,13 @@ export function companyChangeFromInput(input: any): CompanyChange {
   const text = { stage: 'stage', country: 'country', overview: 'overview', founders: 'founders', whyInvested: 'why_invested', currentUpdate: 'current_update', notes: 'notes' }
   for (const [k, key] of Object.entries(text)) {
     if (input?.[key] !== undefined) (change as any)[k] = input[key] === null ? null : String(input[key])
+  }
+  const sections = { metricsEnabled: 'metrics_enabled', analystEnabled: 'analyst_enabled', priceFeedEnabled: 'price_feed_enabled' }
+  for (const [k, key] of Object.entries(sections)) {
+    const v = input?.[key]
+    if (v === undefined || v === null) continue
+    // A connector may send "true"/"false" as text; anything else is refused by the plan.
+    (change as any)[k] = v === 'true' ? true : v === 'false' ? false : v
   }
   if (input?.founded_year !== undefined) change.foundedYear = input.founded_year === null || input.founded_year === '' ? null : Number(input.founded_year)
   return change

@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Badge } from '@/components/ui/badge'
+import { Switch } from '@/components/ui/switch'
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { Alert, AlertDescription } from '@/components/ui/alert'
 import {
@@ -30,6 +31,8 @@ interface Props {
   /** The kind of holding being edited. A fund holding or a digital asset has no stage, industry,
    *  founders or metrics, and a fund holding is deleted through its own route. Omitted = company. */
   holdingType?: 'company' | 'fund' | 'crypto'
+  /** Whether a price feed already prices it: then the price feed section stays on. */
+  hasPriceFeed?: boolean
 }
 
 /** What the form calls the holding, in its labels. */
@@ -57,7 +60,7 @@ interface Vehicle {
   active: boolean
 }
 
-export function CompanyForm({ company, initialName, onSuccess, onCancel, onDeleted, holdingType = 'company' }: Props) {
+export function CompanyForm({ company, initialName, onSuccess, onCancel, onDeleted, holdingType = 'company', hasPriceFeed = false }: Props) {
   const isEdit = !!company
   // Stage, industry, founders and metrics describe an operating company, not a fund or a token.
   const isCompany = holdingType === 'company'
@@ -84,6 +87,12 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
   const [contactEmails, setContactEmails] = useState<string[]>(company?.contact_email ?? [])
   const [contactEmailInput, setContactEmailInput] = useState('')
   const [status, setStatus] = useState(company?.status ?? 'active')
+  // Which optional sections its page shows. A digital asset has no metrics or analyst and always
+  // shows its feed; a fund holding is never market-priced.
+  const showSectionSettings = isEdit && holdingType !== 'crypto'
+  const [metricsEnabled, setMetricsEnabled] = useState(company?.metrics_enabled !== false)
+  const [analystEnabled, setAnalystEnabled] = useState(company?.analyst_enabled !== false)
+  const [priceFeedEnabled, setPriceFeedEnabled] = useState(hasPriceFeed || company?.price_feed_enabled === true)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [deleteOpen, setDeleteOpen] = useState(false)
@@ -285,6 +294,11 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
           current_update: currentUpdate.trim() || null,
           contact_email: contactEmails.length > 0 ? contactEmails : null,
           portfolio_group: portfolioGroups.length > 0 ? portfolioGroups : null,
+          ...(showSectionSettings ? {
+            metrics_enabled: metricsEnabled,
+            analyst_enabled: analystEnabled,
+            ...(isCompany && !hasPriceFeed ? { price_feed_enabled: priceFeedEnabled } : {}),
+          } : {}),
           ...(isEdit
             ? { status }
             : !isCompany ? {} : {
@@ -596,6 +610,41 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
         />
       </div>
 
+      {showSectionSettings && (
+        <div className="space-y-3 border-t pt-4">
+          <div className="space-y-0.5">
+            <Label>Page sections</Label>
+            <p className="text-xs text-muted-foreground">Turn off what this {noun} does not use, so its page shows only what matters.</p>
+          </div>
+          <SectionSwitch
+            id="use-metrics"
+            label="Use metrics"
+            hint="KPI charts, or a prompt to add the first metric."
+            checked={metricsEnabled}
+            onCheckedChange={setMetricsEnabled}
+          />
+          <SectionSwitch
+            id="use-analyst"
+            label="Use AI Analyst"
+            hint="The analyst summary and the Analyst button."
+            checked={analystEnabled}
+            onCheckedChange={setAnalystEnabled}
+          />
+          {isCompany && (
+            <SectionSwitch
+              id="use-price-feed"
+              label="Use a price feed"
+              hint={hasPriceFeed
+                ? 'A feed prices this company now. Remove it in the Price feed section to turn this off.'
+                : 'For a listed company marked from a market price. Adds the Price feed section, where you set the ticker.'}
+              checked={priceFeedEnabled}
+              disabled={hasPriceFeed}
+              onCheckedChange={setPriceFeedEnabled}
+            />
+          )}
+        </div>
+      )}
+
       {!isEdit && isCompany && (
         <div className="space-y-2 border-t pt-4">
           <Label>Metrics</Label>
@@ -719,6 +768,26 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
           </Button>
         </div>
       </div>
+    </div>
+  )
+}
+
+/** One page-section toggle: label and hint on the left, the switch on the right. */
+function SectionSwitch({ id, label, hint, checked, disabled, onCheckedChange }: {
+  id: string
+  label: string
+  hint: string
+  checked: boolean
+  disabled?: boolean
+  onCheckedChange: (checked: boolean) => void
+}) {
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <div className="space-y-0.5">
+        <Label htmlFor={id} className="font-normal">{label}</Label>
+        <p className="text-xs text-muted-foreground">{hint}</p>
+      </div>
+      <Switch id={id} checked={checked} disabled={disabled} onCheckedChange={onCheckedChange} className="mt-0.5" />
     </div>
   )
 }

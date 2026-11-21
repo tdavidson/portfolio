@@ -49,12 +49,19 @@ export const UPDATE_COMPANY_PROPERTIES: Record<string, unknown> = {
   why_invested: { type: 'string', description: 'Empty clears it.' },
   current_update: { type: 'string', description: 'The latest news on the company. Empty clears it.' },
   notes: { type: 'string', description: 'The free-text notes field on the record (not a team note: add_company_note). Empty clears it.' },
+  metrics_enabled: { type: 'boolean', description: 'Whether its page shows the metrics section (KPI charts, or the prompt to add one). Off hides it; recorded metrics are kept.' },
+  analyst_enabled: { type: 'boolean', description: 'Whether its page shows the AI Analyst (the summary panel and the Analyst button).' },
+  price_feed_enabled: {
+    type: 'boolean',
+    description: 'Companies only: whether its page shows the Price feed section, to add a ticker. A holding that already has a feed always shows it; digital assets always do.',
+  },
 }
 
 export const UPDATE_COMPANY_DESCRIPTION =
   'Change a holding\'s record (company, fund holding or digital asset): its name, status, contact emails, aliases, tags, ' +
-  'industry, stage, country, founded year, overview, founders, why invested, current update, notes and the entities that ' +
-  'hold it. Only the fields ' +
+  'industry, stage, country, founded year, overview, founders, why invested, current update, notes, the entities that ' +
+  'hold it, and which optional sections its page shows (metrics_enabled, analyst_enabled, price_feed_enabled; company_detail ' +
+  'reads them). Only the fields ' +
   'passed change. For a list, `<list>` replaces it and `add_<list>` / `remove_<list>` change the one there. A rename also ' +
   'renames the holding\'s own chart accounts that still carry the old name ("Investment — <name>" and the rest). Aliases ' +
   'and contact emails are what imports and emailed updates match it by. Changing the entities that hold it does not move ' +
