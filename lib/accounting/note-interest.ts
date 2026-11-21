@@ -29,7 +29,11 @@ export interface Note {
   principal: number
   /** Annual SIMPLE rate as a fraction. 0.08 = 8%. */
   rate: number
-  /** When the note was issued — interest runs from here. */
+  /**
+   * The first day the note earns interest: `interest_start_date` when set, otherwise the
+   * transaction date. They differ when the note's terms (or the administrator's records) start
+   * interest on a day other than the one the cash moved.
+   */
   startDate: string
   /** Interest stops here even if the note hasn't converted. Null = runs until conversion. */
   maturityDate: string | null
@@ -176,7 +180,7 @@ export function noteAccruals(
  * query. @internal Exported for tests.
  */
 export const NOTE_COLUMNS =
-  'id, company_id, transaction_type, transaction_date, investment_cost, interest_rate, maturity_date, interest_converted, converts_from_txn_id, round_name, cost_basis_exited, ' +
+  'id, company_id, transaction_type, transaction_date, investment_cost, interest_rate, maturity_date, interest_start_date, interest_converted, converts_from_txn_id, round_name, cost_basis_exited, ' +
   'companies!investment_transactions_company_id_fkey!inner(name)'
 
 /**
@@ -274,7 +278,7 @@ export function notesFromRows(rows: any[]): Note[] {
         companyName: (r.companies?.name as string) ?? 'Investment',
         principal: roundCents(Number(r.investment_cost)),
         rate: Number(r.interest_rate),
-        startDate: r.transaction_date as string,
+        startDate: ((r.interest_start_date as string) || r.transaction_date) as string,
         maturityDate: (r.maturity_date as string) ?? null,
         convertedDate: conv?.date ?? null,
         convertedInterest: conv?.interest ?? 0,

@@ -202,6 +202,28 @@ describe('notesFromRows', () => {
     expect(notes.find(n => n.txnId === 'n2')?.convertedDate).toBeNull()
   })
 
+  it('accrues from interest_start_date when the note sets one', () => {
+    const r = { id: 'n', company_id: 'c1', transaction_type: 'investment', transaction_date: '2024-03-01', interest_start_date: '2024-02-27', investment_cost: 100_000, interest_rate: 0.1 }
+    const [n] = notesFromRows([r])
+    expect(n.startDate).toBe('2024-02-27')
+    // 27 Feb to 31 Mar 2024, both ends counted: 34 days.
+    expect(accruedInterest(n, '2024-03-31')).toBe(Math.round(100_000 * 0.1 * (34 / 365) * 100) / 100)
+    expect(NOTE_COLUMNS).toContain('interest_start_date')
+  })
+
+  it('falls back to the transaction date when interest_start_date is blank', () => {
+    const r = { id: 'n', company_id: 'c1', transaction_type: 'investment', transaction_date: '2024-03-01', interest_start_date: null, investment_cost: 100_000, interest_rate: 0.1 }
+    expect(notesFromRows([r])[0].startDate).toBe('2024-03-01')
+  })
+
+  it('still reads a legacy conversion against the transaction date, not the interest start', () => {
+    const rs = [
+      { id: 'n', company_id: 'c1', transaction_type: 'investment', transaction_date: '2024-07-02', interest_start_date: '2024-06-15', investment_cost: 100_000, interest_rate: 0.1 },
+      { id: 'conv', company_id: 'c1', transaction_type: 'investment', transaction_date: '2024-07-01', investment_cost: 0, interest_converted: 500 },
+    ]
+    expect(notesFromRows(rs)[0].convertedDate).toBeNull()
+  })
+
   it('counts an unlinked conversion once for a company with two converted notes', () => {
     const both = [
       { id: 'a', company_id: 'c1', transaction_type: 'investment', transaction_date: '2024-01-01', investment_cost: 100_000, interest_rate: 0.1 },

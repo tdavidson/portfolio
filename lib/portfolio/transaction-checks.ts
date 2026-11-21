@@ -61,7 +61,7 @@ const NUMERIC_FIELDS = [
   'fx_rate', 'prior_fx_rate', 'fx_value_change', 'original_position_value',
   'interest_rate', 'dividend_rate',
 ]
-const DATE_FIELDS = ['transaction_date', 'maturity_date']
+const DATE_FIELDS = ['transaction_date', 'maturity_date', 'interest_start_date']
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/
 const isRealDate = (v: unknown): boolean => {

@@ -51,7 +51,7 @@ export const EDITABLE_TXN_FIELDS = [
   // Convertible-note terms. `interest_rate` is the ONLY rate the ledger accrues on.
   // `dividend_rate` is preferred-equity dividends: they accrue to the liquidation preference,
   // not to income, and never touch the books.
-  'interest_rate', 'maturity_date', 'dividend_rate',
+  'interest_rate', 'maturity_date', 'interest_start_date', 'dividend_rate',
   // The conversion link (which SAFE/note this priced round converted). Editing a conversion
   // re-drafts its ledger entry from the new values, same as any other investment edit.
   'converts_from_txn_id',

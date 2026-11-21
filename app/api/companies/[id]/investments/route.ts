@@ -241,6 +241,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
       // deliberately invisible to the ledger — an undeclared preferred dividend is not income.
       interest_rate: body.interest_rate ?? null,
       maturity_date: body.maturity_date ?? null,
+      interest_start_date: body.interest_start_date ?? null,
       dividend_rate: body.dividend_rate ?? null,
     })
     .select('*')

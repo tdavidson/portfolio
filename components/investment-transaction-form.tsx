@@ -74,6 +74,7 @@ export const EMPTY_FORM: Record<string, string> = {
   security_type: '',
   interest_rate: '',
   maturity_date: '',
+  interest_start_date: '',
   dividend_rate: '',
   shares_acquired: '',
   share_price: '',
@@ -130,6 +131,7 @@ export function formFromTransaction(txn: InvestmentTransaction): Record<string, 
     // Stored as fractions, shown as percentages — nobody thinks in 0.08.
     interest_rate: (txn as any).interest_rate != null ? String(Number((txn as any).interest_rate) * 100) : '',
     maturity_date: (txn as any).maturity_date ?? '',
+    interest_start_date: (txn as any).interest_start_date ?? '',
     dividend_rate: (txn as any).dividend_rate != null ? String(Number((txn as any).dividend_rate) * 100) : '',
     shares_acquired: txn.shares_acquired?.toString() ?? '',
     share_price: txn.share_price?.toString() ?? '',
@@ -366,6 +368,7 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
       security_type,
       interest_rate: security_type === 'convertible_note' ? f.interest_rate : '',
       maturity_date: security_type === 'convertible_note' ? f.maturity_date : '',
+      interest_start_date: security_type === 'convertible_note' ? f.interest_start_date : '',
       dividend_rate: security_type === 'preferred' ? f.dividend_rate : '',
       shares_acquired: security_type === 'safe' || security_type === 'convertible_note' ? '' : f.shares_acquired,
       share_price: security_type === 'safe' || security_type === 'convertible_note' ? '' : f.share_price,
@@ -549,6 +552,7 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
       security_type: form.security_type || null,
       interest_rate: rateOrNull(form.interest_rate),
       maturity_date: form.maturity_date || null,
+      interest_start_date: form.interest_start_date || null,
       dividend_rate: rateOrNull(form.dividend_rate),
       shares_acquired: numOrNull(form.shares_acquired),
       share_price: numOrNull(form.share_price),
@@ -777,6 +781,19 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
                     onChange={e => setForm(f => ({ ...f, maturity_date: e.target.value }))}
                   />
                   <p className="text-[11px] text-muted-foreground mt-1">Interest stops here. Leave blank to accrue until conversion.</p>
+                </div>
+                <div>
+                  <Label>Interest starts</Label>
+                  <Input
+                    className="mt-1"
+                    type="date"
+                    value={form.interest_start_date}
+                    onChange={e => setForm(f => ({ ...f, interest_start_date: e.target.value }))}
+                  />
+                  <p className="text-[11px] text-muted-foreground mt-1">
+                    First day of interest, when the note&apos;s terms start it on a day other than the
+                    transaction date. Leave blank to accrue from the transaction date.
+                  </p>
                 </div>
               </>
             )}
