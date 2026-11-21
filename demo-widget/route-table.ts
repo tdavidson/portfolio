@@ -53,7 +53,7 @@ export const ROUTES: DemoRoute[] = [
   { pattern: '/notes', section: 'portfolio' },
   { pattern: '/compliance', section: 'portfolio' },
   { pattern: '/compliance/links', section: 'portfolio' },
-  { pattern: '/records', section: 'portfolio' },
+  { pattern: '/audit', section: 'portfolio' },
   // Inbound, review, deals
   { pattern: '/emails', section: 'inbound' },
   { pattern: '/emails/:id', section: 'inbound', hrefs: recordedHrefs(/^\/emails\/[^/]+$/) },

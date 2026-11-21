@@ -9,6 +9,8 @@ import { DOMAIN_META } from '@/lib/access/domains'
 import { adminOnlyMessage, adminOnlyRule, adminRuleNeedsBody, UNREADABLE } from '@/lib/access/admin-only'
 import { buildReportOnlyCsp, generateNonce, NONCE_HEADER, REPORT_ONLY_HEADER } from '@/lib/security/csp'
 import { buildEnforcingCsp } from '@/lib/security/csp-enforcing.mjs'
+import { auditOn, isChangeRequest, logWebChange } from '@/lib/audit-log'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { companyEntityDenial, dealEntityDenial, rlsRowDenial, entityWriteDenial, rowCompanyDenial } from '@/lib/access/entity-gate'
 
 // The ENFORCING policy, on every response this proxy produces, carrying the page's nonce.
@@ -325,11 +327,19 @@ async function gateApiRequest(
       const rule = adminOnlyRule(key, request.method, body)
       if (rule) return NextResponse.json({ error: adminOnlyMessage(rule.label) }, { status: 403 })
     }
-    return (await companyEntityDenial(supabase as never, key, request.nextUrl.pathname, access))
+    const denial = (await companyEntityDenial(supabase as never, key, request.nextUrl.pathname, access))
       ?? (await dealEntityDenial(supabase as never, key, request.nextUrl.pathname, access))
       ?? (await rlsRowDenial(supabase as never, key, request.nextUrl.pathname, access))
       ?? (await rowCompanyDenial(supabase as never, key, request.nextUrl.pathname, access))
       ?? entityWriteDenial(supabase as never, key, request.nextUrl.pathname, access, level)
+    // Audit (lib/audit-log): a change an outside firm's member makes in the web app. Only while the
+    // fund has Audit on, never for an admin (admins are never on an engagement), never for a read.
+    if (!denial && access.role === 'member' && isChangeRequest(request.method) && auditOn(access.features)) {
+      await logWebChange(createAdminClient() as never, {
+        fundId: access.fundId, userId, method: request.method, route: key, path: request.nextUrl.pathname,
+      })
+    }
+    return denial
   }
 
   // A proposal is a change too: the demo makes none.

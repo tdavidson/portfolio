@@ -233,6 +233,16 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/positions': { domain: 'lp_capital', feature: 'lp_tracking' },
   'api/accounting/positions/import': { domain: 'lp_capital', feature: 'lp_tracking' },
   'api/accounting/admin-figures': { domain: 'lp_capital', feature: 'lp_tracking' },
+  // Statement review: per-LP capital, so lp_capital. Running the checks reports on figures and
+  // changes none of them, so the POST is read level too (docs/spec/statement-review.md, Access).
+  'api/accounting/statement-review': { domain: 'lp_capital', feature: 'lp_tracking', level: 'read' },
+  // The vehicle's review settings: reading them is read, saving them is a write.
+  'api/accounting/statement-review/settings': { domain: 'lp_capital', feature: 'lp_tracking' },
+  // A reviewer's status and note on a finding, and the period's sign-off: writes (the spec's Access).
+  'api/accounting/statement-review/findings': { domain: 'lp_capital', feature: 'lp_tracking' },
+  'api/accounting/statement-review/sign-off': { domain: 'lp_capital', feature: 'lp_tracking' },
+  // The review as a PDF or Markdown: a read.
+  'api/accounting/statement-review/export': { domain: 'lp_capital', feature: 'lp_tracking' },
   'api/lps/entities': { domain: 'lp_capital' },
   'api/lps/entities/profile': { domain: 'lp_capital' },
   // LPs' requests to change their record: read to see, write to decide (re-checked in the handler,
@@ -364,6 +374,9 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // Fund records: read on Records to list or open, write to file. The record's own area (which the
   // request names) is checked in the handler by lib/records/areas.ts, as the record tools do.
   'api/records': { domain: 'records' },
+  // Audit (lib/audit-log): the automatic log of outside firms. Same grant and switch as the notes
+  // filed into it; the handler narrows someone on an engagement to their own firm.
+  'api/audit': { domain: 'records' },
   // Custom views (lib/custom-views): a member's own list, like a saved dashboard. Every block of a
   // view is checked against its dataset's gate and the caller's entities when it loads
   // (lib/custom-views/resolve.ts), so level 'any' only keeps non-members out.

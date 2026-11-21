@@ -29,6 +29,8 @@ import capitalCallRegisterCsv from '../public/templates/capital-call-register.cs
 export const HIDDEN_IN_DEMO: Record<string, string> = {
   '/lps/preview': 'admin only: the portal as a chosen LP sees it; the demo viewer is not an admin',
   '/views': 'custom views are saved from a connected assistant; the demo fund has none and the demo viewer cannot save',
+  '/funds/review': "statement review checks an administrator's package; the demo fund has none to review",
+  '/funds/:id/review': "statement review checks an administrator's package; the demo fund has none to review",
 }
 
 const TEMPLATES: Record<string, string> = {

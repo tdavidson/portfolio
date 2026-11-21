@@ -8,6 +8,6 @@
 export const FUND_SUBPAGE_SLUGS = new Set([
   'status', 'bank', 'receipts', 'partnership-expenses', 'journal', 'ledger', 'text', 'tax', 'periods', 'statements', 'capital-accounts', 'construction',
   'forecast',
-  'schedule-of-investments', 'performance', 'allocation-terms', 'opening-balances', 'lp-events',
+  'schedule-of-investments', 'performance', 'allocation-terms', 'opening-balances', 'lp-events', 'review',
   'migrate',
 ])

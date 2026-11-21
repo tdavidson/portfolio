@@ -34,6 +34,8 @@ import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { ForecastError } from '@/lib/forecast/service'
 import { forecastWorkbookDocument } from '@/lib/forecast/workbook-document'
 import { customViewDocument } from '@/lib/custom-views/document'
+import { getReview } from '@/lib/statement-review/store'
+import { reviewPdf } from '@/lib/statement-review/export-pdf'
 import { CustomViewError } from '@/lib/custom-views/store'
 import { ViewSpecError } from '@/lib/custom-views/spec'
 
@@ -299,6 +301,19 @@ async function fundDocument(admin: ReturnType<typeof createAdminClient>, claims:
         if (!bundle) return notFound()
         const zip = await closeBundleZip(bundle, group)
         doc = { body: zip.body, fileName: zip.fileName, contentType: 'application/zip' }
+        break
+      }
+      // /api/accounting/statement-review/export — lp_capital (lp_tracking), and the review's entity.
+      case 'statement_review': {
+        if (!hasAccess(access, 'lp_capital', 'read', 'lp_tracking')) return notFound()
+        if (!a.review) return notFound()
+        const group = await resolveVehicle(admin, fundId, a.vehicle ?? undefined, { access })
+        const vehicleId = await vehicleIdByName(admin, fundId, group)
+        if (!vehicleId || !canSeeVehicle(access, vehicleId)) return notFound()
+        const review = await getReview(admin, fundId, { id: vehicleId, name: group }, { id: a.review })
+        if (!review.ok) return notFound()
+        const pdf = await reviewPdf(review.value)
+        doc = { body: pdf.body, fileName: pdf.fileName, contentType: 'application/pdf' }
         break
       }
       // /api/accounting/forecast/export?format=xlsx — accounting; the forecast service re-checks it,

@@ -24,7 +24,7 @@ const person = (
   grants: Partial<Record<Domain, AccessLevel>> = {},
   vehicles: AccessContext['vehicles'] = { all: true, ids: [] },
 ): AccessContext => ({ fundId: 'f1', userId: 'u1', role, features: ALL_ON, grants, defaults: {}, vehicles })
-/** A preset, plus the Records grant an admin gives on top (presets never include it). */
+/** A preset, plus write on Audit on top (presets give read), so the person may file a note. */
 const preset = (label: string) => person('member', { ...ACCESS_PRESETS.find(p => p.label === label)!.grants, records: 'write' })
 const key = (scopes: ('read' | 'write')[] = ['read', 'write']): ResolvedKey => ({ fundId: 'f1', keyId: 'k1', userId: 'u1', role: 'member', scopes })
 
@@ -39,13 +39,21 @@ describe('who may file and read', () => {
     expect(recordAccessProblem(person('member', { records: 'read' }), { filing: false })).toMatch(/no area/)
   })
 
-  it('gives presets no Records access: an admin grants it', () => {
-    for (const p of ACCESS_PRESETS) expect(p.grants.records, p.key).toBe('none')
-    expect(recordAccessProblem(person('member', ACCESS_PRESETS[0].grants), { area: 'accounting', filing: false })).toMatch(/access to Records/)
+  it('gives presets read on Audit, so an outside firm sees its own log but files no notes', () => {
+    for (const p of ACCESS_PRESETS) expect(p.grants.records, p.key).toBe('read')
+    const auditor = person('member', ACCESS_PRESETS.find(p => p.key === 'auditor')!.grants)
+    expect(recordAccessProblem(auditor, { area: 'accounting', filing: false })).toBeNull()
+    expect(recordAccessProblem(auditor, { area: 'accounting', filing: true })).toMatch(/not file/)
+  })
+
+  it('denies everyone, admins included, while Audit is off', () => {
+    const off = { ...ALL_ON, audit: 'off' as const }
+    expect(recordAccessProblem({ ...person('admin'), features: off }, { area: 'accounting', filing: false })).toMatch(/access to Audit/)
+    expect(readableAreas({ ...person('member', { accounting: 'read', records: 'write' }), features: off })).toEqual([])
   })
 
   it('needs the Records access right: read to read, write to file', () => {
-    expect(recordAccessProblem(person('member', { accounting: 'read' }), { area: 'accounting', filing: false })).toMatch(/access to Records/)
+    expect(recordAccessProblem(person('member', { accounting: 'read' }), { area: 'accounting', filing: false })).toMatch(/access to Audit/)
     expect(readableAreas(person('member', { accounting: 'write' }))).toEqual([])
     const reader = person('member', { accounting: 'read', records: 'read' })
     expect(recordAccessProblem(reader, { area: 'accounting', filing: false })).toBeNull()
@@ -114,7 +122,7 @@ describe('a filing', () => {
 
 describe('every door', () => {
   const file = getTool('file_to_record')!
-  const list = getTool('list_records')!
+  const list = getTool('audit_log')!
 
   it('files directly from a chat, since it changes nothing else', () => {
     expect(file).toMatchObject({ scope: 'write', runsDirectly: true, areaInput: true })

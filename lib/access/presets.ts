@@ -23,8 +23,9 @@ export interface AccessPreset {
 const NONE: AccessPreset['grants'] = {
   portfolio: 'none', relationships: 'none', dealflow: 'none', diligence: 'none', accounting: 'none',
   management_company: 'none', lp_capital: 'none', gp_economics: 'none', lp_relations: 'none', compliance: 'none',
-  // Records is granted by an admin per person, never by a preset.
-  tax: 'none', records: 'none',
+  // Audit: see the log. Someone on an engagement sees only their own firm,
+  // and only when the fund has Audit on for members.
+  tax: 'none', records: 'read',
 }
 
 

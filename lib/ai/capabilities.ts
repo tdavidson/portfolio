@@ -179,6 +179,14 @@ export const AI_CAPABILITIES: AICapability[] = [
     tools: ['list_entity_documents', 'extract_lpa_terms', 'set_waterfall_terms'],
   },
   {
+    key: 'statement_review_extract',
+    label: "Reading an administrator's statement package",
+    keyless: 'assistant',
+    why: "Without a key, statement_review_extract gives your assistant the documents' text; it reads the figures and runs the review with them, and every cited figure is checked against the document. With a key, the review page reads the documents itself.",
+    prompt: "Review Fund I's Q3 statements from the administrator's package.",
+    tools: ['list_entity_documents', 'statement_review_extract', 'statement_review_run'],
+  },
+  {
     key: 'deal_research',
     label: 'Web research on inbound deals',
     keyless: 'assistant',

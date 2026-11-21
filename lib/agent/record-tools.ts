@@ -1,8 +1,9 @@
-// Handlers for the fund records tools (record-tools-manifest.ts). Thin: lib/records decides who may
+// Handlers for the Audit tools (record-tools-manifest.ts). Thin: lib/records decides who may
 // file and read, the same code the /api/records route calls.
 
 import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-tools'
-import { fileRecord, listRecords, readRecord, type RecordActor } from '@/lib/records'
+import { fileRecord, readRecord, type RecordActor } from '@/lib/records'
+import { readAuditLog, setAuditVisibility } from '@/lib/audit-log'
 import { unwrap } from '@/lib/service-outcome'
 
 async function actor(ctx: AgentToolContext, withEmail = false): Promise<RecordActor> {
@@ -17,12 +18,14 @@ async function actor(ctx: AgentToolContext, withEmail = false): Promise<RecordAc
 export const RECORD_HANDLERS: Record<string, AgentToolHandler> = {
   file_to_record: async (ctx, input) => {
     const record = unwrap(await fileRecord(ctx.admin, await actor(ctx, true), input))
-    return { record, next: 'Filed. Tell the person it is on the fund\'s record and can be found with list_records.' }
+    return { record, next: 'Filed. Tell the person it is in the fund\'s Audit log, which audit_log reads.' }
   },
-  list_records: async (ctx, input) => ({
-    records: unwrap(await listRecords(ctx.admin, await actor(ctx), {
-      area: input?.area, entity: input?.entity, subjectType: input?.subject_type, subjectId: input?.subject_id, query: input?.query, limit: input?.limit,
-    })),
+  audit_log: async (ctx, input) => unwrap(await readAuditLog(ctx.admin, ctx.access, {
+    firm: input?.firm, since: input?.since, until: input?.until, limit: input?.limit,
+  })),
+  audit_settings: async (ctx, input) => ({
+    ...unwrap(await setAuditVisibility(ctx.admin, ctx.access, input?.visibility)),
+    next: 'Done. The Audit page and audit_log follow the new setting from the next request.',
   }),
   read_record: async (ctx, input) => ({ record: unwrap(await readRecord(ctx.admin, await actor(ctx), input?.id)) }),
 }
