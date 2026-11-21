@@ -419,7 +419,7 @@ export default function SupportPage() {
             Approvals
           </h3>
           <p className="text-muted-foreground mb-2">
-            Changes the Analyst, a connected Claude or ChatGPT, or a script drafts rather than makes &mdash; metric updates, investments, journal entries, capital calls &mdash; wait for a person. The <strong>Approvals</strong> page in the sidebar lists every change waiting that you can read, and appears only while something is waiting. Changes from the Analyst can also be approved or rejected in the <a href="#analyst" className="underline underline-offset-4 hover:text-foreground">Analyst</a> panel, and a change a chat staged can be approved by saying yes in that chat.
+            Changes the Analyst, a connected Claude or ChatGPT, or a script drafts rather than makes &mdash; metric updates, investments, journal entries, capital calls &mdash; wait for a person. The <strong>Approvals</strong> page lists them. A member sees only the changes they staged themselves, and the page appears in their sidebar only while one of theirs is waiting; admins see every change waiting, including members&rsquo; proposals that need an admin. Changes from the Analyst can also be approved or rejected in the <a href="#analyst" className="underline underline-offset-4 hover:text-foreground">Analyst</a> panel, and a change a chat staged can be approved by saying yes in that chat.
           </p>
           <p className="text-muted-foreground">
             A fix that needs several changes can be staged as one <strong>run</strong>: you review the steps and the balances they should leave, approve once, and the run can be undone. Admin-only changes wait for an admin; the person who proposed one can withdraw it.
@@ -1445,7 +1445,7 @@ export default function SupportPage() {
             Navigation &amp; theme
           </h2>
           <p className="text-muted-foreground mb-2">
-            The sidebar follows the products: Review and Approvals (while something is waiting), Start, Getting started (admins, until setup is finished), Inbound, Deals, Diligence (Inbox, Analytics), Portfolio (Import, Investments, Asks, Interactions, Updates, Letters, Notes, Compliance), Views, LPs (Capital accounts, Documents, Preview portal, Activity), Financials, Usage, Records, Settings and Support &mdash; only the sections you can see. A lock marks admin-only items, and admins see an Updates link when a new version is out.
+            The sidebar follows the products: Review and Approvals (while something is waiting for you), Start, Getting started (admins, until setup is finished), Inbound, Deals, Diligence (Inbox, Analytics), Portfolio (Import, Investments, Asks, Interactions, Updates, Letters, Notes, Compliance), Views, LPs (Capital accounts, Documents, Preview portal, Activity), Financials, Usage, Records, Settings and Support &mdash; only the sections you can see. A lock marks admin-only items, and admins see an Updates link when a new version is out.
           </p>
           <p className="text-muted-foreground mb-2">
             At the bottom, the theme toggle cycles between System, Light and Dark; System follows your operating system&apos;s preference. The <strong>Hide sidebar</strong> button collapses it to an icon strip for more room.
