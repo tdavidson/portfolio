@@ -28,11 +28,12 @@ import { packageInputFromPull } from './from-admin-pull'
 import { runChecks } from './run'
 import { loadSettings } from './settings'
 import { loadShadow } from './shadow'
+import { applyNote, blocking, carryStatuses, keyed, severityCounts, statusCounts, type NoteInput } from './workflow'
 import { extractWithServerModel, loadSourceDocuments, packageDocuments, type SourceDocument } from './extract'
 import type { KnownPartner } from './checks/shared'
 import {
   DEFAULT_MATERIALITY,
-  type CheckOutcome, type Finding, type Materiality, type PackageInput, type PartnerStatement, type Severity, type StatementPackage,
+  type CheckOutcome, type Finding, type Materiality, type PackageInput, type PartnerStatement, type Severity, type SignOff, type StatementPackage,
 } from './types'
 
 export interface ReviewSummary {
@@ -47,6 +48,8 @@ export interface ReviewSummary {
   runBy: string | null
   /** True for the latest run of its period, which is that period's review. */
   current: boolean
+  /** When this run was signed off, if it was. */
+  signedOffAt: string | null
 }
 
 export interface StoredReview extends ReviewSummary {
@@ -57,6 +60,7 @@ export interface StoredReview extends ReviewSummary {
   materiality: Materiality
   threshold: number
   nav: number | null
+  signOff: (SignOff & { byName?: string }) | null
 }
 
 export interface RunRequest {
@@ -142,18 +146,37 @@ export async function loadKnownPartners(admin: SupabaseClient, fundId: string, v
   return Array.from(ids).map(id => ({ lpEntityId: id, name: names.get(id) ?? 'A partner' })).sort((a, b) => a.name.localeCompare(b.name))
 }
 
-const REVIEW_COLUMNS = 'id, vehicle_id, period_start, period_end, source, input, package, checks, findings, counts, materiality, threshold, nav, run_by, run_at'
+const REVIEW_COLUMNS = 'id, vehicle_id, period_start, period_end, source, input, package, checks, findings, counts, materiality, threshold, nav, run_by, run_at, signed_off_at, sign_off'
 
-/** The latest run for the latest period before `periodEnd`: what this period carries on from. */
-async function loadPrior(admin: SupabaseClient, fundId: string, vehicleId: string, periodEnd: string): Promise<{ periodEnd: string; partners: PartnerStatement[]; materiality: Materiality | null } | null> {
+/**
+ * What this period carries on from: the latest signed-off review of an earlier period, else (before
+ * anything is signed off) the latest run of the latest earlier period.
+ */
+async function loadPrior(admin: SupabaseClient, fundId: string, vehicleId: string, periodEnd: string): Promise<{ periodEnd: string; partners: PartnerStatement[]; signedOff: boolean } | null> {
+  const base = () => (admin as any).from('statement_reviews')
+    .select('period_end, package, signed_off_at')
+    .eq('fund_id', fundId).eq('vehicle_id', vehicleId).lt('period_end', periodEnd)
+  const signed = await base().not('signed_off_at', 'is', null)
+    .order('period_end', { ascending: false }).order('signed_off_at', { ascending: false }).limit(1)
+  // A database without the sign-off columns yet: fall back to the latest run.
+  const signedRow = signed.error ? null : (signed.data as any[])?.[0]
+  if (signedRow) return { periodEnd: signedRow.period_end, partners: (signedRow.package?.partners ?? []) as PartnerStatement[], signedOff: true }
   const { data, error } = await (admin as any).from('statement_reviews')
-    .select('period_end, package, materiality')
+    .select('period_end, package')
     .eq('fund_id', fundId).eq('vehicle_id', vehicleId).lt('period_end', periodEnd)
     .order('period_end', { ascending: false }).order('run_at', { ascending: false }).limit(1)
   if (error) throw new Error(error.message)
   const row = (data as any[])?.[0]
   if (!row) return null
-  return { periodEnd: row.period_end, partners: (row.package?.partners ?? []) as PartnerStatement[], materiality: row.materiality ?? null }
+  return { periodEnd: row.period_end, partners: (row.package?.partners ?? []) as PartnerStatement[], signedOff: false }
+}
+
+/** The latest run of the same period, whose reviewer decisions carry to a new run. */
+async function loadPreviousRun(admin: SupabaseClient, fundId: string, vehicleId: string, periodEnd: string): Promise<Finding[]> {
+  const { data } = await (admin as any).from('statement_reviews').select('findings')
+    .eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('period_end', periodEnd)
+    .order('run_at', { ascending: false }).limit(1)
+  return ((data as any[])?.[0]?.findings ?? []) as Finding[]
 }
 
 /** Build the package a run asks for, before matching. */
@@ -237,6 +260,7 @@ function toSummary(r: any, current: boolean): ReviewSummary {
     runAt: r.run_at,
     runBy: r.run_by ?? null,
     current,
+    signedOffAt: r.signed_off_at ?? null,
   }
 }
 
@@ -250,6 +274,7 @@ function toStored(r: any, vehicle: string, current: boolean): StoredReview {
     materiality: r.materiality ?? DEFAULT_MATERIALITY,
     threshold: Number(r.threshold ?? 0),
     nav: r.nav == null ? null : Number(r.nav),
+    signOff: r.signed_off_at && r.sign_off ? r.sign_off : null,
   }
 }
 
@@ -299,6 +324,10 @@ export async function runReview(
   }, materiality)
   // What the reader said it was unsure of travels with the package, so a reviewer sees it.
   if (warnings?.length) pkg.readingWarnings = warnings
+  // What the reviewer decided on this period's last run carries to the same findings now.
+  let previous: Finding[] = []
+  try { previous = await loadPreviousRun(admin, ctx.fundId, vehicle.id, pkg.periodEnd) } catch { /* nothing carries */ }
+  const findings = carryStatuses(keyed(result.findings), previous)
 
   const { data, error } = await (admin as any).from('statement_reviews').insert({
     fund_id: ctx.fundId,
@@ -310,8 +339,8 @@ export async function runReview(
     admin_pull_id: pullId,
     package: pkg,
     checks: result.checks,
-    findings: result.findings,
-    counts: result.counts,
+    findings,
+    counts: severityCounts(findings),
     materiality,
     threshold: result.threshold,
     nav: result.nav,
@@ -324,7 +353,7 @@ export async function runReview(
 /** A vehicle's reviews, newest period first, every run of each period with the latest marked current. */
 export async function listReviews(admin: SupabaseClient, fundId: string, vehicleId: string, limit = 60): Promise<ReviewSummary[]> {
   const { data, error } = await (admin as any).from('statement_reviews')
-    .select('id, period_start, period_end, source, input, counts, package, run_by, run_at')
+    .select('id, period_start, period_end, source, input, counts, package, run_by, run_at, signed_off_at')
     .eq('fund_id', fundId).eq('vehicle_id', vehicleId)
     .order('period_end', { ascending: false }).order('run_at', { ascending: false })
     .limit(Math.min(Math.max(limit, 1), 200))
@@ -356,4 +385,83 @@ export async function getReview(
   const { data: later } = await (admin as any).from('statement_reviews').select('id')
     .eq('fund_id', fundId).eq('vehicle_id', vehicle.id).eq('period_end', row.period_end).gt('run_at', row.run_at).limit(1)
   return done(toStored(row, vehicle.name, !((later as any[])?.length)))
+}
+
+/** Load one run for a change: it must be its period's current run and not signed off. */
+async function loadForChange(admin: SupabaseClient, fundId: string, vehicle: { id: string; name: string }, id: unknown): Promise<Outcome<StoredReview>> {
+  if (typeof id !== 'string' || !id) return fail(400, 'review_id is required.')
+  const r = await getReview(admin, fundId, vehicle, { id })
+  if (!r.ok) return r
+  if (!r.value.current) return fail(409, 'A later run of this period exists. Change the findings on the current run (statement_review_findings with the period_end).')
+  if (r.value.signOff) return fail(409, 'This period is signed off. Run the review again to reopen it.')
+  return r
+}
+
+/** Set one finding's status, note or question on a period's current run. */
+export async function noteFinding(
+  admin: SupabaseClient, ctx: { fundId: string; userId: string | null }, vehicle: { id: string; name: string },
+  reviewId: unknown, input: NoteInput,
+): Promise<Outcome<{ review: StoredReview; finding: Finding }>> {
+  const loaded = await loadForChange(admin, ctx.fundId, vehicle, reviewId)
+  if (!loaded.ok) return loaded
+  const review = loaded.value
+  const changed = applyNote(keyed(review.findings), input, ctx.userId ?? 'api')
+  if (typeof changed === 'string') return fail(400, changed)
+  const counts = severityCounts(changed.findings)
+  const { data, error } = await (admin as any).from('statement_reviews')
+    .update({ findings: changed.findings, counts })
+    .eq('id', review.id).eq('fund_id', ctx.fundId).is('signed_off_at', null)
+    .select(REVIEW_COLUMNS).single()
+  if (error || !data) return dbFail(error, 'statement-review-note')
+  return done({ review: toStored(data, vehicle.name, true), finding: changed.finding })
+}
+
+/** A member's name for the sign-off record: their profile name, else their email. */
+async function displayName(admin: SupabaseClient, userId: string | null): Promise<string | undefined> {
+  if (!userId) return undefined
+  try {
+    const { data } = await (admin as any).auth.admin.getUserById(userId)
+    const u = data?.user
+    return (u?.user_metadata?.full_name || u?.user_metadata?.name || u?.email || undefined) as string | undefined
+  } catch {
+    return undefined
+  }
+}
+
+/**
+ * Sign off a period: its current run, once no error or warning is open. Records who, when, the
+ * package's documents and hashes, the counts, the statuses and the checks, so the review can be
+ * audited later. A new run of the period afterwards is a new, unsigned review.
+ */
+export async function signOffReview(
+  admin: SupabaseClient, ctx: { fundId: string; userId: string | null }, vehicle: { id: string; name: string },
+  reviewId: unknown, note: unknown,
+): Promise<Outcome<StoredReview>> {
+  const loaded = await loadForChange(admin, ctx.fundId, vehicle, reviewId)
+  if (!loaded.ok) return loaded
+  const review = loaded.value
+  const open = blocking(review.findings)
+  if (open.length) {
+    return fail(409, `${open.length} error${open.length === 1 ? '' : 's'} or warning${open.length === 1 ? ' is' : 's are'} still open. Mark each explained, asked or accepted first.`)
+  }
+  const at = new Date().toISOString()
+  const byName = await displayName(admin, ctx.userId)
+  const record: SignOff & { byName?: string } = {
+    by: ctx.userId ?? 'api',
+    ...(byName ? { byName } : {}),
+    at,
+    ...(typeof note === 'string' && note.trim() ? { note: note.trim().slice(0, 2000) } : {}),
+    documents: review.package.documents ?? [],
+    counts: review.counts,
+    statuses: statusCounts(review.findings),
+    checks: review.checks.map(c => ({ check: c.check, ran: c.ran, compared: c.compared })),
+    materiality: review.materiality,
+    threshold: review.threshold,
+  }
+  const { data, error } = await (admin as any).from('statement_reviews')
+    .update({ signed_off_by: ctx.userId, signed_off_at: at, sign_off: record })
+    .eq('id', review.id).eq('fund_id', ctx.fundId).is('signed_off_at', null)
+    .select(REVIEW_COLUMNS).single()
+  if (error || !data) return dbFail(error, 'statement-review-sign-off')
+  return done(toStored(data, vehicle.name, true))
 }

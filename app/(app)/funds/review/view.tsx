@@ -14,16 +14,18 @@ import { EmptyState } from '@/components/ui/empty-state'
 import { useCanWrite } from '@/components/access-context'
 import { ReviewSettingsPanel } from './settings-panel'
 import { DocumentsPicker } from './documents-picker'
+import { FindingStatusControl, ReviewWorkflowBar } from './workflow'
 import { CHECK_LABELS, type CheckOutcome, type Finding, type Severity } from '@/lib/statement-review/types'
 
 interface Summary {
   id: string; periodStart: string; periodEnd: string; input: 'admin_pull' | 'csv' | 'package'
-  counts: Record<Severity, number>; partners: number; runAt: string; current: boolean
+  counts: Record<Severity, number>; partners: number; runAt: string; current: boolean; signedOffAt?: string | null
 }
 interface Review extends Summary {
   checks: CheckOutcome[]; findings: Finding[]
   materiality: { amount: number; navShare: number }; threshold: number; nav: number | null
   package?: { documents?: { name: string }[]; readingWarnings?: string[] }
+  signOff: { at: string; byName?: string; note?: string } | null
 }
 interface Pull { id: string; asOf: string; source: string; status: 'saved' | 'superseded' }
 
@@ -208,7 +210,7 @@ function VehicleReview({ vehicleId }: { vehicleId: string | null }) {
                 {reviews.map(r => (
                   <tr key={r.id} onClick={() => open(r.id)}
                     className={`border-t cursor-pointer hover:bg-muted/50 ${selected?.id === r.id ? 'bg-muted/50' : ''} ${r.current ? '' : 'text-muted-foreground'}`}>
-                    <td className="py-1 tabular-nums">{r.periodEnd}{r.current ? '' : ' (earlier run)'}</td>
+                    <td className="py-1 tabular-nums">{r.periodEnd}{r.current ? '' : ' (earlier run)'}{r.signedOffAt ? ' · signed off' : ''}</td>
                     <td>{INPUT_LABEL[r.input]}</td>
                     <td className="text-right tabular-nums">{r.partners}</td>
                     <td className={`text-right tabular-nums ${r.counts.error ? 'text-destructive' : ''}`}>{r.counts.error}</td>
@@ -233,6 +235,8 @@ function VehicleReview({ vehicleId }: { vehicleId: string | null }) {
               Materiality {money(selected.threshold)}{selected.nav != null ? ` against NAV of ${money(selected.nav)}` : ''}. Differences of a cent or less are rounding.
             </p>
           </div>
+
+          <ReviewWorkflowBar review={selected} canEdit={canEditSettings} onSaved={(r: Review) => { setSelected(r); load(false) }} />
 
           {!!selected.package?.readingWarnings?.length && (
             <div className="rounded-md border border-warning/40 bg-warning-subtle p-3 text-sm space-y-1">
@@ -284,13 +288,14 @@ function VehicleReview({ vehicleId }: { vehicleId: string | null }) {
                       <th className="text-right font-normal">Expected</th>
                       <th className="text-right font-normal">Difference</th>
                       <th className="text-left font-normal pl-3">Source</th>
+                      <th className="text-left font-normal pl-3">Status</th>
                     </tr>
                   </thead>
                   <tbody>
                     {shown.map((f, i) => {
                       const S = SEVERITY[f.severity]
                       return (
-                        <tr key={i} className="border-t align-top">
+                        <tr key={f.key ?? i} className="border-t align-top">
                           <td className="py-2"><S.Icon className={`h-4 w-4 ${S.cls}`} aria-label={S.label} /></td>
                           <td className="py-2 pr-3">
                             <span className="block text-xs text-muted-foreground">{CHECK_LABELS[f.check]} · {f.subject.label}</span>
@@ -304,6 +309,10 @@ function VehicleReview({ vehicleId }: { vehicleId: string | null }) {
                             {f.cites.length === 0 ? '—' : f.cites.map((c, j) => (
                               <span key={j} className="block">{c.document}{c.page ? `, p. ${c.page}` : ''}{c.label ? `: ${c.label}` : ''}</span>
                             ))}
+                          </td>
+                          <td className="py-2 pl-3">
+                            <FindingStatusControl key={`${selected.id}:${f.key ?? i}:${f.status}`} review={selected} finding={f} canEdit={canEditSettings}
+                              onSaved={(r: Review) => setSelected(r)} />
                           </td>
                         </tr>
                       )

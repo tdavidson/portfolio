@@ -1,4 +1,5 @@
-// Continuity: this period picks up where the last one left off.
+// Continuity: this period picks up where the last one left off: the last signed-off period, or before
+// anything is signed off, the latest earlier review.
 //
 //   - each partner's beginning capital is last period's ending capital
 //   - paid-in to date is last period's plus this period's contributions (or at least no lower)
@@ -92,5 +93,7 @@ export const continuity: Check = ({ pkg, prior }, ctx) => {
     })
   }
 
-  return { outcome: { check: 'continuity', ran: true, compared, note: `Compared with the review for ${prior.periodEnd}.` }, findings }
+  return { outcome: { check: 'continuity', ran: true, compared, note: prior.signedOff === false
+    ? `Compared with the latest review for ${prior.periodEnd}, which isn't signed off.`
+    : `Compared with the signed-off review for ${prior.periodEnd}.` }, findings }
 }

@@ -10,8 +10,8 @@ export interface KnownPartner { lpEntityId: string; name: string }
 export interface CheckInput {
   /** The package, with each partner's lpEntityId filled in where it was matched. */
   pkg: StatementPackage
-  /** The previous period's package for the vehicle, partners matched the same way. */
-  prior?: { periodEnd: string; partners: PartnerStatement[] } | null
+  /** The previous period's package for the vehicle (its signed-off review where there is one), partners matched the same way. */
+  prior?: { periodEnd: string; partners: PartnerStatement[]; signedOff?: boolean } | null
   /** Who the app knows in the vehicle on the period end. Null when it couldn't tell. */
   known?: KnownPartner[] | null
   /** How each package partner was matched, in the package's order. */

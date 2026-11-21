@@ -155,6 +155,32 @@ export interface Finding {
   note?: string
   /** Set when a known adjustment explained the finding: its severity before the adjustment. */
   adjustedFrom?: Severity
+  /**
+   * The finding's identity across runs of the same period: its check, its subject and its message
+   * with the figures taken out. A status a reviewer set carries to the next run's finding with the
+   * same key.
+   */
+  key?: string
+  /** Who set the status and note, and when. Absent while it is open, or when a known adjustment set it. */
+  statusBy?: string
+  statusAt?: string
+  /** The question for the administrator, in the reviewer's words, in place of the drafted one. */
+  question?: string
+}
+
+/** A period's sign-off: who, when, and what they signed off, so the review can be audited later. */
+export interface SignOff {
+  by: string
+  at: string
+  note?: string
+  /** The documents the package came from, with their hashes. */
+  documents: PackageDocument[]
+  counts: Record<Severity, number>
+  /** How many findings stood in each status at sign-off. */
+  statuses: Record<FindingStatus, number>
+  checks: { check: CheckId; ran: boolean; compared: number }[]
+  materiality: Materiality
+  threshold: number
 }
 
 export type CheckId =

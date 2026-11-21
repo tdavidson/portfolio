@@ -11,9 +11,9 @@
 //   statement_review_findings       → the vehicle's reviews, or one review's checks and findings
 //   statement_review_settings       → the vehicle's materiality, instructions, watched accounts, known adjustments
 //   statement_review_settings_save  → change them (lp_capital write, applied directly: configuration, not figures)
-//
-// The write tools in the spec (statement_review_note, statement_review_sign_off) arrive with the
-// findings workflow (stage 5).
+//   statement_review_note           → a reviewer's status, note or question on one finding (lp_capital write)
+//   statement_review_sign_off       → sign off a period once nothing is open (lp_capital write)
+//   statement_review_export         → the questions for the administrator, the review as Markdown, and a PDF link
 
 import type { AgentToolMeta } from '@/lib/accounting/agent-tools-manifest'
 import { CHECK_IDS } from '@/lib/statement-review/types'
@@ -248,5 +248,62 @@ export const STATEMENT_REVIEW_TOOL_MANIFEST: AgentToolMeta[] = [
     accessDomain: 'lp_capital',
     accessFeature: 'lp_tracking',
     inputSchema: { type: 'object', additionalProperties: false, properties: { ...SETTINGS_PROPERTIES } },
+  },
+  {
+    name: 'statement_review_note',
+    description:
+      "Record a reviewer's decision on one finding of a period's current review: status explained (the reviewer knows why), " +
+      'asked (a question for the administrator), accepted (the figure stands as stated) or open again, with a note, and ' +
+      "optionally the question to send in the reviewer's own words. Explained and accepted need a note. Take the finding's " +
+      'key from statement_review_findings. Decisions carry to the next run of the same period. Only what the person decided: ' +
+      'never mark a finding explained or accepted on your own judgement.',
+    scope: 'write',
+    accessDomain: 'lp_capital',
+    accessFeature: 'lp_tracking',
+    inputSchema: {
+      type: 'object', required: ['review_id', 'key'], additionalProperties: false,
+      properties: {
+        review_id: { type: 'string', description: "The period's current review (statement_review_findings gives reviewId)." },
+        key: { type: 'string', description: "The finding's key, from statement_review_findings." },
+        status: { type: 'string', enum: ['open', 'explained', 'asked', 'accepted'] },
+        note: { type: 'string', description: 'Why: what explains it, or why the figure is accepted. Up to 2,000 characters.' },
+        question: { type: 'string', description: 'The question for the administrator, in place of the drafted one.' },
+      },
+    },
+  },
+  {
+    name: 'statement_review_sign_off',
+    description:
+      "Sign off a vehicle's period: its current review, once no error or warning is open (each explained, asked or accepted). " +
+      "Records who, when, the package's documents and hashes, the counts, the statuses and which checks ran, and the next " +
+      "period's continuity check carries on from it. Only when the person asks to sign off.",
+    scope: 'write',
+    accessDomain: 'lp_capital',
+    accessFeature: 'lp_tracking',
+    inputSchema: {
+      type: 'object', required: ['review_id'], additionalProperties: false,
+      properties: {
+        review_id: { type: 'string', description: "The period's current review." },
+        note: { type: 'string', description: 'A note for the sign-off record.' },
+      },
+    },
+  },
+  {
+    name: 'statement_review_export',
+    description:
+      "A statement review as a document: the questions for the administrator (every open or asked error and warning, grouped " +
+      'by the document it cites, in page order), or the whole review as Markdown (questions, checks, findings with statuses ' +
+      'and notes, sign-off), and a link to the PDF. Writes nothing.',
+    scope: 'read',
+    accessDomain: 'lp_capital',
+    accessFeature: 'lp_tracking',
+    inputSchema: {
+      type: 'object', additionalProperties: false,
+      properties: {
+        period_end: { type: 'string', description: "YYYY-MM-DD: that period's current review." },
+        review_id: { type: 'string', description: 'One run, current or earlier.' },
+        content: { type: 'string', enum: ['questions', 'review'], description: 'questions (default): what to send the administrator. review: the whole review.' },
+      },
+    },
   },
 ]

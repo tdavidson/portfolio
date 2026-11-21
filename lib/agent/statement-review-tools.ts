@@ -3,7 +3,11 @@
 import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-tools'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { unwrap } from '@/lib/service-outcome'
-import { getReview, listReviews, runReview, type StoredReview } from '@/lib/statement-review/store'
+import { getReview, listReviews, noteFinding, runReview, signOffReview, type StoredReview } from '@/lib/statement-review/store'
+import { questionsMarkdown, reviewMarkdown } from '@/lib/statement-review/export'
+import { blocking, draftQuestions, findingKey } from '@/lib/statement-review/workflow'
+import { linkNote, reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
+import { siteOrigin } from '@/lib/site-links'
 import { loadSettings, saveSettings } from '@/lib/statement-review/settings'
 import { CHECK_LABELS } from '@/lib/statement-review/types'
 import { ASSISTANT_TEXT_BUDGET, EXTRACTION_RESPONSE_SHAPE, EXTRACTION_RULES, extractWithServerModel, loadSourceDocuments } from '@/lib/statement-review/extract'
@@ -25,9 +29,12 @@ function present(r: StoredReview, severity?: string) {
     current: r.current,
     runAt: r.runAt,
     counts: r.counts,
+    signOff: r.signOff ? { at: r.signOff.at, ...(r.signOff.byName ? { by: r.signOff.byName } : {}), ...(r.signOff.note ? { note: r.signOff.note } : {}) } : null,
+    openToSignOff: r.signOff ? 0 : blocking(r.findings).length,
     materiality: { ...r.materiality, threshold: r.threshold, nav: r.nav },
     checks: r.checks.map(c => ({ check: CHECK_LABELS[c.check] ?? c.check, ran: c.ran, compared: c.compared, ...(c.note ? { note: c.note } : {}) })),
     findings: findings.map(f => ({
+      key: f.key ?? findingKey(f),
       check: CHECK_LABELS[f.check] ?? f.check,
       severity: f.severity,
       subject: f.subject.label,
@@ -38,6 +45,7 @@ function present(r: StoredReview, severity?: string) {
       cites: f.cites,
       status: f.status,
       ...(f.note ? { note: f.note } : {}),
+      ...(f.question ? { question: f.question } : {}),
     })),
   }
 }
@@ -64,7 +72,9 @@ export const STATEMENT_REVIEW_HANDLERS: Record<string, AgentToolHandler> = {
       ...present(review),
       ...(settings.instructions ? { instructions: settings.instructions } : {}),
       next: review.counts.error || review.counts.warning
-        ? 'Show the person the errors and warnings with their citations. Each is a question for the administrator or something to explain.'
+        ? 'Show the person the errors and warnings with their citations. Each is a question for the administrator or something to explain: ' +
+          'record what they decide with statement_review_note, draft the questions with statement_review_export, and sign off with ' +
+          'statement_review_sign_off once nothing is open.'
         : 'Nothing above materiality. Say which checks ran and which could not, so the person knows what was covered.',
     }
   },
@@ -114,6 +124,46 @@ export const STATEMENT_REVIEW_HANDLERS: Record<string, AgentToolHandler> = {
     const review = unwrap(await getReview(ctx.admin, ctx.fundId, vehicle, { id: input.review_id, periodEnd: input.period_end }))
     const settings = await loadSettings(ctx.admin, ctx.fundId, vehicle.id)
     return { ...present(review, input.severity), ...(settings.instructions ? { instructions: settings.instructions } : {}) }
+  },
+
+  statement_review_note: async (ctx: AgentToolContext, input: Record<string, unknown>) => {
+    const vehicle = await vehicleOf(ctx)
+    const r = unwrap(await noteFinding(ctx.admin, { fundId: ctx.fundId, userId: ctx.userId }, vehicle, input?.review_id, {
+      key: input?.key, status: input?.status, note: input?.note, question: input?.question,
+    }))
+    const open = blocking(r.review.findings).length
+    return {
+      vehicle: vehicle.name, reviewId: r.review.id, saved: true,
+      finding: { key: r.finding.key, status: r.finding.status, ...(r.finding.note ? { note: r.finding.note } : {}), message: r.finding.message },
+      openToSignOff: open,
+      next: open ? `${open} error${open === 1 ? '' : 's'} or warning${open === 1 ? '' : 's'} still open before the period can be signed off.` : 'Nothing is open: the period can be signed off when the person is ready (statement_review_sign_off).',
+    }
+  },
+
+  statement_review_sign_off: async (ctx: AgentToolContext, input: Record<string, unknown>) => {
+    const vehicle = await vehicleOf(ctx)
+    const r = unwrap(await signOffReview(ctx.admin, { fundId: ctx.fundId, userId: ctx.userId }, vehicle, input?.review_id, input?.note))
+    return { vehicle: vehicle.name, reviewId: r.id, period: { start: r.periodStart, end: r.periodEnd }, signOff: r.signOff }
+  },
+
+  statement_review_export: async (ctx: AgentToolContext, input: { period_end?: string; review_id?: string; content?: string }) => {
+    const vehicle = await vehicleOf(ctx)
+    const review = unwrap(await getReview(ctx.admin, ctx.fundId, vehicle, { id: input?.review_id, periodEnd: input?.period_end }))
+    const content = input?.content === 'review' ? 'review' : 'questions'
+    let pdf: { url: string; expires_at: string; note: string } | null = null
+    if (ctx.userId) {
+      const { token, expiresAt } = signReportLink({ fundId: ctx.fundId, userId: ctx.userId, kind: 'statement_review', args: { vehicle: vehicle.name, review: review.id } })
+      pdf = { url: reportLinkUrl(ctx.origin ?? siteOrigin(), token), expires_at: expiresAt, note: linkNote('It opens the review PDF for an hour, and only for this member.') }
+    }
+    return {
+      vehicle: vehicle.name, reviewId: review.id, period: { start: review.periodStart, end: review.periodEnd },
+      questions: draftQuestions(review.findings).reduce((n, g) => n + g.questions.length, 0),
+      markdown: content === 'review' ? reviewMarkdown(review) : questionsMarkdown(review),
+      ...(pdf ? { pdf } : {}),
+      next: content === 'questions'
+        ? 'Show the person the questions. Mark each finding they send as asked (statement_review_note) so the review records it.'
+        : 'Share the review as the person asks: the Markdown as is, or the PDF link.',
+    }
   },
 
   statement_review_settings: async (ctx: AgentToolContext) => {
