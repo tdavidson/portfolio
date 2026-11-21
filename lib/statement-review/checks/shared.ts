@@ -2,7 +2,7 @@
 
 import type { PullMatch } from '@/lib/admin-reporting/figures'
 import type { CheckContext } from '../compare'
-import type { CheckOutcome, Finding, PartnerStatement, StatementPackage } from '../types'
+import type { CheckOutcome, Finding, PartnerStatement, ReviewSettings, Shadow, StatementPackage } from '../types'
 
 /** A partner the app knows in the vehicle on the period end. */
 export interface KnownPartner { lpEntityId: string; name: string }
@@ -16,6 +16,10 @@ export interface CheckInput {
   known?: KnownPartner[] | null
   /** How each package partner was matched, in the package's order. */
   matches?: PullMatch[]
+  /** The app's own figures for the vehicle and period. Null when they couldn't be read. */
+  shadow?: Shadow | null
+  /** The vehicle's review settings: watched accounts and known adjustments. */
+  settings?: ReviewSettings
 }
 
 export interface CheckResult {
@@ -31,3 +35,6 @@ export const partnerSubject = (p: PartnerStatement): Finding['subject'] =>
 export const fundSubject = (label = 'Fund'): Finding['subject'] => ({ kind: 'fund', label })
 
 export const push = (list: Finding[], f: Finding | null) => { if (f) list.push(f) }
+
+/** A name as compared across documents: case, punctuation and spacing ignored. */
+export const normName = (s: string) => s.toLowerCase().replace(/[.,'’()&-]/g, ' ').replace(/\s+/g, ' ').trim()

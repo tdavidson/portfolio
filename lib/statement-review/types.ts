@@ -104,6 +104,13 @@ export interface HoldingLine {
   cite?: Citation
 }
 
+/** An ending cash balance by account, as the package states it. */
+export interface CashLine {
+  account: string
+  balance: number
+  cite?: Citation
+}
+
 export interface PackageDocument {
   name: string
   /** SHA-256 of the file, hex. */
@@ -126,6 +133,7 @@ export interface StatementPackage {
   partners?: PartnerStatement[]
   fund?: FundStatements
   holdings?: HoldingLine[]
+  cash?: CashLine[]
 }
 
 export type Severity = 'error' | 'warning' | 'info'
@@ -143,9 +151,13 @@ export interface Finding {
   cites: Citation[]
   status: FindingStatus
   note?: string
+  /** Set when a known adjustment explained the finding: its severity before the adjustment. */
+  adjustedFrom?: Severity
 }
 
-export type CheckId = 'foots' | 'partners_sum' | 'roll_forward' | 'continuity' | 'completeness'
+export type CheckId =
+  | 'foots' | 'partners_sum' | 'roll_forward' | 'continuity' | 'completeness'
+  | 'ledger_flows' | 'cash' | 'soi' | 'watched_accounts'
 
 export const CHECK_LABELS: Record<CheckId, string> = {
   foots: 'Foots',
@@ -153,7 +165,13 @@ export const CHECK_LABELS: Record<CheckId, string> = {
   roll_forward: 'Roll-forward',
   continuity: 'Continuity',
   completeness: 'Completeness',
+  ledger_flows: 'Contributions and distributions',
+  cash: 'Cash',
+  soi: 'Schedule of investments',
+  watched_accounts: 'Watched accounts',
 }
+
+export const CHECK_IDS = Object.keys(CHECK_LABELS) as CheckId[]
 
 /** What one check did: ran (with how many comparisons) or could not, and why. */
 export interface CheckOutcome {
@@ -176,3 +194,83 @@ export interface Materiality {
 export const DEFAULT_MATERIALITY: Materiality = { amount: 0, navShare: 0 }
 /** Rounding tolerance on one figure, the same as `reconcile` uses. */
 export const ROUNDING_TOLERANCE = 0.01
+
+// ---------------------------------------------------------------------------
+// The app's own figures for the period (the shadow), and the vehicle's review settings
+// ---------------------------------------------------------------------------
+
+/** One partner's capital activity for the period in the app's books. */
+export interface ShadowPartner {
+  lpEntityId: string
+  name: string
+  contributions: number
+  /** Positive: what was paid out. */
+  distributions: number
+}
+
+/** One ledger account: its balance at the period end and how much it moved in the period. */
+export interface ShadowAccount {
+  code: string
+  name: string
+  type: string
+  subtype?: string | null
+  /** On the account's normal side, at the period end. */
+  balance: number
+  /** On the account's normal side, within the period. */
+  movement: number
+}
+
+export interface ShadowHolding {
+  companyId: string
+  name: string
+  cost: number
+  fairValue: number
+}
+
+/**
+ * What the app holds for the vehicle and period, built from its own books and portfolio tracker.
+ * Each part is null when the app holds nothing for it, so the check that needs it says so.
+ */
+export interface Shadow {
+  /** Partners with capital activity in the books; null when the books hold no capital postings. */
+  partners: ShadowPartner[] | null
+  /** Ledger cash at the period end, and the bank feed's balance where the feed covers the date. */
+  cash: { ledger: number; bank: number | null; bankThrough: string | null } | null
+  holdings: ShadowHolding[] | null
+  accounts: ShadowAccount[] | null
+}
+
+/** An account the reviewer wants looked at every period. */
+export interface WatchedAccount {
+  /** An account code, or its name. */
+  account: string
+  /** What to look for, in the reviewer's words. */
+  note?: string
+  /** Flag the account when it moves by more than this in the period. */
+  threshold?: number
+}
+
+/**
+ * A difference the reviewer already knows about and expects, so a finding that matches it is
+ * marked explained instead of raised again. Matches on any of check, subject and amount it names.
+ */
+export interface KnownAdjustment {
+  description: string
+  check?: CheckId
+  /** Part of the finding's subject: a partner, holding or statement name. */
+  subject?: string
+  /** The difference it accounts for. */
+  amount?: number
+  /** How far from `amount` the difference may be. Default a cent. */
+  tolerance?: number
+}
+
+export interface ReviewSettings {
+  materiality: Materiality
+  /** Free-text instructions for whoever (or whatever) reviews the package. */
+  instructions: string
+  watchAccounts: WatchedAccount[]
+  adjustments: KnownAdjustment[]
+}
+
+export const DEFAULT_SETTINGS: ReviewSettings = { materiality: DEFAULT_MATERIALITY, instructions: '', watchAccounts: [], adjustments: [] }

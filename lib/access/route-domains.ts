@@ -236,6 +236,8 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // Statement review: per-LP capital, so lp_capital. Running the checks reports on figures and
   // changes none of them, so the POST is read level too (docs/spec/statement-review.md, Access).
   'api/accounting/statement-review': { domain: 'lp_capital', feature: 'lp_tracking', level: 'read' },
+  // The vehicle's review settings: reading them is read, saving them is a write.
+  'api/accounting/statement-review/settings': { domain: 'lp_capital', feature: 'lp_tracking' },
   'api/lps/entities': { domain: 'lp_capital' },
   'api/lps/entities/profile': { domain: 'lp_capital' },
   // LPs' requests to change their record: read to see, write to decide (re-checked in the handler,

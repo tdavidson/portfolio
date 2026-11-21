@@ -5,8 +5,10 @@
 // caller's access and injects it. Both are read level in the lp_capital domain, like the app's
 // review route: a review reports on figures and changes none of them.
 //
-//   statement_review_run       → run the tie-out checks on a package and save the review
-//   statement_review_findings  → the vehicle's reviews, or one review's checks and findings
+//   statement_review_run            → run the tie-out checks on a package and save the review
+//   statement_review_findings       → the vehicle's reviews, or one review's checks and findings
+//   statement_review_settings       → the vehicle's materiality, instructions, watched accounts, known adjustments
+//   statement_review_settings_save  → change them (lp_capital write, applied directly: configuration, not figures)
 //
 // The write tools in the spec (statement_review_note, statement_review_sign_off) arrive with the
 // findings workflow (stage 5).
@@ -84,6 +86,50 @@ export const STATEMENT_PACKAGE_SCHEMA = {
       },
     },
     holdings: { type: 'array', description: 'The schedule of investments, one line per holding.', items: { type: 'object', required: ['name'], properties: { name: { type: 'string' }, cost: AMOUNT, fair_value: AMOUNT } } },
+    cash: { type: 'array', description: 'Ending cash by account, as stated.', items: { type: 'object', required: ['account', 'balance'], properties: { account: { type: 'string' }, balance: AMOUNT } } },
+  },
+} as const
+
+const SETTINGS_PROPERTIES = {
+  materiality: {
+    type: 'object',
+    description: 'Differences above the larger of these are errors; smaller ones are information.',
+    properties: {
+      amount: { type: 'number', description: "An amount in the vehicle's currency." },
+      nav_share: { type: 'number', description: 'A share of fund NAV: 0.001 for 0.1%.' },
+    },
+  },
+  instructions: {
+    type: 'string',
+    description: "The reviewer's own instructions for this vehicle's reviews, in their words: what to pay attention to, how the " +
+      'administrator presents things, what to ask about. Up to 8,000 characters.',
+  },
+  watch_accounts: {
+    type: 'array',
+    description: 'Accounts to report every period with their balance and movement. Replaces the whole list.',
+    items: {
+      type: 'object', required: ['account'],
+      properties: {
+        account: { type: 'string', description: 'An account code (4100) or name.' },
+        note: { type: 'string', description: 'What to look for.' },
+        threshold: { type: 'number', description: 'Warn when the account moves by more than this in the period.' },
+      },
+    },
+  },
+  adjustments: {
+    type: 'array',
+    description: 'Differences the reviewer already knows about. A finding one matches is marked explained, with its description, ' +
+      'and shown as information. Each needs a subject or an amount. Replaces the whole list.',
+    items: {
+      type: 'object', required: ['description'],
+      properties: {
+        description: { type: 'string', description: 'Why the difference is expected.' },
+        check: { type: 'string', enum: ['foots', 'partners_sum', 'roll_forward', 'continuity', 'completeness', 'ledger_flows', 'cash', 'soi', 'watched_accounts'] },
+        subject: { type: 'string', description: 'Part of the partner, holding, account or statement name it applies to.' },
+        amount: { type: 'number', description: 'The difference it accounts for.' },
+        tolerance: { type: 'number', description: 'How far from amount the difference may be. Default a cent.' },
+      },
+    },
   },
 } as const
 
@@ -92,8 +138,11 @@ export const STATEMENT_REVIEW_TOOL_MANIFEST: AgentToolMeta[] = [
     name: 'statement_review_run',
     description:
       "Check a vehicle's quarterly statements: whether they foot, whether the partners add up to the fund, whether each capital " +
-      "account rolls forward, whether this period carries on from the last review, and whether every partner the app knows is " +
-      'there and nobody unknown is. The figures come from a saved administrator pull (input admin_pull), a partner capital ' +
+      "account rolls forward, whether this period carries on from the last review, whether every partner the app knows is " +
+      "there and nobody unknown is, whether contributions, distributions, cash and the schedule of investments agree with the " +
+      "app's books, bank feed and portfolio, and how the reviewer's watched accounts moved. Known adjustments in the review " +
+      'settings mark the findings they explain. Read statement_review_settings first and follow its instructions when you read ' +
+      'a package. The figures come from a saved administrator pull (input admin_pull), a partner capital ' +
       "schedule as CSV text (input csv), or a package you read from the administrator's statements and give whole (input " +
       'package). Saves the review and returns its checks and findings, worst first; each finding cites where the figure is ' +
       'stated. Never changes the figures it reviews.',
@@ -115,10 +164,12 @@ export const STATEMENT_REVIEW_TOOL_MANIFEST: AgentToolMeta[] = [
         },
         file_name: { type: 'string', description: 'csv: the file name, for citations.' },
         fund: { type: 'object', description: "csv: the fund's own statements, in the package's fund shape, to check the schedule against." },
+        cash: { type: 'array', description: "csv: ending cash by account, in the package's cash shape.", items: { type: 'object' } },
+        holdings: { type: 'array', description: "csv: the schedule of investments, in the package's holdings shape.", items: { type: 'object' } },
         package: STATEMENT_PACKAGE_SCHEMA,
         materiality: {
           type: 'object',
-          description: "Differences above the larger of these are errors; smaller ones are information. Defaults to the vehicle's last run.",
+          description: "Differences above the larger of these are errors; smaller ones are information. Defaults to the vehicle's review settings.",
           properties: {
             amount: { type: 'number', description: "An amount in the vehicle's currency." },
             nav_share: { type: 'number', description: 'A share of fund NAV: 0.001 for 0.1%.' },
@@ -144,5 +195,27 @@ export const STATEMENT_REVIEW_TOOL_MANIFEST: AgentToolMeta[] = [
         severity: { type: 'string', enum: ['error', 'warning', 'info'], description: 'Only findings of this severity.' },
       },
     },
+  },
+  {
+    name: 'statement_review_settings',
+    description:
+      "A vehicle's statement review settings: materiality, the reviewer's own instructions (what to pay attention to and how " +
+      'the administrator presents things), the accounts to watch every period, and the adjustments they already know about. ' +
+      'Read these before reading a package for statement_review_run, and follow the instructions. Writes nothing.',
+    scope: 'read',
+    accessDomain: 'lp_capital',
+    accessFeature: 'lp_tracking',
+    inputSchema: { type: 'object', additionalProperties: false, properties: {} },
+  },
+  {
+    name: 'statement_review_settings_save',
+    description:
+      "Change a vehicle's statement review settings. A field left out keeps its value; a list given replaces the whole list, so " +
+      'read statement_review_settings first and send the list with your change. Use it when the person asks to watch an ' +
+      'account, to remember a recurring adjustment, or to change the instructions or materiality. Applies on the next run.',
+    scope: 'write',
+    accessDomain: 'lp_capital',
+    accessFeature: 'lp_tracking',
+    inputSchema: { type: 'object', additionalProperties: false, properties: { ...SETTINGS_PROPERTIES } },
   },
 ]

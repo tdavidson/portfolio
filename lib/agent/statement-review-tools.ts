@@ -4,6 +4,7 @@ import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { unwrap } from '@/lib/service-outcome'
 import { getReview, listReviews, runReview, type StoredReview } from '@/lib/statement-review/store'
+import { loadSettings, saveSettings } from '@/lib/statement-review/settings'
 import { CHECK_LABELS } from '@/lib/statement-review/types'
 
 async function vehicleOf(ctx: AgentToolContext): Promise<{ id: string; name: string }> {
@@ -35,6 +36,7 @@ function present(r: StoredReview, severity?: string) {
       message: f.message,
       cites: f.cites,
       status: f.status,
+      ...(f.note ? { note: f.note } : {}),
     })),
   }
 }
@@ -50,11 +52,15 @@ export const STATEMENT_REVIEW_HANDLERS: Record<string, AgentToolHandler> = {
       csv: input?.csv,
       fileName: input?.file_name,
       fund: input?.fund,
+      cash: input?.cash,
+      holdings: input?.holdings,
       package: input?.package,
       materiality: input?.materiality,
     }))
+    const settings = await loadSettings(ctx.admin, ctx.fundId, vehicle.id)
     return {
       ...present(review),
+      ...(settings.instructions ? { instructions: settings.instructions } : {}),
       next: review.counts.error || review.counts.warning
         ? 'Show the person the errors and warnings with their citations. Each is a question for the administrator or something to explain.'
         : 'Nothing above materiality. Say which checks ran and which could not, so the person knows what was covered.',
@@ -67,6 +73,18 @@ export const STATEMENT_REVIEW_HANDLERS: Record<string, AgentToolHandler> = {
       return { vehicle: vehicle.name, reviews: await listReviews(ctx.admin, ctx.fundId, vehicle.id) }
     }
     const review = unwrap(await getReview(ctx.admin, ctx.fundId, vehicle, { id: input.review_id, periodEnd: input.period_end }))
-    return present(review, input.severity)
+    const settings = await loadSettings(ctx.admin, ctx.fundId, vehicle.id)
+    return { ...present(review, input.severity), ...(settings.instructions ? { instructions: settings.instructions } : {}) }
+  },
+
+  statement_review_settings: async (ctx: AgentToolContext) => {
+    const vehicle = await vehicleOf(ctx)
+    return { vehicle: vehicle.name, ...(await loadSettings(ctx.admin, ctx.fundId, vehicle.id)) }
+  },
+
+  statement_review_settings_save: async (ctx: AgentToolContext, input: Record<string, unknown>) => {
+    const vehicle = await vehicleOf(ctx)
+    const saved = unwrap(await saveSettings(ctx.admin, { fundId: ctx.fundId, userId: ctx.userId }, vehicle.id, input ?? {}))
+    return { vehicle: vehicle.name, saved: true, ...saved, next: 'The settings apply from the next statement_review_run.' }
   },
 }

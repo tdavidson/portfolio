@@ -11,6 +11,8 @@ import { useLedgerFetch, useVehicle } from '@/components/accounting-vehicle'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty-state'
+import { useCanWrite } from '@/components/access-context'
+import { ReviewSettingsPanel } from './settings-panel'
 import { CHECK_LABELS, type CheckOutcome, type Finding, type Severity } from '@/lib/statement-review/types'
 
 interface Summary {
@@ -52,8 +54,8 @@ function VehicleReview() {
   const [pullId, setPullId] = useState('')
   const [csv, setCsv] = useState<string | null>(null)
   const [csvName, setCsvName] = useState('')
-  const [amount, setAmount] = useState('')
-  const [navShare, setNavShare] = useState('')
+  const [cashStated, setCashStated] = useState('')
+  const canEditSettings = useCanWrite('lp_capital', 'lp_tracking')
 
   const open = useCallback(async (id: string) => {
     const res = await lf(`/api/accounting/statement-review?id=${encodeURIComponent(id)}`)
@@ -81,10 +83,10 @@ function VehicleReview() {
   async function run() {
     setBusy(true); setError(null)
     try {
-      const materiality = amount || navShare ? { amount: amount || undefined, nav_share: navShare || undefined } : undefined
+      const cash = cashStated.trim() ? [{ account: 'Cash', balance: cashStated.trim() }] : undefined
       const body = mode === 'admin_pull'
-        ? { input: 'admin_pull', pull_id: pullId, materiality }
-        : { input: 'csv', csv, file_name: csvName, period_end: periodEnd, materiality }
+        ? { input: 'admin_pull', pull_id: pullId }
+        : { input: 'csv', csv, file_name: csvName, period_end: periodEnd, cash }
       const res = await lf('/api/accounting/statement-review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const d = await res.json().catch(() => ({}))
       if (!res.ok) { setError(d.error ?? 'The review could not run.'); return }
@@ -100,12 +102,14 @@ function VehicleReview() {
 
   return (
     <div className="space-y-6">
+      <ReviewSettingsPanel canEdit={canEditSettings} />
       <section className="rounded-card border p-4 space-y-3">
         <div>
           <h2 className="text-base font-medium">Run a review</h2>
           <p className="text-xs text-muted-foreground mt-1">
             Checks that the statements foot, that the partners add up to the fund, that each capital account rolls forward,
-            that this period carries on from the last review, and that every partner is there. The figures themselves are never changed.
+            that this period carries on from the last review, that every partner is there, and that flows, cash and the schedule
+            of investments agree with the books. The figures themselves are never changed.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -139,14 +143,12 @@ function VehicleReview() {
               </label>
             </>
           )}
-          <label className="text-xs text-muted-foreground space-y-1">
-            <span className="block">Materiality (amount)</span>
-            <Input value={amount} onChange={e => setAmount(e.target.value)} placeholder={selected ? String(selected.materiality.amount) : '0'} className="h-9 w-32 tabular-nums" />
-          </label>
-          <label className="text-xs text-muted-foreground space-y-1">
-            <span className="block">or share of NAV</span>
-            <Input value={navShare} onChange={e => setNavShare(e.target.value)} placeholder={selected ? `${(selected.materiality.navShare * 100).toFixed(2)}%` : '0.1%'} className="h-9 w-24 tabular-nums" />
-          </label>
+          {mode === 'csv' && (
+            <label className="text-xs text-muted-foreground space-y-1">
+              <span className="block">Cash per statement (optional)</span>
+              <Input value={cashStated} onChange={e => setCashStated(e.target.value)} placeholder="0.00" className="h-9 w-36 tabular-nums" />
+            </label>
+          )}
           <Button size="sm" onClick={run} disabled={busy || !canRun}>
             {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null} Run checks
           </Button>
@@ -261,6 +263,7 @@ function VehicleReview() {
                           <td className="py-2 pr-3">
                             <span className="block text-xs text-muted-foreground">{CHECK_LABELS[f.check]} · {f.subject.label}</span>
                             {f.message}
+                            {f.note && <span className="block text-xs text-muted-foreground mt-0.5">{f.note}</span>}
                           </td>
                           <td className="py-2 text-right tabular-nums whitespace-nowrap">{money(f.stated)}</td>
                           <td className="py-2 text-right tabular-nums whitespace-nowrap">{money(f.expected)}</td>

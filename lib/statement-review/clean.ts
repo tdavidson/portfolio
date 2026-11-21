@@ -6,7 +6,7 @@ import { MAX_POSITIONS, parseAmount } from '@/lib/admin-reporting/figures'
 import {
   ALLOCATION_KEYS, CAPITAL_FIELDS,
   type Allocations, type CapitalFigures, type Citation, type FundStatements, type HoldingLine,
-  type PackageDocument, type PartnerStatement, type StatedLine, type StatementPackage,
+  type CashLine, type PackageDocument, type PartnerStatement, type StatedLine, type StatementPackage,
 } from './types'
 
 const ISO = /^\d{4}-\d{2}-\d{2}$/
@@ -166,6 +166,20 @@ function holdings(v: unknown): HoldingLine[] | undefined {
   })
 }
 
+function cashLines(v: unknown): CashLine[] | undefined {
+  if (v == null) return undefined
+  if (!Array.isArray(v)) throw new Bad('cash must be a list of { account, balance }')
+  if (v.length > MAX_LINES) throw new Bad(`cash: at most ${MAX_LINES} lines`)
+  return v.map((c: any, i) => {
+    const account = text(c?.account ?? c?.label, 300)
+    if (!account) throw new Bad(`cash[${i}]: account is required`)
+    const balance = amount(c, 'balance', `cash[${i}]`) ?? amount(c, 'amount', `cash[${i}]`)
+    if (balance == null) throw new Bad(`cash[${i}]: balance is required`)
+    const cc = citation(c?.cite)
+    return { account, balance, ...(cc ? { cite: cc } : {}) }
+  })
+}
+
 function documents(v: unknown): PackageDocument[] {
   if (!Array.isArray(v)) return []
   return v.slice(0, 100).flatMap((d: any) => {
@@ -200,10 +214,12 @@ export function cleanPackage(input: any, vehicleId: string): StatementPackage | 
     const p = partners(pick(input, 'partners'))
     const f = fundStatements(pick(input, 'fund'))
     const h = holdings(pick(input, 'holdings'))
+    const c = cashLines(pick(input, 'cash'))
     if (p) pkg.partners = p
     if (f) pkg.fund = f
     if (h) pkg.holdings = h
-    if (!p?.length && !f && !h?.length) return 'The package has nothing to check: give partners, fund statements or holdings.'
+    if (c) pkg.cash = c
+    if (!p?.length && !f && !h?.length && !c?.length) return 'The package has nothing to check: give partners, fund statements, holdings or cash.'
     return pkg
   } catch (e) {
     if (e instanceof Bad) return e.message

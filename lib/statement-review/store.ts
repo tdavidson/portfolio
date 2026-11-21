@@ -6,7 +6,9 @@
 //   1. builds the package: from a saved administrator pull, a CSV, or a package given whole
 //   2. matches its partners to the vehicle's (the admin-reporting matcher: saved link, then the id
 //      the caller gives, then the exact name)
-//   3. loads the previous period's review and the partners the app knows in the vehicle
+//   3. loads the previous period's review, the partners the app knows in the vehicle, the vehicle's
+//      review settings (materiality, watched accounts, known adjustments) and the shadow: the app's
+//      own books, bank feed and portfolio for the period (shadow.ts)
 //   4. runs the checks (run.ts) and saves the package, the checks and the findings in statement_reviews
 //
 // Runs are kept: the latest run for a period is that period's review, earlier ones stay as history.
@@ -22,6 +24,8 @@ import { cleanPackage, isDate } from './clean'
 import { packageFromCsv } from './csv'
 import { packageInputFromPull } from './from-admin-pull'
 import { runChecks } from './run'
+import { loadSettings } from './settings'
+import { loadShadow } from './shadow'
 import type { KnownPartner } from './checks/shared'
 import {
   DEFAULT_MATERIALITY,
@@ -64,6 +68,10 @@ export interface RunRequest {
   fileName?: unknown
   /** csv: the fund's own statements, given alongside the partner schedule. */
   fund?: unknown
+  /** csv: ending cash by account, given alongside the partner schedule. */
+  cash?: unknown
+  /** csv: the schedule of investments, given alongside the partner schedule. */
+  holdings?: unknown
   /** package: the whole package. */
   package?: unknown
   materiality?: unknown
@@ -143,16 +151,6 @@ async function loadPrior(admin: SupabaseClient, fundId: string, vehicleId: strin
   return { periodEnd: row.period_end, partners: (row.package?.partners ?? []) as PartnerStatement[], materiality: row.materiality ?? null }
 }
 
-/** The materiality the vehicle's last run used, so a person sets it once. */
-async function lastMateriality(admin: SupabaseClient, fundId: string, vehicleId: string): Promise<Materiality> {
-  const { data } = await (admin as any).from('statement_reviews').select('materiality')
-    .eq('fund_id', fundId).eq('vehicle_id', vehicleId).order('run_at', { ascending: false }).limit(1)
-  const m = (data as any[])?.[0]?.materiality
-  return m && Number.isFinite(Number(m.amount)) && Number.isFinite(Number(m.navShare))
-    ? { amount: Number(m.amount), navShare: Number(m.navShare) }
-    : DEFAULT_MATERIALITY
-}
-
 /** Build the package a run asks for, before matching. */
 async function buildPackage(admin: SupabaseClient, fundId: string, vehicleId: string, req: RunRequest): Promise<Outcome<{ pkg: StatementPackage; pullId: string | null }>> {
   if (req.input === 'admin_pull') {
@@ -182,6 +180,8 @@ async function buildPackage(admin: SupabaseClient, fundId: string, vehicleId: st
     const pkg = cleanPackage({
       period_end: req.periodEnd, period_start: req.periodStart, source: 'administrator',
       documents: [{ name, kind: 'csv' }], partners: parsed.partners, fund,
+      ...(Array.isArray(req.cash) && req.cash.length ? { cash: req.cash } : {}),
+      ...(Array.isArray(req.holdings) && req.holdings.length ? { holdings: req.holdings } : {}),
     }, vehicleId)
     if (typeof pkg === 'string') return fail(400, pkg)
     return done({ pkg, pullId: null })
@@ -241,17 +241,20 @@ export async function runReview(
 
   let match: Awaited<ReturnType<typeof loadMatchContext>>
   let prior: Awaited<ReturnType<typeof loadPrior>>
-  let fallback: Materiality
+  let settings: Awaited<ReturnType<typeof loadSettings>>
+  let shadow: Awaited<ReturnType<typeof loadShadow>>
   try {
-    ;[match, prior, fallback] = await Promise.all([
+    ;[match, prior, settings, shadow] = await Promise.all([
       loadMatchContext(admin, ctx.fundId, vehicle.id),
       loadPrior(admin, ctx.fundId, vehicle.id, pkg.periodEnd),
-      lastMateriality(admin, ctx.fundId, vehicle.id),
+      loadSettings(admin, ctx.fundId, vehicle.id),
+      loadShadow(admin, ctx.fundId, vehicle, { start: pkg.periodStart, end: pkg.periodEnd }),
     ])
   } catch (e: any) {
     return dbFail(e, 'statement-review-load')
   }
-  const materiality = cleanMateriality(req.materiality, fallback)
+  // The vehicle's setting, unless this run names its own.
+  const materiality = cleanMateriality(req.materiality, settings.materiality)
   if (typeof materiality === 'string') return fail(400, materiality)
 
   // Map the package's partners to the vehicle's. Unmatched ones stay, and completeness flags them.
@@ -265,7 +268,7 @@ export async function runReview(
   const names = new Map(match.partners.map(p => [p.id, p.name]))
   const known = await loadKnownPartners(admin, ctx.fundId, vehicle.id, pkg.periodEnd, names)
 
-  const result = runChecks({ pkg, prior, known, matches }, materiality)
+  const result = runChecks({ pkg, prior, known, matches, shadow, settings }, materiality)
 
   const { data, error } = await (admin as any).from('statement_reviews').insert({
     fund_id: ctx.fundId,

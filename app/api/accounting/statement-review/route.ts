@@ -15,7 +15,7 @@ import { getReview, listReviews, runReview } from '@/lib/statement-review/store'
 //   GET  ?group=…                          → { reviews }: every run, newest period first
 //   GET  ?group=…&id=… | &period_end=…     → one review: its package, checks and findings
 //   POST { group, input: 'admin_pull', period_end | pull_id, materiality? }
-//   POST { group, input: 'csv', csv, file_name?, period_end, period_start?, fund?, materiality? }
+//   POST { group, input: 'csv', csv, file_name?, period_end, period_start?, fund?, cash?, holdings?, materiality? }
 //   POST { group, input: 'package', package, materiality? }
 //                                          → run the checks and save the review
 
@@ -65,6 +65,8 @@ export async function POST(req: NextRequest) {
     csv: body?.csv,
     fileName: body?.file_name,
     fund: body?.fund,
+    cash: body?.cash,
+    holdings: body?.holdings,
     package: body?.package,
     materiality: body?.materiality,
   }))
