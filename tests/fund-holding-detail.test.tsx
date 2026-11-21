@@ -81,6 +81,11 @@ describe('the holding page', () => {
     expect(src).not.toContain('compactEmpty')
   })
 
+  it('keeps the header Analyst button when the holding\'s analyst is off: it opens the fund-wide assistant', () => {
+    expect(src).not.toMatch(/sections\.analyst && <AnalystButton/)
+    expect(src).toMatch(/\n\s*<AnalystButton companyId=/)
+  })
+
   it('offers Transfer cost from the register\'s Add menu, not a button of its own', () => {
     expect(src).toContain('transferRequest={transferRequest}')
     expect(src).toMatch(/onTransferCost=\{/)

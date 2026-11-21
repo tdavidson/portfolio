@@ -626,7 +626,7 @@ export function CompanyForm({ company, initialName, onSuccess, onCancel, onDelet
           <SectionSwitch
             id="use-analyst"
             label="Use AI Analyst"
-            hint="The analyst summary and the Analyst button."
+            hint="The Analyst summary panel for this holding."
             checked={analystEnabled}
             onCheckedChange={setAnalystEnabled}
           />

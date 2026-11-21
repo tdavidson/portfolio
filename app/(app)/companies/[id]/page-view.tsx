@@ -103,7 +103,8 @@ export function CompanyPageView({
             <Badge key={ind} variant="outline">{ind}</Badge>
           ))}
           {showNotes && <ChatButton />}
-          {sections.analyst && <AnalystButton companyId={company.id} companyName={company.name} pushRight={!showNotes} />}
+          {/* The header Analyst opens the fund-wide assistant, so it stays whatever this holding's analyst setting is. */}
+          <AnalystButton companyId={company.id} companyName={company.name} pushRight={!showNotes} />
         </div>
 
         {panels.companyProfile && sections.metrics && (latestMrr || latestCash) && (

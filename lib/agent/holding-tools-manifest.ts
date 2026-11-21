@@ -50,7 +50,7 @@ export const UPDATE_COMPANY_PROPERTIES: Record<string, unknown> = {
   current_update: { type: 'string', description: 'The latest news on the company. Empty clears it.' },
   notes: { type: 'string', description: 'The free-text notes field on the record (not a team note: add_company_note). Empty clears it.' },
   metrics_enabled: { type: 'boolean', description: 'Whether its page shows the metrics section (KPI charts, or the prompt to add one). Off hides it; recorded metrics are kept.' },
-  analyst_enabled: { type: 'boolean', description: 'Whether its page shows the AI Analyst (the summary panel and the Analyst button).' },
+  analyst_enabled: { type: 'boolean', description: 'Whether its page shows the AI Analyst summary panel (the Analyze card). The header Analyst button always stays.' },
   price_feed_enabled: {
     type: 'boolean',
     description: 'Companies only: whether its page shows the Price feed section, to add a ticker. A holding that already has a feed always shows it; digital assets always do.',
