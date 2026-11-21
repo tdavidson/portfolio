@@ -233,7 +233,7 @@ otp_expiry = 600
 # and path resolution is inconsistent across CLI commands (see github.com/supabase/cli/issues/2963).
 #
 # [auth.email.template.confirmation]
-# subject = "Confirm your email address"
+# subject = "Your confirmation code"
 # content_path = "./supabase/templates/confirmation.html"
 #
 # [auth.email.template.invite]
@@ -241,15 +241,15 @@ otp_expiry = 600
 # content_path = "./supabase/templates/invite.html"
 #
 # [auth.email.template.magic_link]
-# subject = "Your sign-in link"
+# subject = "Your sign-in code"
 # content_path = "./supabase/templates/magic_link.html"
 #
 # [auth.email.template.recovery]
-# subject = "Reset your password"
+# subject = "Your password reset code"
 # content_path = "./supabase/templates/recovery.html"
 #
 # [auth.email.template.email_change]
-# subject = "Confirm your new email address"
+# subject = "Your email change code"
 # content_path = "./supabase/templates/email_change.html"
 #
 # [auth.email.template.reauthentication]

@@ -5,16 +5,16 @@ import { ChevronDown } from 'lucide-react'
 import { Section } from '@/components/settings/section'
 
 const AUTH_EMAIL_TEMPLATES = [
-  { name: 'Confirm signup', file: 'confirmation.html', desc: 'Sent when a user signs up' },
-  { name: 'Invite user', file: 'invite.html', desc: 'Sent when an admin invites someone' },
-  { name: 'One-time code', file: 'magic_link.html', desc: 'Passwordless sign-in code' },
-  { name: 'Reset password', file: 'recovery.html', desc: 'Password reset request' },
-  { name: 'Change email', file: 'email_change.html', desc: 'Confirm new email address' },
-  { name: 'Reauthentication', file: 'reauthentication.html', desc: 'OTP code for re-verification' },
-  { name: 'Password changed', file: 'password_changed.html', desc: 'Security notification' },
-  { name: 'Email changed', file: 'email_changed.html', desc: 'Security notification' },
-  { name: 'MFA added', file: 'mfa_factor_enrolled.html', desc: 'Security notification' },
-  { name: 'MFA removed', file: 'mfa_factor_unenrolled.html', desc: 'Security notification' },
+  { name: 'Confirm signup', file: 'confirmation.html', subject: 'Your confirmation code', desc: 'Sent when a user signs up' },
+  { name: 'Invite user', file: 'invite.html', subject: "You've been invited", desc: 'Sent when an admin invites someone' },
+  { name: 'One-time code', file: 'magic_link.html', subject: 'Your sign-in code', desc: 'Passwordless sign-in code' },
+  { name: 'Reset password', file: 'recovery.html', subject: 'Your password reset code', desc: 'Password reset request' },
+  { name: 'Change email', file: 'email_change.html', subject: 'Your email change code', desc: 'Confirm new email address' },
+  { name: 'Reauthentication', file: 'reauthentication.html', subject: 'Your verification code', desc: 'OTP code for re-verification' },
+  { name: 'Password changed', file: 'password_changed.html', subject: 'Your password was changed', desc: 'Security notification' },
+  { name: 'Email changed', file: 'email_changed.html', subject: 'Your email address was changed', desc: 'Security notification' },
+  { name: 'MFA added', file: 'mfa_factor_enrolled.html', subject: 'Multi-factor authentication added', desc: 'Security notification' },
+  { name: 'MFA removed', file: 'mfa_factor_unenrolled.html', subject: 'Multi-factor authentication removed', desc: 'Security notification' },
 ]
 
 export function AuthEmailTemplatesSection() {
@@ -40,7 +40,7 @@ export function AuthEmailTemplatesSection() {
             <ol className="list-decimal list-inside space-y-1">
               <li>Go to your Supabase project dashboard → <strong>Authentication</strong> → <strong>Email templates</strong></li>
               <li>For each template type, copy the HTML from the corresponding file in <code className="text-[11px] bg-muted px-1 rounded font-mono">templates/</code></li>
-              <li>Update the subject line to match</li>
+              <li>Set the subject line to the one listed below. Keep the word &ldquo;code&rdquo; in the code emails&apos; subjects: Gmail and phone keyboards use it to offer a one-tap copy of the code.</li>
             </ol>
 
             <p className="font-medium text-foreground pt-2">SMTP provider:</p>
@@ -64,6 +64,7 @@ export function AuthEmailTemplatesSection() {
               <thead>
                 <tr className="border-b bg-muted/50">
                   <th className="text-left px-3 py-1.5 font-medium">Template</th>
+                  <th className="text-left px-3 py-1.5 font-medium">Subject</th>
                   <th className="text-left px-3 py-1.5 font-medium">File</th>
                   <th className="text-left px-3 py-1.5 font-medium hidden sm:table-cell">Description</th>
                 </tr>
@@ -72,6 +73,7 @@ export function AuthEmailTemplatesSection() {
                 {AUTH_EMAIL_TEMPLATES.map((t) => (
                   <tr key={t.file} className="border-b last:border-0">
                     <td className="px-3 py-1.5">{t.name}</td>
+                    <td className="px-3 py-1.5">{t.subject}</td>
                     <td className="px-3 py-1.5 font-mono text-[11px] text-muted-foreground">{t.file}</td>
                     <td className="px-3 py-1.5 text-muted-foreground hidden sm:table-cell">{t.desc}</td>
                   </tr>
