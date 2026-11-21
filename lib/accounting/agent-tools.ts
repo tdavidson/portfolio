@@ -85,6 +85,8 @@ import { DESTRUCTIVE_LEDGER_TOOL_MANIFEST, DESTRUCTIVE_TOOL_MANIFEST } from '@/l
 import { DESTRUCTIVE_HANDLERS } from '@/lib/agent/destructive-tools'
 
 import { UPLOAD_TOOL_MANIFEST } from '@/lib/agent/upload-tools-manifest'
+import { COMPANY_DOCUMENT_TOOL_MANIFEST } from '@/lib/agent/company-document-tools-manifest'
+import { COMPANY_DOCUMENT_HANDLERS } from '@/lib/agent/company-document-tools'
 import { UPLOAD_HANDLERS } from '@/lib/agent/upload-tools'
 import { SERVER_AI_TOOL_MANIFEST } from '@/lib/agent/server-ai-tools-manifest'
 import { SERVER_AI_HANDLERS } from '@/lib/agent/server-ai-tools'
@@ -141,6 +143,11 @@ export interface AgentToolContext {
    * (lib/agent/run-action.ts). A close fits its months inside it rather than its own default budget.
    */
   deadline?: number
+  /**
+   * The door a direct call came through (lib/agent/dispatch.ts). Absent for a staged call applied on
+   * approval, which only a chat assistant (MCP) stages.
+   */
+  channel?: 'mcp' | 'api'
 }
 
 export type AgentToolHandler = (ctx: AgentToolContext, input: any) => Promise<any>
@@ -735,6 +742,7 @@ export const AGENT_TOOLS: AgentTool[] = [
   ...bindLedger(DESTRUCTIVE_LEDGER_TOOL_MANIFEST, DESTRUCTIVE_HANDLERS), ...bind(DESTRUCTIVE_TOOL_MANIFEST, DESTRUCTIVE_HANDLERS),
 
   ...bind(UPLOAD_TOOL_MANIFEST, UPLOAD_HANDLERS),
+  ...bind(COMPANY_DOCUMENT_TOOL_MANIFEST, COMPANY_DOCUMENT_HANDLERS),
   ...bind(SERVER_AI_TOOL_MANIFEST, SERVER_AI_HANDLERS),
 ]
 

@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/button'
 import { AGENT_TOOL_MANIFEST } from '@/lib/accounting/agent-tools-manifest'
 import { PORTFOLIO_TOOL_MANIFEST } from '@/lib/agent/portfolio-tools-manifest'
 import { HOLDING_TOOL_MANIFEST } from '@/lib/agent/holding-tools-manifest'
+import { COMPANY_DOCUMENT_TOOL_MANIFEST } from '@/lib/agent/company-document-tools-manifest'
 import { DILIGENCE_TOOL_MANIFEST } from '@/lib/agent/diligence-tools-manifest'
 import { DEALS_TOOL_MANIFEST } from '@/lib/agent/deals-tools-manifest'
 import { LP_TOOL_MANIFEST } from '@/lib/agent/lp-tools-manifest'
@@ -29,6 +30,7 @@ const TOOL_GROUPS = [
   { label: 'Investment memos (skill, voice, design, export)', tools: MEMO_TOOL_MANIFEST },
   { label: 'Portfolio, companies and performance', tools: PORTFOLIO_TOOL_MANIFEST },
   { label: 'Holdings: names, kinds and the fund register', tools: HOLDING_TOOL_MANIFEST },
+  { label: "Holdings' documents and update files", tools: COMPANY_DOCUMENT_TOOL_MANIFEST },
   { label: 'LP reporting and capital accounts', tools: LP_TOOL_MANIFEST },
   { label: 'LP letters', tools: LETTER_TOOL_MANIFEST },
   { label: "LP letters from the fund's own templates", tools: DOCUMENT_TOOL_MANIFEST },

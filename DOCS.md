@@ -148,6 +148,7 @@ that has not turned a feature on pays nothing for it:
 | Access expiry | A member's access end date has passed |
 | Ops reminders | Reminders are turned on (Settings → Reminders) |
 | Out-of-thesis digest | Mondays, when deal screening is turned on |
+| Document hashes | Company documents or update attachments have not been fingerprinted yet (a one-time backfill, in small batches) |
 
 On a paid plan you can add a faster safety net for the queues alone. It never runs the
 once-a-day jobs:

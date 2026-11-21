@@ -17,6 +17,8 @@ import { loadPostedLedger, loadEntityNames } from '@/lib/accounting/load'
 import { computeCapitalAccounts } from '@/lib/accounting/capital-account'
 import { combineCarryRecipients } from '@/lib/access/carry-visibility'
 import { getSeries, listPlans, type ForecastServiceContext } from '@/lib/forecast/service'
+import { entityScopeFor } from '@/lib/access/entity-scope'
+import { holdingTypeLabel, loadHoldingMarks, markChangeOf, markSourceOf, daysBetween } from '@/lib/portfolio/mark-status'
 
 export interface DatasetParams { vehicle?: string; as_of?: string }
 type Loader = (ctx: AgentToolContext, params: DatasetParams) => Promise<Record<string, unknown>[]>
@@ -31,11 +33,24 @@ const date = (v: unknown) => (v ? String(v).slice(0, 10) : null)
 
 const positions: Loader = async (ctx, p) => {
   const out = await PORTFOLIO_HANDLERS.portfolio_summary(ctx, { vehicle: p.vehicle, as_of: p.as_of })
-  return (out.positions as any[]).map(r => ({
-    company: r.company, company_id: r.companyId, status: r.status, stage: r.stage, industry: r.industry ?? [],
-    invested: r.invested, cost: r.cost, fair_value: r.fairValue, unrealized: r.unrealized, realized: r.realized,
-    moic: r.moic, pct_of_portfolio: r.pctOfPortfolio,
-  }))
+  const rows = out.positions as any[]
+  // When each was last marked, by the holding page's rule (lib/portfolio/mark-status.ts).
+  const scope = await entityScopeFor(ctx.admin, ctx.access)
+  const vehicleId = p.vehicle ? await vehicleIdByName(ctx.admin, ctx.fundId, p.vehicle) : null
+  const marks = await loadHoldingMarks(ctx.admin, ctx.fundId, rows.map(r => r.companyId), {
+    access: ctx.access, vehicleNames: scope.vehicleNames, vehicle: p.vehicle ?? null, vehicleId, asOf: out.asOf,
+  })
+  return rows.map(r => {
+    const m = marks.get(r.companyId)
+    return {
+      company: r.company, company_id: r.companyId, holding_type: holdingTypeLabel(r.kind), status: r.status, stage: r.stage, industry: r.industry ?? [],
+      invested: r.invested, cost: r.cost, fair_value: r.fairValue, unrealized: r.unrealized, realized: r.realized,
+      moic: r.moic, pct_of_portfolio: r.pctOfPortfolio,
+      last_mark_date: m?.lastMarkDate ?? null, last_mark_source: m?.lastMarkSource ?? null,
+      last_nav_statement_date: m?.lastNavStatementDate ?? null, last_nav_statement_nav: m?.lastNavStatementNav ?? null,
+      mark_age_days: m?.lastMarkDate ? daysBetween(m.lastMarkDate, out.asOf) : null,
+    }
+  })
 }
 
 const companies: Loader = async (ctx, p) => {
@@ -43,17 +58,37 @@ const companies: Loader = async (ctx, p) => {
   return rows.map(c => ({ company: c.name, company_id: c.id, status: c.status, stage: c.stage, industry: c.industry ?? [], vehicles: c.vehicles ?? [] }))
 }
 
+/**
+ * Every holding's name and kind, whatever its kind: companies, fund holdings and digital assets.
+ * list_companies lists companies only, so naming transactions from it left every fund holding's
+ * and digital asset's rows with no name.
+ */
+async function holdingNames(ctx: AgentToolContext): Promise<Map<string, { name: string; type: string }>> {
+  const visible = await visibleCompanyIds(ctx.admin, ctx.access)
+  const rows = await fetchAllRows<any>((f, t) => {
+    let q = (ctx.admin as any).from('companies').select('id, name, holding_type').eq('fund_id', ctx.fundId)
+    if (visible !== null) q = q.in('id', visible.length ? visible : ['00000000-0000-0000-0000-000000000000'])
+    return q.order('id').range(f, t)
+  })
+  return new Map(rows.map(c => [c.id, { name: c.name, type: holdingTypeLabel(c.holding_type) }]))
+}
+
 const transactions: Loader = async (ctx, p) => {
-  const [rows, cos] = await Promise.all([
+  const [rows, names, navs] = await Promise.all([
     PORTFOLIO_HANDLERS.list_investments(ctx, { vehicle: p.vehicle }) as Promise<any[]>,
-    PORTFOLIO_HANDLERS.list_companies(ctx, {}) as Promise<any[]>,
+    holdingNames(ctx),
+    // Which value changes a manager NAV statement booked (mark_source nav_statement).
+    fetchAllRows<any>((f, t) => (ctx.admin as any).from('fund_nav_statements').select('investment_transaction_id')
+      .eq('fund_id', ctx.fundId).not('investment_transaction_id', 'is', null).order('investment_transaction_id').range(f, t)),
   ])
-  const names = new Map(cos.map(c => [c.id, c.name]))
+  const navTxnIds = new Set<string>(navs.map(n => n.investment_transaction_id))
   return rows.map(t => ({
-    date: date(t.transaction_date), company: names.get(t.company_id) ?? null, company_id: t.company_id, vehicle: t.portfolio_group ?? null,
+    date: date(t.transaction_date), company: names.get(t.company_id)?.name ?? null, company_id: t.company_id,
+    holding_type: names.get(t.company_id)?.type ?? null, vehicle: t.portfolio_group ?? null,
     type: t.transaction_type, round: t.round_name ?? null, security: t.security_type ?? null,
     invested: num(t.investment_cost), shares: num(t.shares_acquired), share_price: num(t.share_price),
     postmoney: num(t.postmoney_valuation), proceeds: num(t.proceeds_received), ownership_pct: num(t.ownership_pct),
+    mark_change: markChangeOf(t), mark_source: markSourceOf(t, navTxnIds),
   }))
 }
 

@@ -6,6 +6,12 @@ vi.mock('@/lib/forecast/service', () => ({ getSeries: (...a: unknown[]) => getSe
 vi.mock('@/lib/accounting/vehicle-resolver', () => ({ resolveVehicle: vi.fn(async (_a: unknown, _f: unknown, v?: string) => v ?? 'Example Fund I') }))
 vi.mock('@/lib/agent/portfolio-tools', () => ({
   PORTFOLIO_HANDLERS: {
+    list_investments: vi.fn(async () => [
+      { id: 't1', company_id: 'h1', transaction_type: 'investment', transaction_date: '2025-03-01', investment_cost: 250_000, portfolio_group: 'Example Fund I' },
+      { id: 't2', company_id: 'h1', transaction_type: 'unrealized_gain_change', transaction_date: '2026-06-30', unrealized_value_change: 15_000, portfolio_group: 'Example Fund I' },
+      { id: 't3', company_id: 'h1', transaction_type: 'unrealized_gain_change', transaction_date: '2026-09-30', unrealized_value_change: -5_000, valuation_change_source: 'nav', portfolio_group: 'Example Fund I' },
+      { id: 't4', company_id: 'h2', transaction_type: 'unrealized_gain_change', transaction_date: '2026-09-30', unrealized_value_change: 900, valuation_change_source: 'fx', portfolio_group: 'Example Fund I' },
+    ]),
     fund_performance: vi.fn(async () => [{
       vehicle: 'Example Fund I', basis: 'From the books.', committed: 1_000_000, called: 600_000, unfunded: 400_000, distributed: 100_000,
       nav: 800_000, dpi: 0.17, rvpi: 1.33, tvpi: 1.5, net_lp_irr: 0.1234, carry_accrued: 20_000, whole_fund: { nav: 820_000, tvpi: 1.53 },
@@ -29,6 +35,7 @@ vi.mock('@/lib/access/carry-visibility', async (orig) => ({
 }))
 
 import { QUERY_LOADERS } from './datasets'
+import { fetchAllRows } from '@/lib/accounting/load'
 import { QUERY_CATALOG } from './catalog'
 
 const ctx = { admin: {}, fundId: 'f1', userId: 'u1', portfolioGroup: '', access: { vehicles: { all: true, ids: [] } } } as never
@@ -87,5 +94,25 @@ describe('new datasets', () => {
     expect(rows[0]).toMatchObject({ plan: 'Rolling', status: 'actual' })
     listPlans.mockResolvedValue({ plans: [] })
     await expect(QUERY_LOADERS.forecast_by_month(ctx, {})).rejects.toThrow(/no forecast plan/)
+  })
+})
+
+describe('transactions', () => {
+  it('names fund holdings and digital assets, and labels each mark with its change', async () => {
+    const data: Record<string, unknown[]> = {
+      companies: [{ id: 'h1', name: 'Example Partners Fund III', holding_type: 'fund' }, { id: 'h2', name: 'Example Coin', holding_type: 'crypto' }],
+      fund_nav_statements: [{ investment_transaction_id: 't2' }],
+    }
+    // The loaders build their query on ctx.admin; record which table each asks for.
+    let asked = ''
+    const admin = { from: (t: string) => { asked = t; const chain: any = new Proxy({}, { get: () => () => chain }); return chain } }
+    vi.mocked(fetchAllRows).mockImplementation(async (build: any) => { build(0, 999); return (data[asked] ?? []) as never })
+    const rows = await QUERY_LOADERS.transactions({ ...(ctx as object), admin } as never, {})
+    expect(rows.map(r => [r.company, r.holding_type, r.mark_source, r.mark_change])).toEqual([
+      ['Example Partners Fund III', 'fund', null, null],
+      ['Example Partners Fund III', 'fund', 'nav_statement', 15_000],
+      ['Example Partners Fund III', 'fund', 'nav', -5_000],
+      ['Example Coin', 'digital_asset', null, 900],
+    ])
   })
 })

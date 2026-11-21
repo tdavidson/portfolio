@@ -97,7 +97,7 @@ async function txnsFor(admin: SupabaseClient, fundId: string, companyId: string,
 
 /** Companies in the fund, optionally narrowed to a vehicle. `portfolio_group` is text[]. `holdingType`
  *  'fund' lists the fund holdings instead (companies rows too). */
-async function companiesIn(admin: SupabaseClient, fundId: string, vehicle: string | undefined, scope: EntityScope, holdingType: 'company' | 'fund' = 'company'): Promise<any[]> {
+async function companiesIn(admin: SupabaseClient, fundId: string, vehicle: string | undefined, scope: EntityScope, holdingType: 'company' | 'fund' | 'crypto' = 'company'): Promise<any[]> {
   const { data } = await (admin as any).from('companies').select('*').eq('fund_id', fundId).eq('holding_type', holdingType)
   // Only companies linked to the caller's entities, naming only those entities.
   const rows = scopeCompanyRows((data as any[]) ?? [], scope.companyIds)
@@ -235,10 +235,14 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
 
     // Fund holdings, beside the companies as on the Portfolio page: their cost and NAV from the
     // schedule of investments (the same sheet the page's fund cards read), plus the commitment.
-    const funds = await companiesIn(admin, fundId, input?.vehicle, scope, 'fund')
-    if (funds.length > 0) {
+    // Digital assets too, from the same sheet: the Portfolio page lists them, so this does.
+    const [funds, crypto] = await Promise.all([
+      companiesIn(admin, fundId, input?.vehicle, scope, 'fund'),
+      companiesIn(admin, fundId, input?.vehicle, scope, 'crypto'),
+    ])
+    if (funds.length + crypto.length > 0) {
       // Only entities the caller can see: portfolio_group is already narrowed to them.
-      const vehicles = input?.vehicle ? [input.vehicle] : Array.from(new Set(funds.flatMap(f => f.portfolio_group as string[])))
+      const vehicles = input?.vehicle ? [input.vehicle] : Array.from(new Set([...funds, ...crypto].flatMap(f => f.portfolio_group as string[])))
       const sheet = vehicles.length > 0
         ? await loadPortfolioSheet(admin, fundId, vehicles, input?.as_of ? { asOf: asOf.toISOString().slice(0, 10) } : {})
         : null
@@ -266,6 +270,30 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
           called: r2(r.called),
           unfunded: r2(r.unfunded),
           navAsOf: r.navAsOf,
+        })
+      }
+      const cryptoById = new Map(crypto.map(c => [c.id as string, c]))
+      for (const r of sheet?.crypto ?? []) {
+        const c = r.companyId ? cryptoById.get(r.companyId) : undefined
+        if (!c) continue
+        const cost = r2(r.cost)
+        const fairValue = r2(r.fairValue)
+        if (cost === 0 && fairValue === 0) continue
+        positions.push({
+          kind: 'crypto',
+          company: c.name,
+          companyId: c.id,
+          status: c.status,
+          stage: null,
+          industry: c.industry ?? [],
+          invested: r2(r.invested),
+          cost,
+          fairValue,
+          unrealized: r2(fairValue - cost),
+          realized: r2(r.distributions),
+          moic: r.moic == null ? null : r2(r.moic),
+          units: r.units,
+          price: r.price,
         })
       }
     }

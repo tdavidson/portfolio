@@ -7,7 +7,17 @@ import type { FeatureVisibilityMap } from '@/lib/types/features'
 import { entityScopeFor } from '@/lib/access/entity-scope'
 import { scopeGroups } from '@/lib/access/scope'
 import { holdingEntities } from '@/lib/portfolio/holding-entities'
+import { loadHoldingMarks, staleness, type MarkSource } from '@/lib/portfolio/mark-status'
 import { holdingPanels, holdingSections, needsEntities, type HoldingKind } from './holding-panels'
+
+/** The header's "Last mark" line: the same rule as the mark_status tool. */
+export interface LastMark {
+  date: string | null
+  source: MarkSource | null
+  ageDays: number | null
+  stale: boolean
+  quarterEnd: string
+}
 
 type CompanySettings = {
   claude_api_key_encrypted: string | null
@@ -105,6 +115,24 @@ export async function loadCompanyPage({ supabase, admin, user, page }: PageConte
   ])
   const hasCapturedUpdates = (capturedUpdates?.length ?? 0) > 0
 
+  // When it was last marked, for a holding still held and a viewer who sees its investments. A
+  // failed read leaves the line off rather than calling a current holding stale.
+  let lastMark: LastMark | null = null
+  const held = company.status !== 'exited' && company.status !== 'written-off'
+  if (showInvestments && held) {
+    try {
+      const today = new Date().toISOString().slice(0, 10)
+      const marks = await loadHoldingMarks(admin, company.fund_id, [company.id], { access: page.access, vehicleNames: scope.vehicleNames })
+      const m = marks.get(company.id)
+      if (m?.lastMarkDate || m?.firstInvestmentDate) {
+        const s = staleness(m, today)
+        lastMark = { date: m.lastMarkDate, source: m.lastMarkSource, ageDays: s.markAgeDays, stale: s.stale, quarterEnd: s.quarterEnd }
+      }
+    } catch (e) {
+      console.error('[company-page] last mark read failed:', e instanceof Error ? e.message : e)
+    }
+  }
+
   if (mrrRow && mrrMetric) {
     latestMrr = { value: mrrRow.value_number!, period: mrrRow.period_label, metric: mrrMetric }
   }
@@ -136,5 +164,6 @@ export async function loadCompanyPage({ supabase, admin, user, page }: PageConte
     hasPriceFeed,
     // The optional sections, from the holding's own settings (its edit dialog / update_company).
     sections: holdingSections(holdingType, company, hasPriceFeed),
+    lastMark,
   }
 }

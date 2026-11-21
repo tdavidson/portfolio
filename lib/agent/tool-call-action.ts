@@ -32,6 +32,8 @@ import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import type { ActionDeps, PreviewResult } from '@/lib/pending-actions/types'
 import { serverAIRefusal } from '@/lib/ai/server-ai'
 import { previewUpdateCompany } from '@/lib/pending-actions/company-edit'
+import { contentTypeFor } from '@/lib/uploads/signed-upload'
+import { companyDocumentDuplicate, duplicateNote } from './upload-tools'
 
 export const AGENT_TOOL_CALL = 'agent_tool_call'
 
@@ -185,6 +187,22 @@ export async function previewToolCall(deps: ActionDeps, raw: unknown): Promise<P
       summary: `Reprocess the update "${email.subject ?? 'Company update'}"${company?.name ? ` for ${company.name}` : ''}: ` +
         'its KPIs and review items are read again and replace the last run\'s.',
       details: { tool: tool.name, vehicle, input: { update: email.id, subject: email.subject, company: company?.name ?? null } },
+    }
+  }
+  // A document for a holding: whether the same file (bytes or text) is already there, so the
+  // approver sees it before saying yes.
+  if (tool.name === 'add_company_document') {
+    const company = await resolveCompany(deps.admin, deps.fundId, String(args.input.company ?? ''), deps.access)
+    const filename = String(args.input.filename ?? '').trim()
+    const check = await companyDocumentDuplicate(deps.admin, deps.fundId, company.id, {
+      storagePath: String(args.input.storage_path ?? '').trim(),
+      filename,
+      fileType: String(args.input.content_type ?? '').trim() || contentTypeFor(filename),
+    }).catch(() => ({ duplicateOf: null }))
+    const summary = `Add "${filename}" to ${company.name}'s Documents`
+    return {
+      summary: check.duplicateOf ? `${summary}. ${duplicateNote(check.duplicateOf)}` : `${summary}.`,
+      details: { tool: tool.name, vehicle, input: args.input, ...(check.duplicateOf ? { duplicateOf: check.duplicateOf } : {}) },
     }
   }
   // A change to a company's record: each field from what it is now to what it would be.

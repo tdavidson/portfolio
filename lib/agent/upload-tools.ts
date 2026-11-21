@@ -7,8 +7,10 @@ import { hasAccess } from '@/lib/access/effective'
 import { adminOnlyDenial } from '@/lib/access/admin-only'
 import { createDiligenceUploadUrl, MAX_DILIGENCE_DOCUMENT_BYTES } from '@/lib/diligence/service'
 import {
-  COMPANY_DOCUMENT_BUCKET, COMPANY_TEXT_ONLY_THRESHOLD, MAX_COMPANY_DOCUMENT_BYTES, companyDocumentPath, registerCompanyDocument,
+  COMPANY_DOCUMENT_BUCKET, COMPANY_TEXT_ONLY_THRESHOLD, MAX_COMPANY_DOCUMENT_BYTES, companyDocumentPath, fingerprintUploadedDocument,
+  isCompanyDocumentPath, registerCompanyDocument,
 } from '@/lib/companies/documents'
+import { findDuplicateDocument, type DuplicateMatch } from '@/lib/companies/document-hashes'
 import { EMAIL_ATTACHMENT_BUCKET, MAX_EMAIL_ATTACHMENT_BYTES, emailAttachmentPath, registerEmailAttachment } from '@/lib/emails/attachments'
 import { createLpDocumentUploadUrl, MAX_LP_DOCUMENT_BYTES, recordLpDocument } from '@/lib/lps/documents'
 import { MAX_DEAL_FILE_BYTES, MAX_DEAL_FILES } from '@/lib/deals/service'
@@ -81,22 +83,42 @@ export const UPLOAD_HANDLERS: Record<string, AgentToolHandler> = {
     }
   },
 
-  add_company_document: async ({ admin, fundId, access, userId }: AgentToolContext, input: any) => {
+  add_company_document: async ({ admin, fundId, access, userId, channel }: AgentToolContext, input: any) => {
     const company = await resolveCompany(admin, fundId, str(input?.company), access)
     const filename = uploadFileName(input?.filename)
     const storagePath = str(input?.storage_path)
+    if (!isCompanyDocumentPath(fundId, company.id, storagePath)) {
+      throw new Error(`Invalid storage path: that file is not in ${company.name}'s folder. Use the storagePath company_document_upload_url returned.`)
+    }
     let size = Number(input?.size_bytes)
     if (!Number.isFinite(size) || size <= 0) size = await storedSize(admin, COMPANY_DOCUMENT_BUCKET, storagePath)
     if (size > MAX_COMPANY_DOCUMENT_BYTES) throw new Error(`That file is ${mb(size)}; company documents can be up to ${mb(MAX_COMPANY_DOCUMENT_BYTES)}.`)
+    const fileType = str(input?.content_type) || contentTypeFor(filename)
+
+    // The duplicate check: the same bytes or the same text already on this holding (a Documents file
+    // or an update's attachment), whatever it is called.
+    const check = await companyDocumentDuplicate(admin, fundId, company.id, { storagePath, filename, fileType })
+    if (check.duplicateOf && input?.skip_if_duplicate === true) {
+      // Nothing is added; the uploaded copy is removed so it does not sit unregistered in the folder.
+      await (admin as any).storage.from(COMPANY_DOCUMENT_BUCKET).remove([storagePath])
+      return duplicateSkipped(company.name, filename, check.duplicateOf)
+    }
+
     const out = unwrap(await registerCompanyDocument(admin, { fundId, userId: requireUser(userId) }, company.id, {
       storagePath,
       filename,
-      fileType: str(input?.content_type) || contentTypeFor(filename),
+      fileType,
       fileSize: size || null,
       // As the company page: over 10 MB only the extracted text is kept, where there is text.
       textOnly: size > COMPANY_TEXT_ONLY_THRESHOLD,
+      via: channel ?? 'mcp',
+      fingerprint: check.fingerprint ?? undefined,
     }))
-    return { company: company.name, filename, added: true, keptAsTextOnly: out.textOnly }
+    return {
+      company: company.name, filename, added: true, documentId: out.documentId, keptAsTextOnly: out.textOnly,
+      sha256: out.sha256, textSha256: out.textSha256,
+      ...(check.duplicateOf ? { duplicateOf: check.duplicateOf, note: duplicateNote(check.duplicateOf) } : {}),
+    }
   },
 
   deals_deck_upload_url: async ({ admin, fundId }: AgentToolContext, input: any) => {
@@ -189,4 +211,36 @@ export const UPLOAD_HANDLERS: Record<string, AgentToolHandler> = {
       sharedWith: scope === 'fund' ? 'every LP' : scope === 'vehicle' ? `investors in ${str(input?.vehicle)}` : investors.map(i => i.name),
     }
   },
+}
+
+/** "Identical file" or "same text", for the person reading the result or the approval. */
+export function duplicateNote(d: DuplicateMatch): string {
+  const when = d.uploaded_at ? ` on ${String(d.uploaded_at).slice(0, 10)}` : ''
+  const where = d.source === 'update' ? 'attached to a company update' : 'on its Documents'
+  return d.matched_on === 'sha256'
+    ? `An identical file, "${d.filename}", is already ${where} (added${when}).`
+    : `A file with the same text, "${d.filename}", is already ${where} (added${when}).`
+}
+
+/** What add_company_document returns when skip_if_duplicate stops it: nothing staged or added. */
+export function duplicateSkipped(company: string, filename: string, duplicateOf: DuplicateMatch) {
+  return {
+    company, filename, added: false, skipped: true, duplicateOf,
+    note: `${duplicateNote(duplicateOf)} Nothing was added (skip_if_duplicate).`,
+  }
+}
+
+/**
+ * The duplicate check for a file uploaded to a holding's folder: its hashes and the first file on
+ * the holding they match. Used when the call stages (the approval shows it) and when it runs.
+ */
+export async function companyDocumentDuplicate(
+  admin: SupabaseClient, fundId: string, companyId: string,
+  file: { storagePath: string; filename: string; fileType: string },
+): Promise<{ fingerprint: Awaited<ReturnType<typeof fingerprintUploadedDocument>>; duplicateOf: DuplicateMatch | null }> {
+  const fingerprint = await fingerprintUploadedDocument(admin, { fundId, companyId }, file)
+  const duplicateOf = fingerprint
+    ? await findDuplicateDocument(admin, { fundId, companyId }, { sha256: fingerprint.sha256, textSha256: fingerprint.textSha256 })
+    : null
+  return { fingerprint, duplicateOf }
 }
