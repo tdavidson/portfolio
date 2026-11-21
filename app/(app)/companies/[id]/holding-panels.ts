@@ -40,6 +40,32 @@ export function holdingPanels(kind: HoldingKind | null | undefined): HoldingPane
   }
 }
 
+/** The page settings a person sets per holding in its edit dialog (and update_company). */
+export interface HoldingPageSettings {
+  metrics_enabled?: boolean | null
+  analyst_enabled?: boolean | null
+  price_feed_enabled?: boolean | null
+}
+
+/**
+ * Which optional sections a holding's page shows, from its kind and its own settings. A setting
+ * missing from the row (a demo snapshot recorded before the columns existed) keeps the old
+ * behaviour: metrics and the analyst on. A price feed shows when the holding already has one, on a
+ * digital asset (always marked from a feed), or when a company has it turned on to add one.
+ */
+export function holdingSections(
+  kind: HoldingKind | null | undefined,
+  settings: HoldingPageSettings | null | undefined,
+  hasPriceFeed: boolean,
+): { metrics: boolean; analyst: boolean; priceFeed: boolean } {
+  const p = holdingPanels(kind)
+  return {
+    metrics: p.metricCharts && settings?.metrics_enabled !== false,
+    analyst: p.aiSummary && settings?.analyst_enabled !== false,
+    priceFeed: p.priceFeed && (hasPriceFeed || (kind ?? 'company') === 'crypto' || settings?.price_feed_enabled === true),
+  }
+}
+
 /** Whether the page needs the viewer's entities of the holding: only the per-entity panels (the
  *  fund register, the wallets) read them. */
 export function needsEntities(kind: HoldingKind | null | undefined): boolean {

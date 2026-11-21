@@ -46,7 +46,7 @@ export const PORTFOLIO_TOOL_MANIFEST: AgentToolMeta[] = [
   },
   {
     name: 'company_detail',
-    description: 'One company in full: overview, founders, why we invested, stage, industry, status, and its investment summary (cost, fair value, MOIC, ownership, rounds).',
+    description: 'One company in full: overview, founders, why we invested, stage, industry, status, which optional page sections it shows (page_sections: metrics, AI analyst, price feed; update_company changes them), and its investment summary (cost, fair value, MOIC, ownership, rounds).',
     scope: 'read',
     domain: 'portfolio',
     inputSchema: {

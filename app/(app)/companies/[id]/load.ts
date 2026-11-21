@@ -7,7 +7,7 @@ import type { FeatureVisibilityMap } from '@/lib/types/features'
 import { entityScopeFor } from '@/lib/access/entity-scope'
 import { scopeGroups } from '@/lib/access/scope'
 import { holdingEntities } from '@/lib/portfolio/holding-entities'
-import { needsEntities, type HoldingKind } from './holding-panels'
+import { holdingPanels, holdingSections, needsEntities, type HoldingKind } from './holding-panels'
 
 type CompanySettings = {
   claude_api_key_encrypted: string | null
@@ -48,7 +48,7 @@ export async function loadCompanyPage({ supabase, admin, user, page }: PageConte
 
   // These reads depend only on the authorised company, so run them together. Ordinary company
   // pages need no entity register; captured updates need an existence check, not a full count.
-  const [entities, { data: fundSettings }, { data: metrics }, { data: capturedUpdates }] = await Promise.all([
+  const [entities, { data: fundSettings }, { data: metrics }, { data: capturedUpdates }, hasPriceFeed] = await Promise.all([
     needsEntities(holdingType) ? holdingEntities(admin, company.fund_id, company.id, page.access) : Promise.resolve([]),
     // The service-role client: members cannot read the credential columns (only whether a key
     // exists leaves this function, as hasClaudeKey / hasOpenAIKey).
@@ -58,6 +58,11 @@ export async function loadCompanyPage({ supabase, admin, user, page }: PageConte
     supabase.from('metrics').select('*').eq('company_id', params.id).eq('is_active', true)
       .order('display_order').returns<Metric[]>(),
     supabase.from('company_updates').select('id').eq('company_id', params.id).limit(1),
+    // Whether a feed already prices it: one that does always shows, whatever the setting says.
+    holdingPanels(holdingType).priceFeed
+      ? (admin as any).from('price_feeds').select('id', { count: 'exact', head: true }).eq('fund_id', company.fund_id).eq('company_id', company.id)
+          .then(({ count }: { count: number | null }) => (count ?? 0) > 0)
+      : Promise.resolve(false),
   ])
 
   const fundCurrency = fundSettings?.currency ?? 'USD'
@@ -128,5 +133,8 @@ export async function loadCompanyPage({ supabase, admin, user, page }: PageConte
     latestMrr,
     latestCash,
     hasCapturedUpdates,
+    hasPriceFeed,
+    // The optional sections, from the holding's own settings (its edit dialog / update_company).
+    sections: holdingSections(holdingType, company, hasPriceFeed),
   }
 }

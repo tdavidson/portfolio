@@ -1,8 +1,9 @@
 'use client'
 
 import { useEffect, useState, useCallback, Fragment } from 'react'
-import { Plus, Trash2, Pencil, Loader2, ChevronDown, ChevronRight, Lock, ArrowRightLeft } from 'lucide-react'
+import { Plus, Trash2, Pencil, Loader2, ChevronDown, ChevronRight, Lock, ArrowRightLeft, Receipt } from 'lucide-react'
 import { Button } from '@/components/ui/button'
+import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover'
 import {
   Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
 } from '@/components/ui/dialog'
@@ -30,6 +31,8 @@ interface Props {
    */
   hideAddButton?: boolean
   addRequest?: number
+  /** Opens the cost transfer dialog each time it increases (the fund register's Add menu offers it). */
+  transferRequest?: number
   /** Reload whenever this changes — another panel booked a transaction. */
   reloadKey?: number
 }
@@ -54,7 +57,7 @@ function fmtMoic(val: number | null | undefined): string {
 }
 
 export function CompanyInvestments({
-  companyId, companyStatus, portfolioGroups, adminOnly, showUnits, hideAddButton, addRequest = 0, reloadKey = 0,
+  companyId, companyStatus, portfolioGroups, adminOnly, showUnits, hideAddButton, addRequest = 0, transferRequest = 0, reloadKey = 0,
 }: Props) {
   const currency = useCurrency()
   const fmt = (val: number | null | undefined) => val == null ? '-' : formatCurrencyFull(val, currency)
@@ -70,6 +73,7 @@ export function CompanyInvestments({
   const [expanded, setExpanded] = useState(true)
   const [dialogOpen, setDialogOpen] = useState(false)
   const [transferOpen, setTransferOpen] = useState(false)
+  const [addMenuOpen, setAddMenuOpen] = useState(false)
   const [editing, setEditing] = useState<InvestmentTransaction | null>(null)
 
   const [deletingId, setDeletingId] = useState<string | null>(null)
@@ -101,6 +105,12 @@ export function CompanyInvestments({
   if (addRequest !== seenAddRequest) {
     setSeenAddRequest(addRequest)
     if (addRequest > seenAddRequest) { setEditing(null); setDialogOpen(true) }
+  }
+
+  const [seenTransferRequest, setSeenTransferRequest] = useState(transferRequest)
+  if (transferRequest !== seenTransferRequest) {
+    setSeenTransferRequest(transferRequest)
+    if (transferRequest > seenTransferRequest) setTransferOpen(true)
   }
 
   function openAdd() {
@@ -140,6 +150,9 @@ export function CompanyInvestments({
     )
   }
 
+  // Cost moves between holdings inside one entity, so it needs a recorded position and an entity.
+  const canTransfer = transactions.length > 0 && portfolioGroups.length > 0
+
   return (
     <div className="mt-6">
       <LedgerSaveNote ledger={ledger} onDismiss={() => setLedger(null)} />
@@ -158,18 +171,40 @@ export function CompanyInvestments({
           )}
         </button>
         <div className="flex items-center gap-1.5">
-          {transactions.length > 0 && portfolioGroups.length > 0 && (
-            <Button size="sm" variant="ghost" onClick={() => setTransferOpen(true)} className="h-7 px-2 text-xs">
-              <ArrowRightLeft className="h-3.5 w-3.5 mr-1" />
-              Transfer cost
-            </Button>
-          )}
-          {!hideAddButton && (
+          {/* Transfer cost is rarely used, so it sits in the Add menu rather than beside it. */}
+          {!hideAddButton && (canTransfer ? (
+            <Popover open={addMenuOpen} onOpenChange={setAddMenuOpen}>
+              <PopoverTrigger asChild>
+                <Button size="sm" variant="outline" className="h-7 px-2 text-xs gap-1" aria-haspopup="menu">
+                  <Plus className="h-3.5 w-3.5" />Add<ChevronDown className="h-3.5 w-3.5 opacity-60" />
+                </Button>
+              </PopoverTrigger>
+              <PopoverContent align="end" className="w-64 p-1">
+                {[
+                  { key: 'transaction', label: 'Transaction', hint: 'An investment, proceeds, valuation or round', icon: Receipt, onSelect: openAdd },
+                  { key: 'transfer', label: 'Transfer cost', hint: 'Move cost basis to another holding', icon: ArrowRightLeft, onSelect: () => setTransferOpen(true) },
+                ].map(({ key, label, hint, icon: Icon, onSelect }) => (
+                  <button
+                    key={key}
+                    type="button"
+                    className="flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+                    onClick={() => { setAddMenuOpen(false); onSelect() }}
+                  >
+                    <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+                    <span>
+                      <span className="block font-medium">{label}</span>
+                      <span className="block text-xs text-muted-foreground">{hint}</span>
+                    </span>
+                  </button>
+                ))}
+              </PopoverContent>
+            </Popover>
+          ) : (
             <Button size="sm" variant="outline" onClick={openAdd} className="h-7 px-2 text-xs">
               <Plus className="h-3.5 w-3.5 mr-1" />
               Add
             </Button>
-          )}
+          ))}
         </div>
       </div>
 

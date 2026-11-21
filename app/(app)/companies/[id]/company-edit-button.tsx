@@ -16,14 +16,14 @@ import type { Company } from '@/lib/types/database'
 
 const TITLE = { company: 'Edit company', fund: 'Edit fund holding', crypto: 'Edit digital asset' } as const
 
-export function CompanyEditButton({ company, holdingType = 'company' }: { company: Company; holdingType?: 'company' | 'fund' | 'crypto' }) {
+export function CompanyEditButton({ company, holdingType = 'company', hasPriceFeed = false }: { company: Company; holdingType?: 'company' | 'fund' | 'crypto'; hasPriceFeed?: boolean }) {
   const [open, setOpen] = useState(false)
   const router = useRouter()
 
   return (
     <Dialog open={open} onOpenChange={setOpen}>
       <DialogTrigger asChild>
-        <Button variant="ghost" size="icon" className="h-7 w-7">
+        <Button variant="ghost" size="icon" className="h-7 w-7" aria-label="Edit settings">
           <Pencil className="h-3.5 w-3.5" />
         </Button>
       </DialogTrigger>
@@ -34,6 +34,7 @@ export function CompanyEditButton({ company, holdingType = 'company' }: { compan
         <CompanyForm
           company={company}
           holdingType={holdingType}
+          hasPriceFeed={hasPriceFeed}
           onSuccess={() => {
             setOpen(false)
             router.refresh()

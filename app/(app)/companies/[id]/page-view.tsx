@@ -17,7 +17,7 @@ import { AnalystPanel } from '@/components/analyst-panel'
 import { CompanyInvestments } from './company-investments'
 import { FundRegisterSection } from './fund-register-section'
 import { HoldingK1Income } from './holding-k1-income'
-import { holdingPanels } from './holding-panels'
+import { holdingPanels, holdingSections } from './holding-panels'
 import { HoldingPriceFeed } from './holding-price-feed'
 import { HoldingWallets } from './holding-wallets'
 import type { CompanyPageData } from './load'
@@ -58,10 +58,12 @@ function formatHighlightValue(value: number, metric: Metric, fundCurrency: strin
 export function CompanyPageView({
   company, userId, isAdmin, fundCurrency, hasClaudeKey, hasOpenAIKey, defaultAIProvider, storageProvider,
   googleDriveFolderId, featureVisibility, showNotes, showInvestments, showInteractions, metrics, latestMrr, latestCash,
-  hasCapturedUpdates, holdingType, entities, initialEntityId, initialAsOf,
+  hasCapturedUpdates, holdingType, entities, initialEntityId, initialAsOf, hasPriceFeed, sections: loadedSections,
 }: CompanyPageData & { initialEntityId?: string | null; initialAsOf?: string | null }) {
   // A demo snapshot recorded before holdingType existed reads as a company.
   const panels = holdingPanels(holdingType)
+  // The optional sections the holding's own settings turn on (a recorded demo snapshot may predate them).
+  const sections = loadedSections ?? holdingSections(holdingType, company, hasPriceFeed ?? false)
   const back = panels.companyProfile ? { href: '/dashboard', label: 'Portfolio' } : { href: '/investments', label: 'Investments' }
   const active = company.status !== 'exited' && company.status !== 'written-off'
   // A fund holding has ONE Add menu, on the register: it records notices and NAVs in its own dialogs
@@ -69,6 +71,9 @@ export function CompanyPageView({
   const [txnAddRequest, setTxnAddRequest] = useState(0)
   // Bumped when the register books something, so the investments section refetches.
   const [investmentsVersion, setInvestmentsVersion] = useState(0)
+  // Transfer cost lives in an Add menu: the investments section's own, or the register's for a fund
+  // holding. The register's asks the investments section to open its dialog by bumping this.
+  const [transferRequest, setTransferRequest] = useState(0)
 
   return (
     <CompanyPanelProvider companyId={company.id} userId={userId} isAdmin={isAdmin}>
@@ -85,7 +90,7 @@ export function CompanyPageView({
 
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-2xl font-semibold tracking-tight">{company.name}</h1>
-          <CompanyEditButton company={company} holdingType={holdingType} />
+          <CompanyEditButton company={company} holdingType={holdingType} hasPriceFeed={hasPriceFeed ?? false} />
           {holdingType === 'fund' && <Badge variant="outline">Fund holding</Badge>}
           {holdingType === 'crypto' && <Badge variant="outline">Digital asset</Badge>}
           {(company.portfolio_group ?? []).map((pg) => (
@@ -98,10 +103,10 @@ export function CompanyPageView({
             <Badge key={ind} variant="outline">{ind}</Badge>
           ))}
           {showNotes && <ChatButton />}
-          <AnalystButton companyId={company.id} companyName={company.name} pushRight={!showNotes} />
+          {sections.analyst && <AnalystButton companyId={company.id} companyName={company.name} pushRight={!showNotes} />}
         </div>
 
-        {panels.companyProfile && (latestMrr || latestCash) && (
+        {panels.companyProfile && sections.metrics && (latestMrr || latestCash) && (
           <div className="flex items-center gap-4 mt-1.5">
             {latestMrr && (
               <span className="text-sm">
@@ -124,7 +129,7 @@ export function CompanyPageView({
       {/* Content + Notes panel side by side */}
       <div className="flex flex-col lg:flex-row gap-6 items-start">
         <div className="flex-1 min-w-0 max-w-page w-full [&>*:first-child]:mt-0">
-          {panels.aiSummary && active && (
+          {sections.analyst && active && (
             <CompanySummary
               companyId={company.id}
               hasClaudeKey={hasClaudeKey}
@@ -133,12 +138,11 @@ export function CompanyPageView({
             />
           )}
 
-          {panels.metricCharts && active && (
+          {sections.metrics && active && (
             <CompanyCharts
               companyId={company.id}
               companyName={company.name}
               metrics={metrics}
-              compactEmpty={panels.register}
             />
           )}
 
@@ -149,6 +153,7 @@ export function CompanyPageView({
               initialEntityId={initialEntityId ?? null}
               onChanged={() => setInvestmentsVersion(v => v + 1)}
               onAddTransaction={() => setTxnAddRequest(n => n + 1)}
+              onTransferCost={(company.portfolio_group ?? []).length > 0 ? () => setTransferRequest(n => n + 1) : undefined}
             />
           )}
 
@@ -163,6 +168,7 @@ export function CompanyPageView({
               showUnits={panels.units}
               hideAddButton={panels.register}
               addRequest={txnAddRequest}
+              transferRequest={transferRequest}
               reloadKey={investmentsVersion}
             />
           )}
@@ -171,7 +177,7 @@ export function CompanyPageView({
             <HoldingWallets companyId={company.id} entities={entities ?? []} />
           )}
 
-          {showInvestments && panels.priceFeed && (
+          {showInvestments && sections.priceFeed && (
             <HoldingPriceFeed
               companyId={company.id}
               kind={holdingType === 'crypto' ? 'crypto' : 'company'}

@@ -13,15 +13,18 @@ import { initialEntity } from './holding-panels'
  * switch: the detail syncs its `vehicleId` and drops a stale response itself (latest-only.ts).
  *
  * Its Add menu is the page's one Add for a fund holding: notices and NAV statements open its own
- * dialogs, and "Other transaction" opens the investments section's generic form (`onAddTransaction`).
+ * dialogs, "Other transaction" opens the investments section's generic form (`onAddTransaction`), and
+ * "Transfer cost" its cost transfer dialog (`onTransferCost`).
  */
-export function FundRegisterSection({ companyId, entities, initialEntityId, onChanged, onAddTransaction }: {
+export function FundRegisterSection({ companyId, entities, initialEntityId, onChanged, onAddTransaction, onTransferCost }: {
   companyId: string
   entities: HoldingEntity[]
   initialEntityId: string | null
   /** A notice confirmed or a NAV saved booked a transaction: the investments section reloads. */
   onChanged?: () => void
   onAddTransaction?: () => void
+  /** "Transfer cost" in the Add menu: opens the investments section's cost transfer dialog. */
+  onTransferCost?: () => void
 }) {
   return (
     <div className="mt-6">
@@ -30,6 +33,7 @@ export function FundRegisterSection({ companyId, entities, initialEntityId, onCh
         vehicleId={initialEntity(entities, initialEntityId)}
         onChanged={onChanged}
         onAddTransaction={onAddTransaction}
+        onTransferCost={onTransferCost}
       />
     </div>
   )

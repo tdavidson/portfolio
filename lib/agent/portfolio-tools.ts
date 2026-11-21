@@ -176,6 +176,12 @@ export const PORTFOLIO_HANDLERS: Record<string, AgentToolHandler> = {
       overview: c.overview ?? null,
       founders: c.founders ?? null,
       why_invested: c.why_invested ?? null,
+      // The page sections its edit dialog turns on and off (update_company sets them).
+      page_sections: {
+        metrics_enabled: c.metrics_enabled !== false,
+        analyst_enabled: c.analyst_enabled !== false,
+        price_feed_enabled: c.price_feed_enabled === true,
+      },
       summary,
     }
   },

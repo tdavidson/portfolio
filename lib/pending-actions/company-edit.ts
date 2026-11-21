@@ -12,6 +12,7 @@ const LABELS: Record<string, string> = {
   name: 'name', status: 'status', aliases: 'aliases', tags: 'tags', industry: 'industry',
   contact_email: 'contact emails', portfolio_group: 'entities', stage: 'stage', country: 'country', founded_year: 'founded year',
   overview: 'overview', founders: 'founders', why_invested: 'why invested', current_update: 'current update', notes: 'notes',
+  metrics_enabled: 'use metrics', analyst_enabled: 'use AI Analyst', price_feed_enabled: 'use a price feed',
 }
 
 const shown = (v: unknown) => (Array.isArray(v) ? (v.length ? v.join(', ') : 'none') : v === null || v === undefined || v === '' ? 'blank' : String(v))

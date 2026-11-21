@@ -231,6 +231,9 @@ export type Database = {
           industry: string[] | null
           name: string
           notes: string | null
+          metrics_enabled: boolean
+          analyst_enabled: boolean
+          price_feed_enabled: boolean
           overview: string | null
           portfolio_group: string[] | null
           stage: string | null
@@ -254,6 +257,9 @@ export type Database = {
           industry?: string[] | null
           name: string
           notes?: string | null
+          metrics_enabled?: boolean
+          analyst_enabled?: boolean
+          price_feed_enabled?: boolean
           overview?: string | null
           portfolio_group?: string[] | null
           stage?: string | null
@@ -277,6 +283,9 @@ export type Database = {
           industry?: string[] | null
           name?: string
           notes?: string | null
+          metrics_enabled?: boolean
+          analyst_enabled?: boolean
+          price_feed_enabled?: boolean
           overview?: string | null
           portfolio_group?: string[] | null
           stage?: string | null
