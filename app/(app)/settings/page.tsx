@@ -11,6 +11,7 @@ import { DefaultMetricsSettings } from '@/components/settings/default-metrics-se
 import { AppearanceEditor } from './appearance/editor'
 import { ProfileSection } from './_sections/account/profile-section'
 import { MfaSection } from './_sections/account/mfa-section'
+import { PasswordSection } from './_sections/account/password-section'
 import { NotificationPreferencesSection } from './_sections/account/notification-preferences-section'
 import { ConnectedAppsSection } from './_sections/account/connected-apps-section'
 import { LinkedSignInsSection } from './_sections/account/linked-sign-ins-section'
@@ -149,6 +150,7 @@ export default function SettingsPage() {
 
       {/* Account settings are not grouped/collapsible — they sit directly on the page. */}
       <ProfileSection displayName={settings.displayName} onSaved={load} />
+      <PasswordSection />
       <MfaSection />
       <NotificationPreferencesSection />
       {/* Per-user API/MCP keys, so this lives on the page for all users; the admin on/off
