@@ -5,6 +5,8 @@
 // caller's access and injects it. Both are read level in the lp_capital domain, like the app's
 // review route: a review reports on figures and changes none of them.
 //
+//   statement_review_extract        → the vehicle's documents' text, the package shape and the rules, for
+//                                     an assistant to read a package from (and the fund's model's reading, with a key)
 //   statement_review_run            → run the tie-out checks on a package and save the review
 //   statement_review_findings       → the vehicle's reviews, or one review's checks and findings
 //   statement_review_settings       → the vehicle's materiality, instructions, watched accounts, known adjustments
@@ -145,8 +147,10 @@ export const STATEMENT_REVIEW_TOOL_MANIFEST: AgentToolMeta[] = [
       "allocations follow the vehicle's terms, and how the reviewer's watched accounts moved. Known adjustments in the review " +
       'settings mark the findings they explain. Read statement_review_settings first and follow its instructions when you read ' +
       'a package. The figures come from a saved administrator pull (input admin_pull), a partner capital ' +
-      "schedule as CSV text (input csv), or a package you read from the administrator's statements and give whole (input " +
-      'package). Saves the review and returns its checks and findings, worst first; each finding cites where the figure is ' +
+      "schedule as CSV text (input csv), or a package read from the administrator's documents (input package): give the " +
+      'document_ids with the package you read (statement_review_extract hands you their text), and each cited figure is ' +
+      "checked against the document; give document_ids alone and the fund's model reads them, when the fund has a server AI " +
+      'key. Saves the review and returns its checks and findings, worst first; each finding cites where the figure is ' +
       'stated. Never changes the figures it reviews.',
     scope: 'read',
     accessDomain: 'lp_capital',
@@ -169,6 +173,10 @@ export const STATEMENT_REVIEW_TOOL_MANIFEST: AgentToolMeta[] = [
         cash: { type: 'array', description: "csv: ending cash by account, in the package's cash shape.", items: { type: 'object' } },
         holdings: { type: 'array', description: "csv: the schedule of investments, in the package's holdings shape.", items: { type: 'object' } },
         package: STATEMENT_PACKAGE_SCHEMA,
+        document_ids: {
+          type: 'array', items: { type: 'string' },
+          description: "package: the vehicle's documents the package was read from (list_entity_documents). Cited figures are checked against their text. Alone, the fund's model reads them.",
+        },
         materiality: {
           type: 'object',
           description: "Differences above the larger of these are errors; smaller ones are information. Defaults to the vehicle's review settings.",
@@ -177,6 +185,27 @@ export const STATEMENT_REVIEW_TOOL_MANIFEST: AgentToolMeta[] = [
             nav_share: { type: 'number', description: 'A share of fund NAV: 0.001 for 0.1%.' },
           },
         },
+      },
+    },
+  },
+  {
+    name: 'statement_review_extract',
+    description:
+      "Read a vehicle's quarterly statement package out of its documents: the administrator's PDFs or spreadsheets uploaded to " +
+      'the vehicle (list_entity_documents lists them; add_entity_document uploads one). Returns each document\'s text with ' +
+      '[Page N] markers, the package shape to fill, and the rules for reading it; with the fund\'s server AI key, also the ' +
+      "fund's model's reading. Read the text yourself (or check the model's reading), then call statement_review_run with " +
+      'input package, the package and the same document_ids. Writes nothing.',
+    scope: 'read',
+    accessDomain: 'lp_capital',
+    accessFeature: 'lp_tracking',
+    inputSchema: {
+      type: 'object', required: ['document_ids'], additionalProperties: false,
+      properties: {
+        document_ids: { type: 'array', items: { type: 'string' }, description: "The vehicle's documents that make up the package (list_entity_documents)." },
+        period_end: { type: 'string', description: 'The quarter end, YYYY-MM-DD, when the documents cover more than one.' },
+        offset: { type: 'number', description: 'Where to continue when a long package came back in parts: the next_offset of the last call.' },
+        use_server_model: { type: 'boolean', description: "Also have the fund's model read it, when the fund has a key. Default true." },
       },
     },
   },

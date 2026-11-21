@@ -134,6 +134,8 @@ export interface StatementPackage {
   fund?: FundStatements
   holdings?: HoldingLine[]
   cash?: CashLine[]
+  /** What the reader of the documents was unsure of, when the figures were read from documents. */
+  readingWarnings?: string[]
 }
 
 export type Severity = 'error' | 'warning' | 'info'
@@ -156,10 +158,11 @@ export interface Finding {
 }
 
 export type CheckId =
-  | 'foots' | 'partners_sum' | 'roll_forward' | 'continuity' | 'completeness'
+  | 'sources' | 'foots' | 'partners_sum' | 'roll_forward' | 'continuity' | 'completeness'
   | 'ledger_flows' | 'management_fee' | 'carry' | 'allocation' | 'cash' | 'soi' | 'watched_accounts'
 
 export const CHECK_LABELS: Record<CheckId, string> = {
+  sources: 'Figures found in the documents',
   foots: 'Foots',
   partners_sum: 'Partners sum to fund',
   roll_forward: 'Roll-forward',

@@ -20,6 +20,8 @@ export interface CheckInput {
   shadow?: Shadow | null
   /** The vehicle's review settings: watched accounts and known adjustments. */
   settings?: ReviewSettings
+  /** The documents the package was read from, by the name its citations use, with their text. */
+  sources?: { name: string; text: string }[]
 }
 
 export interface CheckResult {

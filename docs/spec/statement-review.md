@@ -1,6 +1,6 @@
 # Statement review
 
-Status: stages 1 to 3 built (checks on structured input; comparisons with the books, bank and portfolio; management fee, carry and allocations against the terms), plus per-vehicle review settings (instructions, watched accounts, known adjustments). Stages 4 to 6 are proposed.
+Status: stages 1 to 4 built (checks on structured input; comparisons with the books, bank and portfolio; management fee, carry and allocations against the terms; reading packages out of the administrator's documents with citations checked), plus per-vehicle review settings (instructions, watched accounts, known adjustments). Stages 5 and 6 are proposed.
 
 Stage 1 lives in `lib/statement-review` (package model, the foot, partners-sum, roll-forward,
 continuity and completeness checks), `statement_reviews` (one row per run), the

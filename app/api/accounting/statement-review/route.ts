@@ -16,8 +16,12 @@ import { getReview, listReviews, runReview } from '@/lib/statement-review/store'
 //   GET  ?group=…&id=… | &period_end=…     → one review: its package, checks and findings
 //   POST { group, input: 'admin_pull', period_end | pull_id, materiality? }
 //   POST { group, input: 'csv', csv, file_name?, period_end, period_start?, fund?, cash?, holdings?, materiality? }
-//   POST { group, input: 'package', package, materiality? }
+//   POST { group, input: 'package', package, document_ids?, materiality? }
+//   POST { group, input: 'package', document_ids, period_end? }   → the fund's model reads the documents
 //                                          → run the checks and save the review
+
+// Reading a package out of its documents with the fund's model takes a while.
+export const maxDuration = 300
 
 async function gate(req: NextRequest) {
   const supabase = await createClient()
@@ -68,6 +72,7 @@ export async function POST(req: NextRequest) {
     cash: body?.cash,
     holdings: body?.holdings,
     package: body?.package,
+    documentIds: body?.document_ids,
     materiality: body?.materiality,
   }))
 }

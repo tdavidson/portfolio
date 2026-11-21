@@ -3,7 +3,9 @@
 // One write path, shared by the in-app Run, the statement_review_run tool (assistant over MCP or the
 // API) and anything later. A run:
 //
-//   1. builds the package: from a saved administrator pull, a CSV, or a package given whole
+//   1. builds the package: from a saved administrator pull, a CSV, a package given whole, or the
+//      administrator's documents (the vehicle's entity documents), read by the fund's model or by the
+//      person's assistant (extract.ts); figures read from documents are checked against their text
 //   2. matches its partners to the vehicle's (the admin-reporting matcher: saved link, then the id
 //      the caller gives, then the exact name)
 //   3. loads the previous period's review, the partners the app knows in the vehicle, the vehicle's
@@ -26,6 +28,7 @@ import { packageInputFromPull } from './from-admin-pull'
 import { runChecks } from './run'
 import { loadSettings } from './settings'
 import { loadShadow } from './shadow'
+import { extractWithServerModel, loadSourceDocuments, packageDocuments, type SourceDocument } from './extract'
 import type { KnownPartner } from './checks/shared'
 import {
   DEFAULT_MATERIALITY,
@@ -72,8 +75,10 @@ export interface RunRequest {
   cash?: unknown
   /** csv: the schedule of investments, given alongside the partner schedule. */
   holdings?: unknown
-  /** package: the whole package. */
+  /** package: the whole package. With document_ids and no package, the fund's model reads the documents. */
   package?: unknown
+  /** package: the vehicle's documents the figures were read from (or are to be read from). */
+  documentIds?: unknown
   materiality?: unknown
 }
 
@@ -152,7 +157,10 @@ async function loadPrior(admin: SupabaseClient, fundId: string, vehicleId: strin
 }
 
 /** Build the package a run asks for, before matching. */
-async function buildPackage(admin: SupabaseClient, fundId: string, vehicleId: string, req: RunRequest): Promise<Outcome<{ pkg: StatementPackage; pullId: string | null }>> {
+async function buildPackage(
+  admin: SupabaseClient, fundId: string, vehicle: { id: string; name: string }, req: RunRequest, userId: string | null,
+): Promise<Outcome<{ pkg: StatementPackage; pullId: string | null; sources?: SourceDocument[]; warnings?: string[] }>> {
+  const vehicleId = vehicle.id
   if (req.input === 'admin_pull') {
     let q = (admin as any).from('admin_pulls').select('id, as_of, figures, flags, status').eq('fund_id', fundId).eq('vehicle_id', vehicleId)
     if (typeof req.pullId === 'string' && req.pullId) q = q.eq('id', req.pullId)
@@ -187,15 +195,32 @@ async function buildPackage(admin: SupabaseClient, fundId: string, vehicleId: st
     return done({ pkg, pullId: null })
   }
   if (req.input === 'package') {
-    const given = req.package && typeof req.package === 'object' ? req.package as Record<string, unknown> : null
-    if (!given) return fail(400, 'package is required.')
+    let given = req.package && typeof req.package === 'object' ? req.package as Record<string, unknown> : null
+    let docs: SourceDocument[] | undefined
+    const warnings: string[] = []
+    if (req.documentIds != null) {
+      const loaded = await loadSourceDocuments(admin, fundId, vehicleId, req.documentIds)
+      if (typeof loaded === 'string') return fail(400, loaded)
+      docs = loaded
+      if (!given) {
+        const read = await extractWithServerModel(admin, fundId, userId, docs, {
+          vehicle: vehicle.name, ...(isDate(req.periodEnd) ? { periodEnd: req.periodEnd } : {}),
+        })
+        if ('failed' in read) return fail(read.noKey ? 422 : 502, read.failed)
+        given = read.package
+        if (read.truncated.length) warnings.push(`Only part of ${read.truncated.join(', ')} was read: the package is longer than one reading.`)
+      }
+      if (Array.isArray(given.warnings)) warnings.push(...given.warnings.filter((w): w is string => typeof w === 'string').map(w => w.slice(0, 500)).slice(0, 20))
+    }
+    if (!given) return fail(400, 'package is required, or document_ids for the fund\'s model to read.')
     const pkg = cleanPackage({
       ...given,
       ...(given.period_end == null && given.periodEnd == null && req.periodEnd ? { period_end: req.periodEnd } : {}),
       ...(given.period_start == null && given.periodStart == null && req.periodStart ? { period_start: req.periodStart } : {}),
+      ...(docs ? { documents: packageDocuments(docs) } : {}),
     }, vehicleId)
-    if (typeof pkg === 'string') return fail(400, pkg)
-    return done({ pkg, pullId: null })
+    if (typeof pkg === 'string') return fail(400, docs ? `The package read from the documents can't be used: ${pkg}` : pkg)
+    return done({ pkg, pullId: null, ...(docs ? { sources: docs } : {}), ...(warnings.length ? { warnings } : {}) })
   }
   return fail(400, "input must be 'admin_pull', 'csv' or 'package'")
 }
@@ -235,9 +260,9 @@ export async function runReview(
   vehicle: { id: string; name: string },
   req: RunRequest,
 ): Promise<Outcome<StoredReview>> {
-  const built = await buildPackage(admin, ctx.fundId, vehicle.id, req)
+  const built = await buildPackage(admin, ctx.fundId, vehicle, req, ctx.userId)
   if (!built.ok) return built
-  const { pkg, pullId } = built.value
+  const { pkg, pullId, sources, warnings } = built.value
 
   let match: Awaited<ReturnType<typeof loadMatchContext>>
   let prior: Awaited<ReturnType<typeof loadPrior>>
@@ -268,7 +293,12 @@ export async function runReview(
   const names = new Map(match.partners.map(p => [p.id, p.name]))
   const known = await loadKnownPartners(admin, ctx.fundId, vehicle.id, pkg.periodEnd, names)
 
-  const result = runChecks({ pkg, prior, known, matches, shadow, settings }, materiality)
+  const result = runChecks({
+    pkg, prior, known, matches, shadow, settings,
+    ...(sources ? { sources: sources.map(d => ({ name: d.name, text: d.text })) } : {}),
+  }, materiality)
+  // What the reader said it was unsure of travels with the package, so a reviewer sees it.
+  if (warnings?.length) pkg.readingWarnings = warnings
 
   const { data, error } = await (admin as any).from('statement_reviews').insert({
     fund_id: ctx.fundId,

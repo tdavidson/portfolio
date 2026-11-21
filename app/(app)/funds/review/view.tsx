@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input'
 import { EmptyState } from '@/components/ui/empty-state'
 import { useCanWrite } from '@/components/access-context'
 import { ReviewSettingsPanel } from './settings-panel'
+import { DocumentsPicker } from './documents-picker'
 import { CHECK_LABELS, type CheckOutcome, type Finding, type Severity } from '@/lib/statement-review/types'
 
 interface Summary {
@@ -22,6 +23,7 @@ interface Summary {
 interface Review extends Summary {
   checks: CheckOutcome[]; findings: Finding[]
   materiality: { amount: number; navShare: number }; threshold: number; nav: number | null
+  package?: { documents?: { name: string }[]; readingWarnings?: string[] }
 }
 interface Pull { id: string; asOf: string; source: string; status: 'saved' | 'superseded' }
 
@@ -33,11 +35,12 @@ const SEVERITY: Record<Severity, { Icon: typeof Ban; cls: string; label: string 
 const INPUT_LABEL: Record<Summary['input'], string> = { admin_pull: 'Administrator pull', csv: 'CSV', package: 'Package' }
 
 export function ReviewView() {
-  const { group } = useVehicle()
-  return <VehicleReview key={group} />
+  const { group, vehicleId, vehicles } = useVehicle()
+  const id = vehicleId ?? vehicles.find(v => v.name === group)?.id ?? null
+  return <VehicleReview key={group} vehicleId={id} />
 }
 
-function VehicleReview() {
+function VehicleReview({ vehicleId }: { vehicleId: string | null }) {
   const lf = useLedgerFetch()
   const currency = useCurrency()
   const money = (v: number | undefined) => (v == null ? '—' : formatCurrencyPrice(v, currency))
@@ -49,7 +52,8 @@ function VehicleReview() {
   const [busy, setBusy] = useState(false)
   const [filter, setFilter] = useState<Severity | 'all'>('all')
   // Run inputs.
-  const [mode, setMode] = useState<'admin_pull' | 'csv'>('csv')
+  const [mode, setMode] = useState<'admin_pull' | 'csv' | 'documents'>('csv')
+  const [docIds, setDocIds] = useState<string[]>([])
   const [periodEnd, setPeriodEnd] = useState('')
   const [pullId, setPullId] = useState('')
   const [csv, setCsv] = useState<string | null>(null)
@@ -86,7 +90,9 @@ function VehicleReview() {
       const cash = cashStated.trim() ? [{ account: 'Cash', balance: cashStated.trim() }] : undefined
       const body = mode === 'admin_pull'
         ? { input: 'admin_pull', pull_id: pullId }
-        : { input: 'csv', csv, file_name: csvName, period_end: periodEnd, cash }
+        : mode === 'documents'
+          ? { input: 'package', document_ids: docIds, ...(periodEnd ? { period_end: periodEnd } : {}) }
+          : { input: 'csv', csv, file_name: csvName, period_end: periodEnd, cash }
       const res = await lf('/api/accounting/statement-review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const d = await res.json().catch(() => ({}))
       if (!res.ok) { setError(d.error ?? 'The review could not run.'); return }
@@ -97,7 +103,7 @@ function VehicleReview() {
 
   if (reviews === null) return <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
 
-  const canRun = mode === 'admin_pull' ? !!pullId : !!csv && !!periodEnd
+  const canRun = mode === 'admin_pull' ? !!pullId : mode === 'documents' ? docIds.length > 0 : !!csv && !!periodEnd
   const shown = selected ? selected.findings.filter(f => filter === 'all' || f.severity === filter) : []
 
   return (
@@ -108,8 +114,9 @@ function VehicleReview() {
           <h2 className="text-base font-medium">Run a review</h2>
           <p className="text-xs text-muted-foreground mt-1">
             Checks that the statements foot, that the partners add up to the fund, that each capital account rolls forward,
-            that this period carries on from the last review, that every partner is there, and that flows, cash and the schedule
-            of investments agree with the books. The figures themselves are never changed.
+            that this period carries on from the last review, that every partner is there, that flows, cash and the schedule
+            of investments agree with the books, and that the fee, carry and allocations follow the fund&apos;s terms. The figures
+            themselves are never changed.
           </p>
         </div>
         <div className="flex flex-wrap items-end gap-2">
@@ -118,6 +125,7 @@ function VehicleReview() {
             <select value={mode} onChange={e => setMode(e.target.value as typeof mode)} className="h-9 rounded-md border border-input bg-background px-2 text-sm">
               {pulls.length > 0 && <option value="admin_pull">A saved administrator pull</option>}
               <option value="csv">A partner capital schedule (CSV)</option>
+              {vehicleId && <option value="documents">The administrator&apos;s documents (PDF or spreadsheet)</option>}
             </select>
           </label>
           {mode === 'admin_pull' ? (
@@ -126,6 +134,11 @@ function VehicleReview() {
               <select value={pullId} onChange={e => setPullId(e.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-sm tabular-nums">
                 {pulls.map(p => <option key={p.id} value={p.id}>{p.asOf} · {p.source}</option>)}
               </select>
+            </label>
+          ) : mode === 'documents' ? (
+            <label className="text-xs text-muted-foreground space-y-1">
+              <span className="block">Period end (optional)</span>
+              <Input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} className="h-9 w-40" />
             </label>
           ) : (
             <>
@@ -150,9 +163,19 @@ function VehicleReview() {
             </label>
           )}
           <Button size="sm" onClick={run} disabled={busy || !canRun}>
-            {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null} Run checks
+            {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null} {busy && mode === 'documents' ? 'Reading the documents…' : 'Run checks'}
           </Button>
         </div>
+        {mode === 'documents' && vehicleId && (
+          <>
+            <DocumentsPicker vehicleId={vehicleId} selected={docIds} onChange={setDocIds} />
+            <p className="text-xs text-muted-foreground">
+              The fund&apos;s AI model reads the figures out of the documents, with the page each comes from, and every figure is
+              checked against the page it cites. Without a server AI key, ask your assistant instead: &ldquo;Review this
+              quarter&apos;s statements from the administrator&apos;s package.&rdquo;
+            </p>
+          </>
+        )}
         {mode === 'csv' && (
           <p className="text-xs text-muted-foreground">
             One row per partner, with columns such as Name, Commitment, Beginning capital, Contributions, Distributions, Income,
@@ -210,6 +233,15 @@ function VehicleReview() {
               Materiality {money(selected.threshold)}{selected.nav != null ? ` against NAV of ${money(selected.nav)}` : ''}. Differences of a cent or less are rounding.
             </p>
           </div>
+
+          {!!selected.package?.readingWarnings?.length && (
+            <div className="rounded-md border border-warning/40 bg-warning-subtle p-3 text-sm space-y-1">
+              <p className="font-medium">Whoever read the documents flagged:</p>
+              <ul className="list-disc pl-5 text-xs space-y-0.5">
+                {selected.package.readingWarnings.map((w, i) => <li key={i}>{w}</li>)}
+              </ul>
+            </div>
+          )}
 
           <ul className="grid gap-1 sm:grid-cols-2">
             {selected.checks.map(c => {

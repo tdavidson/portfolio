@@ -5,7 +5,7 @@ import { acme, northwind, pkg } from './checks/fixtures'
 describe('runChecks', () => {
   it('runs every check and reports which could not', () => {
     const r = runChecks({ pkg: pkg(), prior: null, known: null })
-    expect(r.checks.map(c => c.check)).toEqual(['foots', 'partners_sum', 'roll_forward', 'continuity', 'completeness', 'ledger_flows', 'management_fee', 'carry', 'allocation', 'cash', 'soi', 'watched_accounts'])
+    expect(r.checks.map(c => c.check)).toEqual(['sources', 'foots', 'partners_sum', 'roll_forward', 'continuity', 'completeness', 'ledger_flows', 'management_fee', 'carry', 'allocation', 'cash', 'soi', 'watched_accounts'])
     expect(r.checks.find(c => c.check === 'continuity')?.ran).toBe(false)
     expect(r.checks.find(c => c.check === 'roll_forward')?.ran).toBe(true)
   })
