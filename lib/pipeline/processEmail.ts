@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { kickCron } from '@/lib/cron/kick'
 import { envCredential, hasCredential } from '@/lib/credentials/env'
 import {
   extractAttachmentText,
@@ -298,12 +299,13 @@ export async function runPipeline(
   // Capture primary evidence before the configured-metric branch. This deliberately runs for
   // identified reporting emails even when the company has no metrics configured.
   if (isPortfolioReporting) {
-    await captureCompanyUpdate(supabase, {
+    const captured = await captureCompanyUpdate(supabase, {
       emailId,
       fundId,
       companyId: companyId!,
       payload,
     })
+    if (captured?.artifacts?.some(a => a.ocrStatus === 'pending')) await kickCron('company-updates-ocr')
   }
 
   // A FUND HOLDING's mail is a manager's: a capital account statement, a call notice, a distribution

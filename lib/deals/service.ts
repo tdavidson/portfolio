@@ -7,6 +7,7 @@
 // of their own entities, and an entity must belong to the fund.
 
 import crypto from 'crypto'
+import { kickCron } from '@/lib/cron/kick'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { AccessContext } from '@/lib/access/effective'
 import { dealEntityProblem } from '@/lib/access/scope'
@@ -369,7 +370,7 @@ export async function queueDealResearch(
 
   const { error } = await db.from('inbound_deals').update({ research_status: 'pending', research_error: null }).eq('id', dealId).eq('fund_id', fundId)
   if (error) return dbFail(error, 'deals-id-research')
-  // The cron picks it up; research is not latency-sensitive the way an interactive stage is.
+  await kickCron('deal-research')
   return done({ queued: true, research_status: 'pending' })
 }
 

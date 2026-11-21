@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { kickCron } from '@/lib/cron/kick'
 import { assemblePdfPages, chunkText, extractArtifact, normalizePlainText } from '@/lib/company-updates/extraction'
 import type { OcrEngine } from '@/lib/company-updates/ocr'
 
@@ -115,6 +116,7 @@ export async function ingestDocument(
   if (error || !doc) return { error: 'Could not save the document.', status: 500 }
 
   await replaceChunks(admin, input.fundId, input.vehicleId, (doc as any).id, result.chunks)
+  if (ocrNeeded) await kickCron('entity-documents-ocr')
   return { document: doc as EntityDocument }
 }
 
