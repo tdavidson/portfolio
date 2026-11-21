@@ -1,6 +1,6 @@
 import { fetchAllRows } from '@/lib/accounting/load'
 import { NextResponse } from 'next/server'
-import { parseChangeSource } from '@/lib/audit/source-labels'
+import { countByUser, mergeActivityFeed, type ActivityLogRow, type AuditFeedRow } from '@/lib/activity-feed'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -14,6 +14,9 @@ const PRICING: Record<string, { input: number; output: number }> = {
   'openai:gpt-4.1': { input: 2.0, output: 8.0 },
   'openai:o3-mini': { input: 1.1, output: 4.4 },
 }
+/** Recent feed entries returned; the page shows 50 after its Source filter. */
+const RECENT_LIMIT = 300
+
 const FALLBACK_PRICING = { input: 5.0, output: 15.0 }
 // Deepgram transcription is billed per minute of audio, not per token.
 const DEEPGRAM_PER_MINUTE_USD = 0.0043 // indicative (Nova pre-recorded)
@@ -171,31 +174,35 @@ export async function GET() {
     })
   }
 
-  // Fetch user activity logs for current month
-  interface ActivityLog {
-    user_id: string
-    action: string
-    metadata: Record<string, unknown>
-    created_at: string
+  // This month's activity, from both stores: what features logged (user_activity_logs) and every
+  // change to the books (the audit trail), whichever door it came through. Paged in full, so the
+  // per-person totals count the whole month rather than its latest few hundred rows. Only the
+  // columns the feed shows are read: an audit event's details can carry a whole tool call.
+  let activityLogs: ActivityLogRow[]
+  let auditEvents: AuditFeedRow[]
+  try {
+    ;[activityLogs, auditEvents] = await Promise.all([
+      fetchAllRows<ActivityLogRow>((from, to) => (admin as any)
+        .from('user_activity_logs')
+        .select('user_id, action, metadata, created_at')
+        .eq('fund_id', fundId)
+        .gte('created_at', monthStart)
+        .order('created_at', { ascending: false })
+        .range(from, to)),
+      fetchAllRows<AuditFeedRow>((from, to) => (admin as any)
+        .from('accounting_audit_events')
+        .select('actor_id, action, subject_type, subject_id, source, legacy_source:details->>source, tool:details->>tool, created_at')
+        .eq('fund_id', fundId)
+        .gte('created_at', monthStart)
+        .order('created_at', { ascending: false })
+        .range(from, to)),
+    ])
+  } catch {
+    return NextResponse.json({ error: 'Failed to fetch activity' }, { status: 500 })
   }
 
-  const { data: activityLogs } = await admin
-    .from('user_activity_logs' as any)
-    .select('user_id, action, metadata, created_at')
-    .eq('fund_id', fundId)
-    .gte('created_at', monthStart)
-    .order('created_at', { ascending: false })
-    .limit(200) as { data: ActivityLog[] | null }
-
-  // Build per-user summary
-  const userActionMap = new Map<string, Record<string, number>>()
-  for (const log of activityLogs ?? []) {
-    if (!userActionMap.has(log.user_id)) {
-      userActionMap.set(log.user_id, {})
-    }
-    const actions = userActionMap.get(log.user_id)!
-    actions[log.action] = (actions[log.action] ?? 0) + 1
-  }
+  const feed = mergeActivityFeed(activityLogs, auditEvents)
+  const userActionMap = countByUser(feed)
 
   // Resolve user info from fund_members + auth
   const { data: members } = await admin
@@ -208,8 +215,8 @@ export async function GET() {
     memberMap[m.user_id] = m.display_name
   }
 
-  // Collect all unique user IDs from activity logs
-  const activityUserIds = Array.from(new Set((activityLogs ?? []).map(l => l.user_id)))
+  // Collect all unique user IDs from the feed
+  const activityUserIds = Array.from(userActionMap.keys())
 
   // Resolve emails
   const emailMap: Record<string, string> = {}
@@ -228,16 +235,18 @@ export async function GET() {
     total: Object.values(actions).reduce((s, n) => s + n, 0),
   }))
 
-  // Recent activity feed (last 50)
-  const recent = (activityLogs ?? []).slice(0, 50).map(log => ({
-    userId: log.user_id,
-    email: emailMap[log.user_id] ?? 'Unknown',
-    displayName: memberMap[log.user_id] ?? null,
-    action: log.action,
-    metadata: log.metadata,
-    // Which door it came through (lib/activity.ts); older entries have none.
-    source: parseChangeSource((log.metadata as Record<string, unknown> | null)?.changeSource),
-    createdAt: log.created_at,
+  // Recent activity: enough that filtering the feed to one door (the page's Source filter) still
+  // leaves a full page, since a busy MCP connection can push the web entries out of the latest 50.
+  const recent = feed.slice(0, RECENT_LIMIT).map(e => ({
+    userId: e.userId,
+    email: emailMap[e.userId] ?? 'Unknown',
+    displayName: memberMap[e.userId] ?? null,
+    action: e.action,
+    metadata: e.metadata,
+    // Which door it came through; older entries have none.
+    source: e.source,
+    kind: e.kind,
+    createdAt: e.createdAt,
   }))
 
   return NextResponse.json({
