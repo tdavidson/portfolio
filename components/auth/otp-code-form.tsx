@@ -38,7 +38,7 @@ export function OtpCodeForm({
 
       <Alert>
         <AlertDescription>
-          We emailed a 6-digit code to <strong>{email}</strong>. Enter it below, it expires in 1 hour.
+          We emailed a 6-digit code to <strong>{email}</strong>. Enter it below, it expires in 10 minutes.
         </AlertDescription>
       </Alert>
 
