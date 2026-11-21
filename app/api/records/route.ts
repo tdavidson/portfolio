@@ -15,7 +15,7 @@ import { areaLabel, canFileRecords, fileRecord, listRecords, readRecord, readabl
  *
  * Gated on the Records access right in route-domains.ts: read to list or open, write to file. The
  * record's AREA, which the request names, is then checked here by lib/records/areas.ts (read on it,
- * for filing too), as the file_to_record, list_records and read_record tools do.
+ * for filing too), as the file_to_record and read_record tools do.
  */
 
 async function ctx() {

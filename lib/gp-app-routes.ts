@@ -7,6 +7,7 @@
  */
 export const GP_APP_SEGMENTS: ReadonlySet<string> = new Set([
   'accounting',
+  'audit',
   'companies',
   'company-updates',
   'compliance',

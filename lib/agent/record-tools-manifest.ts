@@ -1,5 +1,5 @@
-// Pure metadata for the FUND RECORDS tools: filing what was concluded in a session, and finding it
-// again. NO server imports (the Settings key UI lists these). Handlers live in record-tools.ts; the
+// Pure metadata for the AUDIT tools: reading the automatic log of outside firms (audit_log), turning
+// it on or off (audit_settings), and the optional notes filed into it (file_to_record, read_record). NO server imports (the Settings key UI lists these). Handlers live in record-tools.ts; the
 // logic they share with the web route is lib/records.
 //
 // An MCP server sees tool calls, not the conversation. file_to_record is how the conversation's
@@ -22,7 +22,8 @@ export const RECORD_TOOL_MANIFEST: AgentToolMeta[] = [
   {
     name: 'file_to_record',
     description:
-      'File a record with the fund: what was concluded, decided or said in this session, so the fund keeps it after the chat ends. ' +
+      'File a note into the fund\'s Audit log: what was concluded, decided or said in this session, so the fund keeps it after the chat ends. ' +
+      'Optional: the Audit log already records every change automatically; a note adds the why. ' +
       'Use it at the end of a working session (a journal review, a reconciliation, a tax or compliance question) or when the person asks you to ' +
       '"note this", "file this" or "keep a record". Write the body as a standalone note someone at the fund can read later: what was looked at, ' +
       'what was found, what was decided and what is still open, with the ids or amounts that matter. Show the person the title and body and ' +
@@ -46,34 +47,50 @@ export const RECORD_TOOL_MANIFEST: AgentToolMeta[] = [
     },
   },
   {
-    name: 'list_records',
+    name: 'audit_log',
     description:
-      'Records the fund has filed that you may see, newest first, without their bodies: who filed each, when, through which door ' +
-      '(web, API or MCP), in which area and entity. Filter by area, entity, subject or text. Read one with read_record. ' +
-      'Check here before redoing work someone has already concluded.',
+      'The fund\'s Audit log: what each outside firm (fund administrator, auditor, tax preparer, compliance vendor) did, grouped by firm, ' +
+      'newest first. Logged automatically while Audit is on: every change through the web app, an assistant (MCP) or the API, each day ' +
+      'someone connected over MCP or the API, and any note filed with file_to_record (open one with read_record). Kept after an ' +
+      'engagement ends. Someone on an engagement sees only their own firm. Also says whether Audit is shown to members, admins only, or off.',
     scope: 'read',
-    ...BASE,
+    domain: 'portfolio',
+    accessDomain: 'records',
+    accessFeature: 'audit',
     inputSchema: {
       type: 'object',
       properties: {
-        area: AREA,
-        entity: ENTITY,
-        subject_type: { type: 'string', enum: [...RECORD_SUBJECTS] },
-        subject_id: { type: 'string' },
-        query: { type: 'string', description: 'Words to find in the title or body.' },
-        limit: { type: 'integer', description: 'Up to 200; 50 by default.' },
+        firm: { type: 'string', description: 'One firm (engagement): its name or id. Omit for every firm you can see.' },
+        since: { type: 'string', description: 'YYYY-MM-DD. Default: 90 days ago.' },
+        until: { type: 'string', description: 'YYYY-MM-DD. Default: today.' },
+        limit: { type: 'integer', description: 'Entries per firm, up to 1000; 200 by default.' },
       },
       additionalProperties: false,
     },
   },
   {
+    name: 'audit_settings',
+    description:
+      'Turn Audit on or off, for an admin: members (on, each member sees it subject to their access grant), admins (on, admins only) or ' +
+      'off (nothing is logged for it and nobody sees it; what was logged is kept). The same switch as Settings, under Portfolio Reporting.',
+    scope: 'write',
+    domain: 'portfolio',
+    accessDomain: 'admin',
+    inputSchema: {
+      type: 'object',
+      properties: { visibility: { type: 'string', enum: ['members', 'admins', 'off'] } },
+      required: ['visibility'],
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'read_record',
-    description: 'One filed record, with its body.',
+    description: 'One note filed into the Audit log, with its body. audit_log lists them.',
     scope: 'read',
     ...BASE,
     inputSchema: {
       type: 'object',
-      properties: { id: { type: 'string', description: 'The record id, from list_records.' } },
+      properties: { id: { type: 'string', description: 'The note\'s record id, from audit_log.' } },
       required: ['id'],
       additionalProperties: false,
     },

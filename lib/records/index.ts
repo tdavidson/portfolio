@@ -1,7 +1,6 @@
 // Fund records: what a person or their assistant files from a working session, kept by the fund
-// (20261101140000_fund_records.sql). The web route (/api/records) and the file_to_record,
-// list_records and read_record tools all come through here, so a record filed from Claude is
-// checked, stored and shown exactly as one typed in the app.
+// (20261101140000_fund_records.sql), and shown as notes in each firm's Audit log (lib/audit-log).
+// The web route (/api/records) and the file_to_record and read_record tools come through here.
 //
 // Rules (lib/records/areas.ts): read on the Records access right to read, write on it to file;
 // either way read on the record's area, and the entity in the caller's scope. Append-only.

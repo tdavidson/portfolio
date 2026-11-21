@@ -1,4 +1,5 @@
 import { currentChangeSource } from '@/lib/audit/source'
+import { auditKeepsActivity } from '@/lib/audit-log'
 
 type SupabaseAdmin = { from: (table: string) => any }
 
@@ -10,14 +11,15 @@ export async function logActivity(
   metadata: Record<string, unknown> = {}
 ) {
   try {
-    // Check if user tracking is disabled for this fund
+    // Check if user tracking is disabled for this fund. Audit overrides it for outside firms: an
+    // admin who turned Audit on asked for their activity to be kept (lib/audit-log).
     const { data: settings } = await admin
       .from('fund_settings')
-      .select('disable_user_tracking')
+      .select('disable_user_tracking, feature_visibility')
       .eq('fund_id', fundId)
       .maybeSingle()
 
-    if (settings?.disable_user_tracking) return
+    if (settings?.disable_user_tracking && !(await auditKeepsActivity(admin, fundId, userId, settings.feature_visibility))) return
 
     await admin.from('user_activity_logs').insert({
       fund_id: fundId,

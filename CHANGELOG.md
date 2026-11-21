@@ -2,6 +2,15 @@
 
 ## Unreleased
 
+### Records is now Audit: an automatic log of outside firms
+- **Nothing to file.** Audit shows what each outside firm's people (members on an engagement: fund administrator, auditor, tax preparer, compliance vendor) did, grouped by firm: every change through the web app, an assistant (MCP) or the API, and each day they connected over MCP or the API. It is read from the books' audit trail and the activity log the app already keeps; the only new write is one line per web change an outside person makes, and only while Audit is on. `lib/audit-log`, `/api/audit`, the **Audit** page (where Records was, below Usage).
+- **Kept after the engagement ends.** The log covers everyone ever assigned to a firm, so it stays when the engagement ends and its people are removed.
+- **An admin turns it on.** Audit is a switch in Settings, under Portfolio Reporting, with the same Members / Admins only / Off choice as every other feature. Off by default, and off writes nothing extra. With Audit on, an outside firm's activity is kept even when the fund has switched user tracking off.
+- **Who sees it.** Members see it subject to their access grant (the Records row in the grid, now labelled Audit; members start at write, presets at read). Someone on an engagement sees only their own firm.
+- **Notes stay, inside their firm's log.** `file_to_record` still files a note, now shown in the filer's firm log, and `read_record` opens one. The page no longer offers a filing form, and `list_records` is replaced by `audit_log`.
+- **Every door.** `audit_log` reads the log over MCP and the API under the same rules; `audit_settings` (admins) turns it on for members, admins only, or off.
+- Migration: `20261121130000_audit_feature.sql` (adds the `audit` switch to `feature_default()` and `domain_primary_feature()`, sets every fund's member default for Records to write, drops presets' explicit `none` on Records, and seeds new funds the same way). Nobody sees Audit before an admin turns it on.
+
 ### Inbound can be admins only; members see only their own approvals
 - **An "Inbound" switch in Feature visibility.** Everyone by default, as before. Set to Admins only, members lose the Inbound page and its link, the mailbox routes (`api/emails*`), the email pages, and the matching tools in a connected chat (`inbox_waiting`, `inbox_read`, `inbox_done`, `email_attachment_upload_url`, `add_email_attachment`). The Review queue and company updates are unaffected.
 - **From Claude and ChatGPT.** `setup_fund` takes `featureAccess` (for example `{ "inbound": "admin" }`) to move a feature that is on between everyone and admins only; `setup_status` lists each feature's setting.

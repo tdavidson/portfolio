@@ -1,4 +1,4 @@
-export type FeatureKey = 'interactions' | 'investments' | 'notes' | 'lp_letters' | 'imports' | 'asks' | 'inbound' | 'lps' | 'lp_tracking' | 'lp_portal' | 'lp_activity' | 'compliance' | 'deals' | 'diligence' | 'accounting' | 'gp_economics' | 'tax_reporting' | 'management_company'
+export type FeatureKey = 'interactions' | 'investments' | 'notes' | 'lp_letters' | 'imports' | 'asks' | 'inbound' | 'lps' | 'lp_tracking' | 'lp_portal' | 'lp_activity' | 'compliance' | 'deals' | 'diligence' | 'accounting' | 'gp_economics' | 'tax_reporting' | 'management_company' | 'audit'
 
 export type FeatureVisibility = 'everyone' | 'admin' | 'hidden' | 'off'
 
@@ -57,6 +57,11 @@ export const DEFAULT_FEATURE_VISIBILITY: FeatureVisibilityMap = {
   // therefore must not hand them the firm's salaries, so the two are separate grants and the
   // vehicle's `kind` decides which one a request needs (lib/accounting/http-vehicle.ts).
   management_company: 'off',
+  // Audit: an automatic log of what outside firms' people (members on an engagement) do through the
+  // web app, MCP and the API, grouped by firm and kept by the fund after the engagement ends
+  // (lib/audit-log). Off by default. Turning it on is what makes it run: with it off, nothing extra
+  // is written. "everyone" shows it to members (subject to the `records` grant), "admin" to admins only.
+  audit: 'off',
   // Budgets, rolling forecasts and variance (plans/plan-budget-forecast.md). Under the `accounting`
   // domain like `tax_reporting`: a forecast is built from the vehicle's chart and its posted actuals,
   // so anyone who can read the books can read every figure it shows. Its own switch because a fund

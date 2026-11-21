@@ -374,6 +374,9 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // Fund records: read on Records to list or open, write to file. The record's own area (which the
   // request names) is checked in the handler by lib/records/areas.ts, as the record tools do.
   'api/records': { domain: 'records' },
+  // Audit (lib/audit-log): the automatic log of outside firms. Same grant and switch as the notes
+  // filed into it; the handler narrows someone on an engagement to their own firm.
+  'api/audit': { domain: 'records' },
   // Custom views (lib/custom-views): a member's own list, like a saved dashboard. Every block of a
   // view is checked against its dataset's gate and the caller's entities when it loads
   // (lib/custom-views/resolve.ts), so level 'any' only keeps non-members out.

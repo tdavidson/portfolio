@@ -262,20 +262,20 @@ export const DOMAIN_META: Record<Domain, DomainMeta> = {
     defaultFrom: 'accounting',
   },
   records: {
-    label: 'Records',
+    label: 'Audit',
     description:
-      'Session records: summaries, decisions, memos and notes filed by people and their assistants. Each record is still shown only to someone who can read its area and see its entity.',
-    primaryFeature: null,
-    features: [],
+      'The automatic log of what outside firms do in the fund, grouped by firm, and the notes filed into it. Someone on an engagement sees only their own firm.',
+    primaryFeature: 'audit',
+    features: ['audit'],
     /**
-     * WHETHER YOU MAY USE RECORDS AT ALL, ON TOP OF THE AREA CHECK. A record lives in one area
-     * (accounting, tax ...) and lib/records/areas.ts still requires read on that area to see it.
-     * This grant is the switch above that: read to list and open records, write to file one. So an
-     * admin can keep the page and the record tools away from a member who reads accounting, or give
-     * an auditor read on accounting and write here so they can file their journal review.
+     * THE AUDIT LOG (lib/audit-log), still keyed `records` because that is what the stored grants
+     * and defaults say. The fund switch `audit` decides whether it runs at all and whether members
+     * or only admins may see it; this grant narrows it per person: read to see the log, write to
+     * also file a note into it (file_to_record, which still needs read on the note's area).
      *
-     * Members start at none (20261120230000 seeds every fund's default at none, and no `defaultFrom`
-     * means the same before it is applied); an admin grants it per person. Admins always have it.
+     * Members start at write (20261121130000 seeds every fund's default), so "Members" on the
+     * switch means members. An admin can lower anyone in the access grid. Someone on an engagement
+     * sees only their own firm's log (lib/audit-log/index.ts), whatever their grant.
      */
   },
   admin: {

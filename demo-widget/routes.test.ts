@@ -19,6 +19,7 @@ const NOT_IN_DEMO: Record<string, string> = {
   'funds/group/[groupId]': 'entity groups are a per-fund setting the demo dataset does not define',
   'companies': 'redirect to /dashboard',
   'lps/live': 'redirect to /lps',
+  'records': 'redirect to /audit',
   'lps/preview': 'admin only',
   'pending-actions': 'redirect to /dashboard',
   'usage': 'admin only',
