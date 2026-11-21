@@ -11,8 +11,13 @@ export async function ShellBadges({ page, userId }: { page: PageAccess; userId: 
       .eq('fund_id', page.fundId).is('resolution', null),
     client.from('inbound_emails').select('id', { count: 'exact', head: true })
       .eq('fund_id', page.fundId).eq('processing_status', 'needs_review'),
-    client.from('pending_actions').select('id', { count: 'exact', head: true })
-      .eq('fund_id', page.fundId).eq('status', 'pending'),
+    // A member's Approvals are only what they staged (lib/pending-actions/service.ts), so the item
+    // shows only while one of THEIRS is waiting. RLS says the same once 20261121120000 is applied.
+    (() => {
+      const q = client.from('pending_actions').select('id', { count: 'exact', head: true })
+        .eq('fund_id', page.fundId).eq('status', 'pending')
+      return page.isAdmin ? q : q.eq('created_by', userId)
+    })(),
     getNotesBadge(userId),
     page.isAdmin ? getPendingRequests(page.fundId) : Promise.resolve(0),
   ])

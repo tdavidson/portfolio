@@ -49,7 +49,8 @@ export const PAGE_DOMAINS: Record<string, PageDomain> = {
   // Portfolio update search — the Company Updates corpus (reporting email), not the mailbox.
   'company-updates': { domain: 'portfolio' },
   // The mailbox is portfolio intake, not deal flow — see ROUTE_DOMAINS['api/emails'].
-  'emails/[id]': { domain: 'portfolio' },
+  // Its `inbound` switch lets an admin keep the mailbox to admins.
+  'emails/[id]': { domain: 'portfolio', feature: 'inbound' },
 
   // ── Relationships ──────────────────────────────────────────────────────────
   'interactions': { domain: 'relationships', feature: 'interactions' },

@@ -392,6 +392,11 @@ export default function SupportPage() {
             into company-specific folders &mdash; organized by company name &mdash; so you always have
             the original source files alongside the extracted data.
           </p>
+          <p className="text-muted-foreground mt-2">
+            Inbound is open to every member by default. An admin can make it <strong>Admins only</strong> in
+            Settings &rarr; Feature visibility: members then lose the page, its emails and attachments, and the
+            matching tools in a connected chat. The Review queue and company updates are unaffected.
+          </p>
         </div>
 
         <div id="email-detail" className="pl-4 border-l-2 border-border">

@@ -16,6 +16,8 @@ export const KEYLESS_TOOL_MANIFEST: AgentToolMeta[] = [
       '(and notes with add_company_note), then mark it with inbox_done.',
     scope: 'read',
     domain: 'portfolio',
+    // The mailbox: closed with the Inbound page when an admin makes it "Admins only".
+    accessFeature: 'inbound',
     inputSchema: { type: 'object', properties: { limit: { type: 'number', description: '1-50, default 20.' } } },
   },
   {
@@ -25,6 +27,8 @@ export const KEYLESS_TOOL_MANIFEST: AgentToolMeta[] = [
       'here; say so rather than guessing at it.',
     scope: 'read',
     domain: 'portfolio',
+    // The mailbox: closed with the Inbound page when an admin makes it "Admins only".
+    accessFeature: 'inbound',
     inputSchema: {
       type: 'object',
       properties: { email: EMAIL, max_chars: { type: 'number', description: 'Character budget for the text (2000-60000; default 30000).' } },
@@ -38,6 +42,8 @@ export const KEYLESS_TOOL_MANIFEST: AgentToolMeta[] = [
       'updates and leaves the waiting list. Pass recorded: 0 when there was nothing to record.',
     scope: 'write',
     domain: 'portfolio',
+    // The mailbox: closed with the Inbound page when an admin makes it "Admins only".
+    accessFeature: 'inbound',
     inputSchema: {
       type: 'object',
       properties: {

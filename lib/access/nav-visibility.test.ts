@@ -17,6 +17,7 @@ import path from 'node:path'
  */
 
 import { effectiveAccess, type AccessContext } from './effective'
+import type { FeatureKey } from '@/lib/types/features'
 import { domainForFeature, domainFundLevel, domainGrantableToMembers } from './domains'
 import { ROUTE_DOMAINS } from './route-domains'
 import { DEFAULT_FEATURE_VISIBILITY, type FeatureVisibilityMap } from '@/lib/types/features'
@@ -124,17 +125,30 @@ describe('domainGrantableToMembers — what the access grid offers', () => {
 describe('nav entries agree with the routes behind them', () => {
   const sidebar = readFileSync(path.join(process.cwd(), 'components', 'app-sidebar.tsx'), 'utf8')
 
+  const navEntry = (href: string): string | undefined =>
+    sidebar.match(new RegExp(`\\{[^{}]*href:\\s*'${href}'[^{}]*\\}`))?.[0]
+  /** The entry's own domain, or the one its feature key belongs to (what canSee resolves). */
   const navDomainFor = (href: string): string | undefined => {
-    const entry = sidebar.match(new RegExp(`\\{[^{}]*href:\\s*'${href}'[^{}]*\\}`))
-    return entry?.[0].match(/domain:\s*'([a-z_]+)'/)?.[1]
+    const entry = navEntry(href)
+    const own = entry?.match(/domain:\s*'([a-z_]+)'/)?.[1]
+    if (own) return own
+    const key = entry?.match(/featureKey:\s*'([a-z_]+)'/)?.[1]
+    return key ? domainForFeature(key as FeatureKey) : undefined
   }
 
   it('finds the entry it claims to check (guards against a vacuous pass)', () => {
     expect(navDomainFor('/emails')).toBeDefined()
   })
 
-  it('gates the Inbound link on the same domain as the inbox API', () => {
+  it('gates the Inbound link on the same domain and switch as the inbox API', () => {
     expect(navDomainFor('/emails')).toBe(ROUTE_DOMAINS['api/emails'].domain)
+    expect(navEntry('/emails')).toContain(`featureKey: '${ROUTE_DOMAINS['api/emails'].feature}'`)
+  })
+
+  it('closes Inbound to members, link and API alike, when an admin makes it Admins only', () => {
+    const c = ctx({ inbound: 'admin' }, { portfolio: 'write' })
+    expect(effectiveAccess(c, ROUTE_DOMAINS['api/emails'].domain, ROUTE_DOMAINS['api/emails'].feature)).toBe('none')
+    expect(effectiveAccess(c, 'portfolio')).toBe('write')
   })
 
   it('shows Inbound to a fund that never bought the Deals product', () => {

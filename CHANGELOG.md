@@ -2,6 +2,12 @@
 
 ## Unreleased
 
+### Inbound can be admins only; members see only their own approvals
+- **An "Inbound" switch in Feature visibility.** Everyone by default, as before. Set to Admins only, members lose the Inbound page and its link, the mailbox routes (`api/emails*`), the email pages, and the matching tools in a connected chat (`inbox_waiting`, `inbox_read`, `inbox_done`, `email_attachment_upload_url`, `add_email_attachment`). The Review queue and company updates are unaffected.
+- **From Claude and ChatGPT.** `setup_fund` takes `featureAccess` (for example `{ "inbound": "admin" }`) to move a feature that is on between everyone and admins only; `setup_status` lists each feature's setting.
+- **Approvals are a member's own.** A member sees, approves and rejects only the changes they staged (from their chat, a key or the Analyst), and the Approvals item shows in their sidebar only while one of theirs is waiting. Admins see every change. The same rule applies to `list_pending_actions`, `approve_action`, `reject_action` and the API.
+- Migration, additive: `20261121120000_inbound_switch_and_own_approvals.sql` (the `inbound` default in `feature_default()`, the mailbox's read and write policies with the switch, and own-or-admin on the pending actions read policy). The app enforces both rules before it is applied; the migration makes the Data API agree.
+
 ### One daily background job, and only for features in use
 - **Fits Vercel's free plan.** `vercel.json` now schedules one job, `/api/cron/tick`, once a day. Before, it scheduled nine, seven of them every few minutes or hourly, which Hobby refuses to deploy.
 - **Nothing runs for a feature that is off.** The tick reads whether each optional feature is in use and has work (pending OCR, queued deal research, memo jobs, a running backfill, Affinity-linked deals, reminders turned on, an expired member, Mondays for the digest) and starts only those workers.
