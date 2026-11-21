@@ -42,7 +42,7 @@ export default function SupportPage() {
       <li className="pl-4"><a href="#lp-portal" className="hover:text-foreground underline underline-offset-4">LP portal</a></li>
       <li><a href="#compliance" className="hover:text-foreground underline underline-offset-4">Compliance</a></li>
       <li><a href="#usage" className="hover:text-foreground underline underline-offset-4">Usage</a></li>
-      <li><a href="#records" className="hover:text-foreground underline underline-offset-4">Records</a></li>
+      <li><a href="#audit" className="hover:text-foreground underline underline-offset-4">Audit</a></li>
       <li><a href="#analyst" className="hover:text-foreground underline underline-offset-4">Analyst</a></li>
       <li><a href="#ai-assistants" className="hover:text-foreground underline underline-offset-4">Claude &amp; ChatGPT</a></li>
       <li><a href="#file-handling" className="hover:text-foreground underline underline-offset-4">File Handling &amp; Security</a></li>
@@ -579,7 +579,7 @@ export default function SupportPage() {
             <p className="text-muted-foreground mb-2">
               Two questions decide what a member sees, and both must say yes. <strong>Which areas</strong>:
               portfolio, deal flow, diligence, accounting, the management company, LP capital, GP economics,
-              LP relations, compliance, tax, admin and Records &mdash; each none, read, or read &amp; write. <strong>Whose data</strong>:
+              LP relations, compliance, tax, admin and Audit &mdash; each none, read, or read &amp; write. <strong>Whose data</strong>:
               All entities (including ones added later, and items assigned to none), specific funds, SPVs and
               entities, or none. Set both in <strong>Settings &rarr; Team &rarr; Access</strong>; the first column
               is the member&rsquo;s entities. Approving a join request asks which entities the person can see,
@@ -599,8 +599,8 @@ export default function SupportPage() {
               ends</strong> sets a date after which a member can no longer reach the fund. <strong>Engagements</strong> group the people
               from one outside firm under one last day, with an activity log of what they did. Each entity a member is granted can be
               capped at <strong>Propose</strong> or <strong>Read</strong>, and <em>Read &amp; propose</em> on accounting lets someone
-              put journal entries forward as drafts for another person to post. Records has its own row (see
-              <a href="#records" className="underline underline-offset-4 hover:text-foreground"> Records</a>).
+              put journal entries forward as drafts for another person to post. Audit has its own row (see
+              <a href="#audit" className="underline underline-offset-4 hover:text-foreground"> Audit</a>).
             </p>
             <p className="text-muted-foreground mb-2">
               <strong>Linked sign-ins.</strong> Someone who works for several funds on this deployment, such as a fund administrator,
@@ -1203,23 +1203,24 @@ export default function SupportPage() {
           </p>
         </div>
 
-        <div id="records">
+        <div id="audit">
           <h2 className="text-base font-medium mb-2 flex items-center gap-2">
             <Archive className="h-4 w-4 text-muted-foreground" />
-            Records
+            Audit
           </h2>
           <p className="text-muted-foreground mb-2">
-            <strong>Records</strong> keeps what a working session concluded &mdash; a summary, a decision, a memo, a transcript or a note
-            &mdash; so the fund keeps it after the conversation ends. It is meant for outside providers such as an auditor,
-            administrator or tax preparer who work with their own assistant: a connected assistant sees tool calls but not your
-            conversation, so the conclusion is filed on purpose, from the Records page or from the assistant with
-            <code className="font-mono text-xs"> file_to_record</code>. Each record belongs to an area and usually an entity, and keeps
-            who filed it and how. Records can&rsquo;t be edited or deleted; a correction is a new record.
+            <strong>Audit</strong> is an automatic log of what outside firms &mdash; a fund administrator, tax preparer, auditor or
+            compliance vendor on an engagement &mdash; did in the fund. While it is on, every change their people make through the web
+            app, Claude or ChatGPT (MCP) or the API is logged, with each day they connected over MCP or the API. It is grouped by firm
+            and kept after the engagement ends, and it is kept even if the fund has switched usage tracking off. An outside person can
+            still file a note from their assistant with <code className="font-mono text-xs">file_to_record</code>, which shows in
+            their firm&rsquo;s log.
           </p>
           <p className="text-muted-foreground">
-            Records is its own row in the access grid and starts at none for members: an admin grants it per person (read to see
-            records, write to file them). Even then, a record shows only to someone who can read its area and see its entity. Admins
-            always have it. It sits below Usage in the sidebar.
+            Audit is off by default. An admin turns it on in Settings &rarr; Portfolio Reporting, as <strong>Members</strong> or
+            <strong> Admins only</strong>, like any other feature. With Members, each person&rsquo;s Audit row in the access grid
+            decides whether they see it, and someone on an engagement sees only their own firm&rsquo;s log. It sits below Usage in the
+            sidebar; old links to Records open Audit.
           </p>
         </div>
 
@@ -1363,7 +1364,7 @@ export default function SupportPage() {
               <li><strong>Views</strong> &mdash; ask for a view (&ldquo;NAV, unfunded and the largest positions by vehicle&rdquo;) or a starter view, see it previewed in the chat, save it to Views, and export it as PDF or Excel.</li>
               <li><strong>Report cards</strong> &mdash; one investor&rsquo;s card, optionally as of a past date, or a ZIP of cards for several investors or all you can see.</li>
               <li><strong>The books</strong> &mdash; post and unpost entries, correct a draft&rsquo;s lines, date, memo or partners with <em>edit draft entry</em>, then post it again; reading the statements as of any date.</li>
-              <li><strong>Records</strong> &mdash; file what a session concluded, and list or read records, with the Records access right.</li>
+              <li><strong>Audit</strong> &mdash; read the outside firms&rsquo; activity log, and, for someone on an engagement, file a note to their firm&rsquo;s log.</li>
               <li><strong>Carried interest</strong> &mdash; the fund&rsquo;s carry is shown to anyone who can see LP capital; what each carry recipient personally earns needs GP economics access.</li>
             </ul>
           </div>
@@ -1450,7 +1451,7 @@ export default function SupportPage() {
             Navigation &amp; theme
           </h2>
           <p className="text-muted-foreground mb-2">
-            The sidebar follows the products: Review and Approvals (while something is waiting for you), Start, Getting started (admins, until setup is finished), Inbound, Deals, Diligence (Inbox, Analytics), Portfolio (Import, Investments, Asks, Interactions, Updates, Letters, Notes, Compliance), Views, LPs (Capital accounts, Documents, Preview portal, Activity), Financials, Usage, Records, Settings and Support &mdash; only the sections you can see. A lock marks admin-only items, and admins see an Updates link when a new version is out.
+            The sidebar follows the products: Review and Approvals (while something is waiting for you), Start, Getting started (admins, until setup is finished), Inbound, Deals, Diligence (Inbox, Analytics), Portfolio (Import, Investments, Asks, Interactions, Updates, Letters, Notes, Compliance), Views, LPs (Capital accounts, Documents, Preview portal, Activity), Financials, Usage, Audit, Settings and Support &mdash; only the sections you can see. A lock marks admin-only items, and admins see an Updates link when a new version is out.
           </p>
           <p className="text-muted-foreground mb-2">
             At the bottom, the theme toggle cycles between System, Light and Dark; System follows your operating system&apos;s preference. The <strong>Hide sidebar</strong> button collapses it to an icon strip for more room.
