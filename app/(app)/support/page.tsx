@@ -1368,6 +1368,22 @@ export default function SupportPage() {
               <li><strong>Carried interest</strong> &mdash; the fund&rsquo;s carry is shown to anyone who can see LP capital; what each carry recipient personally earns needs GP economics access.</li>
             </ul>
           </div>
+          <div className="pl-4 border-l-2 border-border mt-2">
+            <h3 className="font-medium mb-1">Using it day to day</h3>
+            <ul className="list-disc pl-5 text-muted-foreground space-y-1">
+              <li><strong>Changes wait for you.</strong> A change the assistant makes comes back staged: it tells you what would change and asks. Say yes in the chat, or decide it on the Approvals page. Drafts and previews run at once; anything that goes out to LPs, and capital calls, always wait for a person. With an API key a change runs at once, apart from those.</li>
+              <li><strong>Admin-only changes</strong> (issuing calls and distributions, reversing posted entries, reopening periods, finalizing K-1s) can still be proposed from a chat by a member; they wait for an admin.</li>
+              <li><strong>More than one fund.</strong> If you linked sign-ins for several funds, ask the assistant which fund is active and to switch. Every result names its fund, and a change naming the wrong fund is refused.</li>
+              <li><strong>Limits.</strong> 300 reads or 60 changes a minute per fund. Download links last an hour. Long work (the memo agent, a close over many months) runs as a job you can ask about later.</li>
+              <li><strong>A tool &ldquo;doesn&rsquo;t exist&rdquo;?</strong> The assistant fetched its tool list when the conversation began. Ask it to search its tools, or start a new conversation. If it&rsquo;s still missing, your access or the fund&rsquo;s switches don&rsquo;t include that area.</li>
+            </ul>
+            <p className="text-muted-foreground mt-1">
+              The full guide is{' '}
+              <a href="https://github.com/tdavidson/reporting/blob/main/MCP.md" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4 hover:text-foreground">MCP.md</a>
+              , and every tool, with whether it changes anything and what happens when a chat calls it, is listed in{' '}
+              <a href="https://github.com/tdavidson/reporting/blob/main/MCP-TOOLS.md" target="_blank" rel="noopener noreferrer" className="underline underline-offset-4 hover:text-foreground">MCP-TOOLS.md</a>.
+            </p>
+          </div>
           <p className="text-muted-foreground mt-2">
             <strong>The connector&rsquo;s icon.</strong> ChatGPT uses the icon you upload when adding the server (download it from Settings &rarr; API and MCP). Claude currently shows a generic icon for every custom connector; the server already declares your fund&rsquo;s icon for when it reads it.
           </p>
