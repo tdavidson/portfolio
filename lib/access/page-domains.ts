@@ -114,6 +114,8 @@ export const PAGE_DOMAINS: Record<string, PageDomain> = {
   'funds/[id]/periods': { domain: 'accounting', gate: 'requireVehicleAccess' },
   'funds/[id]/schedule-of-investments': { domain: 'accounting', gate: 'requireVehicleAccess' },
   'funds/[id]/statements': { domain: 'accounting', gate: 'requireVehicleAccess' },
+  // Statement review shows per-LP capital: lp_capital and its switch, like every route behind it.
+  'funds/[id]/review': { domain: 'lp_capital', feature: 'lp_tracking', gate: 'requireVehicleAccess' },
   'funds/[id]/status': { domain: 'accounting', gate: 'requireVehicleAccess' },
 
   // ── Administration ─────────────────────────────────────────────────────────

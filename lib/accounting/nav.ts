@@ -4,7 +4,7 @@
 
 import {
   Landmark, Users, ScrollText, Gauge,
-  Lock, Layers, FileText, Table2, Upload, ClipboardList, Settings2, TrendingUp, LineChart, Receipt, FileSpreadsheet,
+  Lock, Layers, FileText, Table2, Upload, ClipboardList, Settings2, TrendingUp, LineChart, Receipt, FileSpreadsheet, ClipboardCheck,
 } from 'lucide-react'
 import type { LucideIcon } from 'lucide-react'
 import type { Domain } from '@/lib/access/domains'
@@ -165,6 +165,16 @@ export const ACCOUNTING_SECTIONS: AccountingSection[] = [
     // One page for the plan (plans/plan-unified-plan.md §5): its portfolio construction and its fund
     // forecast, in two tabs. A management company, which holds no portfolio, sees the fund forecast.
     desc: 'Plan the portfolio — deals, timing, exits — and the fund around it: fees, expenses, calls and distributions by month, beside the actuals.',
+  },
+  {
+    href: '/funds/review',
+    label: 'Statement review',
+    icon: ClipboardCheck,
+    desc: "Check an administrator's quarterly package: whether it foots, rolls forward and carries on from last quarter, and whether every partner is there.",
+    // Per-partner capital, like capital accounts.
+    domain: 'lp_capital',
+    feature: 'lp_tracking',
+    hideFor: ['individual', 'manco'],
   },
   {
     href: '/funds/statements',

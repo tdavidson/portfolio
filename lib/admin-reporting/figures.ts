@@ -194,6 +194,37 @@ const REQUIRED: { key: keyof AdminPosition; label: string }[] = [
 ]
 
 /**
+ * Match an administrator's partners to the app's: the caller's explicit id first, then a saved
+ * link by external id, then the one partner with exactly that name. Anything else is unmatched.
+ * Shared with statement review (lib/statement-review), which maps a package's partners the same way.
+ */
+export function matchPartners(
+  rows: { externalId: string; name: string; lpEntityId?: string | null }[],
+  partners: PartnerRef[],
+  links: LinkRef[],
+): PullMatch[] {
+  const byId = new Map(partners.map(p => [p.id, p]))
+  const linked = new Map(links.map(l => [l.externalId, l.lpEntityId]))
+  const byName = new Map<string, string[]>()
+  for (const p of partners) {
+    const k = norm(p.name)
+    byName.set(k, [...(byName.get(k) ?? []), p.id])
+  }
+  return rows.map(p => {
+    if (p.lpEntityId) {
+      return byId.has(p.lpEntityId)
+        ? { externalId: p.externalId, name: p.name, lpEntityId: p.lpEntityId, by: 'explicit' as const }
+        : { externalId: p.externalId, name: p.name, lpEntityId: null, by: null }
+    }
+    const link = linked.get(p.externalId)
+    if (link && byId.has(link)) return { externalId: p.externalId, name: p.name, lpEntityId: link, by: 'link' as const }
+    const named = byName.get(norm(p.name)) ?? []
+    if (named.length === 1) return { externalId: p.externalId, name: p.name, lpEntityId: named[0], by: 'name' as const }
+    return { externalId: p.externalId, name: p.name, lpEntityId: null, by: null }
+  })
+}
+
+/**
  * Check a pull against the vehicle's partners. Never looks at whether a figure is right: the
  * administrator is the record. Blocks only what would leave a card wrong or a partner unplaced.
  *
@@ -210,25 +241,7 @@ export function checkPull(args: {
   const blocking: string[] = []
   const warnings: string[] = []
   const byId = new Map(partners.map(p => [p.id, p]))
-  const linked = new Map(links.map(l => [l.externalId, l.lpEntityId]))
-  const byName = new Map<string, string[]>()
-  for (const p of partners) {
-    const k = norm(p.name)
-    byName.set(k, [...(byName.get(k) ?? []), p.id])
-  }
-
-  const matches: PullMatch[] = figures.positions.map(p => {
-    if (p.lpEntityId) {
-      return byId.has(p.lpEntityId)
-        ? { externalId: p.externalId, name: p.name, lpEntityId: p.lpEntityId, by: 'explicit' as const }
-        : { externalId: p.externalId, name: p.name, lpEntityId: null, by: null }
-    }
-    const link = linked.get(p.externalId)
-    if (link && byId.has(link)) return { externalId: p.externalId, name: p.name, lpEntityId: link, by: 'link' as const }
-    const named = byName.get(norm(p.name)) ?? []
-    if (named.length === 1) return { externalId: p.externalId, name: p.name, lpEntityId: named[0], by: 'name' as const }
-    return { externalId: p.externalId, name: p.name, lpEntityId: null, by: null }
-  })
+  const matches = matchPartners(figures.positions, partners, links)
 
   const unmatched = matches.filter(m => !m.lpEntityId)
   if (unmatched.length) {

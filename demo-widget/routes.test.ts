@@ -24,6 +24,7 @@ const NOT_IN_DEMO: Record<string, string> = {
   'usage': 'admin only',
   'getting-started': 'the setup checklist for a new fund — the demo fund is already set up',
   'entities/[id]/documents': 'an entity\'s uploaded governing documents — the demo fund has none to show',
+  'funds/[id]/review': "statement review checks an administrator's package — the demo fund has none to review",
   'updates': 'admin only',
   'diligence/analytics': 'admin only',
   'settings/memo-agent/defaults': 'admin only',
