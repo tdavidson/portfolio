@@ -355,6 +355,9 @@ export default function SupportPage() {
           <p className="text-muted-foreground">
             Changes the Analyst drafts rather than makes &mdash; metric updates, investments, capital calls &mdash; are approved or rejected in the <a href="#analyst" className="underline underline-offset-4 hover:text-foreground">Analyst</a> panel, which also lists any still waiting from earlier conversations.
           </p>
+          <p className="text-muted-foreground mt-2">
+            The <strong>Approvals</strong> page lists changes staged from a connected chat, a script or the Analyst. A member sees only the changes they staged themselves, and the page appears in their sidebar only while one of theirs is waiting. Admins see every change waiting, including members&apos; proposals that need an admin.
+          </p>
         </div>
 
         <div id="inbound">
@@ -391,6 +394,11 @@ export default function SupportPage() {
             <strong>Google Drive</strong> in Settings, every inbound email and its attachments are saved
             into company-specific folders &mdash; organized by company name &mdash; so you always have
             the original source files alongside the extracted data.
+          </p>
+          <p className="text-muted-foreground mt-2">
+            Inbound is open to every member by default. An admin can make it <strong>Admins only</strong> in
+            Settings &rarr; Feature visibility: members then lose the page, its emails and attachments, and the
+            matching tools in a connected chat. The Review queue and company updates are unaffected.
           </p>
         </div>
 

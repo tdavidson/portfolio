@@ -110,7 +110,7 @@ export const TABLE_RULES: Record<string, TableRule> = {
   // The mailbox is portfolio INTAKE, not deal flow — ROUTE_DOMAINS says so for every api/emails*
   // route, with a comment about the 403 that taught them. Filing it under dealflow here meant a
   // fund with `deals: off` served /emails/[id] and then showed nothing in it.
-  inbound_emails: { scope: 'fund', domain: 'portfolio' },
+  inbound_emails: { scope: 'fund', domain: 'portfolio', feature: 'inbound', note: 'The mailbox, matching api/emails*: portfolio plus the `inbound` switch, so "Admins only" holds against the Data API too (20261121120000).' },
   // The "asks" table — api/requests* is portfolio + asks.
   email_requests: { scope: 'fund', domain: 'portfolio', feature: 'asks' },
   fund_group_config: { scope: 'fund', domain: 'portfolio' },

@@ -1,6 +1,7 @@
 import type { AgentToolMeta } from '@/lib/accounting/agent-tools-manifest'
 import { VEHICLE_KINDS } from '@/lib/vehicle-kinds'
 import { STEP_KEYS } from '@/lib/onboarding/progress'
+import { DEFAULT_FEATURE_VISIBILITY } from '@/lib/types/features'
 
 // Setting a fund up without the web app: where setup stands, and one call that applies a plan
 // (lib/onboarding/setup-plan.ts). Admins only: both are gated on the `admin` domain, which no
@@ -55,7 +56,8 @@ export const SETUP_TOOL_MANIFEST: AgentToolMeta[] = [
     name: 'setup_fund',
     description:
       'Set the fund up from a plan, in one call: its name, the products it runs, its entities (each gets a chart of accounts), ' +
-      'its team with their access, and the email addresses allowed to send company updates; it also skips or unskips getting-started steps. Safe to re-run: entities match by name, ' +
+      'its team with their access, and the email addresses allowed to send company updates; it also skips or unskips getting-started steps, ' +
+      'and sets whether a feature is open to members or admins only (featureAccess, e.g. make the Inbound page admins only). Safe to re-run: entities match by name, ' +
       'people and senders by email. Adding someone who has no account sends them an invitation email. ' +
       'Products: portfolio_reporting, fund_operations (books, carry, tax, compliance), lp_reporting (LP capital and portal), ' +
       'investment_workflow (deals and diligence), management_company. While the fund is new this is the full choice; once it is ' +
@@ -96,6 +98,15 @@ export const SETUP_TOOL_MANIFEST: AgentToolMeta[] = [
           type: 'array',
           items: { type: 'string', enum: [...STEP_KEYS] },
           description: 'Checklist steps to put back after a skip.',
+        },
+        featureAccess: {
+          type: 'object',
+          description: 'Who may open a feature that is on: "everyone" (members, subject to their access grants) or "admin" (admins only). ' +
+            'For example { "inbound": "admin" } keeps the Inbound page, the mailbox API and the inbox tools to admins. ' +
+            'A feature that is off stays off; turn its product on first. setup_status lists each feature\'s current setting under featureAccess. ' +
+            'Confirm with the person first.',
+          properties: Object.fromEntries(Object.keys(DEFAULT_FEATURE_VISIBILITY).map(k => [k, { type: 'string', enum: ['everyone', 'admin'] }])),
+          additionalProperties: false,
         },
       },
       additionalProperties: false,

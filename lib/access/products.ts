@@ -24,7 +24,7 @@ export const PRODUCT_META: Record<ProductKey, ProductMeta> = {
     // `records` spans every product (a record is filed in any area), and it has no fund switch of
     // its own, so it sits with the product that always ships on.
     domains: ['portfolio', 'relationships', 'records'],
-    features: ['investments', 'imports', 'asks', 'interactions', 'notes'],
+    features: ['investments', 'imports', 'asks', 'inbound', 'interactions', 'notes'],
   },
   investment_workflow: {
     label: 'Investment Workflow',

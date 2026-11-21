@@ -40,8 +40,10 @@ function admin() {
 
 const features = new Proxy({}, { get: () => 'everyone' }) as any
 const principal = (role: 'admin' | 'member') => ({
-  userId: 'u1', fundId: 'f1', role,
-  access: { fundId: 'f1', userId: 'u1', role, features, grants: { lp_relations: 'write' }, defaults: {}, vehicles: { all: true, ids: [] } },
+  // The member is the one who staged ROW: a member sees only their own approvals, and this is
+  // about whether they may approve it.
+  userId: role === 'member' ? 'member' : 'u1', fundId: 'f1', role,
+  access: { fundId: 'f1', userId: role === 'member' ? 'member' : 'u1', role, features, grants: { lp_relations: 'write' }, defaults: {}, vehicles: { all: true, ids: [] } },
 }) as any
 
 describe('approving what publishes to LPs', () => {
@@ -93,7 +95,7 @@ describe('approving a publish from chat (approve_action)', () => {
     const { getPendingTool } = await import('@/lib/agent/pending-tools')
     const p = principal(role)
     return getPendingTool('approve_action')!.run({
-      admin: admin(), auth: { keyId, userId: 'u1', fundId: 'f1', role } as any, access: p.access, origin: 'https://fund.test',
+      admin: admin(), auth: { keyId, userId: p.userId, fundId: 'f1', role } as any, access: p.access, origin: 'https://fund.test',
     }, { id: ROW.id })
   }
 

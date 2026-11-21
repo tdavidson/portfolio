@@ -79,8 +79,9 @@ export function canSee(
 const NAV_ITEMS: NavItem[] = [
   { href: '/review', label: 'Review', icon: ClipboardCheck, badgeKey: 'review', domain: 'portfolio' },
   // Changes staged from a connected chat, a script or the Analyst. No domain: the queue spans
-  // domains, and /api/pending-actions filters each row by the caller's read access. Shown, like
-  // Review, only while something is waiting — the layout counts with RLS, so that is per user.
+  // domains, and /api/pending-actions filters each row by the caller's read access. A member sees
+  // only the changes they staged; admins see all. Shown, like Review, only while something is
+  // waiting — the layout counts per user, so a member with nothing of theirs waiting sees no item.
   { href: '/pending-actions', label: 'Approvals', icon: BadgeCheck, badgeKey: 'approvals' },
   // Portfolio, not dealflow — the mailbox is where portfolio updates arrive and where the review
   // queue's emails live, so gating it on the Deals product hid the only page that can reprocess an
@@ -95,7 +96,8 @@ const NAV_ITEMS: NavItem[] = [
   // Hidden once every step is done or skipped (useSetupComplete, one admin-only fetch); an admin
   // gets back to it from the button on Settings.
   { href: '/getting-started', label: 'Getting started', icon: ListChecks, adminOnly: true },
-  { href: '/emails', label: 'Inbound', icon: Mail, domain: 'portfolio' },
+  // Its own switch (`inbound`): an admin can make the mailbox "Admins only".
+  { href: '/emails', label: 'Inbound', icon: Mail, featureKey: 'inbound' },
   { href: '/deals', label: 'Deals', icon: Lightbulb, featureKey: 'deals' },
   {
     href: '/diligence', label: 'Diligence', icon: Microscope, featureKey: 'diligence',

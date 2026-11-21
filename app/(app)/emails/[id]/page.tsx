@@ -21,7 +21,7 @@ export default async function EmailDetailPage(props: { params: Promise<{ id: str
   // UUID got the whole message server-rendered — raw_payload included — whatever their grant said.
   // That is the "hidden but still reachable by URL" hole the access model exists to close.
   const page = await resolvePageAccess(user.id)
-  if (!page || !canViewPage(page, 'portfolio')) redirect('/dashboard')
+  if (!page || !canViewPage(page, 'portfolio', 'inbound')) redirect('/dashboard')
 
   const data = await loadEmailPage({ supabase, admin, user, page }, params)
   if (!data) notFound()
