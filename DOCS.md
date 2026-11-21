@@ -518,7 +518,7 @@ The two are told apart on a home screen by the icon: the manager app is the mark
 
 ### Connecting Claude, ChatGPT and other agents
 
-The deployment is an MCP server and a REST API. Everything an agent does runs against your database, as the person who connected it, under their access. [PARITY.md](./PARITY.md) lists what the web app can do that the tools cannot yet, and why.
+The deployment is an MCP server and a REST API. Everything an agent does runs against your database, as the person who connected it, under their access. [PARITY.md](./PARITY.md) lists what the web app can do that the tools cannot yet, and why. For the people using the connection (approvals, working in several funds, limits, troubleshooting) see [MCP.md](./MCP.md); every tool, with whether it changes anything and what happens when a chat calls it, is in [MCP-TOOLS.md](./MCP-TOOLS.md).
 
 **1. Turn on Agent access.** An admin switches on **Settings → Agent access** (off by default). Switching it off later stops every key and every connected assistant at once.
 

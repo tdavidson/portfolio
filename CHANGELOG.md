@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### A guide to the MCP connection and a catalogue of every tool
+- **MCP.md** is a guide for the people using Claude, ChatGPT, Claude Code or a script with the fund, and the admin turning it on: connecting, sign-in or API key, read or read and change, how changes wait for approval (runs, admin-only changes, what always waits), working in more than one fund, what the assistant can see, downloads, limits and troubleshooting.
+- **MCP-TOOLS.md** lists every tool the server can list (331 today), grouped by the access area that decides who sees it, with whether it changes anything and what happens when a chat calls it. It is generated from the tool registries by `npm run docs:mcp-tools` (`lib/agent/tool-catalogue.ts`), and `lib/agent/tool-catalogue.test.ts` fails when the committed file is out of date.
+- **Support** gains a short "Using it day to day" part in Claude & ChatGPT with links to both. README, FEATURES.md and DOCS.md link them, and FEATURES.md no longer says "more than sixty tools".
+
 ### Support page and feature docs catch up
 - **Support** (`/support`) now covers what shipped since it was last brought up to date: custom views and starter views, the Audit log of outside firms' activity, the Approvals page and runs, the setup checklist's skips, 10-minute sign-in codes, fund holdings on the Portfolio grid, cost transfers and exits paid in shares, Financials (the entity index, status warnings with Review and book, folding statements, receipts and partnership invoices, credit facilities, statement review), the rewritten letters workflow, diligence rounds, memo voice and design template and Specter, report cards (as of, groupings, alternate names, bulk PDFs), statement bases, administrator-reported vehicles, the portal's Activity tab and IRR, LP change requests, presets, engagements, entity caps and linked sign-ins, Usage by source, the connector's help, and background jobs. The table of contents and the sidebar map follow the current navigation.
 - **FEATURES.md** gains Views, Audit and Usage sections and catches up Portfolio, Investments, Letters, LPs, Accounting, Diligence, the assistants and Settings. **README** lists custom views; **DOCS.md** says sign-in codes expire in 10 minutes and how to match the Supabase setting.
