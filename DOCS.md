@@ -119,11 +119,45 @@ SUPABASE_SERVICE_ROLE_KEY=        # From Step 2
 ENCRYPTION_KEY=                   # From Step 3
 NEXT_PUBLIC_SITE_URL=             # Your deployed URL (e.g. https://reporting.yourfund.com)
 NEXT_PUBLIC_APP_URL=              # The same value; the older name, still honoured
+CRON_SECRET=                      # Any long random string, e.g. `openssl rand -hex 32` (see Background jobs)
 ```
 
 Trigger a redeploy after adding the variables. `NEXT_PUBLIC_*` variables are baked into the build, so they require a rebuild to take effect.
 
 If you're using a custom domain, configure it in your hosting platform's domain settings and update `NEXT_PUBLIC_SITE_URL` (and `NEXT_PUBLIC_APP_URL`) to match. Optionally set `NEXT_PUBLIC_TERMS_URL` and `NEXT_PUBLIC_PRIVACY_URL` to link your own legal pages from the footer and sign-in pages; unset, no link renders.
+
+#### Background jobs
+
+Background work (OCR of scanned attachments, deal research, the memo agent, backfills) starts the
+moment it is queued: the app calls its own worker route at `NEXT_PUBLIC_SITE_URL`, authenticated
+with `CRON_SECRET`. One scheduled job, `/api/cron/tick`, is the safety net and runs the periodic
+jobs. `vercel.json` runs it once a day at 13:00 UTC, which fits Vercel's free Hobby plan (Hobby only
+allows jobs that run at most once a day).
+
+The tick starts a job only when the feature it serves is in use and has something to do, so a fund
+that has not turned a feature on pays nothing for it:
+
+| Job | Runs when |
+| --- | --- |
+| Memo agent worker | Memo agent jobs are pending or stuck |
+| Company update OCR | A company update attachment is waiting for OCR |
+| Entity document OCR | A scanned governing document is waiting for OCR |
+| Deal research | Deal research is turned on and a deal is queued |
+| Company updates backfill | An operator backfill is running |
+| Affinity sync | An active diligence deal is linked to Affinity |
+| Access expiry | A member's access end date has passed |
+| Ops reminders | Reminders are turned on (Settings → Reminders) |
+| Out-of-thesis digest | Mondays, when deal screening is turned on |
+
+On a paid plan you can add a faster safety net for the queues alone. It never runs the
+once-a-day jobs:
+
+```json
+{ "path": "/api/cron/tick?scope=queues", "schedule": "*/15 * * * *" }
+```
+
+On a host without Vercel Cron (Netlify, your own server), schedule a daily `GET` of
+`/api/cron/tick` with the header `Authorization: Bearer $CRON_SECRET`.
 
 ### Step 5: Configure Supabase authentication
 
@@ -416,7 +450,7 @@ In **Settings > Team**, your team members can sign up (if their email matches th
 - **Fund Access spec.** `spec/fund-access/` is the open spec Portfolio implements for outside access. When you change an access rule (a level, a relation between domains, staging, admin-only, entity caps, records), run `tests/fund-access-portfolio.test.ts`: a failing vector means Portfolio and the spec now disagree, and one of them has to change on purpose.
 - **Fund records.** `lib/records` files and lists what a session concluded (`fund_records`, append-only, service role only). A record's domain is its `area`: the tools carry `areaInput`, so `accessDomainForCall` returns the area and `authorizeToolCall` (the one check for MCP, `POST /api/agent` and staged runs) applies `recordAccessProblem` from `lib/records/areas.ts`, which the route's service calls too. Filing needs read on the area, not write, plus a write-scoped credential and a non-viewer role; reading trims each row by area and `canSeeVehicle`.
 - **Engagements.** Settings → Team → Engagements groups an outside firm's members under one last day (`lib/access/engagements.ts`). Adding a member sets their `access_expires_at`, changing the last day moves every member's, and ending the engagement ends them all now. Admins can't join one. The Activity log merges the audit trail and the activity log for everyone ever assigned.
-- **Access ends.** A date after which a member can no longer reach the fund, for an auditor or tax preparer here for one engagement. Access stops resolving at that moment; the hourly `/api/cron/access-expiry` job (in `vercel.json`) then removes the membership. On a host without Vercel Cron, schedule that path yourself with `Authorization: Bearer $CRON_SECRET`. Admins never expire.
+- **Access ends.** A date after which a member can no longer reach the fund, for an auditor or tax preparer here for one engagement. Access stops resolving at that moment; the daily background tick then removes the membership (see [Background jobs](#background-jobs)). Admins never expire.
 - **Tax** is its own area, so a tax preparer can work in Tax (adjustments, the tax-year close, K-1s) without write access to the books. It needs read access to accounting.
 - **Admin-only changes.** Deleting records, undoing posted entries and reopening periods, capital calls and distributions, anything sent to LPs, finalizing or delivering K-1s and the fund's structure need an admin, in the app, over the API and over MCP alike (`lib/access/admin-only.ts`). A member can propose one from chat for an admin to approve.
 

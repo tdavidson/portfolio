@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { kickCron } from '@/lib/cron/kick'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertAdminAccess, resolveFund } from '@/lib/api-helpers'
@@ -75,6 +76,7 @@ export async function POST(req: NextRequest) {
       createdBy: user.id,
     })
     const planned = await planBackfillJob({ admin: admin as any }, job.id)
+    if (planned.status === 'running') await kickCron('company-updates-backfill')
     return NextResponse.json({ job: planned })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'

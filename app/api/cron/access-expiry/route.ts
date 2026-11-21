@@ -7,7 +7,7 @@ import { cronAuthDenial } from '@/lib/security/cron-auth'
 /**
  * Removes memberships whose end date has passed (fund_members.access_expires_at). Their access
  * already stopped resolving the moment the date passed (access_context); this closes the rest.
- * Hourly — see vercel.json.
+ * Started by the daily /api/cron/tick when a membership has passed its end date.
  *
  * Auth: `Authorization: Bearer ${CRON_SECRET}`.
  */

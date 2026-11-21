@@ -8,8 +8,8 @@ import { kickWorker } from '@/lib/memo-agent/kick'
 import { cronAuthDenial } from '@/lib/security/cron-auth'
 
 /**
- * Memo Agent worker. Triggered by Vercel cron every minute (per
- * BUILD_PLAN_FOR_CLAUDE_CODE.md decision). Claims one pending job from
+ * Memo Agent worker. Started whenever a job is enqueued (lib/memo-agent/kick.ts), and by the daily
+ * /api/cron/tick as a safety net when jobs are pending or stuck. Claims one pending job from
  * `memo_agent_jobs`, dispatches it to the right stage handler, and writes
  * the outcome back. Designed to fit comfortably inside a 120s function
  * — long stages must internally chunk to that ceiling.

@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### One daily background job, and only for features in use
+- **Fits Vercel's free plan.** `vercel.json` now schedules one job, `/api/cron/tick`, once a day. Before, it scheduled nine, seven of them every few minutes or hourly, which Hobby refuses to deploy.
+- **Nothing runs for a feature that is off.** The tick reads whether each optional feature is in use and has work (pending OCR, queued deal research, memo jobs, a running backfill, Affinity-linked deals, reminders turned on, an expired member, Mondays for the digest) and starts only those workers.
+- **Queued work starts at once.** OCR, deal research and backfills are now started the moment they are queued, the way memo agent jobs already were, and a worker with more to do starts its own next run. The tick is only the safety net.
+- **A faster safety net is optional.** On a paid plan, add `/api/cron/tick?scope=queues` on any schedule; it never runs the once-a-day jobs. See Background jobs in DOCS.md.
+- `CRON_SECRET` is now listed with the required environment variables.
+
 ### Records has its own access right
 - **A Records row in the access grid.** Read lets a member see records and use `list_records` and `read_record`; write lets them file one on the page or with `file_to_record`. The area check still applies underneath, so a record is shown only to someone who can read its area and see its entity. Before, anyone who could read an area could read and file records there.
 - **Members start without it.** Every fund's default for Records is none, and no preset includes it. An admin grants it per person in the access grid. Admins always have it.

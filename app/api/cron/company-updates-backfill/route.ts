@@ -2,12 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { runBackfillBatch } from '@/lib/company-updates/backfill'
 import { cronAuthDenial } from '@/lib/security/cron-auth'
+import { kickCron } from '@/lib/cron/kick'
 
 export const maxDuration = 300
 
 /**
- * Company Updates backfill worker. Each tick advances every running job by a bounded batch,
- * inside a time budget that fits the function ceiling; whatever is left waits for the next tick.
+ * Company Updates backfill worker. Each run advances every running job by a bounded batch, inside a
+ * time budget that fits the function ceiling. Started when a job is planned (lib/cron/kick.ts); while
+ * a job is still running after a batch that made progress, it starts the next run itself. The daily
+ * tick is the safety net.
  * Items are claimed with SKIP LOCKED, so an operator running scripts/backfill-company-updates.ts
  * at the same time only speeds the job up.
  */
@@ -43,5 +46,8 @@ export async function GET(req: NextRequest) {
       outcomes.push({ job_id: job.id, error: message })
     }
   }
+  // Captures can queue OCR; start it once per run rather than once per email.
+  if (outcomes.some(o => typeof o.done === 'number' && o.done > 0)) await kickCron('company-updates-ocr')
+  if (outcomes.some(o => o.status === 'running' && typeof o.claimed === 'number' && o.claimed > 0)) await kickCron('company-updates-backfill')
   return NextResponse.json({ jobs: outcomes })
 }

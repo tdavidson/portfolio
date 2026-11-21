@@ -5,7 +5,7 @@ import { cronAuthDenial } from '@/lib/security/cron-auth'
 
 /**
  * Weekly digest of deals auto-archived as out_of_thesis. Sent to fund admins.
- * Triggered by Vercel cron — see vercel.json.
+ * Started by the daily /api/cron/tick on Mondays (UTC) when a fund screens inbound deals.
  *
  * Auth: Vercel cron jobs invoke this endpoint with header
  * `Authorization: Bearer ${CRON_SECRET}`. Set CRON_SECRET in env.

@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { runDealResearch } from '@/lib/deals/research'
 import { dbError } from '@/lib/api-error'
 import { cronAuthDenial } from '@/lib/security/cron-auth'
+import { kickCron } from '@/lib/cron/kick'
 
 /**
  * Drains the deal-research queue: inbound deals that cleared the fund's interest
@@ -11,6 +12,9 @@ import { cronAuthDenial } from '@/lib/security/cron-auth'
  * Runs out-of-band from the inbound-email webhook on purpose — a web-search
  * round takes 30-60s and would otherwise risk timing out email processing and
  * marking a good email as failed.
+ *
+ * Started when a deal is queued (lib/cron/kick.ts), and by the daily tick as a safety net. A full
+ * batch starts the next run, so a backlog drains without waiting a day.
  *
  * Auth: same `Authorization: Bearer ${CRON_SECRET}` pattern as the other crons.
  */
@@ -89,6 +93,8 @@ export async function GET(req: NextRequest) {
     else if (result.status === 'failed') failed++
     else skipped++
   }
+
+  if (deals.length === BATCH_SIZE && researched + failed + skipped > 0) await kickCron('deal-research')
 
   return NextResponse.json({ ok: true, researched, failed, skipped })
 }

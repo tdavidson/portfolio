@@ -323,7 +323,10 @@ describe('access expiry', () => {
 
   it('runs the sweep on a schedule, behind the cron secret', () => {
     const vercel = JSON.parse(read('vercel.json'))
-    expect(vercel.crons.map((c: any) => c.path)).toContain('/api/cron/access-expiry')
+    // One daily tick starts the sweep whenever a membership has passed its end date.
+    expect(vercel.crons.map((c: any) => c.path)).toContain('/api/cron/tick')
+    expect(read('lib/cron/dispatch.ts')).toContain("worker: 'access-expiry'")
+    expect(read('app/api/cron/tick/route.ts')).toContain('cronAuthDenial(req)')
     expect(read('app/api/cron/access-expiry/route.ts')).toContain('cronAuthDenial(req)')
   })
 })
