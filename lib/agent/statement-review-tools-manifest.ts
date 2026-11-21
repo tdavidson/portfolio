@@ -150,7 +150,8 @@ export const STATEMENT_REVIEW_TOOL_MANIFEST: AgentToolMeta[] = [
       "schedule as CSV text (input csv), or a package read from the administrator's documents (input package): give the " +
       'document_ids with the package you read (statement_review_extract hands you their text), and each cited figure is ' +
       "checked against the document; give document_ids alone and the fund's model reads them, when the fund has a server AI " +
-      'key. Saves the review and returns its checks and findings, worst first; each finding cites where the figure is ' +
+      "key. Input books runs the same checks on the app's own statements for the period, before they go to the partners. " +
+      'Saves the review and returns its checks and findings, worst first; each finding cites where the figure is ' +
       'stated. Never changes the figures it reviews.',
     scope: 'read',
     accessDomain: 'lp_capital',
@@ -158,7 +159,10 @@ export const STATEMENT_REVIEW_TOOL_MANIFEST: AgentToolMeta[] = [
     inputSchema: {
       type: 'object', required: ['input'], additionalProperties: false,
       properties: {
-        input: { type: 'string', enum: ['admin_pull', 'csv', 'package'], description: 'Where the figures come from.' },
+        input: {
+          type: 'string', enum: ['admin_pull', 'csv', 'package', 'books'],
+          description: "Where the figures come from. books: the app's own statements for the period (self-review before they are issued); needs period_end.",
+        },
         period_end: { type: 'string', description: 'The quarter end, YYYY-MM-DD. For admin_pull, the date the pull was saved for.' },
         period_start: { type: 'string', description: 'YYYY-MM-DD. Defaults to the start of the quarter.' },
         pull_id: { type: 'string', description: 'admin_pull: a saved pull (admin_pulls lists them). Otherwise the one saved for period_end.' },

@@ -75,8 +75,10 @@ export const carry: Check = ({ pkg, shadow }, ctx) => {
     for (const p of partners) {
       if (!p.lpEntityId) { if (p.allocations?.carry != null) unmatched++; continue }
       seen.add(p.lpEntityId)
-      const books = booksCarry.get(p.lpEntityId) ?? 0
       const stated = p.allocations?.carry
+      // Carry received by a recipient the books keep outside the partners' capital accounts.
+      if (!booksCarry.has(p.lpEntityId) && stated != null && stated > 0) continue
+      const books = booksCarry.get(p.lpEntityId) ?? 0
       if (stated == null && (Math.abs(books) <= 0.01 || !p.allocations)) continue
       compared++
       push(findings, compare(ctx, {

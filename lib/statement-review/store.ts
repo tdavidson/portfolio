@@ -22,13 +22,14 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { fetchAllRows } from '@/lib/accounting/load'
 import { cleanAdminFigures, matchPartners, type LinkRef, type PartnerRef } from '@/lib/admin-reporting/figures'
 import { done, dbFail, fail, type Outcome } from '@/lib/service-outcome'
-import { cleanPackage, isDate } from './clean'
+import { cleanPackage, isDate, quarterStart } from './clean'
 import { packageFromCsv } from './csv'
 import { packageInputFromPull } from './from-admin-pull'
 import { runChecks } from './run'
 import { loadSettings } from './settings'
 import { loadShadow } from './shadow'
 import { applyNote, blocking, carryStatuses, keyed, severityCounts, statusCounts, type NoteInput } from './workflow'
+import { packageFromBooks } from './from-books'
 import { extractWithServerModel, loadSourceDocuments, packageDocuments, type SourceDocument } from './extract'
 import type { KnownPartner } from './checks/shared'
 import {
@@ -64,8 +65,8 @@ export interface StoredReview extends ReviewSummary {
 }
 
 export interface RunRequest {
-  /** Where the figures come from. */
-  input: PackageInput
+  /** Where the figures come from. books: the app's own statements for the period (self-review). */
+  input: PackageInput | 'books'
   periodEnd?: unknown
   periodStart?: unknown
   /** admin_pull: the saved pull, else the one saved for period_end. */
@@ -217,6 +218,19 @@ async function buildPackage(
     if (typeof pkg === 'string') return fail(400, pkg)
     return done({ pkg, pullId: null })
   }
+  if (req.input === 'books') {
+    if (!isDate(req.periodEnd)) return fail(400, 'period_end is required: the last day of the period to review, YYYY-MM-DD.')
+    if (req.periodStart != null && !isDate(req.periodStart)) return fail(400, 'period_start must be a date (YYYY-MM-DD)')
+    const end = req.periodEnd as string
+    const start = (req.periodStart as string | undefined) ?? quarterStart(end)
+    if (start > end) return fail(400, 'period_start must be on or before period_end')
+    try {
+      const built = await packageFromBooks(admin, fundId, vehicle, { start, end })
+      return done({ pkg: built.pkg, pullId: null, ...(built.notes.length ? { warnings: built.notes } : {}) })
+    } catch (e: any) {
+      return fail(422, e?.message ?? "The app's statements for the period couldn't be built.")
+    }
+  }
   if (req.input === 'package') {
     let given = req.package && typeof req.package === 'object' ? req.package as Record<string, unknown> : null
     let docs: SourceDocument[] | undefined
@@ -245,7 +259,7 @@ async function buildPackage(
     if (typeof pkg === 'string') return fail(400, docs ? `The package read from the documents can't be used: ${pkg}` : pkg)
     return done({ pkg, pullId: null, ...(docs ? { sources: docs } : {}), ...(warnings.length ? { warnings } : {}) })
   }
-  return fail(400, "input must be 'admin_pull', 'csv' or 'package'")
+  return fail(400, "input must be 'admin_pull', 'csv', 'package' or 'books'")
 }
 
 function toSummary(r: any, current: boolean): ReviewSummary {
@@ -308,8 +322,11 @@ export async function runReview(
   if (typeof materiality === 'string') return fail(400, materiality)
 
   // Map the package's partners to the vehicle's. Unmatched ones stay, and completeness flags them.
-  const matches = matchPartners(pkg.partners ?? [], match.partners, match.links)
-  if (pkg.partners) {
+  // The app's own statements name its partners by id already; anything else is matched.
+  const matches = pkg.source === 'books'
+    ? (pkg.partners ?? []).map(p => ({ lpEntityId: p.lpEntityId ?? null }) as any)
+    : matchPartners(pkg.partners ?? [], match.partners, match.links)
+  if (pkg.partners && pkg.source !== 'books') {
     pkg.partners = pkg.partners.map((p, i) => {
       const { lpEntityId: _given, ...rest } = p
       return matches[i]?.lpEntityId ? { ...rest, lpEntityId: matches[i].lpEntityId as string } : rest
@@ -335,7 +352,8 @@ export async function runReview(
     period_start: pkg.periodStart,
     period_end: pkg.periodEnd,
     source: pkg.source,
-    input: req.input,
+    // A self-review is stored as a package whose source is the books.
+    input: req.input === 'books' ? 'package' : req.input,
     admin_pull_id: pullId,
     package: pkg,
     checks: result.checks,

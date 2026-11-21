@@ -18,7 +18,7 @@ import { FindingStatusControl, ReviewWorkflowBar } from './workflow'
 import { CHECK_LABELS, type CheckOutcome, type Finding, type Severity } from '@/lib/statement-review/types'
 
 interface Summary {
-  id: string; periodStart: string; periodEnd: string; input: 'admin_pull' | 'csv' | 'package'
+  id: string; periodStart: string; periodEnd: string; input: 'admin_pull' | 'csv' | 'package'; source?: string
   counts: Record<Severity, number>; partners: number; runAt: string; current: boolean; signedOffAt?: string | null
 }
 interface Review extends Summary {
@@ -35,6 +35,7 @@ const SEVERITY: Record<Severity, { Icon: typeof Ban; cls: string; label: string 
   info: { Icon: Info, cls: 'text-muted-foreground', label: 'Info' },
 }
 const INPUT_LABEL: Record<Summary['input'], string> = { admin_pull: 'Administrator pull', csv: 'CSV', package: 'Package' }
+const inputLabel = (r: { input: Summary['input']; source?: string }) => (r.source === 'books' ? "The app's statements" : INPUT_LABEL[r.input])
 
 export function ReviewView() {
   const { group, vehicleId, vehicles } = useVehicle()
@@ -54,7 +55,7 @@ function VehicleReview({ vehicleId }: { vehicleId: string | null }) {
   const [busy, setBusy] = useState(false)
   const [filter, setFilter] = useState<Severity | 'all'>('all')
   // Run inputs.
-  const [mode, setMode] = useState<'admin_pull' | 'csv' | 'documents'>('csv')
+  const [mode, setMode] = useState<'admin_pull' | 'csv' | 'documents' | 'books'>('csv')
   const [docIds, setDocIds] = useState<string[]>([])
   const [periodEnd, setPeriodEnd] = useState('')
   const [pullId, setPullId] = useState('')
@@ -94,6 +95,8 @@ function VehicleReview({ vehicleId }: { vehicleId: string | null }) {
         ? { input: 'admin_pull', pull_id: pullId }
         : mode === 'documents'
           ? { input: 'package', document_ids: docIds, ...(periodEnd ? { period_end: periodEnd } : {}) }
+          : mode === 'books'
+            ? { input: 'books', period_end: periodEnd }
           : { input: 'csv', csv, file_name: csvName, period_end: periodEnd, cash }
       const res = await lf('/api/accounting/statement-review', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
       const d = await res.json().catch(() => ({}))
@@ -105,7 +108,7 @@ function VehicleReview({ vehicleId }: { vehicleId: string | null }) {
 
   if (reviews === null) return <div className="flex justify-center py-12"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
 
-  const canRun = mode === 'admin_pull' ? !!pullId : mode === 'documents' ? docIds.length > 0 : !!csv && !!periodEnd
+  const canRun = mode === 'admin_pull' ? !!pullId : mode === 'documents' ? docIds.length > 0 : mode === 'books' ? !!periodEnd : !!csv && !!periodEnd
   const shown = selected ? selected.findings.filter(f => filter === 'all' || f.severity === filter) : []
 
   return (
@@ -128,6 +131,7 @@ function VehicleReview({ vehicleId }: { vehicleId: string | null }) {
               {pulls.length > 0 && <option value="admin_pull">A saved administrator pull</option>}
               <option value="csv">A partner capital schedule (CSV)</option>
               {vehicleId && <option value="documents">The administrator&apos;s documents (PDF or spreadsheet)</option>}
+              <option value="books">The app&apos;s own statements (before they go out)</option>
             </select>
           </label>
           {mode === 'admin_pull' ? (
@@ -136,6 +140,11 @@ function VehicleReview({ vehicleId }: { vehicleId: string | null }) {
               <select value={pullId} onChange={e => setPullId(e.target.value)} className="h-9 rounded-md border border-input bg-background px-2 text-sm tabular-nums">
                 {pulls.map(p => <option key={p.id} value={p.id}>{p.asOf} · {p.source}</option>)}
               </select>
+            </label>
+          ) : mode === 'books' ? (
+            <label className="text-xs text-muted-foreground space-y-1">
+              <span className="block">Period end</span>
+              <Input type="date" value={periodEnd} onChange={e => setPeriodEnd(e.target.value)} className="h-9 w-40" />
             </label>
           ) : mode === 'documents' ? (
             <label className="text-xs text-muted-foreground space-y-1">
@@ -168,6 +177,13 @@ function VehicleReview({ vehicleId }: { vehicleId: string | null }) {
             {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : null} {busy && mode === 'documents' ? 'Reading the documents…' : 'Run checks'}
           </Button>
         </div>
+        {mode === 'books' && (
+          <p className="text-xs text-muted-foreground">
+            Runs the same checks on the statements the app would issue for the quarter: that they foot and roll forward, that
+            they carry on from the last signed-off quarter, that every partner is there, and that the fee, carry and allocations
+            follow the fund&apos;s terms.
+          </p>
+        )}
         {mode === 'documents' && vehicleId && (
           <>
             <DocumentsPicker vehicleId={vehicleId} selected={docIds} onChange={setDocIds} />
@@ -211,7 +227,7 @@ function VehicleReview({ vehicleId }: { vehicleId: string | null }) {
                   <tr key={r.id} onClick={() => open(r.id)}
                     className={`border-t cursor-pointer hover:bg-muted/50 ${selected?.id === r.id ? 'bg-muted/50' : ''} ${r.current ? '' : 'text-muted-foreground'}`}>
                     <td className="py-1 tabular-nums">{r.periodEnd}{r.current ? '' : ' (earlier run)'}{r.signedOffAt ? ' · signed off' : ''}</td>
-                    <td>{INPUT_LABEL[r.input]}</td>
+                    <td>{inputLabel(r)}</td>
                     <td className="text-right tabular-nums">{r.partners}</td>
                     <td className={`text-right tabular-nums ${r.counts.error ? 'text-destructive' : ''}`}>{r.counts.error}</td>
                     <td className={`text-right tabular-nums ${r.counts.warning ? 'text-warning' : ''}`}>{r.counts.warning}</td>
@@ -240,7 +256,7 @@ function VehicleReview({ vehicleId }: { vehicleId: string | null }) {
 
           {!!selected.package?.readingWarnings?.length && (
             <div className="rounded-md border border-warning/40 bg-warning-subtle p-3 text-sm space-y-1">
-              <p className="font-medium">Whoever read the documents flagged:</p>
+              <p className="font-medium">Notes on the package:</p>
               <ul className="list-disc pl-5 text-xs space-y-0.5">
                 {selected.package.readingWarnings.map((w, i) => <li key={i}>{w}</li>)}
               </ul>
