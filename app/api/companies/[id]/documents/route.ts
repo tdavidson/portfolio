@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { registerCompanyDocument } from '@/lib/companies/documents'
+import { findDuplicateDocument } from '@/lib/companies/document-hashes'
 import { outcomeResponse } from '@/lib/service-outcome'
 import { dbError } from '@/lib/api-error'
 
@@ -41,17 +42,20 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
 
   const { data: documents, error } = await admin
     .from('company_documents' as any)
-    .select('id, filename, file_type, file_size, has_native_content, storage_path, extracted_text, created_at')
+    .select('*')
     .eq('company_id', params.id)
     .order('created_at', { ascending: false }) as { data: any[] | null; error: { message: string } | null }
 
   if (error) return dbError(error, 'companies-id-documents')
 
   // Tag uploaded documents with source
-  const uploadDocs = (documents ?? []).map(({ storage_path, extracted_text, ...d }) => ({
-    ...d,
+  const uploadDocs = (documents ?? []).map(d => ({
+    id: d.id, filename: d.filename, file_type: d.file_type, file_size: d.file_size,
+    has_native_content: d.has_native_content, created_at: d.created_at,
     source: 'upload' as const,
-    has_readable_content: !!extracted_text || !!storage_path,
+    has_readable_content: !!d.extracted_text || !!d.storage_path,
+    // A file the virus scan removed is listed so the attempt is visible (no file, no text).
+    ...(d.scan_status === 'removed' ? { scan_status: 'removed' as const } : {}),
   }))
 
   // Email history is the legacy view of reporting mail. Once a company has captured Company
@@ -191,7 +195,14 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
 
   // Scan, extract and record: lib/companies/documents.ts, the same steps `add_company_document`
   // runs for a file uploaded from chat.
-  return outcomeResponse(await registerCompanyDocument(admin, { fundId: company.fund_id, userId: user.id }, params.id, {
-    storagePath, filename, fileType, fileSize, textOnly,
-  }))
+  const out = await registerCompanyDocument(admin, { fundId: company.fund_id, userId: user.id }, params.id, {
+    storagePath, filename, fileType, fileSize, textOnly, via: 'web',
+  })
+  if (!out.ok) return outcomeResponse(out)
+  // As add_company_document warns in chat: the same bytes or text already on this holding. The
+  // upload is kept (a person chose it); the page says which file it repeats.
+  const duplicateOf = await findDuplicateDocument(admin, { fundId: company.fund_id, companyId: params.id },
+    { sha256: out.value.sha256, textSha256: out.value.textSha256 }, { excludeDocumentId: out.value.documentId ?? undefined })
+    .catch(() => null)
+  return NextResponse.json({ ...out.value, ...(duplicateOf ? { duplicateOf } : {}) })
 }

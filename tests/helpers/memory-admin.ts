@@ -2,7 +2,7 @@
 // An in-memory stand-in for the Supabase admin client, for tests whose flow crosses several
 // tables (post an entry, adopt its transactions, link a bank row). Implements the query-builder
 // subset lib/accounting uses — select (with `journal_postings(...)` embedded under
-// `journal_entries`), eq/match/neq/in/is/not-is/like/contains/gt/gte/lt/lte, order, range, limit, insert, upsert
+// `journal_entries`), eq/match/neq/in/is/not-is/like/or/contains/gt/gte/lt/lte, order, range, limit, insert, upsert
 // (ignoreDuplicates), update, delete, maybeSingle, single, count+head — over plain arrays.
 // Not a database: no RLS, no triggers, no joins beyond the one embed.
 
@@ -145,6 +145,18 @@ export function memoryAdmin(seed: Record<string, Row[]> = {}, opts: MemoryAdminO
         filters.push(r => (r[k] ?? null) !== v); return q
       },
       like: (k: string, p: string) => { filters.push(r => like(r[k], p)); return q },
+      // PostgREST's or(): comma-separated col.op.value terms, any of which matches (eq, ilike, is).
+      or: (expr: string) => {
+        const terms = expr.split(',').map(t => {
+          const [col, op, ...rest] = t.split('.')
+          const v = rest.join('.')
+          if (op === 'eq') return (r: Row) => String(r[col] ?? '') === v && r[col] != null
+          if (op === 'ilike') return (r: Row) => like(String(r[col] ?? '').toLowerCase(), v.toLowerCase())
+          if (op === 'is') return (r: Row) => (r[col] ?? null) === (v === 'null' ? null : v)
+          throw new Error(`memoryAdmin: or(${op}) unsupported`)
+        })
+        filters.push(r => terms.some(f => f(r))); return q
+      },
       ilike: (k: string, p: string) => { filters.push(r => like(String(r[k] ?? '').toLowerCase(), p.toLowerCase())); return q },
       contains: (k: string, vs: unknown[]) => { filters.push(r => Array.isArray(r[k]) && vs.every(v => r[k].includes(v))); return q },
       gt: (k: string, v: any) => { filters.push(r => r[k] > v); return q },

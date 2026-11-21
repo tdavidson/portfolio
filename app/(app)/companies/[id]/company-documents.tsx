@@ -31,6 +31,8 @@ interface Document {
   /** Effective route of the source email; non-reporting mail is labelled so it is not mistaken for an update. */
   email_route?: string
   text_content?: string
+  /** Set when the virus scan removed the file: listed so the attempt shows, with nothing to open. */
+  scan_status?: 'removed'
 }
 
 interface DocumentDetail {
@@ -161,11 +163,16 @@ export function CompanyDocuments({ companyId, fundId, storageProvider, googleDri
           ...(isOversized ? { textOnly: true } : {}),
         }),
       })
+      const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        const data = await res.json()
         setError(data.error ?? 'Failed to register document')
+        await load()
       } else {
-        if (isOversized) setWarning('File exceeds 10 MB, only extracted text was stored.')
+        const notes: string[] = []
+        if (isOversized) notes.push('File exceeds 10 MB, only extracted text was stored.')
+        // The same file (by its bytes or its text) was already here: kept, but say which one it repeats.
+        if (data.duplicateOf?.filename) notes.push(`This looks like a copy of "${data.duplicateOf.filename}", already on file.`)
+        if (notes.length) setWarning(notes.join(' '))
         setExpanded(true)
         await load()
       }
@@ -271,6 +278,7 @@ export function CompanyDocuments({ companyId, fundId, storageProvider, googleDri
                     {isOpen ? <ChevronDown className="h-3.5 w-3.5 shrink-0" /> : <ChevronRight className="h-3.5 w-3.5 shrink-0" />}
                     <FileIcon fileType={doc.file_type} source={doc.source} />
                     <span className="truncate font-medium">{doc.filename}</span>
+                    {doc.scan_status === 'removed' && <span className="text-sm text-destructive shrink-0">Removed by virus scan</span>}
                     {doc.source === 'email_body' && <span className="text-xs text-muted-foreground shrink-0">Email{routeLabel(doc)}</span>}
                     {doc.source === 'email' && <span className="text-xs text-muted-foreground shrink-0">Attachment{routeLabel(doc)}</span>}
                     {doc.source === 'update_attachment' && (
@@ -325,7 +333,13 @@ export function CompanyDocuments({ companyId, fundId, storageProvider, googleDri
                         : <iframe src={detail.file_url} title={doc.filename} className="w-full h-[32rem] rounded bg-white" />
                     )}
                     {doc.source === 'upload' && detail?.file_url && !detail.previewable && <a href={detail.file_url} target="_blank" rel="noopener noreferrer" className="underline underline-offset-4">Open document</a>}
-                    {doc.source === 'upload' && !doc.has_readable_content && <p className="text-muted-foreground">No retained content is available for this document.</p>}
+                    {doc.source === 'upload' && !doc.has_readable_content && (
+                      <p className="text-muted-foreground">
+                        {doc.scan_status === 'removed'
+                          ? 'The virus scan flagged this file and deleted it. Nothing was kept.'
+                          : 'No retained content is available for this document.'}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>

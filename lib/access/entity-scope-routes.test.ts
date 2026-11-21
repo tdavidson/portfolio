@@ -54,7 +54,7 @@ function entityTables(): string[] {
   ]
 }
 
-const SCOPED = /resolveGroupOr400|resolveMancoGroupOr400|loadEntityScope|loadEntityScopeForUser|entityScopeFor|visibleVehicleIds|visibleVehicleNames|canSeeVehicle|assertVehicleVisible|resolveHoldingVehicle|loadLpScope|lpVisible|scopeLiveReport|assertK1PackageVisible|lpDocumentVisible|loadLpScopeForUser|filterByCompany|entityIdentityChangeDenial|scopeSearchParams|updateVisible|vehicles\.all|assertAdminAccess|role !== 'admin'\)\s*(?:\{\s*)?return/
+const SCOPED = /resolveGroupOr400|resolveMancoGroupOr400|loadEntityScope|loadEntityScopeForUser|entityScopeFor|visibleVehicleIds|visibleVehicleNames|canSeeVehicle|assertVehicleVisible|resolveHoldingVehicle|loadFundRegister|loadLpScope|lpVisible|scopeLiveReport|assertK1PackageVisible|lpDocumentVisible|loadLpScopeForUser|filterByCompany|entityIdentityChangeDenial|scopeSearchParams|updateVisible|vehicles\.all|assertAdminAccess|role !== 'admin'\)\s*(?:\{\s*)?return/
 /**
  * Lib helpers that read across every entity in the fund (with the service role, or as security
  * definer RPCs filtered only by what they are passed). The table check above cannot see inside them,

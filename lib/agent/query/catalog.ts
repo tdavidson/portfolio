@@ -24,7 +24,7 @@ export const QUERY_CATALOG: Record<string, DatasetMeta[]> = {
   query_portfolio: [
     {
       name: 'positions',
-      description: 'One row per company the fund holds, as of a date: invested, remaining cost, fair value, realized proceeds and gross MOIC.',
+      description: 'One row per holding (companies and fund holdings) as of a date: invested, remaining cost, fair value, realized proceeds, gross MOIC, and when it was last marked and by what. For "which holdings have current marks", use the mark_status tool.',
       gate: { domain: 'portfolio' },
       source: 'portfolio_summary',
       columns: [
@@ -34,6 +34,12 @@ export const QUERY_CATALOG: Record<string, DatasetMeta[]> = {
         { name: 'invested', type: 'number' }, { name: 'cost', type: 'number', description: 'Cost still held' },
         { name: 'fair_value', type: 'number' }, { name: 'unrealized', type: 'number' }, { name: 'realized', type: 'number' },
         { name: 'moic', type: 'number' }, { name: 'pct_of_portfolio', type: 'number', description: 'Share of total fair value, in percent' },
+        { name: 'holding_type', type: 'string', description: 'company, fund or digital_asset' },
+        { name: 'last_mark_date', type: 'date', description: 'Date of the latest mark of any kind, on or before the as-of date' },
+        { name: 'last_mark_source', type: 'string', description: 'nav_statement, nav (a value change booked from a manager NAV), manual, round or price' },
+        { name: 'last_nav_statement_date', type: 'date', description: 'As-of date of the latest manager NAV statement, if any' },
+        { name: 'last_nav_statement_nav', type: 'number', description: 'The NAV that statement reported' },
+        { name: 'mark_age_days', type: 'number', description: 'Days from last_mark_date to the as-of date' },
       ],
     },
     {
@@ -57,6 +63,9 @@ export const QUERY_CATALOG: Record<string, DatasetMeta[]> = {
         { name: 'round', type: 'string' }, { name: 'security', type: 'string' },
         { name: 'invested', type: 'number' }, { name: 'shares', type: 'number' }, { name: 'share_price', type: 'number' },
         { name: 'postmoney', type: 'number' }, { name: 'proceeds', type: 'number' }, { name: 'ownership_pct', type: 'number' },
+        { name: 'holding_type', type: 'string', description: 'company, fund or digital_asset' },
+        { name: 'mark_change', type: 'number', description: 'The signed value change a mark row booked (unrealized_value_change). Summed per fund holding it is its unrealized gain' },
+        { name: 'mark_source', type: 'string', description: 'On mark rows: nav_statement, nav, manual, round or price' },
       ],
     },
     {

@@ -41,6 +41,10 @@ import { getWriteAction } from '@/lib/pending-actions/registry'
 import { previewBlockers } from '@/lib/pending-actions/blockers'
 import { stagedTarget } from '@/lib/pending-actions/target'
 import type { ActionDeps } from '@/lib/pending-actions/types'
+import { resolveCompany } from './portfolio-tools'
+import { companyDocumentDuplicate, duplicateSkipped } from './upload-tools'
+import { COMPANY_DOCUMENT_BUCKET } from '@/lib/companies/documents'
+import { contentTypeFor } from '@/lib/uploads/signed-upload'
 
 /** Which door a call came through. Recorded on every write, as `source` (lib/audit/source.ts). */
 export type AgentChannel = Extract<ChangeSource, 'mcp' | 'api'>
@@ -65,6 +69,8 @@ export interface StagedResult {
   preview: Record<string, unknown>
   /** The app's approvals page, when the request's origin is known. */
   approveUrl?: string
+  /** add_company_document: the file already on the holding that this one repeats. */
+  duplicateOf?: unknown
   next: string
 }
 
@@ -249,6 +255,40 @@ function repeatOfStaged(prior: StagedResult, status: string | null): StagedResul
   }
 }
 
+/**
+ * A write that may decline before it is staged, returning its own result instead of a pending
+ * action: there is nothing for a person to approve. Today only add_company_document with
+ * skip_if_duplicate, when the same file is already on the holding. Logged as a skipped write.
+ */
+const DECLINES_BEFORE_STAGING: Record<string, (call: AgentCall) => Promise<Record<string, unknown> | null>> = {
+  add_company_document: async ({ admin, input, auth, access }) => {
+    if (input.skip_if_duplicate !== true) return null
+    const company = await resolveCompany(admin, auth.fundId, String(input.company ?? ''), access)
+    const filename = String(input.filename ?? '').trim()
+    const storagePath = String(input.storage_path ?? '').trim()
+    const check = await companyDocumentDuplicate(admin, auth.fundId, company.id, {
+      storagePath, filename, fileType: String(input.content_type ?? '').trim() || contentTypeFor(filename),
+    })
+    if (!check.duplicateOf) return null
+    await (admin as any).storage.from(COMPANY_DOCUMENT_BUCKET).remove([storagePath])
+    return duplicateSkipped(company.name, filename, check.duplicateOf)
+  },
+}
+
+/** A result that says the write did nothing on purpose (skip_if_duplicate). */
+function isSkipped(result: unknown): boolean {
+  return !!result && typeof result === 'object' && (result as { skipped?: unknown }).skipped === true
+}
+
+async function recordSkipped(call: AgentCall, result: unknown): Promise<void> {
+  const { admin, tool, input, auth, channel } = call
+  await recordAudit(admin, {
+    fundId: auth.fundId, actorId: auth.userId, action: 'agent.write_skipped',
+    subjectType: 'agent_tool', subjectId: tool.name, source: channel,
+    details: { tool: tool.name, credentialId: auth.keyId, input: auditInput(input), result: result as Record<string, unknown> },
+  })
+}
+
 export class AgentCallError extends Error {
   constructor(message: string, readonly code: string) {
     super(message)
@@ -299,6 +339,13 @@ export async function runAgentTool(call: AgentCall): Promise<unknown> {
   }
 
   try {
+    const declined = shouldStage(tool, input, auth, access) ? await DECLINES_BEFORE_STAGING[tool.name]?.(call) ?? null : null
+    if (declined) {
+      await recordSkipped(call, declined)
+      // Not kept under the key: asked again later (the match since deleted), it is checked again.
+      if (key) await releaseIdempotentRequest(admin, scope, { endpoint, key })
+      return declined
+    }
     const result = shouldStage(tool, input, auth, access) ? await stage(call) : await apply(call)
     if (key) await completeIdempotentRequest(admin, scope, { endpoint, key, status: 200, body: { result: result as any } })
     return result
@@ -315,7 +362,11 @@ async function apply(call: AgentCall): Promise<unknown> {
   // propose-level write into a draft itself (assertEntityWrite), and refuses a read-level one.
   const access = isLedgerTool(tool) ? call.access : writeAccess(call.access)
   const portfolioGroup = await resolveVehicleForTool(tool, admin, auth.fundId, input.vehicle as string | undefined, access)
-  const result = await tool.handler({ admin, fundId: auth.fundId, portfolioGroup, userId: auth.userId, access, origin }, input)
+  const result = await tool.handler({ admin, fundId: auth.fundId, portfolioGroup, userId: auth.userId, access, origin, channel }, input)
+  if (isSkipped(result)) {
+    await recordSkipped(call, result)
+    return result
+  }
   const vehicleId = isLedgerTool(tool) && portfolioGroup ? await vehicleIdByName(admin, auth.fundId, portfolioGroup) : null
   await recordAudit(admin, {
     fundId: auth.fundId, vehicleId, actorId: auth.userId, action: 'agent.write',
@@ -423,11 +474,14 @@ async function stage(call: AgentCall): Promise<StagedResult> {
     ? await notifyAdminsOfStagedChange(admin, { fundId: auth.fundId, label: adminLabel, summary: preview.summary, requesterId: auth.userId, origin })
     : 0
   const approveUrl = approveUrlFor(origin)
+  // A file already on the holding (add_company_document): said beside the staged change, not only inside it.
+  const duplicateOf = (preview.details as { duplicateOf?: unknown } | undefined)?.duplicateOf
   return {
     staged: true,
     pendingActionId: id,
     summary: preview.summary,
     preview: preview.details,
+    ...(duplicateOf ? { duplicateOf } : {}),
     ...(approveUrl ? { approveUrl } : {}),
     next: nextStep({ id, approveUrl, adminLabel, emailed, isAdmin: auth.role === 'admin', chat: isAssistantCredential(auth) }),
   }

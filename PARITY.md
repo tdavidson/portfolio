@@ -44,6 +44,12 @@ The exception work automation leaves behind. Each tool calls the page's own func
 - **Settlements:** `capital_settlements` and `review_capital_settlement` (the RPC call moved into `lib/accounting/settlement-reviews.ts`).
 - **K-1s owed by fund holdings:** `holding_k_ones` (`loadK1Dependencies`) and `mark_holding_k_one` (moved into `lib/tax/mark-received-k1.ts`).
 
+## Closed with holding documents and mark status
+
+- `list_company_documents` and `read_company_document`: a holding's Documents files and its update attachments, with SHA-256 and text hashes, scan and text status, page reads and a signed download link (`lib/companies/holding-documents.ts`).
+- `add_company_document` checks for duplicates (same bytes or same text) and shows the match in its approval; `skip_if_duplicate` adds nothing on a match. The web upload warns the same way.
+- `fund_register` and `mark_status`: a fund holding's register with booked marks, and which holdings have current marks. The holding page shows the same "Last mark" line and Stale badge (`lib/portfolio/mark-status.ts`).
+
 ## Closed in this PR
 
 - `issue_capital_call`: stages the existing `issue_capital_call` pending action (fund-wide, pro-rata by commitment) for an admin to approve in the app, from any connection, like `publish_call_notices`.
@@ -292,7 +298,7 @@ Effort is a guess: S is a tool wrapping an existing `lib` function, M needs logi
 | Enter a manager NAV statement (books the mark) | `portfolio/fund-holdings/[id]/nav (POST)` | partial | record_investment(valuation_change_source=nav) | agent can book a hand-computed NAV mark but not store the NAV statement that drives rebooking | easy-win: record_nav_statement calling lib/portfolio/fof-nav.saveNavStatement | S |
 | Import investment transactions in bulk | `import/investments (POST)` | partial | record_investment, stage_run | same: per-row tool calls; record_investment schema gaps apply | - | - |
 | List / add known referrers (deal-flow intro sources) | `known-referrers (GET, POST)` | gap | - | no reason found (deals-area setting) | known_referrers tool | S |
-| List a company's documents (uploads + email history) | `companies/[id]/documents (GET)` | partial | get_updates (email-borne only) | uploaded company documents not listed; no reason found | list_company_documents tool | S |
+| List a company's documents (uploads + email history) | `companies/[id]/documents (GET)` | covered | list_company_documents; read_company_document | Uploaded documents and update attachments together, with hashes, scan and text status; read_company_document returns the text by page and a 15-minute download link. Emails without a captured update stay on get_updates | - | - |
 | List fund-of-funds holdings (LP interests in other funds) | `portfolio/fund-holdings (GET)` | partial | portfolio_summary, list_companies | positions appear in summaries but commitment/unfunded/terms are not exposed | fund_holdings read tool over lib/portfolio/fof-holdings.fundHoldingRows | S |
 | Manage compliance resource links | `compliance/links (GET, POST, PATCH, DELETE)` | gap | - | low value reference links | - | S |
 | Mark a company's response (yes/no/na/waived) | `requests/responses (PATCH)` | gap | - | no reason found | easy-win: data_request_mark tool doing the same upsert via lib/requests/response-status | S |
@@ -321,7 +327,7 @@ Effort is a guess: S is a tool wrapping an existing `lib` function, M needs logi
 | View NAV statements for a fund holding | `portfolio/fund-holdings/[id]/nav (GET)` | gap | - | no reason found | include in fund_holdings tool | S |
 | View a company's recent interactions | `companies/[id]/interactions (GET)` | gap | - | no reason found - no interactions tool exists | list_interactions read tool | S |
 | View a digital-asset holding's wallets and balance variance | `companies/[id]/wallets (GET)` | gap | - | no reason found - niche digital-asset feature not prioritised | list_wallets read tool over walletsForEntity/walletVariances | S |
-| View a fund holding's detail, terms and pending reviews | `portfolio/fund-holdings/[id] (GET)` | partial | company_detail | terms/commitment/review items missing | extend company_detail for fund holdings | S |
+| View a fund holding's detail, terms and pending reviews | `portfolio/fund-holdings/[id] (GET)` | partial | fund_register; review_queue | fund_register reads the same loader as the page (`lib/portfolio/fund-register-read.ts`): terms, commitment, unfunded, notices and NAV statements with the mark each booked. Pending manager-email proposals are in review_queue, not beside the register | - | - |
 | View a holding's price feed, stored quotes and the quoted mark each entity owes | `companies/[id]/price-feed (GET)` | gap | - | no reason found - likely oversight | price_feed read tool over quoteMarkForHolding | S |
 | View fund default metric profile | `default-metrics (GET)` | gap | - | no reason found | list_default_metrics tool | S |
 | View pending reviews for one email | `emails/[id]/reviews (GET)` | gap | - | no reason found | part of list_reviews(email) | S |

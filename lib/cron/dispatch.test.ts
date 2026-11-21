@@ -9,7 +9,7 @@ import { dueWorkers, GATES } from './dispatch'
 function fakeAdmin(withRows: Record<string, boolean>, failing: string[] = []) {
   const builder = (table: string): any => {
     const b: any = {}
-    for (const m of ['select', 'eq', 'neq', 'in', 'lt', 'lte', 'not']) b[m] = () => b
+    for (const m of ['select', 'eq', 'neq', 'in', 'lt', 'lte', 'not', 'is']) b[m] = () => b
     b.limit = () => Promise.resolve(failing.includes(table)
       ? { data: null, error: { message: 'relation does not exist' } }
       : { data: withRows[table] ? [{ id: 'x' }] : [], error: null })
@@ -28,7 +28,8 @@ describe('cron tick dispatch', () => {
 
   it('starts only the workers whose feature has work', async () => {
     const admin = fakeAdmin({ company_update_artifacts: true, fund_settings: true })
-    expect(await dueWorkers(admin, { now: TUESDAY })).toEqual(['company-updates-ocr', 'ops-reminders'])
+    // The fake ignores filters, so artifacts "pending OCR" also read as artifacts not yet hashed.
+    expect(await dueWorkers(admin, { now: TUESDAY })).toEqual(['company-updates-ocr', 'document-hashes', 'ops-reminders'])
   })
 
   it('sends the digest on Mondays only', async () => {
@@ -42,7 +43,14 @@ describe('cron tick dispatch', () => {
       'company_update_backfill_jobs', 'diligence_deals', 'fund_members', 'fund_settings'].map(t => [t, true]))
     expect(await dueWorkers(fakeAdmin(all), { scope: 'queues', now: MONDAY })).toEqual([
       'memo-agent-worker', 'company-updates-ocr', 'entity-documents-ocr', 'deal-research', 'company-updates-backfill',
+      'document-hashes',
     ])
+  })
+
+  it('starts the hash backfill while a holding document has no hashes', async () => {
+    expect(await dueWorkers(fakeAdmin({ company_documents: true }), { now: TUESDAY })).toEqual(['document-hashes'])
+    // Before migration 20261121160000 the column is missing: no work, no failure.
+    expect(await dueWorkers(fakeAdmin({ company_documents: true }, ['company_documents']), { now: TUESDAY })).toEqual([])
   })
 
   it('treats a failed read (e.g. a migration not yet applied) as no work', async () => {

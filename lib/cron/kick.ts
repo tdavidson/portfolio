@@ -10,6 +10,7 @@ export const CRON_WORKERS = [
   'entity-documents-ocr',
   'deal-research',
   'company-updates-backfill',
+  'document-hashes',
   'affinity-sync',
   'access-expiry',
   'ops-reminders',

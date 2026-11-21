@@ -691,6 +691,7 @@ export const UNGATED_ROUTES: Record<string, string> = {
   'api/cron/company-updates-ocr': 'Cron: CRON_SECRET.',
   'api/cron/entity-documents-ocr': 'Cron: CRON_SECRET.',
   'api/cron/company-updates-backfill': 'Cron: CRON_SECRET.',
+  'api/cron/document-hashes': 'Cron: CRON_SECRET.',
   'api/cron/ops-reminders': 'Cron: CRON_SECRET.',
   'api/cron/access-expiry': 'Cron: CRON_SECRET.',
   'api/cron/tick': 'Cron: CRON_SECRET.',

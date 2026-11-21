@@ -324,4 +324,46 @@ export const HOLDING_TOOL_MANIFEST: AgentToolMeta[] = [
       additionalProperties: false,
     },
   },
+  {
+    name: 'fund_register',
+    description:
+      'One fund holding\'s register for one entity, as the holding page shows it: its terms and commitment, contributed, distributed ' +
+      'and unfunded, every capital notice, and every manager NAV statement with the mark it booked and that mark\'s amount. A ' +
+      'statement dated before the ledger\'s start books nothing (memo_only) and still values the holding. Read-only.',
+    scope: 'read',
+    domain: 'portfolio',
+    accessFeature: 'investments',
+    inputSchema: {
+      type: 'object',
+      required: ['company'],
+      properties: {
+        company: HOLDING,
+        vehicle: { type: 'string', description: 'The entity whose position to show (its name). Optional: defaults to the holding\'s first entity; the result names any others.' },
+        as_of: { type: 'string', description: 'The date contributed, unfunded and the carrying value are figured at (YYYY-MM-DD). Default today. Notices and statements are all listed.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'mark_status',
+    description:
+      'Which holdings have current marks: one row per holding still held, with its holding_type (company, fund or digital_asset), ' +
+      'fair value, last mark date and source (nav_statement, nav, price, round or manual), latest NAV statement, and stale. A holding is ' +
+      'stale when its last mark is before the latest quarter end on or before as_of, or, with max_age_days, older than that. A value ' +
+      'change booked from a manager\'s NAV counts as current just as a NAV statement does. A holding first bought after the quarter end ' +
+      'is carried at cost and is current. Use it to find what still needs a mark before a close or a report.',
+    scope: 'read',
+    domain: 'portfolio',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vehicle: { type: 'string', description: 'Only this entity\'s holdings and marks (its name). Default: every entity you can see.' },
+        as_of: { type: 'string', description: 'YYYY-MM-DD. Default today.' },
+        max_age_days: { type: 'integer', minimum: 0, description: 'Stale when the last mark is more than this many days old, instead of the quarter-end rule.' },
+        holding_type: { type: 'string', enum: ['company', 'fund', 'digital_asset'] },
+        stale_only: { type: 'boolean', description: 'Only the stale holdings.' },
+      },
+      additionalProperties: false,
+    },
+  },
 ]

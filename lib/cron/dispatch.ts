@@ -59,6 +59,13 @@ export const GATES: Gate[] = [
     due: admin => exists(admin.from('company_update_backfill_jobs').select('id').eq('status', 'running').limit(1)),
   },
   {
+    // Holding documents and update files stored before their duplicate-check hashes existed.
+    worker: 'document-hashes',
+    daily: false,
+    due: async admin => await exists(admin.from('company_documents').select('id').is('hashed_at', null).limit(1))
+      || exists(admin.from('company_update_artifacts').select('id').is('hashed_at', null).limit(1)),
+  },
+  {
     // Only deals linked to Affinity; the worker itself skips any synced in the last hour.
     worker: 'affinity-sync',
     daily: true,
