@@ -1,5 +1,5 @@
 import type { Metadata } from 'next'
-import { Github, Scale, ExternalLink, BookOpen, Home, Newspaper, ListChecks, Globe, Building2, ClipboardCheck, Mail, Upload, Send, Settings, MessageSquare, Monitor, PanelLeftClose, Sparkles, Shield, ShieldCheck, Handshake, Users, ArrowDownCircle, DollarSign, FileText, Briefcase, Crown, Lightbulb, Microscope } from 'lucide-react'
+import { Github, Scale, ExternalLink, BookOpen, Home, LayoutGrid, Archive, Newspaper, ListChecks, Globe, Building2, ClipboardCheck, Mail, Upload, Send, Settings, MessageSquare, Monitor, PanelLeftClose, Sparkles, Shield, ShieldCheck, Handshake, Users, ArrowDownCircle, DollarSign, FileText, Briefcase, Crown, Lightbulb, Microscope } from 'lucide-react'
 import { AnalystToggleButton } from '@/components/analyst-button'
 import { AnalystPanel } from '@/components/analyst-panel'
 import { PRIVACY_URL, PRODUCT_DOCS, PRODUCT_SITE, TERMS_URL } from '@/lib/site-links'
@@ -13,11 +13,14 @@ export default function SupportPage() {
       <li><a href="#links" className="hover:text-foreground underline underline-offset-4">Links</a></li>
       <li><a href="#getting-started" className="hover:text-foreground underline underline-offset-4">Getting started</a></li>
       <li className="pl-4"><a href="#start" className="hover:text-foreground underline underline-offset-4">Start</a></li>
+      <li className="pl-4"><a href="#setup-checklist" className="hover:text-foreground underline underline-offset-4">Setup checklist</a></li>
+      <li className="pl-4"><a href="#signing-in" className="hover:text-foreground underline underline-offset-4">Signing in</a></li>
       <li className="pl-4"><a href="#setup" className="hover:text-foreground underline underline-offset-4">Self-hosting &amp; license</a></li>
       <li><a href="#portfolio" className="hover:text-foreground underline underline-offset-4">Portfolio</a></li>
       <li className="pl-4"><a href="#company-detail" className="hover:text-foreground underline underline-offset-4">Company detail</a></li>
+      <li><a href="#views" className="hover:text-foreground underline underline-offset-4">Views</a></li>
       <li><a href="#review" className="hover:text-foreground underline underline-offset-4">Review</a></li>
-      <li className="pl-4"><a href="#approving-changes" className="hover:text-foreground underline underline-offset-4">Approving changes</a></li>
+      <li className="pl-4"><a href="#approving-changes" className="hover:text-foreground underline underline-offset-4">Approvals</a></li>
       <li><a href="#inbound" className="hover:text-foreground underline underline-offset-4">Inbound</a></li>
       <li className="pl-4"><a href="#email-detail" className="hover:text-foreground underline underline-offset-4">Email detail</a></li>
       <li className="pl-4"><a href="#company-updates" className="hover:text-foreground underline underline-offset-4">Company updates</a></li>
@@ -30,7 +33,7 @@ export default function SupportPage() {
       <li><a href="#deals" className="hover:text-foreground underline underline-offset-4">Deals</a></li>
       <li><a href="#diligence" className="hover:text-foreground underline underline-offset-4">Diligence</a></li>
       <li><a href="#investments" className="hover:text-foreground underline underline-offset-4">Investments</a></li>
-      <li><a href="#funds" className="hover:text-foreground underline underline-offset-4">Entities &amp; accounting</a></li>
+      <li><a href="#funds" className="hover:text-foreground underline underline-offset-4">Financials</a></li>
       <li className="pl-4"><a href="#accounting" className="hover:text-foreground underline underline-offset-4">Accounting</a></li>
       <li><a href="#forecast" className="hover:text-foreground underline underline-offset-4">Forecast</a></li>
       <li><a href="#management-company" className="hover:text-foreground underline underline-offset-4">Management company</a></li>
@@ -39,6 +42,7 @@ export default function SupportPage() {
       <li className="pl-4"><a href="#lp-portal" className="hover:text-foreground underline underline-offset-4">LP portal</a></li>
       <li><a href="#compliance" className="hover:text-foreground underline underline-offset-4">Compliance</a></li>
       <li><a href="#usage" className="hover:text-foreground underline underline-offset-4">Usage</a></li>
+      <li><a href="#records" className="hover:text-foreground underline underline-offset-4">Records</a></li>
       <li><a href="#analyst" className="hover:text-foreground underline underline-offset-4">Analyst</a></li>
       <li><a href="#ai-assistants" className="hover:text-foreground underline underline-offset-4">Claude &amp; ChatGPT</a></li>
       <li><a href="#file-handling" className="hover:text-foreground underline underline-offset-4">File Handling &amp; Security</a></li>
@@ -184,6 +188,26 @@ export default function SupportPage() {
           </p>
         </div>
 
+        <div id="setup-checklist" className="pl-4 border-l-2 border-border">
+          <h3 className="text-base font-medium mb-2 flex items-center gap-2">
+            <ListChecks className="h-3.5 w-3.5 text-muted-foreground" />
+            Setup checklist
+          </h3>
+          <p className="text-muted-foreground">
+            Admins get a <strong>Getting started</strong> checklist in the sidebar: the steps that set a fund up, filtered to the products you use. A step that doesn&rsquo;t apply can be <strong>skipped</strong>, and a skip is saved for the whole fund, so every admin sees the same list. Once every step is done or skipped, Getting started leaves the sidebar; the <strong>Getting started</strong> button on Settings brings it back. A connected assistant can skip or restore steps too, with <code className="font-mono text-xs">setup_fund</code>, and <code className="font-mono text-xs">setup_status</code> reports which are skipped.
+          </p>
+        </div>
+
+        <div id="signing-in" className="pl-4 border-l-2 border-border">
+          <h3 className="text-base font-medium mb-2 flex items-center gap-2">
+            <Shield className="h-3.5 w-3.5 text-muted-foreground" />
+            Signing in
+          </h3>
+          <p className="text-muted-foreground">
+            Sign in with your password or with a <strong>6-digit code</strong> sent to your email. A code works once and <strong>expires after 10 minutes</strong>; ask for a new one if it runs out. The email states the code up front, so Gmail and most phones offer to copy it for you. Password resets and email changes use codes the same way, and two-factor authentication (Settings) adds an authenticator code on top.
+          </p>
+        </div>
+
         <div id="setup" className="pl-4 border-l-2 border-border">
           <h3 className="text-base font-medium mb-2">Self-hosting &amp; license</h3>
           <p className="text-muted-foreground mb-2">
@@ -202,6 +226,12 @@ export default function SupportPage() {
             &mdash; database, environment variables, encryption, email providers, AI and deployment. You control
             the operational details and the costs. Most services in the stack have generous free tiers; AI
             features need an API key from Anthropic, OpenAI or OpenRouter, which are paid accounts.
+          </p>
+          <p className="text-muted-foreground mb-2">
+            <strong>Background jobs</strong> run from one scheduled job a day, which fits Vercel&rsquo;s free plan, and
+            only for features your fund uses and that have work waiting. Queued work such as OCR, deal research and the
+            memo agent starts the moment it is queued. A deployment needs the <code className="font-mono text-xs">CRON_SECRET</code> environment
+            variable for this; DOCS.md, under Background jobs, has the details and an optional faster schedule for paid plans.
           </p>
           <p id="license" className="text-muted-foreground mb-2">
             <strong>License:</strong> Apache License 2.0. You are free to use it, modify it, and deploy it on
@@ -244,7 +274,7 @@ export default function SupportPage() {
             Portfolio
           </h2>
           <p className="text-muted-foreground mb-2">
-            The Portfolio page is the main dashboard for monitoring the fund. Companies show as <strong>cards or a table</strong> with their headline metrics (such as MRR and cash balance), filtered by status (Active by default) and sorted by name or investment date. Fund holdings and digital assets are listed below the companies.
+            The Portfolio page is the main dashboard for monitoring the fund. Companies show as <strong>cards or a table</strong> with their headline metrics (such as MRR and cash balance), filtered by status (Active by default), sorted by name or investment date, and searchable from the box above the grid. <strong>Fund holdings</strong> (your positions in other funds) are cards in the same grid, showing NAV and TVPI with the commitment, the share called and the NAV date; in the table view they are listed in their own table. Digital assets are listed below.
           </p>
           <p className="text-muted-foreground mb-2">
             An <strong>entity picker</strong> narrows the dashboard to one fund or SPV; your choice is saved to your account, and an admin sets the default under Settings &rarr; Portfolio Reporting &rarr; Dashboard entities. Settings &rarr; <strong>Default metrics</strong> applies a metric set to every company.
@@ -313,6 +343,42 @@ export default function SupportPage() {
           </p>
         </div>
 
+        <div id="views">
+          <h2 className="text-base font-medium mb-2 flex items-center gap-2">
+            <LayoutGrid className="h-4 w-4 text-muted-foreground" />
+            Views
+          </h2>
+          <p className="text-muted-foreground mb-2">
+            <strong>Views</strong> are screens you design yourself on live portfolio, fund and LP data. Open Views in the sidebar,
+            choose <strong>New view</strong> and describe what you want &mdash; &ldquo;NAV, unfunded and the largest positions,
+            filterable by vehicle&rdquo; &mdash; and the fund&rsquo;s AI builds it and shows a live preview. Change it in words
+            (&ldquo;make the positions a table&rdquo;), name it, choose whether to share it with the fund, and save. You can also ask
+            Claude or ChatGPT for a view over the connector; it previews the view in the chat and saves it to the same list. A fund
+            with no AI key builds views that way.
+          </p>
+          <p className="text-muted-foreground mb-2">
+            Or start from a <strong>starter view</strong> on the New view page: portfolio overview, positions below cost, company KPIs
+            by period, LP capital, capital calls outstanding, fund performance, income, expenses and cash, deal flow, and the diligence
+            pipeline. You see only the starters whose data you can read, and opening or saving one needs no AI key.
+          </p>
+          <p className="text-muted-foreground mb-2">
+            A view is built from a fixed set of blocks: <strong>KPI tiles</strong> (with a change against the prior month, quarter or
+            year, a sparkline, or a figure worked out from other tiles), <strong>charts</strong> (bar, stacked and grouped bar, column,
+            line, area, pie and donut, scatter, combo, waterfall, funnel, heatmap and gauge, with one or several measures),
+            <strong> tables</strong> (totals and subtotals, calculated columns, colour by sign or scale, and a click through to the
+            company), <strong>pivot tables</strong> and text. Pick lists and from/to ranges at the top filter the whole page. The data
+            comes from the portfolio, LPs and their capital accounts, deals, diligence, the ledger, and fund performance, monthly
+            P&amp;L and cash and the forecast.
+          </p>
+          <p className="text-muted-foreground">
+            A view stores the recipe, never the figures, so it always opens on current numbers, and every block loads with the access
+            of the person opening it: a block they can&rsquo;t read shows as unavailable, and a shared view never carries its
+            author&rsquo;s access. <strong>Change</strong> reopens a saved view in the builder (a colleague&rsquo;s shared view opens as
+            your own copy). <strong>PDF</strong> and <strong>Excel</strong> export the view with its numbers and formats; from a chat,
+            ask for the export and you get a download link.
+          </p>
+        </div>
+
         <div id="review">
           <h2 className="text-base font-medium mb-2 flex items-center gap-2">
             <ClipboardCheck className="h-4 w-4 text-muted-foreground" />
@@ -350,10 +416,13 @@ export default function SupportPage() {
         <div id="approving-changes" className="pl-4 border-l-2 border-border">
           <h3 className="text-base font-medium mb-2 flex items-center gap-2">
             <ListChecks className="h-3.5 w-3.5 text-muted-foreground" />
-            Approving changes
+            Approvals
           </h3>
+          <p className="text-muted-foreground mb-2">
+            Changes the Analyst, a connected Claude or ChatGPT, or a script drafts rather than makes &mdash; metric updates, investments, journal entries, capital calls &mdash; wait for a person. The <strong>Approvals</strong> page in the sidebar lists every change waiting that you can read, and appears only while something is waiting. Changes from the Analyst can also be approved or rejected in the <a href="#analyst" className="underline underline-offset-4 hover:text-foreground">Analyst</a> panel, and a change a chat staged can be approved by saying yes in that chat.
+          </p>
           <p className="text-muted-foreground">
-            Changes the Analyst drafts rather than makes &mdash; metric updates, investments, capital calls &mdash; are approved or rejected in the <a href="#analyst" className="underline underline-offset-4 hover:text-foreground">Analyst</a> panel, which also lists any still waiting from earlier conversations.
+            A fix that needs several changes can be staged as one <strong>run</strong>: you review the steps and the balances they should leave, approve once, and the run can be undone. Admin-only changes wait for an admin; the person who proposed one can withdraw it.
           </p>
         </div>
 
@@ -505,7 +574,7 @@ export default function SupportPage() {
             <p className="text-muted-foreground mb-2">
               Two questions decide what a member sees, and both must say yes. <strong>Which areas</strong>:
               portfolio, deal flow, diligence, accounting, the management company, LP capital, GP economics,
-              LP relations, compliance &mdash; each none, read, or read &amp; write. <strong>Whose data</strong>:
+              LP relations, compliance, tax, admin and Records &mdash; each none, read, or read &amp; write. <strong>Whose data</strong>:
               All entities (including ones added later, and items assigned to none), specific funds, SPVs and
               entities, or none. Set both in <strong>Settings &rarr; Team &rarr; Access</strong>; the first column
               is the member&rsquo;s entities. Approving a join request asks which entities the person can see,
@@ -518,6 +587,21 @@ export default function SupportPage() {
               only their positions in your entities; notes, documents and emails follow their company or
               entity; and the Analyst, MCP, the Claude and ChatGPT connections and API keys see exactly
               what the member sees. Something you cannot see is simply &ldquo;not found&rdquo;.
+            </p>
+            <p className="text-muted-foreground mb-2">
+              <strong>Presets and end dates.</strong> <em>Apply a preset</em> sets a member&rsquo;s grants in one step for a CFO, fund
+              administrator, tax preparer, auditor, compliance vendor, investment team member or investor relations. <strong>Access
+              ends</strong> sets a date after which a member can no longer reach the fund. <strong>Engagements</strong> group the people
+              from one outside firm under one last day, with an activity log of what they did. Each entity a member is granted can be
+              capped at <strong>Propose</strong> or <strong>Read</strong>, and <em>Read &amp; propose</em> on accounting lets someone
+              put journal entries forward as drafts for another person to post. Records has its own row (see
+              <a href="#records" className="underline underline-offset-4 hover:text-foreground"> Records</a>).
+            </p>
+            <p className="text-muted-foreground mb-2">
+              <strong>Linked sign-ins.</strong> Someone who works for several funds on this deployment, such as a fund administrator,
+              can link their sign-ins under Settings &rarr; Linked sign-ins (a code from one fund, entered in another; codes expire in
+              ten minutes). One Claude or ChatGPT connection then switches between those funds, acting in each with that fund&rsquo;s
+              own access. Admins see who has linked under Team, and can switch linking off for the fund.
             </p>
             <p className="text-muted-foreground">
               <strong>Feature visibility</strong> is the ceiling above all of it: a feature is on for members,
@@ -726,6 +810,32 @@ export default function SupportPage() {
             and the transcription check; <em>Per-stage AI models</em> picks a model per stage &mdash; e.g. a cheap
             model for ingest, a stronger one for draft.
           </p>
+          <p className="text-muted-foreground mt-2">
+            <strong>Rounds.</strong> Diligence runs in rounds: the first data room, a follow-up request, continued diligence. Each
+            round has a name, an open or closed status, the partners&rsquo; decision (advance, hold, pass, invest) and notes.
+            <strong> Start the next round</strong> closes the current one, builds the follow-up request list for the company (checklist
+            items still missing or partial, open attention items and the gaps the data room and research found, with a copy-as-text
+            button) and opens the next round from the evidence, memo and scores so far. Documents, notes and attention items record the
+            round they arrived in, each round shows what is new, changed or resolved since the last, and the Data Room filters by round.
+            A closed round&rsquo;s memo and scoring table are kept as they were; the Memo and Scoring tabs switch between rounds.
+          </p>
+          <p className="text-muted-foreground mt-2">
+            <strong>One memo, revised each round.</strong> In a later round the agent revises the prior memo: paragraphs whose evidence
+            did not change stay word for word, the rest are rewritten, and &ldquo;What changed since Round N&rdquo; opens the memo. A
+            partner&rsquo;s own paragraphs are never rewritten; when the evidence under one changes, the partner gets an attention item.
+          </p>
+          <p className="text-muted-foreground mt-2">
+            <strong>The fund&rsquo;s memo voice and design.</strong> In Settings &rarr; Investment Workflow &rarr; Diligence, learn a
+            <strong> memo voice</strong> (voice, house rules and examples) from the fund&rsquo;s sample memos with its own AI, edit it and
+            save it; the draft stage writes in it. Pick one sample memo (a Word file) as the <strong>design template</strong>, and the
+            Word export writes each memo into that file&rsquo;s styles, header, footer and first page. The memo editor also exports to
+            PDF and Markdown, and reads a partner&rsquo;s edited Word file back in, matched paragraph by paragraph.
+          </p>
+          <p className="text-muted-foreground mt-2">
+            <strong>Specter.</strong> When an admin turns Specter on for the fund, each member can connect their own Specter account in
+            Settings. Diligence Q&amp;A can then look companies up in Specter (read-only), and <strong>Save Specter profile</strong> on a
+            deal writes the company&rsquo;s Specter profile into its data room for ingest.
+          </p>
         </div>
 
         <div id="investments">
@@ -745,6 +855,14 @@ export default function SupportPage() {
           <p className="text-muted-foreground mb-2">
             On each <strong>company detail page</strong>, the Investments section holds the fund&rsquo;s transactions with that company: investments, conversions, proceeds and escrow receipts, valuation updates, rounds, share splits and income. Each one posts its entry to the entity&rsquo;s books. Summary metrics &mdash; total invested, current FMV, MOIC, and total realized &mdash; are shown above the transaction table.
           </p>
+          <p className="text-muted-foreground mb-2">
+            An exit paid partly in the <strong>buyer&rsquo;s shares</strong> records that part as consideration in kind: the gain is
+            realized on the whole price, and the shares received become a new holding at their fair value, with no cash moving.
+            <strong> Transfer cost</strong> on a holding&rsquo;s Investment details moves cost from one holding to another in the same
+            entity with no cash and no gain (for example when a position is restructured into a new company). The source&rsquo;s cost
+            goes down with nothing realized and the target&rsquo;s starts on the transfer date, so neither reports proceeds it never
+            received. A journal entry that only moves cost between two holdings is read as a transfer when it is posted or imported.
+          </p>
           <p className="text-muted-foreground">
             Anyone with write access to investments can add, edit or delete transactions. For exited companies the FMV reflects total realized proceeds; for written-off companies it shows zero; and for active companies it uses the latest share price multiplied by the shares still held &mdash; or, where no share price has been recorded, the remaining cost plus its marks. Investment data can also be bulk-imported via the Import page by pasting transaction data from a spreadsheet.
           </p>
@@ -753,13 +871,15 @@ export default function SupportPage() {
         <div id="funds">
           <h2 className="text-base font-medium mb-2 flex items-center gap-2">
             <Briefcase className="h-4 w-4 text-muted-foreground" />
-            Entities &amp; accounting
+            Financials
           </h2>
           <p className="text-muted-foreground mb-2">
-            <strong>Entities</strong> lists every fund, SPV, GP entity, individual and management company,
-            with performance &mdash; committed, called, distributed, NAV, DPI, TVPI, IRR &mdash; derived from the
-            books, and a <em>Net to LP</em> lens. Open one for its pages: journal, bank, capital accounts,
-            schedule of investments, statements, forecast, tax and close.
+            <strong>Financials</strong> lists every fund, SPV, GP entity, individual and management company you can see, grouped by
+            entity group, each with links to its pages: admin, bank transactions, receipts, partnership expenses, capital accounts,
+            journal, general ledger, close, schedule of investments, fund performance (committed, called, distributed, NAV, DPI, TVPI
+            and IRR from the books, with a <em>Net to LP</em> lens), forecast, financial statements and tax. Picking a section in the
+            sidebar first shows the same list, with each name opening that section. The <strong>Admin</strong> page keeps the full
+            table of every entity&rsquo;s books and what needs attention.
           </p>
           <div id="accounting" className="pl-4 border-l-2 border-border mb-2">
             <h3 className="font-medium mb-1">Accounting is always on</h3>
@@ -782,6 +902,43 @@ export default function SupportPage() {
               <strong>Close</strong> reviews and locks each month: drafts and suggested recurring entries can be
               posted right there, it reconciles ledger cash to the bank feed, trues up carried interest, and
               lists every partner allocation in the month. The full guide is ACCOUNTING.md in the repository.
+            </p>
+            <p className="text-muted-foreground mt-2">
+              <strong>Status warnings say what to do.</strong> Each warning on an entity&rsquo;s status page links to where it is
+              fixed. Investment history not on the ledger opens <em>Review and book</em>, which lists each item a run would book
+              (date, company, what it books, amount) and books only the ones you tick; items with nothing to book are listed apart
+              and need no action. An exit with escrow shows what the books put in cash and in escrow and opens the company to edit
+              it. Imported balances that differ from the books name the partners, the amount and the date, and open that import on
+              the LP capital page. Partners&rsquo; capital that reaches no partner names the postings behind the gap.
+            </p>
+            <p className="text-muted-foreground mt-2">
+              <strong>Statements fold their detail.</strong> On Financial statements and the forecast&rsquo;s statements, per-company
+              sub-accounts collapse into one line with their sum; click a line to open it, or use <em>Show details</em> /
+              <em> Hide details</em> for all of them. The statement of changes in partners&rsquo; capital folds the same way. The
+              general ledger downloads to Excel as well as CSV.
+            </p>
+            <p className="text-muted-foreground mt-2">
+              <strong>Receipts and partnership expenses.</strong> On the management company, Receipts keeps receipts emailed in or
+              uploaded, attached to the entries they support (elsewhere the page appears only while one is waiting). Partnership
+              expenses, on the management company or a GP entity, bills the funds for expenses it paid on their behalf with a
+              quarterly <em>partnership invoice</em>: pick the date range and allocation basis, add or remove expenses and credit or
+              adjustment lines, and expenses not billed yet carry to the next invoice.
+            </p>
+            <p className="text-muted-foreground mt-2">
+              <strong>Credit facilities.</strong> A subscription line or other borrowing is a register on the capital accounts page:
+              its terms, and each draw, repayment, interest payment and fee, each posting its entry or linking one already booked.
+            </p>
+            <p className="text-muted-foreground mt-2">
+              <strong>Statement review.</strong> On a vehicle&rsquo;s <em>Statement review</em> page, check the administrator&rsquo;s
+              quarterly package before you rely on it. The package is read from the vehicle&rsquo;s documents (by the fund&rsquo;s AI,
+              or by your assistant when there is no key), and every figure is checked against the page it cites. The review then
+              checks that totals foot, partners sum to the fund, capital accounts roll forward and carry on from the last review, and
+              every partner is there; compares contributions, distributions, cash and the schedule of investments with the books, bank
+              feed and portfolio; and checks the management fee, carry and allocations against the vehicle&rsquo;s terms. Each finding is
+              open, explained, asked or accepted, with a note, and decisions carry to the next run of the same period. Open findings
+              become questions for the administrator, grouped by document. Once nothing is open the review can be signed off, which
+              freezes it. Export it as PDF or Markdown. Per-vehicle settings hold the materiality, instructions, watched accounts and
+              known adjustments.
             </p>
             <p className="text-muted-foreground mt-2">
               <strong>GP economics</strong> (carry terms, carry accrued and paid per partner, per-deal carry and GP
@@ -839,7 +996,7 @@ export default function SupportPage() {
           <p className="text-muted-foreground mb-2">
             The management company is the firm&rsquo;s own operating entity &mdash; the company that
             employs the team, collects the management fee and pays the rent &mdash; as opposed to the
-            funds it manages. It is listed on Entities with the funds but in its own table, because it has
+            funds it manages. It is listed on Financials with the other entities, though it has
             no commitments, no NAV, no TVPI and no limited partners. Switch it on under Settings &rarr; Fund
             Operations, then add a vehicle of type <strong>Management company</strong> from Investments or Start:
             its chart of accounts is there from creation. Members also
@@ -897,34 +1054,38 @@ export default function SupportPage() {
             Letters
           </h2>
           <p className="text-muted-foreground mb-2">
-            Letters helps you generate quarterly update letters for your limited partners. Using AI
-            and your portfolio data &mdash; reported metrics, company summaries, investment performance,
-            and team notes &mdash; the system drafts professional LP communications scoped to a specific
-            portfolio group and reporting period. To create a letter, click &ldquo;New letter&rdquo; and
-            select the year, quarter, portfolio group, and template. You can optionally toggle
-            &ldquo;year-end summary&rdquo; for Q4 letters and add custom instructions to guide the AI.
-            A preview step shows the companies and data that will be included before generation begins.
+            Letters drafts each entity&rsquo;s quarterly or year-end letter to its limited partners from the fund&rsquo;s own
+            records: the performance report, each company&rsquo;s reported metrics and updates, investment activity, subsequent
+            events and the team&rsquo;s notes. Click <strong>New letter</strong>, pick the year, quarter and entity, and add any
+            guidance; the fund&rsquo;s AI writes the letter in sections, in the fund&rsquo;s order.
           </p>
           <p className="text-muted-foreground mb-2">
-            If you&apos;ve written LP letters before, you can upload a previous letter (.docx or .pdf)
-            and the AI will analyze it to match your writing style, tone, and structure. Otherwise, a
-            built-in default <strong>template</strong> is available. Templates are reusable across letters and managed
-            from the Templates dialog on the Letters page.
+            <strong>The fund&rsquo;s own voice.</strong> <em>Voice &rarr; Learn from past letters</em> takes up to 12 past letters or
+            memos (.docx or .pdf) and writes the fund&rsquo;s <strong>structure</strong> (sections, headings, repeated paragraphs, tables,
+            signatories), <strong>voice</strong> and <strong>examples</strong>. Edit them, add <strong>house rules</strong> (standing
+            instructions for every letter), and choose <em>Use as fund voice</em>; every letter, and an assistant writing one over the
+            connector, then follows it. Each entity also has a <strong>letter profile</strong> of the facts its letters repeat: legal
+            and short names, signatories, company display and former names, standing footnotes and fixed paragraphs.
           </p>
           <p className="text-muted-foreground mb-2">
-            During generation, the AI writes a narrative for each company in the portfolio group, drawing
-            on reported metrics, recent trends, company summaries, investment data, and team notes. A
-            portfolio summary table with investment performance is also generated, and the full letter is
-            assembled from these sections. After generation, the letter opens in an <strong>editor</strong> with two views:
-            &ldquo;Sections&rdquo; shows each company narrative individually for targeted editing, and
-            &ldquo;Full&rdquo; shows the complete assembled letter. You can edit narratives inline,
-            regenerate individual company sections or the entire letter, and add <strong>custom prompts</strong> per-company
-            or globally to refine the output. Per-company prompts can either add to or replace the
-            default generation prompt.
+            <strong>One letter page.</strong> Edit each section in place or rewrite it with a prompt. Beside the chosen section you
+            see what it was written from and what the review found: figures not in the sources, unlabelled performance, unstated
+            write-offs or down rounds, investor names, words the house rules ban, text copied from the last letter. Add partner notes
+            and source documents to the brief; they are never shown to investors, and neither is the draft&rsquo;s
+            &ldquo;Missing information&rdquo; list. Gross figures come from the performance report and net TVPI, DPI and IRR as
+            the administrator reports them; a missing figure is listed, never worked out.
+          </p>
+          <p className="text-muted-foreground mb-2">
+            <strong>Charts.</strong> On a draft, the Charts panel draws fund-performance charts from the entity&rsquo;s portfolio as of
+            the quarter (value against cost, multiple by company, invested and realized, paid-in and distributed), or takes your own
+            images, placed after a section with a caption. A chart is kept as it was added, so it doesn&rsquo;t change if the books do.
           </p>
           <p className="text-muted-foreground">
-            When you&apos;re satisfied with the letter, download it as .docx, or export it to Google Docs if
-            Google is connected. With the LP portal on, <strong>Share with LPs</strong> publishes it to the portal.
+            <strong>Export and back.</strong> Download the letter as Word (with real styles, the letterhead logo and charts), PDF,
+            Markdown or JSON, or export it to Google Docs. A draft the partners edited comes back from the Word file or the Google Doc,
+            compared section by section before it replaces the draft. A letter that was sent outside the app can be imported as final,
+            so the next letter knows what was said last. With the LP portal on, <strong>Share with LPs</strong> publishes it to the
+            portal.
           </p>
         </div>
 
@@ -934,7 +1095,16 @@ export default function SupportPage() {
             LPs
           </h2>
           <p className="text-muted-foreground mb-2">
-            <strong>LPs</strong> rolls every LP across every vehicle up to the investor, live as of any date: commitment, paid-in, distributions, NAV, DPI, TVPI and IRR, with charts, search and a vehicle filter. Print investor <strong>report cards</strong> (one PDF each, or all at once), export to Excel, group or rename investors, and set the report header and footer from its Settings button.
+            <strong>LPs</strong> rolls every LP across every vehicle up to the investor, live as of any date: commitment, paid-in, distributions, NAV, DPI, TVPI and IRR, with charts, search and a vehicle filter. Export to Excel, group or rename investors, and set the report header and footer from its Settings button. An investor can carry an <strong>alternate name</strong> (a former name or the name people use), which search and the assistant find; reports still print the investor&rsquo;s name.
+          </p>
+          <p className="text-muted-foreground mb-2">
+            <strong>Report cards</strong> print each investor&rsquo;s summary across vehicles, including their positions in connected funds. Each card is dated <em>As of</em> the latest date that investor&rsquo;s own figures run through. Investors grouped under a parent get one card under the parent&rsquo;s name, on screen, in bulk and from the assistant. On the report cards page, pick the investors and choose <strong>Combined PDF</strong> for one PDF of all of them, or <strong>Individual PDFs</strong> for a ZIP with one PDF each, built from the same figures as the cards on screen. Anyone with read access to LP capital can export them. From Claude or ChatGPT, ask for one investor&rsquo;s card (optionally as of a past date) or a batch, and you get a download link. Report cards always use fair value.
+          </p>
+          <p className="text-muted-foreground mb-2">
+            <strong>Capital statements</strong> can be issued on three bases: <strong>Fair value</strong> (the default), <strong>Book basis</strong> (leaves out unrealized gains) or <strong>Capital Only</strong> (leaves out realized and unrealized gains, so contributions, distributions, fees, expenses and income). Each vehicle has a default basis, the statement page has a toggle, and the statement prints its basis. Partners whose capital comes from an administrator&rsquo;s snapshot stay on fair value, since a snapshot has no cost detail.
+          </p>
+          <p className="text-muted-foreground mb-2">
+            <strong>Administrator-reported vehicles.</strong> A vehicle can report its fund administrator&rsquo;s figures instead of the app&rsquo;s books. Its LP capital page has an <strong>Administrator figures</strong> panel: pull a quarter&rsquo;s figures from the administrator (Carta is built in, or another administrator&rsquo;s MCP server, or a CSV), check every partner is matched, and save. Its report cards then show each partner&rsquo;s figures and the fund&rsquo;s net IRR, TVPI and DPI exactly as the administrator states them. A member of your GP or associate entity is looked through to their share using the administrator&rsquo;s row.
           </p>
           <p className="text-muted-foreground mb-2">
             <strong>Capital accounts</strong> keeps each vehicle&rsquo;s administrator statements as dated positions you paste or type, with history and inline editing. Sharing with LPs freezes a snapshot of the figures.
@@ -954,6 +1124,9 @@ export default function SupportPage() {
           </h3>
           <p className="text-muted-foreground">
             Your LPs sign in to their own portal, separate from the app: an overview of their positions, notices for capital calls and distributions (with a &ldquo;We&rsquo;ve wired&rdquo; form), letters, documents, onboarding, a way to contact you, and their settings. Each LP sees only their own entities.
+          </p>
+          <p className="text-muted-foreground mt-2">
+            The <strong>Activity</strong> tab lists each of the investor&rsquo;s own capital movements &mdash; capital calls, distributions, reinvested distributions and transfers &mdash; newest first, filterable by kind and vehicle, with a CSV download; a call or distribution made in the app links to its notice. The overview can show <strong>IRR</strong> when the fund turns it on (Settings &rarr; LP Reporting &rarr; LP portal); it stays blank until a partner has held for three months. An LP can also <strong>ask for a change</strong> to their record, or for read-only access for an advisor, which waits for the fund&rsquo;s approval on the LP pages. <strong>Preview portal</strong> shows all of it as an investor sees it.
           </p>
         </div>
 
@@ -1021,7 +1194,27 @@ export default function SupportPage() {
             The top section shows <strong>AI token usage</strong> by provider (Anthropic, OpenAI and/or OpenRouter), with month-to-date input tokens, output tokens and estimated cost. A daily table breaks usage down by provider and model, and a monthly summary shows totals by month.
           </p>
           <p className="text-muted-foreground">
-            The bottom section shows <strong>team activity</strong>: logins, companies, imports and other actions per team member, and a recent activity feed. Activity logging can be turned off in Settings &rarr; Usage tracking.
+            The bottom section shows <strong>team activity</strong> for the month: sign-ins, books changes, companies, imports and other actions per team member, and a recent activity feed with a <strong>Source</strong> filter for the web app, MCP (Claude and ChatGPT) or the API. Ledger, close and LP changes from the audit trail appear in the feed, and a connection from an assistant or script counts as a sign-in once a day. Reads are not logged. Activity logging can be turned off in Settings &rarr; Usage tracking.
+          </p>
+        </div>
+
+        <div id="records">
+          <h2 className="text-base font-medium mb-2 flex items-center gap-2">
+            <Archive className="h-4 w-4 text-muted-foreground" />
+            Records
+          </h2>
+          <p className="text-muted-foreground mb-2">
+            <strong>Records</strong> keeps what a working session concluded &mdash; a summary, a decision, a memo, a transcript or a note
+            &mdash; so the fund keeps it after the conversation ends. It is meant for outside providers such as an auditor,
+            administrator or tax preparer who work with their own assistant: a connected assistant sees tool calls but not your
+            conversation, so the conclusion is filed on purpose, from the Records page or from the assistant with
+            <code className="font-mono text-xs"> file_to_record</code>. Each record belongs to an area and usually an entity, and keeps
+            who filed it and how. Records can&rsquo;t be edited or deleted; a correction is a new record.
+          </p>
+          <p className="text-muted-foreground">
+            Records is its own row in the access grid and starts at none for members: an admin grants it per person (read to see
+            records, write to file them). Even then, a record shows only to someone who can read its area and see its entity. Admins
+            always have it. It sits below Usage in the sidebar.
           </p>
         </div>
 
@@ -1070,7 +1263,9 @@ export default function SupportPage() {
             Use the header controls to manage conversations: the <strong>clock icon</strong> opens your
             conversation history, the <strong>plus icon</strong> starts a new conversation, and you can
             delete old conversations from the history list. Pick a model from any configured provider (or
-            Auto) and, where the model supports it, an effort level.
+            Auto) and, where the model supports it, an effort level. The pencil under a question edits it in place (Enter sends
+            it and replaces the answer below and everything after; Esc cancels), and the retry button asks it again from that
+            point.
           </p>
           <p className="text-muted-foreground mb-2">
             The Analyst can also save its responses directly as company summaries using the &ldquo;Save
@@ -1130,7 +1325,9 @@ export default function SupportPage() {
               Once connected, ask <strong>&ldquo;What can you do?&rdquo;</strong>. That opens your <strong>home
               dashboard</strong>: tiles for the dashboards your access allows (the portfolio, statements per
               entity, LP capital), the dashboards you and your colleagues saved, and questions for each area
-              you can see &mdash; click one and it is asked for you.
+              you can see &mdash; click one and it is asked for you. For a how-to question (&ldquo;how do I build a view?&rdquo;,
+              &ldquo;how do approvals work?&rdquo;, &ldquo;can I export this as a PDF?&rdquo;) the assistant answers from the
+              connector&rsquo;s own help, limited to what your access covers, and lists your saved views and dashboards.
             </p>
             <p className="text-muted-foreground mb-2">
               <strong>Prompts</strong> are ready-made requests in your assistant&rsquo;s prompt menu (in Claude, the
@@ -1158,6 +1355,10 @@ export default function SupportPage() {
               <li><strong>Portfolio</strong> &mdash; pick an entity, switch between current holdings and all companies, and chart by fair value or by gross multiple.</li>
               <li><strong>Capital calls</strong> &mdash; &ldquo;who still owes us on the latest call?&rdquo; shows each LP as paid, partly paid, says wired (their word from the portal, not yet received), unpaid or overdue, with the fund&rsquo;s other calls to switch between.</li>
               <li><strong>LP documents</strong> &mdash; ask for an LP&rsquo;s capital account statement or an investor&rsquo;s report card as a PDF; the link works for an hour, only for you, and checks your access again when opened.</li>
+              <li><strong>Views</strong> &mdash; ask for a view (&ldquo;NAV, unfunded and the largest positions by vehicle&rdquo;) or a starter view, see it previewed in the chat, save it to Views, and export it as PDF or Excel.</li>
+              <li><strong>Report cards</strong> &mdash; one investor&rsquo;s card, optionally as of a past date, or a ZIP of cards for several investors or all you can see.</li>
+              <li><strong>The books</strong> &mdash; post and unpost entries, correct a draft&rsquo;s lines, date, memo or partners with <em>edit draft entry</em>, then post it again; reading the statements as of any date.</li>
+              <li><strong>Records</strong> &mdash; file what a session concluded, and list or read records, with the Records access right.</li>
               <li><strong>Carried interest</strong> &mdash; the fund&rsquo;s carry is shown to anyone who can see LP capital; what each carry recipient personally earns needs GP economics access.</li>
             </ul>
           </div>
@@ -1244,7 +1445,7 @@ export default function SupportPage() {
             Navigation &amp; theme
           </h2>
           <p className="text-muted-foreground mb-2">
-            The sidebar follows the products: Start, Inbound, Deals, Diligence (Inbox, Analytics), Portfolio (Import, Investments, Asks, Interactions, Updates, Letters, Notes, Compliance), LPs (Capital accounts, Documents, Preview portal, Activity), Entities, Usage, Settings and Support &mdash; only the sections you can see. A lock marks admin-only items, and admins see an Updates link when a new version is out.
+            The sidebar follows the products: Review and Approvals (while something is waiting), Start, Getting started (admins, until setup is finished), Inbound, Deals, Diligence (Inbox, Analytics), Portfolio (Import, Investments, Asks, Interactions, Updates, Letters, Notes, Compliance), Views, LPs (Capital accounts, Documents, Preview portal, Activity), Financials, Usage, Records, Settings and Support &mdash; only the sections you can see. A lock marks admin-only items, and admins see an Updates link when a new version is out.
           </p>
           <p className="text-muted-foreground mb-2">
             At the bottom, the theme toggle cycles between System, Light and Dark; System follows your operating system&apos;s preference. The <strong>Hide sidebar</strong> button collapses it to an icon strip for more room.

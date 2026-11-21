@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Support page and feature docs catch up
+- **Support** (`/support`) now covers what shipped since it was last brought up to date: custom views and starter views, Records and its access right, the Approvals page and runs, the setup checklist's skips, 10-minute sign-in codes, fund holdings on the Portfolio grid, cost transfers and exits paid in shares, Financials (the entity index, status warnings with Review and book, folding statements, receipts and partnership invoices, credit facilities, statement review), the rewritten letters workflow, diligence rounds, memo voice and design template and Specter, report cards (as of, groupings, alternate names, bulk PDFs), statement bases, administrator-reported vehicles, the portal's Activity tab and IRR, LP change requests, presets, engagements, entity caps and linked sign-ins, Usage by source, the connector's help, and background jobs. The table of contents and the sidebar map follow the current navigation.
+- **FEATURES.md** gains Views, Records and Usage sections and catches up Portfolio, Investments, Letters, LPs, Accounting, Diligence, the assistants and Settings. **README** lists custom views; **DOCS.md** says sign-in codes expire in 10 minutes and how to match the Supabase setting.
+
 ### One daily background job, and only for features in use
 - **Fits Vercel's free plan.** `vercel.json` now schedules one job, `/api/cron/tick`, once a day. Before, it scheduled nine, seven of them every few minutes or hourly, which Hobby refuses to deploy.
 - **Nothing runs for a feature that is off.** The tick reads whether each optional feature is in use and has work (pending OCR, queued deal research, memo jobs, a running backfill, Affinity-linked deals, reminders turned on, an expired member, Mondays for the digest) and starts only those workers.
