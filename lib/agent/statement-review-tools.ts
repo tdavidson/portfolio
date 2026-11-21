@@ -1,0 +1,72 @@
+// Handlers for the STATEMENT REVIEW tools (statement-review-tools-manifest.ts).
+
+import type { AgentToolContext, AgentToolHandler } from '@/lib/accounting/agent-tools'
+import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
+import { unwrap } from '@/lib/service-outcome'
+import { getReview, listReviews, runReview, type StoredReview } from '@/lib/statement-review/store'
+import { CHECK_LABELS } from '@/lib/statement-review/types'
+
+async function vehicleOf(ctx: AgentToolContext): Promise<{ id: string; name: string }> {
+  const id = await vehicleIdByName(ctx.admin, ctx.fundId, ctx.portfolioGroup)
+  if (!id) throw new Error(`No vehicle named "${ctx.portfolioGroup}".`)
+  return { id, name: ctx.portfolioGroup }
+}
+
+/** A review as the assistant reads it: the package's figures left out (the caller has them). */
+function present(r: StoredReview, severity?: string) {
+  const findings = severity ? r.findings.filter(f => f.severity === severity) : r.findings
+  return {
+    vehicle: r.vehicle,
+    reviewId: r.id,
+    period: { start: r.periodStart, end: r.periodEnd },
+    input: r.input,
+    current: r.current,
+    runAt: r.runAt,
+    counts: r.counts,
+    materiality: { ...r.materiality, threshold: r.threshold, nav: r.nav },
+    checks: r.checks.map(c => ({ check: CHECK_LABELS[c.check] ?? c.check, ran: c.ran, compared: c.compared, ...(c.note ? { note: c.note } : {}) })),
+    findings: findings.map(f => ({
+      check: CHECK_LABELS[f.check] ?? f.check,
+      severity: f.severity,
+      subject: f.subject.label,
+      ...(f.stated != null ? { stated: f.stated } : {}),
+      ...(f.expected != null ? { expected: f.expected } : {}),
+      ...(f.difference != null ? { difference: f.difference } : {}),
+      message: f.message,
+      cites: f.cites,
+      status: f.status,
+    })),
+  }
+}
+
+export const STATEMENT_REVIEW_HANDLERS: Record<string, AgentToolHandler> = {
+  statement_review_run: async (ctx: AgentToolContext, input: Record<string, unknown>) => {
+    const vehicle = await vehicleOf(ctx)
+    const review = unwrap(await runReview(ctx.admin, { fundId: ctx.fundId, userId: ctx.userId }, vehicle, {
+      input: input?.input as any,
+      periodEnd: input?.period_end,
+      periodStart: input?.period_start,
+      pullId: input?.pull_id,
+      csv: input?.csv,
+      fileName: input?.file_name,
+      fund: input?.fund,
+      package: input?.package,
+      materiality: input?.materiality,
+    }))
+    return {
+      ...present(review),
+      next: review.counts.error || review.counts.warning
+        ? 'Show the person the errors and warnings with their citations. Each is a question for the administrator or something to explain.'
+        : 'Nothing above materiality. Say which checks ran and which could not, so the person knows what was covered.',
+    }
+  },
+
+  statement_review_findings: async (ctx: AgentToolContext, input: { period_end?: string; review_id?: string; severity?: string }) => {
+    const vehicle = await vehicleOf(ctx)
+    if (!input?.period_end && !input?.review_id) {
+      return { vehicle: vehicle.name, reviews: await listReviews(ctx.admin, ctx.fundId, vehicle.id) }
+    }
+    const review = unwrap(await getReview(ctx.admin, ctx.fundId, vehicle, { id: input.review_id, periodEnd: input.period_end }))
+    return present(review, input.severity)
+  },
+}

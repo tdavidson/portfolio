@@ -110,6 +110,8 @@ import { CREDIT_FACILITY_TOOL_MANIFEST } from '@/lib/agent/credit-facility-tools
 import { CREDIT_FACILITY_HANDLERS } from '@/lib/agent/credit-facility-tools'
 import { ADMIN_REPORTING_TOOL_MANIFEST } from '@/lib/agent/admin-reporting-tools-manifest'
 import { ADMIN_REPORTING_HANDLERS } from '@/lib/agent/admin-reporting-tools'
+import { STATEMENT_REVIEW_TOOL_MANIFEST } from '@/lib/agent/statement-review-tools-manifest'
+import { STATEMENT_REVIEW_HANDLERS } from '@/lib/agent/statement-review-tools'
 import { RECORD_TOOL_MANIFEST } from '@/lib/agent/record-tools-manifest'
 import { RECORD_HANDLERS } from '@/lib/agent/record-tools'
 import { canFileRecords, isRecordArea, readableAreas, recordAccessProblem } from '@/lib/records/areas'
@@ -711,6 +713,7 @@ export const AGENT_TOOLS: AgentTool[] = [
   ...bindLedger(ILPA_TOOL_MANIFEST, ILPA_HANDLERS),
   ...bindLedger(CREDIT_FACILITY_TOOL_MANIFEST, CREDIT_FACILITY_HANDLERS),
   ...bindLedger(ADMIN_REPORTING_TOOL_MANIFEST, ADMIN_REPORTING_HANDLERS),
+  ...bindLedger(STATEMENT_REVIEW_TOOL_MANIFEST, STATEMENT_REVIEW_HANDLERS),
   ...bind(PORTFOLIO_TOOL_MANIFEST, PORTFOLIO_HANDLERS),
   ...bind(HOLDING_TOOL_MANIFEST, HOLDING_HANDLERS),
   ...bind(DILIGENCE_TOOL_MANIFEST, DILIGENCE_HANDLERS),

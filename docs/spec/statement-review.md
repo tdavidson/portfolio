@@ -1,6 +1,15 @@
 # Statement review
 
-Status: proposed. Nothing here is built yet beyond the pieces listed under "What exists".
+Status: stage 1 built (checks on structured input). Stages 2 to 6 are proposed.
+
+Stage 1 lives in `lib/statement-review` (package model, the foot, partners-sum, roll-forward,
+continuity and completeness checks), `statement_reviews` (one row per run), the
+`/api/accounting/statement-review` route, the Statement review page on each fund, and the
+`statement_review_run` and `statement_review_findings` tools. A package comes from a saved
+administrator pull, a partner capital schedule as CSV, or a package given whole (how the assistant
+passes figures it read from a PDF before extraction exists). Until sign-off arrives in stage 5,
+continuity compares with the latest earlier review rather than the last signed-off one, and the
+materiality setting is carried forward from the vehicle's last run.
 
 ## Why
 
