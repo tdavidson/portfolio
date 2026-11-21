@@ -6,6 +6,7 @@ import { issuerFor } from '@/lib/oauth/metadata'
 import { AGENT_TOOLS, getTool, accessDomainFor, accessFeatureFor, authorizeToolCall, toolListedFor } from '@/lib/accounting/agent-tools'
 import { AgentCallError, idempotencyKeyOf, runAgentTool } from '@/lib/agent/dispatch'
 import { withChangeSource } from '@/lib/audit/source'
+import { logConnection } from '@/lib/activity'
 import { isGatewayTool } from '@/lib/mcp-apps/gateway-names'
 import { hasAccess } from '@/lib/access/effective'
 import { isToolOffered } from '@/lib/agent/destructive'
@@ -48,6 +49,8 @@ export async function GET(req: NextRequest) {
   // Filtered to what this credential's owner may actually reach — the same rule tools/call
   // enforces, so the list never advertises a tool that would be refused.
   const access = await loadCredentialAccess(admin, auth)
+  // The day's first call with this key shows on the Usage page, as a web login does.
+  await logConnection(admin, auth.fundId, auth.userId, 'api', auth.keyId)
   return NextResponse.json({
     tools: AGENT_TOOLS
       // Destructive tools only where the deployment turned them on (lib/agent/destructive.ts).
@@ -91,6 +94,8 @@ async function handlePost(req: NextRequest) {
   // `accessDomainForCall` rather than the tool's own domain — an `allocation` call is ordinary
   // accounting until its action is 'carry'.
   const access = await loadCredentialAccess(admin, auth)
+  // The day's first call with this key shows on the Usage page, as a web login does.
+  await logConnection(admin, auth.fundId, auth.userId, 'api', auth.keyId)
   const denied = authorizeToolCall(tool, auth, access, body?.input ?? {})
   if (denied) return NextResponse.json({ error: denied }, { status: 403 })
 

@@ -4,6 +4,7 @@ import { canReadFor } from '@/lib/mcp-apps/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveAgentAuth, loadCredentialAccess, type ResolvedKey } from '@/lib/accounting/api-keys'
 import { withChangeSource } from '@/lib/audit/source'
+import { logConnection } from '@/lib/activity'
 import type { AccessContext } from '@/lib/access/effective'
 import { getMcpTool, listResources, negotiateProtocolVersion, readResource } from '@/lib/mcp-apps/server'
 import { listSkillResources, readSkillResource } from '@/lib/lp-letters/skill-resources'
@@ -239,6 +240,8 @@ async function handlePost(req: NextRequest) {
   // The owner's grants, re-read live — a credential can never exceed the person who authorized it,
   // and revoking their grant narrows every key and token they hold on the next call.
   const access = await loadCredentialAccess(admin, auth)
+  // The day's first call through this connection shows on the Usage page, as a web login does.
+  await logConnection(admin, auth.fundId, auth.userId, 'mcp', auth.keyId)
   const ctx: BaseCtx = { admin, fundId: auth.fundId, userId: auth.userId, access, origin: issuerFor(req) }
   if (!body) return NextResponse.json(err(null, -32700, 'Parse error'), { status: 400 })
 
