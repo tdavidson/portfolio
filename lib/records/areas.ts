@@ -58,8 +58,8 @@ export function recordAccessProblem(
   args: { area?: unknown; filing: boolean },
 ): string | null {
   if (args.filing && access.role === 'viewer') return 'The read-only demo cannot file records.'
-  if (!hasAccess(access, 'records', 'read')) return 'You do not have access to Records.'
-  if (args.filing && !hasAccess(access, 'records', 'write')) return 'You can read records but not file them.'
+  if (!hasAccess(access, 'records', 'read')) return 'You do not have access to Audit.'
+  if (args.filing && !hasAccess(access, 'records', 'write')) return 'You can read the Audit log but not file notes into it.'
   if (args.area === undefined || args.area === null || args.area === '') {
     if (args.filing) return `Name the area to file in: one of ${RECORD_AREAS.join(', ')}.`
     return readableAreas(access).length > 0 ? null : 'You have no area of the fund to keep records in.'

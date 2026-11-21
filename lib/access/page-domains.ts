@@ -134,6 +134,7 @@ export const UNGATED_PAGES: Record<string, string> = {
   'funds/[id]/construction': 'Pure redirect to the Forecast page’s Portfolio tab. Renders nothing; the Forecast page gates.',
   'funds/[id]/text': 'Pure redirect to the journal page’s plain-text tab. Renders nothing; the journal page gates.',
   'manco/[[...rest]]': 'Pure redirect into /funds — management companies are entities in that section now. Renders nothing.',
+  'records': 'Pure redirect to /audit — Records became Audit. Renders nothing; /api/audit gates.',
   'lps/live': 'Pure redirect to /lps — the live report became the LPs landing page.',
   'support': 'Static product documentation. No fund data, no queries, same for every reader.',
 }

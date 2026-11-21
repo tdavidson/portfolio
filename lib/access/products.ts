@@ -21,10 +21,11 @@ export const PRODUCT_META: Record<ProductKey, ProductMeta> = {
     description: 'Inbound updates, metrics, the review queue, dashboards, asks, and fund notes.',
     order: 1,
     shipsOn: true,
-    // `records` spans every product (a record is filed in any area), and it has no fund switch of
-    // its own, so it sits with the product that always ships on.
+    // `records` (shown as Audit) spans every product: an outside firm can work in any area. Its
+    // switch, `audit`, sits with the product that always ships on, so turning it on never depends
+    // on another product.
     domains: ['portfolio', 'relationships', 'records'],
-    features: ['investments', 'imports', 'asks', 'inbound', 'interactions', 'notes'],
+    features: ['investments', 'imports', 'asks', 'inbound', 'interactions', 'notes', 'audit'],
   },
   investment_workflow: {
     label: 'Investment Workflow',

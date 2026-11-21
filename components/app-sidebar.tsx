@@ -155,9 +155,9 @@ const NAV_ITEMS: NavItem[] = [
     children: ACCOUNTING_SECTIONS.map(({ href, label, domain, requiresFof, feature }) => ({ href, label, domain, requiresFof, featureKey: feature })),
   },
   { href: '/usage', label: 'Usage', icon: Users, adminOnly: true, domain: 'admin' },
-  // What people and their assistants filed from a session (lib/records). Its own access right;
-  // /api/records still shows each record only to someone who reads its area and entity.
-  { href: '/records', label: 'Records', icon: Archive, domain: 'records' },
+  // The automatic log of outside firms (lib/audit-log). Shown when the fund has Audit on and the
+  // person holds the `records` grant; /api/audit narrows someone on an engagement to their firm.
+  { href: '/audit', label: 'Audit', icon: Archive, domain: 'records', featureKey: 'audit' },
   { href: '/settings', label: 'Settings', icon: Settings, badgeKey: 'settings' },
   { href: '/support', label: 'Support', icon: LifeBuoy },
 ]
