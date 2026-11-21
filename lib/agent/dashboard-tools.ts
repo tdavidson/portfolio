@@ -44,6 +44,8 @@ import { CHART_KINDS, CHART_MAX_POINTS, CHART_UNITS } from '@/lib/mcp-apps/paylo
 import { parseViewSpec, ViewSpecError } from '@/lib/custom-views/spec'
 import { resolveView } from '@/lib/custom-views/resolve'
 import { deleteView, getView, listViews, saveView, viewPath } from '@/lib/custom-views/store'
+import { startersFor } from '@/lib/custom-views/starters'
+import { buildHelp } from './help'
 import { linkNote, reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
 import { siteOrigin } from '@/lib/site-links'
 
@@ -511,14 +513,17 @@ async function canonical(ctx: AgentToolContext, params: Record<string, string>):
  * is filtered by their own access — a dashboard tile only for a view `viewDenial` allows, a
  * statements tile only for an entity they can see, questions only for areas they can read.
  */
-async function homeView(ctx: AgentToolContext): Promise<HomePayload> {
+/** What the home page and `help` both list: the member's dashboards, saved lists and starters. */
+async function homeContents(ctx: AgentToolContext) {
   const canRead: CanRead = (domain, feature) => hasAccess(ctx.access, domain, 'read', feature)
-  const [branding, all, visible, scope, vehicles] = await Promise.all([
+  const [branding, all, visible, scope, vehicles, views] = await Promise.all([
     loadBranding(ctx.admin, ctx.fundId),
     ctx.userId ? listDashboards(ctx.admin, ctx.fundId, ctx.userId) : Promise.resolve([] as SavedDashboardSummary[]),
     dashboardVisibility(ctx),
     entityScopeFor(ctx.admin, ctx.access),
     listVehicles(ctx.admin, ctx.fundId).catch(() => [] as string[]),
+    // A help page that fails because the views list did is worse than one without it.
+    ctx.userId ? listViews(ctx.admin, ctx.fundId, ctx.userId).catch(() => []) : Promise.resolve([]),
   ])
   const mine = scope.vehicleNames === null ? vehicles : vehicles.filter(v => scope.vehicleNames!.includes(v))
 
@@ -540,12 +545,19 @@ async function homeView(ctx: AgentToolContext): Promise<HomePayload> {
   }
 
   const saved = all.filter(d => d.kind !== 'standard' && visible.listed(d)).slice(0, 8)
+  return { canRead, branding, dashboards, saved, views: views.map(v => v.name), starters: startersFor(canRead) }
+}
+
+async function homeView(ctx: AgentToolContext): Promise<HomePayload> {
+  const { canRead, branding, dashboards, saved, views, starters } = await homeContents(ctx)
   const areas = areasFor(canRead).map(a => ({ key: a.key, label: a.label, blurb: a.blurb, questions: a.questions }))
   const help = helpText({
     fundName: branding.fundName,
     canRead,
     dashboards: dashboards.map(d => d.label),
     saved: saved.map(d => d.name),
+    views,
+    starters: starters.map(s => s.name),
   })
   return {
     view: 'home',
@@ -556,6 +568,20 @@ async function homeView(ctx: AgentToolContext): Promise<HomePayload> {
     branding,
     data: { dashboards, saved, areas, tips: DASHBOARD_TIPS, help },
   }
+}
+
+/** Help as text, by topic: what this member can do here, limited to their own access (lib/agent/help.ts). */
+async function helpAnswer(ctx: AgentToolContext, input: any) {
+  const { canRead, branding, dashboards, saved, views, starters } = await homeContents(ctx)
+  return buildHelp({
+    topic: input?.topic,
+    fundName: branding.fundName,
+    canRead,
+    dashboards: dashboards.map(d => d.label),
+    savedDashboards: saved.map(d => d.name),
+    savedViews: views,
+    starters,
+  })
 }
 
 const clip = (v: unknown, max: number) => String(v ?? '').trim().slice(0, max)
@@ -595,6 +621,7 @@ async function chartView(ctx: AgentToolContext, input: any): Promise<ChartPayloa
 
 export const DASHBOARD_HANDLERS: Record<string, AgentToolHandler> = {
   show_home: homeView,
+  help: helpAnswer,
   show_chart: chartView,
   show_portfolio_dashboard: portfolioView,
   show_company_dashboard: companyView,

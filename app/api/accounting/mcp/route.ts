@@ -68,6 +68,9 @@ const SERVER_INSTRUCTIONS =
   '"get started", "home" or "menu", or seems unsure what to ask, call show_home and present its ' +
   'overview. Do not describe these tools from memory: show_home lists only what this member may ' +
   'open, filtered to their own entities and access. ' +
+  'For a how-to question ("how do I save a view?", "what charts can you make?", "what views are there?", "why ' +
+  'did my change not apply?"), or when the host cannot draw show_home, call help with the closest topic and answer ' +
+  'from what it returns. For "show me the starter views" or "the common views", call help with topic starters. ' +
   'Changes you make for the user may come back staged ({ staged: true, pendingActionId, approveUrl }) instead of applied: ' +
   'nothing has changed yet. Follow the result\'s `next`, which says who may approve it and where. ' +
   'When a fix needs more than one change, stage them together with stage_run (a title, a rationale, the ordered steps ' +

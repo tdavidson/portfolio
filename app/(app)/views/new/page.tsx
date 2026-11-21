@@ -19,21 +19,27 @@ const EXAMPLES = [
   'Investments by quarter as a line, and the latest transactions as a table.',
 ]
 
+interface StarterSummary { key: string; name: string; description: string }
+
 /**
  * Build a custom view with the fund's own model: describe it, see it live, change it in words,
  * save it. A client page (nothing in page-domains.ts): /api/views/draft writes and validates the
  * spec and loads the preview as the caller; /api/views saves it. `?from=<id>` starts from a saved
- * view, to change it.
+ * view, to change it; `?starter=<key>` from a starter view (/api/views/starters), which needs no
+ * model to open or save.
  */
 function NewViewBuilder() {
   const router = useRouter()
-  const from = useSearchParams().get('from')
+  const search = useSearchParams()
+  const from = search.get('from')
+  const starterKey = search.get('starter')
   const [instruction, setInstruction] = useState('')
   const [spec, setSpec] = useState<unknown>(null)
   const [payload, setPayload] = useState<CustomViewPayload | null>(null)
   const [name, setName] = useState('')
   const [shared, setShared] = useState(false)
-  const [busy, setBusy] = useState<'build' | 'save' | 'load' | null>(from ? 'load' : null)
+  const [busy, setBusy] = useState<'build' | 'save' | 'load' | null>(from || starterKey ? 'load' : null)
+  const [starters, setStarters] = useState<StarterSummary[]>([])
   const [error, setError] = useState<string | null>(null)
   const [history, setHistory] = useState<string[]>([])
   const box = useRef<HTMLTextAreaElement>(null)
@@ -56,6 +62,53 @@ function NewViewBuilder() {
       .finally(() => live && setBusy(null))
     return () => { live = false }
   }, [from])
+
+  // The starter views this member's access allows.
+  useEffect(() => {
+    let live = true
+    fetch('/api/views/starters')
+      .then(r => (r.ok ? r.json() : { starters: [] }))
+      .then(body => live && setStarters(body.starters ?? []))
+      .catch(() => {})
+    return () => { live = false }
+  }, [])
+
+  const showStarter = (body: { spec: unknown; payload: CustomViewPayload; starter: { name: string } }) => {
+    setSpec(body.spec)
+    setPayload(body.payload)
+    setName(body.starter.name)
+    setHistory([])
+  }
+
+  const fetchStarter = (key: string) =>
+    fetch(`/api/views/starters?key=${encodeURIComponent(key)}`).then(async r => {
+      const body = await r.json().catch(() => ({}))
+      if (!r.ok) throw new Error(body.error ?? 'Could not open that starter view.')
+      return body
+    })
+
+  const openStarter = async (key: string) => {
+    setBusy('load')
+    setError(null)
+    try {
+      showStarter(await fetchStarter(key))
+    } catch (e) {
+      setError((e as Error).message)
+    } finally {
+      setBusy(null)
+    }
+  }
+
+  // Starting from a starter named in the address (?starter=<key>).
+  useEffect(() => {
+    if (!starterKey || from) return
+    let live = true
+    fetchStarter(starterKey)
+      .then(body => { if (live) showStarter(body) })
+      .catch(e => live && setError((e as Error).message))
+      .finally(() => live && setBusy(null))
+    return () => { live = false }
+  }, [starterKey, from])
 
   const build = async () => {
     const text = instruction.trim()
@@ -102,7 +155,7 @@ function NewViewBuilder() {
 
   const startOver = () => {
     setSpec(null); setPayload(null); setName(''); setHistory([]); setError(null); setInstruction('')
-    if (from) router.replace('/views/new')
+    if (from || starterKey) router.replace('/views/new')
   }
 
   return (
@@ -139,9 +192,27 @@ function NewViewBuilder() {
             <Button variant="ghost" onClick={startOver} disabled={busy !== null}><RotateCcw /> Start over</Button>
           )}
         </div>
+        {!spec && busy === null && starters.length > 0 && (
+          <div className="space-y-1.5 pt-1">
+            <p className="text-caption text-muted-foreground">Open a starter view, ready to use or change:</p>
+            <div className="grid gap-1.5 sm:grid-cols-2">
+              {starters.map(st => (
+                <button
+                  key={st.key}
+                  type="button"
+                  onClick={() => openStarter(st.key)}
+                  className="rounded-md border bg-card px-3 py-2 text-left transition-colors hover:bg-accent"
+                >
+                  <span className="block text-sm font-medium">{st.name}</span>
+                  <span className="block text-caption text-muted-foreground">{st.description}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
         {!spec && busy === null && (
           <div className="space-y-1.5 pt-1">
-            <p className="text-caption text-muted-foreground">Or start from one of these:</p>
+            <p className="text-caption text-muted-foreground">Or describe one, starting from these:</p>
             <div className="flex flex-col gap-1.5">
               {EXAMPLES.map(ex => (
                 <button

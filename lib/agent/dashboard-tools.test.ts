@@ -191,7 +191,7 @@ describe('the dashboard tool registry', () => {
   it('marks only the saved-dashboard and custom-view tools as personal, and only save and delete as writes', () => {
     expect(DASHBOARD_TOOLS.filter(t => t.personal).map(t => t.name).sort())
       .toEqual([
-        'delete_custom_view', 'delete_dashboard', 'export_custom_view', 'get_custom_view_spec', 'list_custom_views', 'list_dashboards',
+        'delete_custom_view', 'delete_dashboard', 'export_custom_view', 'get_custom_view_spec', 'help', 'list_custom_views', 'list_dashboards',
         'open_custom_view', 'open_dashboard', 'preview_custom_view', 'save_custom_view', 'save_dashboard', 'show_chart', 'show_home',
       ])
     expect(DASHBOARD_TOOLS.filter(t => t.scope === 'write').map(t => t.name).sort())
@@ -254,6 +254,27 @@ describe('the home dashboard', () => {
     ]
     const payload = await DASHBOARD_HANDLERS.show_home(ctx(access('member', { portfolio: 'read', lp_capital: 'read' }), rows).ctx, {})
     expect(payload.data.saved.map((d: any) => d.name).sort()).toEqual(['My LP review', 'Team portfolio'])
+  })
+})
+
+describe('help', () => {
+  it('answers in text, from the member\'s own access, with the starters it allows', async () => {
+    const h = await DASHBOARD_HANDLERS.help(ctx(access('member', { portfolio: 'read' })).ctx, {})
+    expect(h.topic).toBe('overview')
+    expect(h.text).toContain('Portfolio overview')
+    expect(h.text).not.toContain('Statements')
+    expect(h.starters.map((s: any) => s.key)).toContain('portfolio-overview')
+    expect(h.starters.map((s: any) => s.key)).not.toContain('lp-capital')
+  })
+
+  it('hands back starter specs on the starters topic', async () => {
+    const h = await DASHBOARD_HANDLERS.help(ctx(access('member', { portfolio: 'read', lp_capital: 'read' })).ctx, { topic: 'starters' })
+    expect(h.starters.find((s: any) => s.key === 'lp-capital').spec.blocks.length).toBeGreaterThan(0)
+  })
+
+  it('names the starter views on the home page too', async () => {
+    const payload = await DASHBOARD_HANDLERS.show_home(ctx(access('member', { portfolio: 'read' })).ctx, {})
+    expect(payload.data.help).toContain('Starter views')
   })
 })
 
