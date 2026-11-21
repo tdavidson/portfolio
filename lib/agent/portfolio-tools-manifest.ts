@@ -46,7 +46,7 @@ export const PORTFOLIO_TOOL_MANIFEST: AgentToolMeta[] = [
   },
   {
     name: 'company_detail',
-    description: 'One company in full: overview, founders, why we invested, stage, industry, status, and its investment summary (cost, fair value, MOIC, ownership, rounds).',
+    description: 'One company in full: overview, founders, why we invested, stage, industry, status, which optional page sections it shows (page_sections: metrics, AI analyst, price feed; update_company changes them), and its investment summary (cost, fair value, MOIC, ownership, rounds).',
     scope: 'read',
     domain: 'portfolio',
     inputSchema: {
@@ -73,7 +73,7 @@ export const PORTFOLIO_TOOL_MANIFEST: AgentToolMeta[] = [
   },
   {
     name: 'portfolio_summary',
-    description: 'Every position (companies and fund holdings, as the Portfolio page shows them) with cost, fair value, unrealized gain, MOIC and % of the portfolio, plus fund totals. Each position has `kind` company or fund; a fund holding also has commitment, called, unfunded and its NAV date. This is the schedule of investments as the tracker sees it.',
+    description: 'Every position (companies, fund holdings and digital assets, as the Portfolio page shows them) with cost, fair value, unrealized gain, MOIC and % of the portfolio, plus fund totals. Each position has `kind` company, fund or crypto; a fund holding also has commitment, called, unfunded and its NAV date, and a digital asset its units and price. This is the schedule of investments as the tracker sees it. For when each was last marked, use mark_status.',
     scope: 'read',
     domain: 'portfolio',
     inputSchema: {

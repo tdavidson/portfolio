@@ -104,6 +104,12 @@ export async function PATCH(req: NextRequest, props: { params: Promise<{ id: str
     }
     updates.status = status as CompanyStatus
   }
+  // The page settings set in the edit dialog (the same ones update_company sets).
+  for (const key of ['metrics_enabled', 'analyst_enabled', 'price_feed_enabled'] as const) {
+    if (body[key] === undefined) continue
+    if (typeof body[key] !== 'boolean') return NextResponse.json({ error: `${key} must be true or false` }, { status: 400 })
+    updates[key] = body[key]
+  }
 
   const { data, error } = await admin
     .from('companies')

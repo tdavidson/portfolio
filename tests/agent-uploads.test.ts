@@ -212,3 +212,43 @@ describe('LP portal documents', () => {
     await expect(UPLOAD_HANDLERS.lp_add_document(ctx(admin), { storage_path: 'f2/1_x.pdf', title: 'X', file_name: 'x.pdf' })).rejects.toThrow('Invalid storage path')
   })
 })
+
+describe('company document duplicates', () => {
+  const upload = async (admin: any, storage: any, name: string, body: string, extra: Record<string, unknown> = {}) => {
+    const url = await UPLOAD_HANDLERS.company_document_upload_url(ctx(admin), { company: 'Acme', fileName: name }) as any
+    storage.put('company-documents', url.storagePath, body)
+    return { path: url.storagePath, out: await UPLOAD_HANDLERS.add_company_document(ctx(admin), { company: 'Acme', storage_path: url.storagePath, filename: name, ...extra }) as any }
+  }
+  const csv = 'month,mrr,customers\n2026-08,110000,40\n2026-09,120000,42\n'
+
+  it('stores both hashes, and names the earlier file when the same bytes come again', async () => {
+    const { admin, tables, storage } = seed()
+    const first = await upload(admin, storage, 'kpis.csv', csv)
+    expect(first.out.duplicateOf).toBeUndefined()
+    expect(first.out.sha256).toMatch(/^[0-9a-f]{64}$/)
+    expect(first.out.textSha256).toMatch(/^[0-9a-f]{64}$/)
+    const second = await upload(admin, storage, 'kpis copy.csv', csv)
+    expect(second.out).toMatchObject({ added: true, duplicateOf: { filename: 'kpis.csv', matched_on: 'sha256', source: 'document' } })
+    expect(second.out.note).toMatch(/identical file, "kpis\.csv"/)
+    expect(tables.company_documents).toHaveLength(2)
+  })
+
+  it('matches on text when the bytes differ', async () => {
+    const { admin, storage } = seed()
+    await upload(admin, storage, 'kpis.csv', csv)
+    const again = await upload(admin, storage, 'kpis-v2.csv', csv.toUpperCase().replace(/\n/g, '\r\n'))
+    expect(again.out.duplicateOf).toMatchObject({ filename: 'kpis.csv', matched_on: 'text_sha256' })
+  })
+
+  it('with skip_if_duplicate adds nothing, removes the upload and returns the match', async () => {
+    const { admin, tables, storage } = seed()
+    await upload(admin, storage, 'kpis.csv', csv)
+    const skipped = await upload(admin, storage, 'again.csv', csv, { skip_if_duplicate: true })
+    expect(skipped.out).toMatchObject({ added: false, skipped: true, duplicateOf: { filename: 'kpis.csv' } })
+    expect(storage.has('company-documents', skipped.path)).toBe(false)
+    expect(tables.company_documents).toHaveLength(1)
+    // A file that is new is added as usual, even with the flag.
+    const fresh = await upload(admin, storage, 'other.csv', 'month,burn\n2026-09,50000\n2026-10,52000\n', { skip_if_duplicate: true })
+    expect(fresh.out).toMatchObject({ added: true })
+  })
+})

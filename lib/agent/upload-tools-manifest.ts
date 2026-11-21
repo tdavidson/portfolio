@@ -84,7 +84,10 @@ export const UPLOAD_TOOL_MANIFEST: AgentToolMeta[] = [
     description:
       'Register a document uploaded with company_document_upload_url on the company\'s Documents: scanned (an unsafe file ' +
       'is deleted), its text extracted for search and AI summaries, and listed on the company page. Over 10 MB, a file that ' +
-      'yields text is kept as its text only, as the company page does.',
+      'yields text is kept as its text only, as the company page does. Checked for duplicates first: when the same bytes ' +
+      '(sha256) or the same extracted text is already on the holding (a Documents file or an update\'s attachment), the ' +
+      'result and the approval show duplicateOf { id, filename, uploaded_at }. With skip_if_duplicate true, a duplicate ' +
+      'stages and adds nothing and returns the match instead. list_company_documents shows what is already on file.',
     scope: 'write',
     domain: 'portfolio',
     inputSchema: {
@@ -95,6 +98,10 @@ export const UPLOAD_TOOL_MANIFEST: AgentToolMeta[] = [
         filename: { type: 'string' },
         content_type: { type: 'string', description: 'e.g. application/pdf; default from the extension.' },
         size_bytes: { type: 'number', description: 'The file\'s size in bytes.' },
+        skip_if_duplicate: {
+          type: 'boolean',
+          description: 'true: when the same file (by bytes or text) is already on the holding, stage and add nothing and return the match. Default false (it is added, with duplicateOf).',
+        },
       },
       required: ['company', 'storage_path', 'filename'],
     },

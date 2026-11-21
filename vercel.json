@@ -47,6 +47,9 @@
     "app/api/cron/company-updates-backfill/route.ts": {
       "maxDuration": 300
     },
+    "app/api/cron/document-hashes/route.ts": {
+      "maxDuration": 300
+    },
     "app/api/company-updates/backfill/route.ts": {
       "maxDuration": 120
     },

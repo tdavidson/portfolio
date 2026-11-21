@@ -29,12 +29,14 @@ export const AREAS: Area[] = [
   {
     key: 'portfolio',
     label: 'Portfolio',
-    blurb: 'Companies, positions, marks and KPIs.',
+    blurb: 'Companies, positions, marks, KPIs and documents.',
     domain: 'portfolio',
     questions: [
       'Show me the portfolio.',
       'Which companies are marked below cost?',
+      'Which holdings still need a mark for last quarter?',
       'Open the dashboard for our largest position.',
+      'What documents do we have on file for a company?',
       'How has ARR changed across the portfolio over the last year?',
     ],
   },

@@ -24,7 +24,7 @@ const TOPIC_BLURB: Record<HelpTopic, string> = {
   exports: 'PDFs and Excel files',
   approvals: 'why a change can wait for approval, and how to approve it',
   funds: 'working in more than one fund',
-  portfolio: 'companies, positions, marks and KPIs',
+  portfolio: 'companies, positions, marks, KPIs and documents',
   books: 'statements, the ledger, the bank and fund performance',
   lps: 'commitments, calls, distributions and investor reporting',
   forecast: 'budgets, forecasts and variance',
@@ -83,6 +83,14 @@ export function helpTopic(raw: unknown): HelpTopic {
     [/portfolio|compan|kpi|position|mark/, 'portfolio'],
   ]
   return alias.find(([re]) => re.test(t))?.[1] ?? 'overview'
+}
+
+/** Per area, the tools worth naming to the assistant; the rest it finds with search_tools. */
+const AREA_TOOLS: Partial<Record<HelpTopic, string>> = {
+  portfolio: 'portfolio_summary and query_portfolio (whose positions carry each holding\'s last mark date, source and age) answer ' +
+    'what is held and its value; mark_status says which holdings have current marks and which are stale; fund_register reads a fund ' +
+    'holding\'s terms, notices and NAV statements with the mark each booked; list_company_documents and read_company_document find ' +
+    'and read a holding\'s files and update attachments. Other read tools: search_tools finds them by keyword.',
 }
 
 const list = (items: string[], none: string) => (items.length ? items.join(', ') : none)
@@ -232,7 +240,7 @@ export function buildHelp(input: HelpInput): HelpResult {
       lines.push(`${area.label}: ${area.blurb}`, '', 'Questions to try:', ...bullet(area.questions.map(q => `"${q}"`)))
       if (starters.length) lines.push('', `Starter views: ${starters.map(s => `${s.name} (${s.description})`).join('; ')}`)
       result.starters = starterList(starters)
-      forAssistant = 'Answer with the area\'s read tools; search_tools finds them by keyword.'
+      forAssistant = AREA_TOOLS[topic] ?? 'Answer with the area\'s read tools; search_tools finds them by keyword.'
     }
   }
 

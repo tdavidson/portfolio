@@ -2,10 +2,10 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveHoldingVehicle } from '@/lib/portfolio/fof-register'
+import { loadFundRegister } from '@/lib/portfolio/fund-register-read'
 // portfolio domain, investments feature (lib/access/route-domains.ts).
 import { assertReadAccess, assertWriteAccess } from '@/lib/api-helpers'
 import { loadAccessContext } from '@/lib/access/effective'
-import { canSeeVehicle, scopeCompanyRows, visibleVehicleIds } from '@/lib/access/scope'
 import { loadEntityScope } from '@/lib/access/entity-scope'
 import { FUND_REVIEW_TYPES, scopeFundReviews } from '@/lib/portfolio/fof-review-types'
 import { deleteFundHolding } from '@/lib/portfolio/fund-holding-delete'
@@ -21,51 +21,10 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
   const gate = await assertReadAccess(admin, user.id)
   if (gate instanceof NextResponse) return gate
 
-  const [holding, terms, events, navs] = await Promise.all([
-    admin.from('companies').select('id, name, holding_type')
-      .eq('id', params.id).eq('fund_id', gate.fundId).maybeSingle(),
-    (admin as any).from('fund_holding_terms').select('*')
-      .eq('company_id', params.id).eq('fund_id', gate.fundId),
-    (admin as any).from('fund_capital_events').select('*')
-      .eq('company_id', params.id).eq('fund_id', gate.fundId).order('event_date'),
-    (admin as any).from('fund_nav_statements').select('*')
-      .eq('company_id', params.id).eq('fund_id', gate.fundId).order('as_of_date', { ascending: false }),
-  ])
-
-  if (!holding.data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
-
-  // A holding two funds commit to is one company row; the gate admitted the caller on either.
-  // Everything per-entity — terms, notices, statements — is shown for THEIR entities only.
   const access = await loadAccessContext(admin, gate.fundId, gate.userId, gate.role)
-  const visible = visibleVehicleIds(access)
-  terms.data = scopeCompanyRows((terms.data as any[]) ?? [], visible, 'vehicle_id')
-  events.data = scopeCompanyRows((events.data as any[]) ?? [], visible, 'vehicle_id')
-  navs.data = scopeCompanyRows((navs.data as any[]) ?? [], visible, 'vehicle_id')
-
-  // THE ENTITIES THAT HOLD THIS FUND, of those the caller can see — from its register rows (nothing
-  // on `companies` carries the vehicle). The panel shows one entity at a time: two entities' positions
-  // in one fund are two positions (lib/portfolio/fof-holdings.ts).
-  const entityIds = Array.from(new Set([
-    ...((terms.data as any[]) ?? []), ...((events.data as any[]) ?? []), ...((navs.data as any[]) ?? []),
-  ].map(r => r.vehicle_id).filter(Boolean))) as string[]
-  const requested = req.nextUrl.searchParams.get('entity')
-  const lookup = Array.from(new Set([...entityIds, ...(requested ? [requested] : [])]))
-  const { data: vehicleRows } = lookup.length > 0
-    ? await admin.from('fund_vehicles' as any).select('id, name').eq('fund_id', gate.fundId).in('id', lookup)
-    : { data: [] as any[] }
-  const names = new Map(((vehicleRows as any[]) ?? []).map(v => [v.id as string, v.name as string]))
-  const entities = entityIds.filter(id => names.has(id))
-    .map(id => ({ id, name: names.get(id)! }))
-    .sort((a, b) => a.name.localeCompare(b.name))
-
-  // The one asked for when it is in this fund and the caller's (it may hold nothing here yet — the
-  // first notice or statement names it), else the holding's first entity, else none.
-  const selected = requested && names.has(requested) && canSeeVehicle(access, requested)
-    ? requested
-    : entities[0]?.id ?? null
-  // Legacy rows naming no entity belong with the holding's only entity, or stand alone when it has none.
-  const forEntity = (rows: any[]) => rows.filter(r =>
-    (r.vehicle_id ?? null) === selected || (r.vehicle_id == null && entities.length <= 1))
+  const reg = await loadFundRegister(admin, gate.fundId, params.id, access, req.nextUrl.searchParams.get('entity'))
+  if (!reg.holding) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  const selected = reg.vehicleId
 
   // What the manager's emails propose for this holding, waiting for review — the shown entity's,
   // and unassigned ones for a caller who may assign them (scopeFundReviews).
@@ -79,14 +38,14 @@ export async function GET(req: NextRequest, props: { params: Promise<{ id: strin
   if (reviewsError) console.error('[fund-holdings-id] reviews lookup failed:', reviewsError.message)
 
   return NextResponse.json({
-    holding: holding.data,
-    terms: forEntity((terms.data as any[]) ?? []).sort((a, b) => (a.vehicle_id ? 0 : 1) - (b.vehicle_id ? 0 : 1))[0] ?? null,
-    events: forEntity((events.data as any[]) ?? []),
-    navStatements: forEntity((navs.data as any[]) ?? []),
+    holding: reg.holding,
+    terms: reg.terms,
+    events: reg.events,
+    navStatements: reg.navStatements,
     /** The entity shown; null until the holding's first notice or statement names one. */
     vehicleId: selected,
     /** Every entity of this holding the caller can see, by name. */
-    vehicles: entities,
+    vehicles: reg.vehicles,
     /** Open manager-email proposals for this holding (api/review/[id]/resolve approves them). */
     reviews,
     ...(reviewsError ? { reviewsWarning: 'The manager-email proposals for this holding could not be loaded.' } : {}),

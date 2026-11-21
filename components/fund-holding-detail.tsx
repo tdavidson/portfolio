@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { ArrowDownLeft, ArrowUpRight, ChevronDown, FileText, Loader2, Plus, SlidersHorizontal } from 'lucide-react'
+import { ArrowDownLeft, ArrowRightLeft, ArrowUpRight, ChevronDown, FileText, Loader2, Plus, SlidersHorizontal } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { Label } from '@/components/ui/label'
@@ -53,7 +53,7 @@ function bookingText(json: any): string | null {
  * page shows the register itself rather than three always-open forms.
  */
 export function FundHoldingDetail({
-  companyId, vehicleId = null, onChanged, onAddTransaction,
+  companyId, vehicleId = null, onChanged, onAddTransaction, onTransferCost,
 }: {
   companyId: string
   /** The entity to open the register for. Omitted: the holding's first entity by name. */
@@ -61,6 +61,8 @@ export function FundHoldingDetail({
   onChanged?: () => void
   /** Opens the page's generic Add Transaction dialog — offered last in the Add menu, as the advanced path. */
   onAddTransaction?: () => void
+  /** Opens the page's cost transfer dialog — a rarely used move, so it sits in the Add menu too. */
+  onTransferCost?: () => void
 }) {
   const currency = useCurrency()
   const [loading, setLoading] = useState(true)
@@ -267,37 +269,44 @@ export function FundHoldingDetail({
       key: 'transaction', label: 'Other transaction', hint: 'The full transaction form (advanced)', icon: SlidersHorizontal,
       onSelect: () => { setMenuOpen(false); onAddTransaction() },
     }] : []),
+    ...(onTransferCost ? [{
+      key: 'transfer', label: 'Transfer cost', hint: 'Move cost basis to another holding', icon: ArrowRightLeft,
+      onSelect: () => { setMenuOpen(false); onTransferCost() },
+    }] : []),
   ]
+
+  // The one Add menu. It sits in the "Position over time" heading when there is a chart, and on a
+  // row of its own only before the register has anything to chart.
+  const addMenu = canWrite ? (
+    <Popover open={menuOpen} onOpenChange={setMenuOpen}>
+      <PopoverTrigger asChild>
+        <Button variant="outline" size="sm" className="gap-1.5 h-8 py-2 text-muted-foreground hover:text-foreground" aria-haspopup="menu">
+          <Plus className="h-3.5 w-3.5" />Add<ChevronDown className="h-3.5 w-3.5 opacity-60" />
+        </Button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-64 p-1">
+        {menuItems.map(({ key, label, hint, icon: Icon, onSelect }) => (
+          <button
+            key={key}
+            type="button"
+            className="flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
+            onClick={onSelect}
+          >
+            <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
+            <span>
+              <span className="block font-medium">{label}</span>
+              <span className="block text-xs text-muted-foreground">{hint}</span>
+            </span>
+          </button>
+        ))}
+      </PopoverContent>
+    </Popover>
+  ) : null
+  const hasChart = !loading && (events.length > 0 || navs.length > 0)
 
   return (
     <section className="space-y-3" aria-label={name ? `${name} register` : 'Fund register'}>
-      <div className="flex items-center justify-end gap-2">
-        {canWrite && (
-          <Popover open={menuOpen} onOpenChange={setMenuOpen}>
-            <PopoverTrigger asChild>
-              <Button variant="outline" size="sm" className="gap-1.5 h-8 py-2 text-muted-foreground hover:text-foreground" aria-haspopup="menu">
-                <Plus className="h-3.5 w-3.5" />Add<ChevronDown className="h-3.5 w-3.5 opacity-60" />
-              </Button>
-            </PopoverTrigger>
-            <PopoverContent align="end" className="w-64 p-1">
-              {menuItems.map(({ key, label, hint, icon: Icon, onSelect }) => (
-                <button
-                  key={key}
-                  type="button"
-                  className="flex w-full items-start gap-2 rounded-sm px-2 py-1.5 text-left text-sm hover:bg-accent hover:text-accent-foreground"
-                  onClick={onSelect}
-                >
-                  <Icon className="mt-0.5 h-4 w-4 shrink-0 text-muted-foreground" />
-                  <span>
-                    <span className="block font-medium">{label}</span>
-                    <span className="block text-xs text-muted-foreground">{hint}</span>
-                  </span>
-                </button>
-              ))}
-            </PopoverContent>
-          </Popover>
-        )}
-      </div>
+      {!hasChart && addMenu && <div className="flex items-center justify-end gap-2">{addMenu}</div>}
 
         {loading ? (
           <div className="p-8 flex justify-center"><Loader2 className="h-5 w-5 animate-spin text-muted-foreground" /></div>
@@ -331,7 +340,10 @@ export function FundHoldingDetail({
 
             {(events.length > 0 || navs.length > 0) && (
               <section className="space-y-2">
-                <h3 className="text-base font-medium">Position over time</h3>
+                <div className="flex items-center justify-between gap-2">
+                  <h3 className="text-base font-medium">Position over time</h3>
+                  {addMenu}
+                </div>
                 <FundPositionChart points={positionPoints} />
               </section>
             )}

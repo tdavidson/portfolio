@@ -35,14 +35,9 @@ interface Props {
   companyId: string
   companyName: string
   metrics: Metric[]
-  /**
-   * With no metrics, a one-line "Add metric" instead of the large empty card — for a fund holding,
-   * whose main chart is its register's position chart and whose own KPIs are optional.
-   */
-  compactEmpty?: boolean
 }
 
-export function CompanyCharts({ companyId, companyName, metrics, compactEmpty }: Props) {
+export function CompanyCharts({ companyId, companyName, metrics }: Props) {
   const router = useRouter()
   const [valuesByMetric, setValuesByMetric] = useState<Record<string, MetricValueRow[]>>({})
   const [loading, setLoading] = useState(true)
@@ -148,33 +143,12 @@ export function CompanyCharts({ companyId, companyName, metrics, compactEmpty }:
     </Dialog>
   )
 
-  if (metrics.length === 0 && compactEmpty) {
-    return (
-      <>
-        <div className="flex flex-wrap items-center gap-2 text-sm text-muted-foreground" data-metrics-ready="company">
-          <span>No custom metrics tracked.</span>
-          <Button size="sm" variant="ghost" onClick={() => setAddMetricOpen(true)} className="h-7 px-2 text-muted-foreground hover:text-foreground">
-            <Plus className="h-3.5 w-3.5 mr-1" />
-            Add metric
-          </Button>
-          {fundHasDefaults && (
-            <Button size="sm" variant="ghost" onClick={() => setDefaultsOpen(true)} className="h-7 px-2 text-muted-foreground hover:text-foreground">
-              Use fund defaults{availableDefaults > 0 ? ` (${availableDefaults})` : ''}
-            </Button>
-          )}
-        </div>
-        {addMetricDialog}
-        {defaultsDialog}
-      </>
-    )
-  }
-
   if (metrics.length === 0) {
     return (
       <>
         <div className="rounded-card border border-dashed p-12 text-center space-y-3" data-metrics-ready="company">
           <p className="text-muted-foreground">
-            No metrics configured yet. Add metrics to this company to start tracking data.
+            No metrics configured yet. Add metrics to start tracking data.
           </p>
           <div className="flex items-center justify-center gap-2">
             <Button size="sm" onClick={() => setAddMetricOpen(true)}>

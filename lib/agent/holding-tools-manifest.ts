@@ -49,12 +49,19 @@ export const UPDATE_COMPANY_PROPERTIES: Record<string, unknown> = {
   why_invested: { type: 'string', description: 'Empty clears it.' },
   current_update: { type: 'string', description: 'The latest news on the company. Empty clears it.' },
   notes: { type: 'string', description: 'The free-text notes field on the record (not a team note: add_company_note). Empty clears it.' },
+  metrics_enabled: { type: 'boolean', description: 'Whether its page shows the metrics section (KPI charts, or the prompt to add one). Off hides it; recorded metrics are kept.' },
+  analyst_enabled: { type: 'boolean', description: 'Whether its page shows the AI Analyst summary panel (the Analyze card). The header Analyst button always stays.' },
+  price_feed_enabled: {
+    type: 'boolean',
+    description: 'Companies only: whether its page shows the Price feed section, to add a ticker. A holding that already has a feed always shows it; digital assets always do.',
+  },
 }
 
 export const UPDATE_COMPANY_DESCRIPTION =
   'Change a holding\'s record (company, fund holding or digital asset): its name, status, contact emails, aliases, tags, ' +
-  'industry, stage, country, founded year, overview, founders, why invested, current update, notes and the entities that ' +
-  'hold it. Only the fields ' +
+  'industry, stage, country, founded year, overview, founders, why invested, current update, notes, the entities that ' +
+  'hold it, and which optional sections its page shows (metrics_enabled, analyst_enabled, price_feed_enabled; company_detail ' +
+  'reads them). Only the fields ' +
   'passed change. For a list, `<list>` replaces it and `add_<list>` / `remove_<list>` change the one there. A rename also ' +
   'renames the holding\'s own chart accounts that still carry the old name ("Investment — <name>" and the rest). Aliases ' +
   'and contact emails are what imports and emailed updates match it by. Changing the entities that hold it does not move ' +
@@ -313,6 +320,48 @@ export const HOLDING_TOOL_MANIFEST: AgentToolMeta[] = [
         reported_contributions: { type: 'number', description: 'The manager\'s since-inception contributions, for tying out.' },
         reported_distributions: { type: 'number', description: 'The manager\'s since-inception distributions, for tying out.' },
         reported_unfunded: { type: 'number', description: 'The manager\'s unfunded commitment, for tying out.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'fund_register',
+    description:
+      'One fund holding\'s register for one entity, as the holding page shows it: its terms and commitment, contributed, distributed ' +
+      'and unfunded, every capital notice, and every manager NAV statement with the mark it booked and that mark\'s amount. A ' +
+      'statement dated before the ledger\'s start books nothing (memo_only) and still values the holding. Read-only.',
+    scope: 'read',
+    domain: 'portfolio',
+    accessFeature: 'investments',
+    inputSchema: {
+      type: 'object',
+      required: ['company'],
+      properties: {
+        company: HOLDING,
+        vehicle: { type: 'string', description: 'The entity whose position to show (its name). Optional: defaults to the holding\'s first entity; the result names any others.' },
+        as_of: { type: 'string', description: 'The date contributed, unfunded and the carrying value are figured at (YYYY-MM-DD). Default today. Notices and statements are all listed.' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
+    name: 'mark_status',
+    description:
+      'Which holdings have current marks: one row per holding still held, with its holding_type (company, fund or digital_asset), ' +
+      'fair value, last mark date and source (nav_statement, nav, price, round or manual), latest NAV statement, and stale. A holding is ' +
+      'stale when its last mark is before the latest quarter end on or before as_of, or, with max_age_days, older than that. A value ' +
+      'change booked from a manager\'s NAV counts as current just as a NAV statement does. A holding first bought after the quarter end ' +
+      'is carried at cost and is current. Use it to find what still needs a mark before a close or a report.',
+    scope: 'read',
+    domain: 'portfolio',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vehicle: { type: 'string', description: 'Only this entity\'s holdings and marks (its name). Default: every entity you can see.' },
+        as_of: { type: 'string', description: 'YYYY-MM-DD. Default today.' },
+        max_age_days: { type: 'integer', minimum: 0, description: 'Stale when the last mark is more than this many days old, instead of the quarter-end rule.' },
+        holding_type: { type: 'string', enum: ['company', 'fund', 'digital_asset'] },
+        stale_only: { type: 'boolean', description: 'Only the stale holdings.' },
       },
       additionalProperties: false,
     },

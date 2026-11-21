@@ -43,6 +43,12 @@ describe('the register\'s dialogs', () => {
   it('records a call, a distribution and a NAV statement, plus the generic form when the page offers it', () => {
     for (const label of ['Capital call', 'Distribution', 'NAV statement', 'Other transaction']) expect(src).toContain(`label: '${label}'`)
     expect(src).toMatch(/onAddTransaction \? \[/)
+    expect(src).toContain("label: 'Transfer cost'")
+  })
+
+  it('puts the Add menu in the Position over time heading once there is a chart', () => {
+    expect(src).toMatch(/Position over time<\/h3>\s*\{addMenu\}/)
+    expect(src).toContain('{!hasChart && addMenu && ')
   })
 
   it('keeps the entity choice inside each dialog for a holding with no entity yet', () => {
@@ -69,9 +75,20 @@ describe('the holding page', () => {
   })
 
   it('shows the AI summary and the KPI charts by their own flags, not the company profile\'s', () => {
-    expect(src).toMatch(/panels\.aiSummary && active && \(\s*<CompanySummary/)
-    expect(src).toMatch(/panels\.metricCharts && active && \(\s*<CompanyCharts/)
-    expect(src).toContain('compactEmpty={panels.register}')
+    expect(src).toMatch(/sections\.analyst && active && \(\s*<CompanySummary/)
+    expect(src).toMatch(/sections\.metrics && active && \(\s*<CompanyCharts/)
+    // One empty state for metrics on every kind of holding: the company page's.
+    expect(src).not.toContain('compactEmpty')
+  })
+
+  it('keeps the header Analyst button when the holding\'s analyst is off: it opens the fund-wide assistant', () => {
+    expect(src).not.toMatch(/sections\.analyst && <AnalystButton/)
+    expect(src).toMatch(/\n\s*<AnalystButton companyId=/)
+  })
+
+  it('offers Transfer cost from the register\'s Add menu, not a button of its own', () => {
+    expect(src).toContain('transferRequest={transferRequest}')
+    expect(src).toMatch(/onTransferCost=\{/)
   })
 })
 

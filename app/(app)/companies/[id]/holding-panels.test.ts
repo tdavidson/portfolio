@@ -1,6 +1,6 @@
 // app/(app)/companies/[id]/holding-panels.test.ts
 import { describe, it, expect } from 'vitest'
-import { holdingPanels, needsEntities, initialEntity, initialAsOf, quoteBasisNote, chainVarianceText } from './holding-panels'
+import { holdingPanels, holdingSections, needsEntities, initialEntity, initialAsOf, quoteBasisNote, chainVarianceText } from './holding-panels'
 
 describe('holdingPanels', () => {
   it('a company keeps its profile and may carry a price feed', () => {
@@ -14,6 +14,27 @@ describe('holdingPanels', () => {
   })
   it('a row from before the discriminator reads as a company', () => {
     expect(holdingPanels(undefined)).toEqual(holdingPanels('company'))
+  })
+})
+
+describe('holdingSections', () => {
+  it('keeps metrics and the analyst on when nothing was set', () => {
+    expect(holdingSections('company', {}, false)).toEqual({ metrics: true, analyst: true, priceFeed: false })
+    expect(holdingSections('fund', undefined, false)).toEqual({ metrics: true, analyst: true, priceFeed: false })
+  })
+  it('hides metrics and the analyst a holding turned off', () => {
+    expect(holdingSections('fund', { metrics_enabled: false, analyst_enabled: false }, false)).toEqual({ metrics: false, analyst: false, priceFeed: false })
+  })
+  it('shows a company\'s price feed only once turned on, or when it already has one', () => {
+    expect(holdingSections('company', { price_feed_enabled: true }, false).priceFeed).toBe(true)
+    expect(holdingSections('company', { price_feed_enabled: false }, true).priceFeed).toBe(true)
+  })
+  it('always shows a digital asset\'s feed, and never a fund holding\'s', () => {
+    expect(holdingSections('crypto', {}, false).priceFeed).toBe(true)
+    expect(holdingSections('fund', { price_feed_enabled: true }, true).priceFeed).toBe(false)
+  })
+  it('a setting cannot add a section the kind does not have', () => {
+    expect(holdingSections('crypto', { metrics_enabled: true, analyst_enabled: true }, false)).toMatchObject({ metrics: false, analyst: false })
   })
 })
 

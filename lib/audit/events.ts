@@ -21,7 +21,7 @@ export type AuditAction =
   | 'k1.generate' | 'k1.finalize' | 'k1.amend'
   | 'tax.adjustments' | 'pending_action.approve' | 'pending_action.reject' | 'pending_action.stage' | 'pending_action.continue'
   | 'pending_action.undo' | 'pending_action.withdraw'
-  | 'agent.write'
+  | 'agent.write' | 'agent.write_skipped'
   | 'lp_change.approve' | 'lp_change.reject'
 
 export interface AuditEvent {

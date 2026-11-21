@@ -17,10 +17,10 @@ import { AnalystPanel } from '@/components/analyst-panel'
 import { CompanyInvestments } from './company-investments'
 import { FundRegisterSection } from './fund-register-section'
 import { HoldingK1Income } from './holding-k1-income'
-import { holdingPanels } from './holding-panels'
+import { holdingPanels, holdingSections } from './holding-panels'
 import { HoldingPriceFeed } from './holding-price-feed'
 import { HoldingWallets } from './holding-wallets'
-import type { CompanyPageData } from './load'
+import type { CompanyPageData, LastMark } from './load'
 
 const CompanyDocuments = lazy(() => import('./company-documents').then(module => ({ default: module.CompanyDocuments })))
 const CompanyUpdates = lazy(() => import('./company-updates').then(module => ({ default: module.CompanyUpdates })))
@@ -51,6 +51,44 @@ function formatHighlightValue(value: number, metric: Metric, fundCurrency: strin
     : `${formatted} ${unit}`
 }
 
+const MARK_SOURCE_LABEL: Record<NonNullable<LastMark['source']>, string> = {
+  nav_statement: 'NAV statement',
+  nav: 'manager NAV',
+  price: 'market price',
+  round: 'priced round',
+  manual: 'manual mark',
+}
+
+const formatMarkDate = (iso: string) =>
+  new Date(`${iso}T00:00:00Z`).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC' })
+
+/** "Last mark: Sep 30, 2026 · NAV statement · 52 days", with Stale when it predates the quarter end. */
+function LastMarkLine({ mark }: { mark: LastMark }) {
+  return (
+    <div className="flex items-center gap-2 mt-1.5 text-sm" data-testid="last-mark">
+      <span className="text-muted-foreground">Last mark:</span>
+      {mark.date ? (
+        <span>
+          <span className="font-medium tabular-nums">{formatMarkDate(mark.date)}</span>
+          {mark.source && <span className="text-muted-foreground"> · {MARK_SOURCE_LABEL[mark.source]}</span>}
+          {mark.ageDays != null && <span className="text-muted-foreground tabular-nums"> · {mark.ageDays} {mark.ageDays === 1 ? 'day' : 'days'}</span>}
+        </span>
+      ) : (
+        <span className="text-muted-foreground">none yet, carried at cost</span>
+      )}
+      {mark.stale && (
+        <Badge
+          variant="outline"
+          className="border-warning/50 bg-warning-subtle text-warning"
+          title={`The last mark is before the quarter end, ${formatMarkDate(mark.quarterEnd)}.`}
+        >
+          Stale
+        </Badge>
+      )}
+    </div>
+  )
+}
+
 /**
  * One holding's page — a company, a fund holding or a digital asset, each created, recorded and
  * configured here (plans/spec-ledger-one-writer.md §6). `holdingPanels` decides what shows.
@@ -58,10 +96,12 @@ function formatHighlightValue(value: number, metric: Metric, fundCurrency: strin
 export function CompanyPageView({
   company, userId, isAdmin, fundCurrency, hasClaudeKey, hasOpenAIKey, defaultAIProvider, storageProvider,
   googleDriveFolderId, featureVisibility, showNotes, showInvestments, showInteractions, metrics, latestMrr, latestCash,
-  hasCapturedUpdates, holdingType, entities, initialEntityId, initialAsOf,
+  hasCapturedUpdates, holdingType, entities, initialEntityId, initialAsOf, hasPriceFeed, sections: loadedSections, lastMark,
 }: CompanyPageData & { initialEntityId?: string | null; initialAsOf?: string | null }) {
   // A demo snapshot recorded before holdingType existed reads as a company.
   const panels = holdingPanels(holdingType)
+  // The optional sections the holding's own settings turn on (a recorded demo snapshot may predate them).
+  const sections = loadedSections ?? holdingSections(holdingType, company, hasPriceFeed ?? false)
   const back = panels.companyProfile ? { href: '/dashboard', label: 'Portfolio' } : { href: '/investments', label: 'Investments' }
   const active = company.status !== 'exited' && company.status !== 'written-off'
   // A fund holding has ONE Add menu, on the register: it records notices and NAVs in its own dialogs
@@ -69,6 +109,9 @@ export function CompanyPageView({
   const [txnAddRequest, setTxnAddRequest] = useState(0)
   // Bumped when the register books something, so the investments section refetches.
   const [investmentsVersion, setInvestmentsVersion] = useState(0)
+  // Transfer cost lives in an Add menu: the investments section's own, or the register's for a fund
+  // holding. The register's asks the investments section to open its dialog by bumping this.
+  const [transferRequest, setTransferRequest] = useState(0)
 
   return (
     <CompanyPanelProvider companyId={company.id} userId={userId} isAdmin={isAdmin}>
@@ -85,7 +128,7 @@ export function CompanyPageView({
 
         <div className="flex items-center gap-3 flex-wrap">
           <h1 className="text-2xl font-semibold tracking-tight">{company.name}</h1>
-          <CompanyEditButton company={company} holdingType={holdingType} />
+          <CompanyEditButton company={company} holdingType={holdingType} hasPriceFeed={hasPriceFeed ?? false} />
           {holdingType === 'fund' && <Badge variant="outline">Fund holding</Badge>}
           {holdingType === 'crypto' && <Badge variant="outline">Digital asset</Badge>}
           {(company.portfolio_group ?? []).map((pg) => (
@@ -98,10 +141,13 @@ export function CompanyPageView({
             <Badge key={ind} variant="outline">{ind}</Badge>
           ))}
           {showNotes && <ChatButton />}
+          {/* The header Analyst opens the fund-wide assistant, so it stays whatever this holding's analyst setting is. */}
           <AnalystButton companyId={company.id} companyName={company.name} pushRight={!showNotes} />
         </div>
 
-        {panels.companyProfile && (latestMrr || latestCash) && (
+        {lastMark && <LastMarkLine mark={lastMark} />}
+
+        {panels.companyProfile && sections.metrics && (latestMrr || latestCash) && (
           <div className="flex items-center gap-4 mt-1.5">
             {latestMrr && (
               <span className="text-sm">
@@ -124,7 +170,7 @@ export function CompanyPageView({
       {/* Content + Notes panel side by side */}
       <div className="flex flex-col lg:flex-row gap-6 items-start">
         <div className="flex-1 min-w-0 max-w-page w-full [&>*:first-child]:mt-0">
-          {panels.aiSummary && active && (
+          {sections.analyst && active && (
             <CompanySummary
               companyId={company.id}
               hasClaudeKey={hasClaudeKey}
@@ -133,12 +179,11 @@ export function CompanyPageView({
             />
           )}
 
-          {panels.metricCharts && active && (
+          {sections.metrics && active && (
             <CompanyCharts
               companyId={company.id}
               companyName={company.name}
               metrics={metrics}
-              compactEmpty={panels.register}
             />
           )}
 
@@ -149,6 +194,7 @@ export function CompanyPageView({
               initialEntityId={initialEntityId ?? null}
               onChanged={() => setInvestmentsVersion(v => v + 1)}
               onAddTransaction={() => setTxnAddRequest(n => n + 1)}
+              onTransferCost={(company.portfolio_group ?? []).length > 0 ? () => setTransferRequest(n => n + 1) : undefined}
             />
           )}
 
@@ -163,6 +209,7 @@ export function CompanyPageView({
               showUnits={panels.units}
               hideAddButton={panels.register}
               addRequest={txnAddRequest}
+              transferRequest={transferRequest}
               reloadKey={investmentsVersion}
             />
           )}
@@ -171,7 +218,7 @@ export function CompanyPageView({
             <HoldingWallets companyId={company.id} entities={entities ?? []} />
           )}
 
-          {showInvestments && panels.priceFeed && (
+          {showInvestments && sections.priceFeed && (
             <HoldingPriceFeed
               companyId={company.id}
               kind={holdingType === 'crypto' ? 'crypto' : 'company'}
