@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { shadowFromLedger } from './shadow'
+import { carryFreeFrom, feePeriodStarts, shadowFromLedger } from './shadow'
 
 const accounts = [
   { id: 'a-cash', fundId: 'f', code: '1000', name: 'Cash', type: 'asset' as const, subtype: 'cash' },
@@ -22,7 +22,7 @@ const period = { start: '2026-07-01', end: '2026-09-30' }
 describe('shadowFromLedger', () => {
   it("takes each partner's flows for the period only", () => {
     const s = shadowFromLedger(data, period, null, null)
-    expect(s.partners).toEqual([{ lpEntityId: 'lp-acme', name: 'Acme Partners LP', contributions: 50_000, distributions: 0 }])
+    expect(s.partners).toEqual([{ lpEntityId: 'lp-acme', name: 'Acme Partners LP', contributions: 50_000, distributions: 0, carry: 0 }])
   })
 
   it('takes account balances at the period end and movement within it, on the normal side', () => {
@@ -40,5 +40,27 @@ describe('shadowFromLedger', () => {
 
   it('leaves partners null when the books hold no capital postings', () => {
     expect(shadowFromLedger({ ...data, capitalPostings: [] }, period, null, null).partners).toBeNull()
+  })
+})
+
+describe('feePeriodStarts', () => {
+  const schedule = { frequency: 'quarterly' as const, start: '2026-02-15', end: '2030-02-15' }
+  it('takes the fee periods that start in the review period', () => {
+    expect(feePeriodStarts(schedule, { start: '2026-07-01', end: '2026-09-30' })).toEqual(['2026-08-15'])
+    expect(feePeriodStarts({ ...schedule, frequency: 'annual' }, { start: '2026-07-01', end: '2026-09-30' })).toEqual([])
+    expect(feePeriodStarts(schedule, { start: '2026-01-01', end: '2026-12-31' })).toEqual(['2026-02-15', '2026-05-15', '2026-08-15', '2026-11-15'])
+  })
+  it('stops at the end of the schedule', () => {
+    expect(feePeriodStarts({ ...schedule, end: '2026-06-01' }, { start: '2026-01-01', end: '2026-12-31' })).toEqual(['2026-02-15', '2026-05-15'])
+  })
+})
+
+describe('carryFreeFrom', () => {
+  const left = [{ lpEntityId: 'lp-staff', category: 'carried_interest' as const, participates: false, weightOverride: null, rateOverride: null }]
+  it('frees the recipients and anyone the terms leave out of carry', () => {
+    expect(carryFreeFrom({ recipients: [{ lpEntityId: 'lp-gp' }] }, left).sort()).toEqual(['lp-gp', 'lp-staff'])
+  })
+  it('charges the recipients when the GP commit bears carry', () => {
+    expect(carryFreeFrom({ recipients: [{ lpEntityId: 'lp-gp' }], gpCommitBearsCarry: true }, left)).toEqual(['lp-staff'])
   })
 })

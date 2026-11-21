@@ -14,6 +14,7 @@
 // findings workflow (stage 5).
 
 import type { AgentToolMeta } from '@/lib/accounting/agent-tools-manifest'
+import { CHECK_IDS } from '@/lib/statement-review/types'
 
 const AMOUNT = { type: 'number', description: 'As the statement states it.' }
 const CITE = {
@@ -124,7 +125,7 @@ const SETTINGS_PROPERTIES = {
       type: 'object', required: ['description'],
       properties: {
         description: { type: 'string', description: 'Why the difference is expected.' },
-        check: { type: 'string', enum: ['foots', 'partners_sum', 'roll_forward', 'continuity', 'completeness', 'ledger_flows', 'cash', 'soi', 'watched_accounts'] },
+        check: { type: 'string', enum: CHECK_IDS },
         subject: { type: 'string', description: 'Part of the partner, holding, account or statement name it applies to.' },
         amount: { type: 'number', description: 'The difference it accounts for.' },
         tolerance: { type: 'number', description: 'How far from amount the difference may be. Default a cent.' },
@@ -140,7 +141,8 @@ export const STATEMENT_REVIEW_TOOL_MANIFEST: AgentToolMeta[] = [
       "Check a vehicle's quarterly statements: whether they foot, whether the partners add up to the fund, whether each capital " +
       "account rolls forward, whether this period carries on from the last review, whether every partner the app knows is " +
       "there and nobody unknown is, whether contributions, distributions, cash and the schedule of investments agree with the " +
-      "app's books, bank feed and portfolio, and how the reviewer's watched accounts moved. Known adjustments in the review " +
+      "app's books, bank feed and portfolio, whether the management fee, carried interest and income, expense and gain " +
+      "allocations follow the vehicle's terms, and how the reviewer's watched accounts moved. Known adjustments in the review " +
       'settings mark the findings they explain. Read statement_review_settings first and follow its instructions when you read ' +
       'a package. The figures come from a saved administrator pull (input admin_pull), a partner capital ' +
       "schedule as CSV text (input csv), or a package you read from the administrator's statements and give whole (input " +

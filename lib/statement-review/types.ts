@@ -157,7 +157,7 @@ export interface Finding {
 
 export type CheckId =
   | 'foots' | 'partners_sum' | 'roll_forward' | 'continuity' | 'completeness'
-  | 'ledger_flows' | 'cash' | 'soi' | 'watched_accounts'
+  | 'ledger_flows' | 'management_fee' | 'carry' | 'allocation' | 'cash' | 'soi' | 'watched_accounts'
 
 export const CHECK_LABELS: Record<CheckId, string> = {
   foots: 'Foots',
@@ -166,6 +166,9 @@ export const CHECK_LABELS: Record<CheckId, string> = {
   continuity: 'Continuity',
   completeness: 'Completeness',
   ledger_flows: 'Contributions and distributions',
+  management_fee: 'Management fee',
+  carry: 'Carried interest',
+  allocation: 'Allocations',
   cash: 'Cash',
   soi: 'Schedule of investments',
   watched_accounts: 'Watched accounts',
@@ -206,6 +209,8 @@ export interface ShadowPartner {
   contributions: number
   /** Positive: what was paid out. */
   distributions: number
+  /** Carried interest posted to the partner in the period, signed as it changes the account. */
+  carry: number
 }
 
 /** One ledger account: its balance at the period end and how much it moved in the period. */
@@ -227,6 +232,44 @@ export interface ShadowHolding {
   fairValue: number
 }
 
+/** A category the vehicle's allocation terms split, as `lib/accounting/terms.ts` names them. */
+export type TermsCategory =
+  | 'management_fee' | 'partnership_expense' | 'organizational_expense' | 'realized_gain'
+  | 'valuation' | 'fx_revaluation' | 'income' | 'carried_interest'
+
+/** One partner's terms for one category: left out of it, or on a negotiated weight. */
+export interface ShadowPartnerTerm {
+  lpEntityId: string
+  category: TermsCategory
+  participates: boolean
+  weightOverride: number | null
+  rateOverride: number | null
+}
+
+/** The vehicle's terms, as the app holds them, for the terms checks. */
+export interface ShadowTerms {
+  /** What income, expense and gains are split on. */
+  basis: 'commitment' | 'capital_balance'
+  /** Each partner's commitment in force on the period end. */
+  commitments: Record<string, number>
+  partnerTerms: ShadowPartnerTerm[]
+  /**
+   * The management fee the vehicle's fee schedule charges each partner for the fee periods that
+   * start in the review period (positive). Null when the vehicle has no fee schedule.
+   */
+  fees: { lpEntityId: string; fee: number }[] | null
+  /** Why `fees` is null, or what it left out. */
+  feeNote?: string
+  carry: {
+    kind: string
+    rate: number
+    /** Who receives carry. */
+    recipients: string[]
+    /** Partners charged no carry: the recipients (unless the GP commit bears carry) and anyone the terms leave out. */
+    carryFree: string[]
+  }
+}
+
 /**
  * What the app holds for the vehicle and period, built from its own books and portfolio tracker.
  * Each part is null when the app holds nothing for it, so the check that needs it says so.
@@ -238,6 +281,8 @@ export interface Shadow {
   cash: { ledger: number; bank: number | null; bankThrough: string | null } | null
   holdings: ShadowHolding[] | null
   accounts: ShadowAccount[] | null
+  /** The vehicle's fee, carry and allocation terms. Null when they couldn't be read. */
+  terms?: ShadowTerms | null
 }
 
 /** An account the reviewer wants looked at every period. */

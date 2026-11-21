@@ -8,6 +8,9 @@ import { foots } from './checks/foots'
 import { partnersSum } from './checks/partners-sum'
 import { rollForward } from './checks/roll-forward'
 import { ledgerFlows } from './checks/ledger-flows'
+import { managementFee } from './checks/management-fee'
+import { carry } from './checks/carry'
+import { allocation } from './checks/allocation'
 import { cash } from './checks/cash'
 import { soi } from './checks/soi'
 import { watchedAccounts } from './checks/watched-accounts'
@@ -16,10 +19,10 @@ import { DEFAULT_MATERIALITY, ROUNDING_TOLERANCE, type CheckOutcome, type Findin
 
 /**
  * In the order a reviewer reads them: does it add up, does it roll, does it carry on, is everyone
- * there; then does it agree with the books, the bank and the portfolio; then the accounts the
- * reviewer asked to watch.
+ * there; then does it agree with the books and the terms, the bank and the portfolio; then the
+ * accounts the reviewer asked to watch.
  */
-export const CHECKS: Check[] = [foots, partnersSum, rollForward, continuity, completeness, ledgerFlows, cash, soi, watchedAccounts]
+export const CHECKS: Check[] = [foots, partnersSum, rollForward, continuity, completeness, ledgerFlows, managementFee, carry, allocation, cash, soi, watchedAccounts]
 
 /**
  * The known adjustment that explains a finding, if any. An adjustment matches on every part it

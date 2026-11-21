@@ -13,7 +13,11 @@ import { fetchAllRows } from '@/lib/accounting/load'
 import { computePayload, loadLedgerData, type LedgerData } from '@/lib/accounting/statement-package'
 import { customPeriod } from '@/lib/accounting/statement-period'
 import { openingCashBefore } from '@/lib/accounting/bank'
-import type { Shadow, ShadowAccount, ShadowHolding, ShadowPartner } from './types'
+import { loadAllocationBasis, loadPartnerTerms, loadResolvedCommitments } from '@/lib/accounting/terms'
+import { loadFeeSchedule, scheduledFee } from '@/lib/accounting/fee-schedule'
+import { loadCarryTerms } from '@/lib/accounting/carry'
+import { addMonths, carryFreeIds } from '@portfolio/fund-engine'
+import type { Shadow, ShadowAccount, ShadowHolding, ShadowPartner, ShadowPartnerTerm, ShadowTerms } from './types'
 
 const r2 = (n: number) => Math.round(n * 100) / 100
 
@@ -35,6 +39,7 @@ export function shadowFromLedger(
       contributions: r2(a.contributions),
       // The roll-forward carries distributions negative; a package states them positive.
       distributions: r2(-a.distributions) || 0,
+      carry: r2(a.carriedInterest) || 0,
     }))
   }
 
@@ -94,9 +99,79 @@ export async function loadShadow(
         .order('id').range(f, t))
       bank = { amounts: rows.map(t => ({ date: String(t.txn_date), amount: Number(t.amount) })) }
     } catch { /* no feed */ }
-    return shadowFromLedger(data, period, holdings, bank)
+    const shadow = shadowFromLedger(data, period, holdings, bank)
+    shadow.terms = await loadTerms(admin, fundId, vehicle.name, period)
+    return shadow
   } catch (e: any) {
     console.error('[statement-review-shadow]', e?.message)
+    return null
+  }
+}
+
+/** The fee periods of a schedule that start inside the review period: the ones it charges for. */
+export function feePeriodStarts(
+  schedule: { frequency: 'quarterly' | 'semiannual' | 'annual'; start: string; end: string },
+  period: { start: string; end: string },
+): string[] {
+  const step = { quarterly: 3, semiannual: 6, annual: 12 }[schedule.frequency]
+  const out: string[] = []
+  for (let d = schedule.start; d < schedule.end && d <= period.end; d = addMonths(d, step)) {
+    if (d >= period.start) out.push(d)
+  }
+  return out
+}
+
+/** Partners the terms charge no carry: the recipients unless the GP commit bears it, and anyone left out. */
+export function carryFreeFrom(
+  carry: { recipients: { lpEntityId: string }[]; gpCommitBearsCarry?: boolean },
+  partnerTerms: ShadowPartnerTerm[],
+): string[] {
+  const free = carryFreeIds(carry as any)
+  for (const t of partnerTerms) if (t.category === 'carried_interest' && !t.participates) free.add(t.lpEntityId)
+  return [...free]
+}
+
+/** The vehicle's terms: allocation basis and partner terms, commitments, the fee the schedule charges, carry. */
+export async function loadTerms(
+  admin: SupabaseClient, fundId: string, group: string, period: { start: string; end: string },
+): Promise<ShadowTerms | null> {
+  try {
+    const [basis, partnerTerms, commitments, schedule, carry] = await Promise.all([
+      loadAllocationBasis(admin, fundId, group),
+      loadPartnerTerms(admin, fundId, group),
+      loadResolvedCommitments(admin, fundId, group, period.end),
+      loadFeeSchedule(admin, fundId, group),
+      loadCarryTerms(admin, fundId, group),
+    ])
+    let fees: ShadowTerms['fees'] = null
+    let feeNote: string | undefined
+    if (!schedule) feeNote = 'The vehicle has no fee schedule. Set one on the Allocation terms page.'
+    else {
+      const owed = new Map<string, number>()
+      for (const date of feePeriodStarts(schedule, period)) {
+        const r = await scheduledFee(admin, fundId, group, date)
+        if (!r) continue
+        if ('error' in r) { feeNote = r.error; owed.clear(); break }
+        for (const l of r.fee.lines) owed.set(l.lpEntityId, r2((owed.get(l.lpEntityId) ?? 0) + l.fee))
+      }
+      if (!feeNote) fees = [...owed.entries()].map(([lpEntityId, fee]) => ({ lpEntityId, fee }))
+    }
+    const terms: ShadowPartnerTerm[] = partnerTerms.map(t => ({ ...t }))
+    return {
+      basis,
+      commitments: Object.fromEntries(commitments),
+      partnerTerms: terms,
+      fees,
+      ...(feeNote ? { feeNote } : {}),
+      carry: {
+        kind: carry.kind,
+        rate: carry.carryRate,
+        recipients: carry.recipients.map(r => r.lpEntityId),
+        carryFree: carryFreeFrom(carry, terms),
+      },
+    }
+  } catch (e: any) {
+    console.error('[statement-review-terms]', e?.message)
     return null
   }
 }

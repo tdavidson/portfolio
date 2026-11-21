@@ -8,8 +8,8 @@ import { DEFAULT_SETTINGS, type Shadow } from '../types'
 
 const shadow = (over: Partial<Shadow> = {}): Shadow => ({
   partners: [
-    { lpEntityId: 'lp-acme', name: 'Acme Partners LP', contributions: 100_000, distributions: 50_000 },
-    { lpEntityId: 'lp-northwind', name: 'Northwind Capital', contributions: 50_000, distributions: 25_000 },
+    { lpEntityId: 'lp-acme', name: 'Acme Partners LP', contributions: 100_000, distributions: 50_000, carry: 0 },
+    { lpEntityId: 'lp-northwind', name: 'Northwind Capital', contributions: 50_000, distributions: 25_000, carry: 0 },
   ],
   cash: { ledger: 100_000, bank: 100_000, bankThrough: '2026-09-30' },
   holdings: [
