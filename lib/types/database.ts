@@ -3332,6 +3332,7 @@ export type Database = {
     }
     Functions: {
       count_unread_notes: { Args: { p_user_id: string }; Returns: number }
+      current_user_has_password: { Args: never; Returns: boolean }
       get_my_fund_ids: { Args: never; Returns: string[] }
       hook_before_user_created: { Args: { event: Json }; Returns: Json }
       is_fund_admin: { Args: { check_fund_id: string }; Returns: boolean }
