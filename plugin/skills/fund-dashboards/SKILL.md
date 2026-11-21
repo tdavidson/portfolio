@@ -8,7 +8,7 @@ description: >
   dashboard", "save this dashboard as ...", "pin this", "delete that dashboard" — and when the
   user asks for help, "what can you do?", "get started", "home", or seems unsure what to ask.
 metadata:
-  version: "1.1.0"
+  version: "1.2.0"
 ---
 
 # Fund dashboards
@@ -26,11 +26,19 @@ example questions for the areas their access covers — and returns the same as 
 short, friendly overview in your own words with three suggestions to try first. Do not list tool
 names. If the host cannot draw the view, the text is the whole answer.
 
+For a how-to question ("how do I save a view?", "what charts can you make?", "what views are
+there?", "why did my change not apply?"), call `help` with the closest topic: `views`,
+`starters`, `dashboards`, `charts`, `exports`, `approvals`, `funds`, or an area (`portfolio`,
+`books`, `lps`, `forecast`, `deals`, `diligence`). It answers from the user's own access, lists
+their saved views and dashboards, and with `starters` returns commonly used views, each with a
+spec ready to pass to `preview_custom_view`. Answer in your own words.
+
 ## Pick the dashboard
 
 | The user wants | Tool | Arguments |
 | --- | --- | --- |
 | Help, what you can do, a place to start | `show_home` | none |
+| How to do something, or the common views and charts | `help` | `topic?` |
 | The portfolio, holdings, the fund at a glance | `show_portfolio_dashboard` | `vehicle?`, `as_of?` |
 | One company: its position, KPIs, rounds | `show_company_dashboard` | `company`, `vehicle?` |
 | Balance sheet, income statement, cash flows, partners' capital | `show_financial_statements` | `vehicle?`, `period?`, `start?`, `end?` |

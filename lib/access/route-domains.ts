@@ -374,6 +374,8 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // The New view page's builder: the fund's model sees only the catalog's names, and the preview's
   // blocks are checked against the caller as they load.
   'api/views/draft': { domain: 'portfolio', level: 'any' },
+  // Starter views: the catalog filtered to what the member can read, each block checked as it loads.
+  'api/views/starters': { domain: 'portfolio', level: 'any' },
   'api/entities': { domain: 'portfolio', level: 'any' },
   // The sections every entity list renders in. Labels, not figures, read by lists in four domains;
   // the handler filters the entity assignments (and a scoped caller's groups) by canSeeVehicle.

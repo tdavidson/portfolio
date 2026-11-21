@@ -13,6 +13,7 @@
 // figures as text and loses nothing.
 
 import type { AgentToolMeta } from '@/lib/accounting/agent-tools-manifest'
+import { HELP_TOPICS } from './help-topics'
 import { CHART_KINDS, CHART_MAX_POINTS, CHART_UNITS, DASHBOARD_VIEWS, STATEMENT_PRESETS } from '@/lib/mcp-apps/payload'
 
 export interface DashboardToolMeta extends AgentToolMeta {
@@ -85,6 +86,32 @@ export const DASHBOARD_TOOL_MANIFEST: DashboardToolMeta[] = [
     personal: true,
     ui: true,
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
+    name: 'help',
+    description:
+      'Answer a request for help as text, limited to what this user may open. With no topic: what this connection can do, ' +
+      'by area, with their saved views and dashboards and the starter views. With a topic, how to do it: views (custom ' +
+      'views: open, build, change, share, export), starters (commonly used views, each with a spec ready for ' +
+      'preview_custom_view), dashboards, charts (common charts and the chart types a view can use), exports (PDF and ' +
+      'Excel), approvals (staged changes), funds, or an area: portfolio, books, lps, forecast, deals, diligence. Use it for ' +
+      '"how do I…" questions, for "what views or charts are there", and when the host cannot draw show_home. Put the ' +
+      'answer in your own words; do not list tool names to the user.',
+    scope: 'read',
+    domain: 'portfolio',
+    // Like home: every member gets help, and it lists only what their own access allows.
+    personal: true,
+    inputSchema: {
+      type: 'object',
+      properties: {
+        topic: {
+          type: 'string',
+          enum: [...HELP_TOPICS],
+          description: 'Optional: overview (default), views, starters, dashboards, charts, exports, approvals, funds, or an area.',
+        },
+      },
+      additionalProperties: false,
+    },
   },
   {
     name: 'show_chart',
