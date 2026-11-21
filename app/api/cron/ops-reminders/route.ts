@@ -6,7 +6,7 @@ import { cronAuthDenial } from '@/lib/security/cron-auth'
 
 /**
  * Daily operational reminders (compliance filings, the quarterly data request, data-request
- * follow-ups) for every fund that turned them on. Triggered by Vercel cron — see vercel.json.
+ * follow-ups) for every fund that turned them on. Started by the daily /api/cron/tick.
  * Idempotent within a day: reminder_deliveries means a re-run sends nothing new.
  *
  * Auth: `Authorization: Bearer ${CRON_SECRET}`.

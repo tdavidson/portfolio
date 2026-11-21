@@ -9,6 +9,7 @@ import { visibleCompanyIds } from '@/lib/access/scope'
 import { AWAITING_ASSISTANT, isAwaitingAssistant } from '@/lib/ai/keyless'
 import { extractAttachmentText, hydrateAttachments, type PostmarkPayload } from '@/lib/parsing/extractAttachmentText'
 import { captureCompanyUpdate } from '@/lib/company-updates/capture'
+import { kickCron } from '@/lib/cron/kick'
 import { AWAITING_ASSISTANT_OCR, loadArtifactBytes, ocrOneArtifact, suppliedTextEngine, type ClaimedArtifact } from '@/lib/company-updates/ocr'
 import type { McpContentResult } from '@/lib/mcp-apps/server'
 import { logActivity } from '@/lib/activity'
@@ -208,7 +209,8 @@ export const KEYLESS_HANDLERS: Record<string, AgentToolHandler> = {
     const warnings: string[] = []
     try {
       const payload = await hydrateAttachments(email.raw_payload as PostmarkPayload) as PostmarkPayload
-      await captureCompanyUpdate(admin as any, { emailId: email.id, fundId, companyId: company.id, payload: payload as any })
+      const captured = await captureCompanyUpdate(admin as any, { emailId: email.id, fundId, companyId: company.id, payload: payload as any })
+      if (captured?.artifacts?.some(a => a.ocrStatus === 'pending')) await kickCron('company-updates-ocr')
     } catch {
       warnings.push('Marked as done, but it could not be added to the company\'s Updates; reprocess it from the Emails page.')
     }

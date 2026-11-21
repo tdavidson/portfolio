@@ -52,44 +52,18 @@
     },
     "app/api/cron/ops-reminders/route.ts": {
       "maxDuration": 120
+    },
+    "app/api/cron/tick/route.ts": {
+      "maxDuration": 60
+    },
+    "app/api/cron/access-expiry/route.ts": {
+      "maxDuration": 60
     }
   },
   "crons": [
     {
-      "path": "/api/cron/deals-digest",
-      "schedule": "0 13 * * 1"
-    },
-    {
-      "path": "/api/cron/memo-agent-worker",
-      "schedule": "*/3 * * * *"
-    },
-    {
-      "path": "/api/cron/affinity-sync",
-      "schedule": "0 * * * *"
-    },
-    {
-      "path": "/api/cron/deal-research",
-      "schedule": "*/10 * * * *"
-    },
-    {
-      "path": "/api/cron/company-updates-ocr",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/entity-documents-ocr",
-      "schedule": "*/5 * * * *"
-    },
-    {
-      "path": "/api/cron/company-updates-backfill",
-      "schedule": "*/2 * * * *"
-    },
-    {
-      "path": "/api/cron/ops-reminders",
+      "path": "/api/cron/tick",
       "schedule": "0 13 * * *"
-    },
-    {
-      "path": "/api/cron/access-expiry",
-      "schedule": "15 * * * *"
     }
   ],
   "git": {

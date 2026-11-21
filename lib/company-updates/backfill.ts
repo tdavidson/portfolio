@@ -9,6 +9,7 @@
  * result without any model call. Progress and counts live on the job row.
  */
 import { captureCompanyUpdate, effectiveRoute, loadStoredInboundEmail, updateCompanyUpdatePeriod, type SupabaseAdmin } from './capture'
+import { kickCron } from '@/lib/cron/kick'
 import { CAPTURE_VERSION } from './extraction'
 import type { PostmarkPayload } from '@/lib/pipeline/processEmail'
 import type { ReportingPeriod } from '@/lib/claude/extractMetrics'
@@ -344,6 +345,7 @@ export async function retryFailedItems(admin: SupabaseAdmin, params: { jobId: st
       .eq('id', params.jobId)
       .eq('fund_id', params.fundId)
     if (jobError) throw new Error(`Could not reopen backfill job: ${jobError.message}`)
+    await kickCron('company-updates-backfill')
   }
   return count
 }

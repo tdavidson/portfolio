@@ -1,4 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
+import { kickCron } from '@/lib/cron/kick'
 import type { AIProvider } from '@/lib/ai/types'
 import type { ExtractionResult } from '@/lib/parsing/extractAttachmentText'
 import type { PostmarkPayload } from '@/lib/pipeline/processEmail'
@@ -83,7 +84,7 @@ export async function processDeal(params: ProcessDealParams): Promise<ProcessDea
 
   // External research is queued, not run here: a web-search round takes 30-60s
   // and this function runs inside the inbound-email webhook, which would time
-  // out. /api/cron/deal-research drains the queue. Only deals that clear the
+  // out. /api/cron/deal-research drains the queue, started below. Only deals that clear the
   // fund's interest bar are queued at all — see lib/deals/research.ts.
   const researchSettings = await loadDealResearchSettings(supabase, fundId)
   const researchStatus = shouldResearchDeal(analysis.thesis_fit_score, researchSettings)
@@ -130,6 +131,8 @@ export async function processDeal(params: ProcessDealParams): Promise<ProcessDea
   }
 
   const dealId = (insertResult.data as { id: string }).id
+  // Research starts now rather than waiting for the daily tick.
+  if (researchStatus === 'pending') await kickCron('deal-research')
 
   // Flag missing critical fields for human review.
   const reviewFlagged = await maybeFlagForReview(supabase, fundId, emailId, dealId, analysis)

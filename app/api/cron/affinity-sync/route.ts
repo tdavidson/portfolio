@@ -5,8 +5,8 @@ import { dbError } from '@/lib/api-error'
 import { cronAuthDenial } from '@/lib/security/cron-auth'
 
 /**
- * Affinity sync scheduler. Runs hourly and enqueues an `affinity_sync` job for
- * every active, Affinity-linked deal that is due.
+ * Affinity sync scheduler. Started by the daily /api/cron/tick when a deal is linked to Affinity;
+ * enqueues an `affinity_sync` job for every active, Affinity-linked deal that is due.
  *
  * This endpoint only ENQUEUES — the actual pull runs in the memo-agent worker,
  * which already handles claiming, retries, stale-job reaping, and the function
