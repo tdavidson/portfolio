@@ -11,6 +11,9 @@ import NotesPage from '@/app/(app)/notes/page'
 import CompliancePage from '@/app/(app)/compliance/page'
 import ComplianceLinksPage from '@/app/(app)/compliance/links/page'
 import AuditPage from '@/app/(app)/audit/page'
+import ViewsPage from '@/app/(app)/views/page'
+import NewViewPage from '@/app/(app)/views/new/page'
+import CustomViewPage from '@/app/(app)/views/[id]/page'
 import { withData, type RouteRender } from '../route-helpers'
 
 /** The Portfolio section's pages, beyond the dashboard itself (which ships in the core). */
@@ -27,6 +30,10 @@ export const renders: Record<string, RouteRender> = {
   '/notes': () => <NotesPage />,
   '/compliance': () => <CompliancePage />,
   '/compliance/links': () => <ComplianceLinksPage />,
+  // Saved views and starters replay recorded responses; Build and Save are refused like any write.
+  '/views': () => <ViewsPage />,
+  '/views/new': () => <NewViewPage />,
+  '/views/:id': () => <CustomViewPage />,
   // The demo fund has no outside firms; the page shows its empty state (mock-api.ts answers the log).
   '/audit': () => <AuditPage />,
 }

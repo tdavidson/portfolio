@@ -1,6 +1,6 @@
 {
  "schemaVersion": 2,
- "generatedAt": "2026-10-13",
+ "generatedAt": "2026-11-22",
  "pages": {
   "/dashboard": {
    "companies": [
@@ -14,6 +14,7 @@
      "industry": [
       "AdTech"
      ],
+     "aliases": [],
      "portfolioGroup": [
       "Fund I"
      ],
@@ -26,7 +27,8 @@
        "unit": "$",
        "unit_position": "prefix",
        "value_type": "currency",
-       "currency": null
+       "currency": null,
+       "latestValue": 421000
       },
       {
        "id": "01ccbf1a-b970-41d6-91a2-50525cba6745",
@@ -34,7 +36,8 @@
        "unit": "%",
        "unit_position": "suffix",
        "value_type": "percentage",
-       "currency": null
+       "currency": null,
+       "latestValue": 2.5
       }
      ],
      "latestCash": null,
@@ -55,6 +58,7 @@
      "industry": [
       "Data Analytics"
      ],
+     "aliases": [],
      "portfolioGroup": [
       "Fund II"
      ],
@@ -67,7 +71,8 @@
        "unit": "$",
        "unit_position": "prefix",
        "value_type": "currency",
-       "currency": null
+       "currency": null,
+       "latestValue": 12300000
       },
       {
        "id": "7202c8ed-060b-439e-8f11-53b46a1b7de3",
@@ -75,7 +80,8 @@
        "unit": "%",
        "unit_position": "suffix",
        "value_type": "percentage",
-       "currency": null
+       "currency": null,
+       "latestValue": 123
       },
       {
        "id": "21f641a6-23e2-42be-af21-744899d210f8",
@@ -83,7 +89,8 @@
        "unit": null,
        "unit_position": "suffix",
        "value_type": "number",
-       "currency": null
+       "currency": null,
+       "latestValue": 74
       },
       {
        "id": "d36210a6-ca19-41dd-80d9-86d6493185c9",
@@ -91,10 +98,11 @@
        "unit": "$",
        "unit_position": "prefix",
        "value_type": "currency",
-       "currency": null
+       "currency": null,
+       "latestValue": 11200000
       }
      ],
-     "latestCash": 13100000,
+     "latestCash": 11200000,
      "firstInvestmentDate": "2022-01-15",
      "moic": null,
      "grossIrr": null,
@@ -112,6 +120,7 @@
      "industry": [
       "Biotech"
      ],
+     "aliases": [],
      "portfolioGroup": [
       "Fund I"
      ],
@@ -124,7 +133,8 @@
        "unit": "$",
        "unit_position": "prefix",
        "value_type": "currency",
-       "currency": null
+       "currency": null,
+       "latestValue": 950000
       },
       {
        "id": "cbc581d4-295c-4b83-867e-bdc62e45f4ff",
@@ -132,10 +142,11 @@
        "unit": null,
        "unit_position": "suffix",
        "value_type": "number",
-       "currency": null
+       "currency": null,
+       "latestValue": 15
       }
      ],
-     "latestCash": 1200000,
+     "latestCash": 950000,
      "firstInvestmentDate": "2024-01-10",
      "moic": null,
      "grossIrr": null,
@@ -153,6 +164,7 @@
      "industry": [
       "AI / ML"
      ],
+     "aliases": [],
      "portfolioGroup": [
       "Fund II"
      ],
@@ -165,7 +177,8 @@
        "unit": "$",
        "unit_position": "prefix",
        "value_type": "currency",
-       "currency": null
+       "currency": null,
+       "latestValue": 1600000
       },
       {
        "id": "4991f311-515d-4573-936f-c630fa4baecd",
@@ -173,10 +186,11 @@
        "unit": "$",
        "unit_position": "prefix",
        "value_type": "currency",
-       "currency": null
+       "currency": null,
+       "latestValue": 52000
       }
      ],
-     "latestCash": 410000,
+     "latestCash": 1600000,
      "firstInvestmentDate": "2024-08-15",
      "moic": null,
      "grossIrr": null,
@@ -194,6 +208,7 @@
      "industry": [
       "SaaS"
      ],
+     "aliases": [],
      "portfolioGroup": [
       "Fund I"
      ],
@@ -206,7 +221,8 @@
        "unit": "$",
        "unit_position": "prefix",
        "value_type": "currency",
-       "currency": null
+       "currency": null,
+       "latestValue": 371000
       },
       {
        "id": "acd546b6-43da-410e-8ccb-76b6eaa7e1af",
@@ -214,7 +230,8 @@
        "unit": "$",
        "unit_position": "prefix",
        "value_type": "currency",
-       "currency": null
+       "currency": null,
+       "latestValue": 101000
       },
       {
        "id": "c78dbad1-2eb6-48b2-9b69-fc4ac1922bef",
@@ -222,7 +239,8 @@
        "unit": "%",
        "unit_position": "suffix",
        "value_type": "percentage",
-       "currency": null
+       "currency": null,
+       "latestValue": 124
       },
       {
        "id": "11a8a6a4-657f-42e2-9bfe-192adac70fa4",
@@ -230,10 +248,11 @@
        "unit": "$",
        "unit_position": "prefix",
        "value_type": "currency",
-       "currency": null
+       "currency": null,
+       "latestValue": 3800000
       }
      ],
-     "latestCash": 4400000,
+     "latestCash": 3800000,
      "firstInvestmentDate": "2023-06-15",
      "moic": null,
      "grossIrr": null,
@@ -252,6 +271,7 @@
       "Logistics",
       "SaaS"
      ],
+     "aliases": [],
      "portfolioGroup": [
       "Fund I"
      ],
@@ -264,7 +284,8 @@
        "unit": "$",
        "unit_position": "prefix",
        "value_type": "currency",
-       "currency": null
+       "currency": null,
+       "latestValue": 7200000
       },
       {
        "id": "0c3488a9-cf46-4b72-8701-7b8e931d3e9a",
@@ -272,7 +293,8 @@
        "unit": "%",
        "unit_position": "suffix",
        "value_type": "percentage",
-       "currency": null
+       "currency": null,
+       "latestValue": 70
       },
       {
        "id": "d70800bd-c2cc-4882-a455-fa8c635c3b38",
@@ -280,7 +302,8 @@
        "unit": null,
        "unit_position": "suffix",
        "value_type": "number",
-       "currency": null
+       "currency": null,
+       "latestValue": 88
       }
      ],
      "latestCash": null,
@@ -301,6 +324,7 @@
      "industry": [
       "Fintech"
      ],
+     "aliases": [],
      "portfolioGroup": [
       "Fund II"
      ],
@@ -313,7 +337,8 @@
        "unit": "$",
        "unit_position": "prefix",
        "value_type": "currency",
-       "currency": null
+       "currency": null,
+       "latestValue": 26900000
       },
       {
        "id": "65345f9f-15e7-4199-8d45-ce44af7bf54f",
@@ -321,7 +346,8 @@
        "unit": "$",
        "unit_position": "prefix",
        "value_type": "currency",
-       "currency": null
+       "currency": null,
+       "latestValue": 403500
       },
       {
        "id": "cdf766ee-c094-42d2-9061-67f9356fb68c",
@@ -329,7 +355,8 @@
        "unit": "%",
        "unit_position": "suffix",
        "value_type": "percentage",
-       "currency": null
+       "currency": null,
+       "latestValue": 1.5
       },
       {
        "id": "5cb4ee19-b309-4c58-a811-f6028597850b",
@@ -337,7 +364,8 @@
        "unit": "$",
        "unit_position": "prefix",
        "value_type": "currency",
-       "currency": null
+       "currency": null,
+       "latestValue": 2200000
       }
      ],
      "latestCash": 2200000,
@@ -358,6 +386,7 @@
      "industry": [
       "Climate Tech"
      ],
+     "aliases": [],
      "portfolioGroup": [
       "Fund II"
      ],
@@ -370,7 +399,8 @@
        "unit": "$",
        "unit_position": "prefix",
        "value_type": "currency",
-       "currency": null
+       "currency": null,
+       "latestValue": 1000000
       },
       {
        "id": "6aca3122-f86b-4374-b3b8-7f9c80daf173",
@@ -378,7 +408,8 @@
        "unit": "$",
        "unit_position": "prefix",
        "value_type": "currency",
-       "currency": null
+       "currency": null,
+       "latestValue": 84000
       },
       {
        "id": "78d59428-5128-4861-8e2f-f9e9d1aabc7b",
@@ -386,7 +417,8 @@
        "unit": "$",
        "unit_position": "prefix",
        "value_type": "currency",
-       "currency": null
+       "currency": null,
+       "latestValue": 400000
       }
      ],
      "latestCash": 1000000,
@@ -398,6 +430,7 @@
      "unrealizedValue": null
     }
    ],
+   "fundHoldings": [],
    "entityOptions": [
     {
      "id": "061ee98b-cea1-465e-a73c-d597df4afaba",
@@ -449,7 +482,11 @@
     "google_drive_folder_id": null,
     "google_drive_folder_name": null,
     "country": null,
-    "holding_type": "company"
+    "holding_type": "company",
+    "current_update_at": null,
+    "metrics_enabled": true,
+    "analyst_enabled": true,
+    "price_feed_enabled": false
    },
    "holdingType": "company",
    "entities": [],
@@ -468,6 +505,7 @@
     "lp_letters": "everyone",
     "imports": "everyone",
     "asks": "everyone",
+    "inbound": "everyone",
     "lps": "everyone",
     "lp_tracking": "admin",
     "lp_portal": "everyone",
@@ -479,6 +517,7 @@
     "gp_economics": "everyone",
     "tax_reporting": "off",
     "management_company": "off",
+    "audit": "off",
     "funds": "everyone",
     "budgeting": "everyone",
     "lp_portal_access": "everyone"
@@ -592,7 +631,20 @@
      "currency": null
     }
    },
-   "hasCapturedUpdates": true
+   "hasCapturedUpdates": true,
+   "hasPriceFeed": false,
+   "sections": {
+    "metrics": true,
+    "analyst": true,
+    "priceFeed": false
+   },
+   "lastMark": {
+    "date": "2026-06-30",
+    "source": "manual",
+    "ageDays": 145,
+    "stale": true,
+    "quarterEnd": "2026-09-30"
+   }
   },
   "/companies/d4fef540-f26b-426f-9aef-96144a6579ce": {
    "company": {
@@ -623,7 +675,11 @@
     "google_drive_folder_id": null,
     "google_drive_folder_name": null,
     "country": null,
-    "holding_type": "company"
+    "holding_type": "company",
+    "current_update_at": null,
+    "metrics_enabled": true,
+    "analyst_enabled": true,
+    "price_feed_enabled": false
    },
    "holdingType": "company",
    "entities": [],
@@ -642,6 +698,7 @@
     "lp_letters": "everyone",
     "imports": "everyone",
     "asks": "everyone",
+    "inbound": "everyone",
     "lps": "everyone",
     "lp_tracking": "admin",
     "lp_portal": "everyone",
@@ -653,6 +710,7 @@
     "gp_economics": "everyone",
     "tax_reporting": "off",
     "management_company": "off",
+    "audit": "off",
     "funds": "everyone",
     "budgeting": "everyone",
     "lp_portal_access": "everyone"
@@ -715,7 +773,20 @@
      "currency": null
     }
    },
-   "hasCapturedUpdates": true
+   "hasCapturedUpdates": true,
+   "hasPriceFeed": false,
+   "sections": {
+    "metrics": true,
+    "analyst": true,
+    "priceFeed": false
+   },
+   "lastMark": {
+    "date": "2025-12-31",
+    "source": "manual",
+    "ageDays": 326,
+    "stale": true,
+    "quarterEnd": "2026-09-30"
+   }
   },
   "/companies/b4870bad-ddd4-42d1-a300-7111899cf154": {
    "company": {
@@ -748,7 +819,11 @@
     "google_drive_folder_id": null,
     "google_drive_folder_name": null,
     "country": null,
-    "holding_type": "company"
+    "holding_type": "company",
+    "current_update_at": null,
+    "metrics_enabled": true,
+    "analyst_enabled": true,
+    "price_feed_enabled": false
    },
    "holdingType": "company",
    "entities": [],
@@ -767,6 +842,7 @@
     "lp_letters": "everyone",
     "imports": "everyone",
     "asks": "everyone",
+    "inbound": "everyone",
     "lps": "everyone",
     "lp_tracking": "admin",
     "lp_portal": "everyone",
@@ -778,6 +854,7 @@
     "gp_economics": "everyone",
     "tax_reporting": "off",
     "management_company": "off",
+    "audit": "off",
     "funds": "everyone",
     "budgeting": "everyone",
     "lp_portal_access": "everyone"
@@ -837,7 +914,20 @@
    ],
    "latestMrr": null,
    "latestCash": null,
-   "hasCapturedUpdates": true
+   "hasCapturedUpdates": true,
+   "hasPriceFeed": false,
+   "sections": {
+    "metrics": true,
+    "analyst": true,
+    "priceFeed": false
+   },
+   "lastMark": {
+    "date": "2026-06-30",
+    "source": "manual",
+    "ageDays": 145,
+    "stale": true,
+    "quarterEnd": "2026-09-30"
+   }
   },
   "/companies/d08a27bc-39e4-4fb1-a624-7a286d83e929": {
    "company": {
@@ -868,7 +958,11 @@
     "google_drive_folder_id": null,
     "google_drive_folder_name": null,
     "country": null,
-    "holding_type": "company"
+    "holding_type": "company",
+    "current_update_at": null,
+    "metrics_enabled": true,
+    "analyst_enabled": true,
+    "price_feed_enabled": false
    },
    "holdingType": "company",
    "entities": [],
@@ -887,6 +981,7 @@
     "lp_letters": "everyone",
     "imports": "everyone",
     "asks": "everyone",
+    "inbound": "everyone",
     "lps": "everyone",
     "lp_tracking": "admin",
     "lp_portal": "everyone",
@@ -898,6 +993,7 @@
     "gp_economics": "everyone",
     "tax_reporting": "off",
     "management_company": "off",
+    "audit": "off",
     "funds": "everyone",
     "budgeting": "everyone",
     "lp_portal_access": "everyone"
@@ -960,7 +1056,20 @@
     }
    },
    "latestCash": null,
-   "hasCapturedUpdates": true
+   "hasCapturedUpdates": true,
+   "hasPriceFeed": false,
+   "sections": {
+    "metrics": true,
+    "analyst": true,
+    "priceFeed": false
+   },
+   "lastMark": {
+    "date": "2026-06-30",
+    "source": "manual",
+    "ageDays": 145,
+    "stale": true,
+    "quarterEnd": "2026-09-30"
+   }
   },
   "/companies/35dea40d-dd6f-4916-b566-deb40872d579": {
    "company": {
@@ -991,7 +1100,11 @@
     "google_drive_folder_id": null,
     "google_drive_folder_name": null,
     "country": null,
-    "holding_type": "company"
+    "holding_type": "company",
+    "current_update_at": null,
+    "metrics_enabled": true,
+    "analyst_enabled": true,
+    "price_feed_enabled": false
    },
    "holdingType": "company",
    "entities": [],
@@ -1010,6 +1123,7 @@
     "lp_letters": "everyone",
     "imports": "everyone",
     "asks": "everyone",
+    "inbound": "everyone",
     "lps": "everyone",
     "lp_tracking": "admin",
     "lp_portal": "everyone",
@@ -1021,6 +1135,7 @@
     "gp_economics": "everyone",
     "tax_reporting": "off",
     "management_company": "off",
+    "audit": "off",
     "funds": "everyone",
     "budgeting": "everyone",
     "lp_portal_access": "everyone"
@@ -1099,7 +1214,20 @@
      "currency": null
     }
    },
-   "hasCapturedUpdates": true
+   "hasCapturedUpdates": true,
+   "hasPriceFeed": false,
+   "sections": {
+    "metrics": true,
+    "analyst": true,
+    "priceFeed": false
+   },
+   "lastMark": {
+    "date": null,
+    "source": null,
+    "ageDays": null,
+    "stale": true,
+    "quarterEnd": "2026-09-30"
+   }
   },
   "/companies/2231479f-1bf3-4646-9173-abc5d31fd515": {
    "company": {
@@ -1130,7 +1258,11 @@
     "google_drive_folder_id": null,
     "google_drive_folder_name": null,
     "country": null,
-    "holding_type": "company"
+    "holding_type": "company",
+    "current_update_at": null,
+    "metrics_enabled": true,
+    "analyst_enabled": true,
+    "price_feed_enabled": false
    },
    "holdingType": "company",
    "entities": [],
@@ -1149,6 +1281,7 @@
     "lp_letters": "everyone",
     "imports": "everyone",
     "asks": "everyone",
+    "inbound": "everyone",
     "lps": "everyone",
     "lp_tracking": "admin",
     "lp_portal": "everyone",
@@ -1160,6 +1293,7 @@
     "gp_economics": "everyone",
     "tax_reporting": "off",
     "management_company": "off",
+    "audit": "off",
     "funds": "everyone",
     "budgeting": "everyone",
     "lp_portal_access": "everyone"
@@ -1254,7 +1388,20 @@
      "currency": null
     }
    },
-   "hasCapturedUpdates": true
+   "hasCapturedUpdates": true,
+   "hasPriceFeed": false,
+   "sections": {
+    "metrics": true,
+    "analyst": true,
+    "priceFeed": false
+   },
+   "lastMark": {
+    "date": "2026-06-30",
+    "source": "manual",
+    "ageDays": 145,
+    "stale": true,
+    "quarterEnd": "2026-09-30"
+   }
   },
   "/companies/d1263d61-e648-4906-b991-f831fb74a186": {
    "company": {
@@ -1286,7 +1433,11 @@
     "google_drive_folder_id": null,
     "google_drive_folder_name": null,
     "country": null,
-    "holding_type": "company"
+    "holding_type": "company",
+    "current_update_at": null,
+    "metrics_enabled": true,
+    "analyst_enabled": true,
+    "price_feed_enabled": false
    },
    "holdingType": "company",
    "entities": [],
@@ -1305,6 +1456,7 @@
     "lp_letters": "everyone",
     "imports": "everyone",
     "asks": "everyone",
+    "inbound": "everyone",
     "lps": "everyone",
     "lp_tracking": "admin",
     "lp_portal": "everyone",
@@ -1316,6 +1468,7 @@
     "gp_economics": "everyone",
     "tax_reporting": "off",
     "management_company": "off",
+    "audit": "off",
     "funds": "everyone",
     "budgeting": "everyone",
     "lp_portal_access": "everyone"
@@ -1410,7 +1563,20 @@
      "currency": null
     }
    },
-   "hasCapturedUpdates": true
+   "hasCapturedUpdates": true,
+   "hasPriceFeed": false,
+   "sections": {
+    "metrics": true,
+    "analyst": true,
+    "priceFeed": false
+   },
+   "lastMark": {
+    "date": "2026-06-30",
+    "source": "manual",
+    "ageDays": 145,
+    "stale": true,
+    "quarterEnd": "2026-09-30"
+   }
   },
   "/companies/8b396e22-1612-4737-8d09-5dbf593bb08f": {
    "company": {
@@ -1441,7 +1607,11 @@
     "google_drive_folder_id": null,
     "google_drive_folder_name": null,
     "country": null,
-    "holding_type": "company"
+    "holding_type": "company",
+    "current_update_at": null,
+    "metrics_enabled": true,
+    "analyst_enabled": true,
+    "price_feed_enabled": false
    },
    "holdingType": "company",
    "entities": [],
@@ -1460,6 +1630,7 @@
     "lp_letters": "everyone",
     "imports": "everyone",
     "asks": "everyone",
+    "inbound": "everyone",
     "lps": "everyone",
     "lp_tracking": "admin",
     "lp_portal": "everyone",
@@ -1471,6 +1642,7 @@
     "gp_economics": "everyone",
     "tax_reporting": "off",
     "management_company": "off",
+    "audit": "off",
     "funds": "everyone",
     "budgeting": "everyone",
     "lp_portal_access": "everyone"
@@ -1533,7 +1705,20 @@
      "currency": null
     }
    },
-   "hasCapturedUpdates": true
+   "hasCapturedUpdates": true,
+   "hasPriceFeed": false,
+   "sections": {
+    "metrics": true,
+    "analyst": true,
+    "priceFeed": false
+   },
+   "lastMark": {
+    "date": "2026-06-30",
+    "source": "manual",
+    "ageDays": 145,
+    "stale": true,
+    "quarterEnd": "2026-09-30"
+   }
   },
   "/company-updates": {
    "companies": [
@@ -4756,7 +4941,12 @@
     "finalized_at": null,
     "finalized_by": null,
     "created_at": "2026-07-01T15:00:19.584867+00:00",
-    "created_by": "75ed8234-26c3-4e72-8cb2-f78cbd10961e"
+    "created_by": "75ed8234-26c3-4e72-8cb2-f78cbd10961e",
+    "written_by": "memo_agent",
+    "skill_version": null,
+    "brief_snapshot": null,
+    "review_flags": [],
+    "round_id": "759d7e86-8345-40dc-85e7-85583113454a"
    },
    "initialAttention": [
     {
@@ -5517,7 +5707,12 @@
     "finalized_at": null,
     "finalized_by": null,
     "created_at": "2026-07-01T15:00:22.10281+00:00",
-    "created_by": "75ed8234-26c3-4e72-8cb2-f78cbd10961e"
+    "created_by": "75ed8234-26c3-4e72-8cb2-f78cbd10961e",
+    "written_by": "memo_agent",
+    "skill_version": null,
+    "brief_snapshot": null,
+    "review_flags": [],
+    "round_id": "07056121-cc0d-41f1-874d-019f7db90f7c"
    },
    "initialAttention": [
     {

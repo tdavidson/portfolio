@@ -19,6 +19,7 @@ import {
   type AgentToolContext,
 } from '@/lib/accounting/agent-tools'
 import { listVehicles } from '@/lib/accounting/load'
+import { VehicleResolutionError } from '@/lib/accounting/vehicle-resolver'
 import { QUERY_LOADERS, type DatasetParams } from '@/lib/agent/query/datasets'
 import { runQuery } from '@/lib/agent/query/engine'
 import { loadBranding } from '@/lib/mcp-apps/branding'
@@ -180,6 +181,8 @@ interface LoadContext {
   options: Map<string, Set<string>>
   cache: Map<string, Promise<Row[]>>
   today: string
+  /** Set when a block could not load without one entity named (a ledger dataset in a fund with several). */
+  needsVehicle?: boolean
 }
 
 async function loadBlock(deps: ResolveDeps, block: DataBlock, lc: LoadContext): Promise<CustomBlock> {
@@ -322,6 +325,7 @@ async function loadBlock(deps: ResolveDeps, block: DataBlock, lc: LoadContext): 
       ...(totalsRow ? { totalsRow } : {}), ...(subtotals ? { subtotals } : {}), ...(links ? { links } : {}),
     }
   } catch (e) {
+    if (e instanceof VehicleResolutionError && !values.vehicle) lc.needsVehicle = true
     return { ...base, status: 'error', message: (e as Error).message || 'Could not load this block.' }
   }
 }
@@ -461,6 +465,12 @@ export async function resolveView(deps: ResolveDeps, spec: ViewSpec, rawParams: 
     spec.params.includes('vehicle') ? viewerVehicles(deps) : Promise.resolve([] as string[]),
     Promise.all(spec.blocks.map(b => (isDataBlock(b) ? loadBlock(deps, b, lc) : isFormulaBlock(b) ? Promise.resolve(null) : Promise.resolve(textBlock(b as ViewBlock & { type: 'text' }))))),
   ])
+  // A ledger dataset reads one entity's books, so a view opened on "all entities" cannot load it
+  // once the fund has several: every such block would say "Specify a vehicle". Open it on the
+  // viewer's first entity instead; values.vehicle then names it in the subtitle and the picker.
+  if (lc.needsVehicle && vehicles.length > 1 && !values.vehicle) {
+    return resolveView(deps, spec, { ...(rawParams as Record<string, unknown> ?? {}), vehicle: vehicles[0] }, ref)
+  }
   // Formula tiles last: they read the figures the other tiles loaded, as this viewer.
   spec.blocks.forEach((b, i) => { if (isFormulaBlock(b)) blocks[i] = formulaTile(b, spec.blocks, blocks) })
   // The filters' current values travel as plain params too, so links and exports reopen the same view.

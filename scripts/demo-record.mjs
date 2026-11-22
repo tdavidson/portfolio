@@ -125,7 +125,7 @@ const proxied = async (href, init) => {
 };
 Promise.all(['snapshot','answers','pages','api'].map(f => fetch('/' + f + '.json').then(r => r.json()))).then(([snapshot, answers, pages, api]) => {
   window.__demo = PortfolioDemo.mount(document.getElementById('demo'), { snapshot, answers, pages, api, fetch: proxied });
-  window.__routes = PortfolioDemo.routes(snapshot, pages);
+  window.__routes = PortfolioDemo.routes(snapshot, pages, api);
   window.__ready = true;
 });
 </script></body></html>`
@@ -196,6 +196,23 @@ for (const key of Object.keys(responses)) {
     }
   }
   console.log(`ledger registers (${group})  ${requests - before} requests`)
+}
+
+// 6. Custom views. The route table enumerates saved views from the PREVIOUS recording's
+//    /api/views, so open the ones this walk found that it did not know yet; then record each view
+//    on every entity (its picker), and each starter the New view page offers (clicked, not routed).
+{
+  const before = requests
+  const views = responses['GET /api/views']?.body?.views ?? []
+  for (const v of views) {
+    if (!routes.includes(`/views/${v.id}`)) { await page.evaluate(h => window.__demo.navigate(h), `/views/${v.id}`); await settle() }
+    const vehicles = responses[`GET /api/views/${v.id}`]?.body?.payload?.data?.vehicles ?? []
+    for (const vehicle of vehicles) await proxy(`/api/views/${encodeURIComponent(v.id)}?${new URLSearchParams({ vehicle })}`)
+  }
+  for (const s of responses['GET /api/views/starters']?.body?.starters ?? []) {
+    await proxy(`/api/views/starters?${new URLSearchParams({ key: s.key })}`)
+  }
+  console.log(`custom views (${views.length} saved)  ${requests - before} requests`)
 }
 
 await browser.close()

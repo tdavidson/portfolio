@@ -24,7 +24,7 @@ import path from 'node:path'
 import { createClient as createSupabaseClient } from '@supabase/supabase-js'
 import type { Database } from '@/lib/types/database'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { resolvePageAccess, type PageAccess } from '@/lib/access/page-gate'
+import type { PageAccess } from '@/lib/access/page-gate'
 import { loadAccessContext } from '@/lib/access/effective'
 import { PAGE_LOADERS, matchPattern } from '@/lib/pages/registry'
 import type { PageContext } from '@/lib/pages/context'
@@ -152,7 +152,8 @@ async function exportPages(admin: ReturnType<typeof createAdminClient>, fundId: 
   }
   const { client: supabase, user } = viewer ?? await signInViewer()
   const auth = { user }
-  const page = asViewer ? await viewerPageAccess(supabase, user.id) : await resolvePageAccess(user.id)
+  // Not resolvePageAccess: it reads the request's cookies (lib/supabase/server), and a script has no request.
+  const page = await viewerPageAccess(supabase, user.id)
   if (!page) throw new Error(`${email} is not a member of any fund.`)
   if (page.fundId !== fundId) throw new Error(`${email} belongs to fund ${page.fundId}, not to ${JSON.stringify(FUND_NAME)} (${fundId}).`)
   // The ssr and js clients differ in a type parameter only; both are the same client at runtime.

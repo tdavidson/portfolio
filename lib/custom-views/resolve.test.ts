@@ -4,6 +4,7 @@ import type { Domain } from '@/lib/access/domains'
 import { DEFAULT_FEATURE_VISIBILITY, type FeatureVisibilityMap } from '@/lib/types/features'
 import { pivotSeries, resolveView } from './resolve'
 import { parseViewSpec } from './spec'
+import { VehicleResolutionError } from '@/lib/accounting/vehicle-resolver'
 
 const access = (grants: Partial<Record<Domain, AccessLevel>>): AccessContext => ({
   fundId: 'fund-1', userId: 'user-me', vehicles: { all: true, ids: [] }, role: 'member',
@@ -51,6 +52,26 @@ const spec = parseViewSpec({
 })
 
 describe('resolveView', () => {
+  it('opens a view whose ledger blocks need one entity on the viewer\'s first, rather than refusing every block', async () => {
+    const d = deps({ portfolio: 'read', lp_capital: 'read' })
+    // As a ledger dataset does in a fund with several entities and none named.
+    const lpPositions = vi.fn(async (_ctx: unknown, p: { vehicle?: string }) => {
+      if (!p.vehicle) throw new VehicleResolutionError('Specify a vehicle — this fund has several: Example Fund I, Example Fund II')
+      return LP_POSITIONS
+    })
+    const payload = await resolveView({ ...d.deps, loaders: { positions: d.positions, lp_positions: lpPositions } as never }, spec, {}, { id: null })
+    expect(payload.data.values.vehicle).toBe('Example Fund I')
+    expect(payload.subtitle).toBe('Example Fund I')
+    expect(payload.data.blocks.every(b => b.status === 'ok')).toBe(true)
+  })
+
+  it('keeps "all entities" when every block can load without one', async () => {
+    const d = deps({ portfolio: 'read', lp_capital: 'read' })
+    const payload = await resolveView(d.deps, spec, {}, { id: null })
+    expect(payload.data.values.vehicle).toBeUndefined()
+    expect(payload.subtitle).toBe('All vehicles')
+  })
+
   it('loads every block as the viewer and lays it out', async () => {
     const d = deps({ portfolio: 'read', lp_capital: 'read' })
     const payload = await resolveView(d.deps, spec, { vehicle: 'Example Fund I' }, { id: 'view-1', name: 'My Monday', url: '/views/view-1' })

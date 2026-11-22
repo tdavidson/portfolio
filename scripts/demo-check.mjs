@@ -46,7 +46,7 @@ Promise.all(['snapshot','answers','pages','api'].map(f => fetch('/' + f + '.json
   // Count in-flight /api requests so the walker can wait for a page to settle.
   const wrapped = window.fetch;
   window.fetch = function (input, init) { const p = wrapped.call(this, input, init); const u = typeof input === 'string' ? input : input.url ?? String(input); if (u.includes('/api/')) { window.__pending++; p.finally(() => { window.__pending--; }); } return p; };
-  window.__routes = PortfolioDemo.routes(snapshot, pages);
+  window.__routes = PortfolioDemo.routes(snapshot, pages, api);
   window.__ready = true;
 });
 </script></body></html>`

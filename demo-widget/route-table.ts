@@ -1,4 +1,4 @@
-import type { DemoPages, DemoSnapshot } from './types'
+import type { DemoApi, DemoPages, DemoSnapshot } from './types'
 
 /**
  * The widget's route table, as data: every URL pattern a viewer of the demo fund can open, how
@@ -16,10 +16,16 @@ export interface DemoRoute {
   /** The section module that renders it; the core renders the rest (routes.tsx). */
   section?: Section
   /** Concrete URLs to walk when recording, checking or prerendering; static routes list themselves. */
-  hrefs?: (snapshot: DemoSnapshot, pages: DemoPages) => string[]
+  hrefs?: (snapshot: DemoSnapshot, pages: DemoPages, api?: DemoApi) => string[]
 }
 
 const recordedHrefs = (prefix: RegExp) => (_s: DemoSnapshot, pages: DemoPages) => Object.keys(pages.pages).filter(h => prefix.test(h))
+
+/** The saved custom views, from the recorded /api/views (custom_views is service-role only, so the snapshot can't read it). */
+export const recordedViewHrefs = (_s: DemoSnapshot, _p: DemoPages, api?: DemoApi) => {
+  const body = api?.responses['GET /api/views']?.body as { views?: { id: string }[] } | undefined
+  return (body?.views ?? []).map(v => `/views/${v.id}`)
+}
 
 /**
  * The `/funds/<id>/<slug>` pages the widget walks: every page under app/(app)/funds/[id]/ that the
@@ -54,6 +60,10 @@ export const ROUTES: DemoRoute[] = [
   { pattern: '/compliance', section: 'portfolio' },
   { pattern: '/compliance/links', section: 'portfolio' },
   { pattern: '/audit', section: 'portfolio' },
+  // Custom views: the fund's shared views (scripts/demo-seed/demo-views.ts) and the starters
+  { pattern: '/views', section: 'portfolio' },
+  { pattern: '/views/new', section: 'portfolio' },
+  { pattern: '/views/:id', section: 'portfolio', hrefs: recordedViewHrefs },
   // Inbound, review, deals
   { pattern: '/emails', section: 'inbound' },
   { pattern: '/emails/:id', section: 'inbound', hrefs: recordedHrefs(/^\/emails\/[^/]+$/) },
@@ -101,10 +111,10 @@ export function matchRoute(pathname: string): { route: DemoRoute; params: Record
 }
 
 /** Every concrete URL the widget serves for this data: what the recorder and the check walk. */
-export function allHrefs(snapshot: DemoSnapshot, pages: DemoPages): string[] {
+export function allHrefs(snapshot: DemoSnapshot, pages: DemoPages, api?: DemoApi): string[] {
   const out = new Set<string>()
   for (const route of ROUTES) {
-    if (route.hrefs) for (const h of route.hrefs(snapshot, pages)) out.add(h)
+    if (route.hrefs) for (const h of route.hrefs(snapshot, pages, api)) out.add(h)
     else if (!route.pattern.includes(':')) out.add(route.pattern)
   }
   // Anything the snapshot script recorded that the table can serve, whether or not the table

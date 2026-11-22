@@ -106,7 +106,7 @@ const tableBuild = await build({
 })
 const tableUrl = `data:text/javascript;base64,${Buffer.from(tableBuild.outputFiles[0].text).toString('base64')}`
 const { allHrefs } = await import(tableUrl)
-const routes = allHrefs(snapshot, JSON.parse(fs.readFileSync(path.join(dist, 'pages.json'), 'utf8')))
+const routes = allHrefs(snapshot, JSON.parse(fs.readFileSync(path.join(dist, 'pages.json'), 'utf8')), JSON.parse(fs.readFileSync(path.join(dist, 'api.json'), 'utf8')))
 fs.writeFileSync(path.join(dist, 'routes.json'), JSON.stringify(routes, null, 1) + '\n')
 const answers = JSON.parse(fs.readFileSync(path.join(dist, 'answers.json'), 'utf8'))
 const manifest = {
