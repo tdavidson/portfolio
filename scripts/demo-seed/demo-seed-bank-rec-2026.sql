@@ -8,8 +8,9 @@
 --    feed, so the statement stopped at September. Their three wires are added, matched to those
 --    entries.
 --
--- Fund II keeps its unmatched and drafted lines on purpose: they are what the bank screen shows
--- a reviewer working through. demo-seed-bank-rec-2026-remove.sql reverses this file.
+-- Then run scripts/demo-seed/demo-bank-rec-book.ts, which books and posts Fund II's five open lines
+-- through the app's own Post, so both funds tie. demo-seed-bank-rec-2026-remove.sql reverses this
+-- file (not the posting, which is voided in the app like any posted entry).
 begin;
 
 update bank_transactions
