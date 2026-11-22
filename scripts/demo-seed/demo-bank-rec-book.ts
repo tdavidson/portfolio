@@ -43,10 +43,12 @@ async function main() {
     if (!t.journal_entry_id) {
       const contra = accountId(t.suggested_account_code)
       const amount = Number(t.amount)
-      const { data: entry, error } = await admin.from('journal_entries').insert({
-        fund_id: FUND, portfolio_group: GROUP, vehicle_id: VEHICLE, entry_date: t.txn_date, memo: t.description,
+      // The id is made here rather than read back, so nothing reads journal_entries without a book.
+      const entry = { id: crypto.randomUUID() }
+      const { error } = await admin.from('journal_entries').insert({
+        id: entry.id, fund_id: FUND, portfolio_group: GROUP, vehicle_id: VEHICLE, entry_date: t.txn_date, memo: t.description,
         source_type: amount > 0 ? 'income' : 'partnership_expense', source_ref: 'demo-bank-rec-2026', status: 'draft', book: 'actual',
-      }).select('id').single()
+      })
       if (error) throw error
       const postings = [
         { account_id: cash, amount },
