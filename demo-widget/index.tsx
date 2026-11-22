@@ -131,8 +131,8 @@ function markPortalRoots(): () => void {
 }
 
 /** Every URL the widget serves for this data; what scripts/demo-record.mjs and demo-check.mjs walk. */
-export function routes(snapshot: DemoSnapshot, pages?: DemoPages): string[] {
-  return allHrefs(snapshot, pages ?? EMPTY_PAGES)
+export function routes(snapshot: DemoSnapshot, pages?: DemoPages, api?: DemoApi): string[] {
+  return allHrefs(snapshot, pages ?? EMPTY_PAGES, api)
 }
 
 declare global {

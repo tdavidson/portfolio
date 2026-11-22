@@ -99,7 +99,7 @@ export default function CustomViewPage() {
               <select
                 aria-label="Entity"
                 className="h-9 rounded-md border border-input bg-background px-2 text-sm"
-                value={args.vehicle ?? ''}
+                value={args.vehicle ?? payload?.data.values.vehicle ?? ''}
                 onChange={e => setArg('vehicle', e.target.value)}
               >
                 <option value="">All entities</option>

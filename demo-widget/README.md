@@ -98,7 +98,9 @@ for the site's own next deploy (or a manual redeploy in Vercel).
 
 The demo fund's own data comes from the seeds in `scripts/demo-seed/` (each with a `-remove.sql`),
 applied once by hand in the SQL editor; `demo-seed-oct-2026.sql` adds what the LP letter, capital call
-and close features show. Then three files, three scripts, all run locally against the demo fund and
+and close features show, and `demo-seed-bank-rec-2026.sql` makes the bank reconciliation tie. The fund's shared
+custom views come from `npx tsx --env-file=.env.local scripts/demo-seed/demo-views.ts --save` (service role;
+without `--save` it resolves each view as the viewer and saves nothing). Then three files, three scripts, all run locally against the demo fund and
 committed:
 
 1. `npm run demo:snapshot` (`DEMO_USER_EMAIL` / `DEMO_USER_PASSWORD` for a viewer in the demo
