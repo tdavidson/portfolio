@@ -2,9 +2,9 @@
 
 # Portfolio, by Hemrock
 
-Manage deal flow, portfolio reporting, fund operations, LPs, and accounting, without stitching together spreadsheets and point tools.
+Free, open source software for small venture funds: portfolio monitoring built from founder updates, LP letters and capital statements, deal flow and fund accounting. It runs on your own infrastructure with your own AI provider.
 
-Portfolio is an open-source operating platform for venture capital firms. Take a company from inbound screening and diligence through investment, portfolio monitoring, fund accounting, and LP reporting—all in one system. Turn on only the workflows you need, deploy on your own infrastructure, and use your own AI providers.
+Portfolio is an open-source operating platform for small and emerging venture funds, from solo GPs and SPVs to micro funds. Take a company from inbound screening and diligence through investment, portfolio monitoring, fund accounting, and LP reporting—all in one system. Turn on only the workflows you need, deploy on your own infrastructure, and use your own AI providers. Product site and documentation: [hemrock.com/portfolio](https://www.hemrock.com/portfolio).
 
 ![Portfolio Dashboard](public/screenshots/dashboard.png)
 
@@ -16,9 +16,13 @@ The investment workflow classifies and fit-scores inbound opportunities, runs yo
 
 Fund operations run on real double-entry books that keep themselves: every entity has its ledger from the day it is created, and recording an investment, a mark, an exit or a capital call posts it — so capital accounts, statements, carry and LP reporting flow from the books whether or not anyone opens the accounting pages. Turn on the views you need, when you need them. A secure LP portal delivers statements, letters, and fund documents and records engagement.
 
+## Who it's for
+
+Portfolio is built for small funds that carry the same reporting obligations as large ones without the headcount: [solo GPs](https://www.hemrock.com/portfolio/solo-gps), [micro VCs](https://www.hemrock.com/portfolio/micro-vc), [SPVs](https://www.hemrock.com/portfolio/spvs), and [angels and syndicates](https://www.hemrock.com/portfolio/angels-syndicates). It's free, with no per-seat fees, and your data stays in your own database. It works alongside your fund administrator, not in place of one.
+
 ## How it works
 
-- **Portfolio Reporting** — Forward investor updates in any format or import existing spreadsheets. AI identifies each company, extracts metrics, investments, and cash flows, and sends uncertain results to a review queue. Track custom KPIs, valuations, proceeds, TVPI, DPI, and Net IRR in current dashboards.
+- **Portfolio Reporting** — Forward founder updates in any format or import existing spreadsheets. AI identifies each company, extracts metrics, investments, and cash flows, and sends uncertain results to a review queue. Track custom KPIs, valuations, proceeds, TVPI, DPI, and Net IRR in current dashboards.
 - **Investment Workflow** — Classify and thesis-score inbound pitches, manage the deal pipeline, run your diligence checklist against uploaded data rooms, verify claims through sourced external research, and draft an investment memo in your firm's voice with paragraph-level provenance.
 - **LP Reporting** — Track commitments, paid-in capital, distributions, and NAV across vehicles as dated positions; generate statements and quarterly letters; and deliver reports and documents through a secure, fund-branded LP portal with engagement tracking. Investors can also connect Claude or ChatGPT to their own portal.
 - **Fund Operations** — Double-entry books for every entity, kept as you record investments and capital calls; import bank activity, run monthly closes, maintain partner capital accounts, model management fees and carried interest, budget and forecast each entity, and track compliance obligations.
@@ -54,7 +58,7 @@ Most portfolio reporting platforms lock your data in their database, process it 
 
 This is a complete investment-firm operations platform you deploy on your own infrastructure — your database, your AI keys, your domain. It's open source under the Apache 2.0 license: free to use, modify, and run forever, for your own fund or commercially. No per-seat fees. No black-box AI training on your portfolio. No vendor lock-in.
 
-Built by Taylor Davidson at [Hemrock](https://www.hemrock.com). Built by a fund manager, for fund managers. Product site and documentation: [hemrock.com/portfolio](https://www.hemrock.com/portfolio).
+Built by Taylor Davidson at [Hemrock](https://www.hemrock.com). Built by a fund manager, for fund managers.
 
 ## Get started
 
