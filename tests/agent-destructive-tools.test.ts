@@ -120,6 +120,29 @@ describe('lp_delete_entity and lp_merge_investors', () => {
   })
 })
 
+describe('lp_merge_entities', () => {
+  it('previews what moves and calls the database merge with both ids', async () => {
+    const p = await preview('lp_merge_entities', { from: 'Beta LP', into: 'Alpha LP' })
+    expect(p.pin).toEqual({ from: 'e2', into: 'e1' })
+    expect(p.summary).toMatch(/^Merge LP entity Beta LP into Alpha LP: its commitments in 1 vehicle, /)
+    expect(p.summary).toMatch(/Both hold commitments in 1 of the same vehicle/)
+    const calls: any[] = []
+    ;(store.admin as any).rpc = async (name: string, args: any) => { calls.push([name, args]); return { data: { moved: { 'public.commitment_events.lp_entity_id': 1 } }, error: null } }
+    const out: any = await run('lp_merge_entities', { from: 'e2', into: 'e1' })
+    expect(calls).toEqual([['merge_lp_entities', { p_fund_id: 'fund-1', p_from: 'e2', p_into: 'e1' }]])
+    expect(out.merged).toEqual({ from: { id: 'e2', name: 'Beta LP' }, into: { id: 'e1', name: 'Alpha LP' } })
+  })
+
+  it('says plainly when both hold a row that can exist only once', async () => {
+    ;(store.admin as any).rpc = async () => ({ data: null, error: { code: '23505', message: 'duplicate key' } })
+    await expect(run('lp_merge_entities', { from: 'e2', into: 'e1' })).rejects.toThrow(/cannot be merged as they are/)
+  })
+
+  it('refuses merging an entity into itself', async () => {
+    await expect(preview('lp_merge_entities', { from: 'Alpha LP', into: 'e1' })).rejects.toThrow('Cannot merge an LP entity into itself')
+  })
+})
+
 describe('delete_lp_positions', () => {
   it('deletes one dated set on the entity, nothing else', async () => {
     const p = await preview('delete_lp_positions', { vehicle: 'Acme SPV', as_of_date: '2026-03-31' })

@@ -144,6 +144,7 @@ export const ADMIN_ONLY_TOOLS: Record<string, { label: string; when?: (input: an
   lp_delete_entity: { label: 'delete an LP entity' },
   lp_delete_commitment: { label: 'delete a commitment' },
   lp_merge_investors: { label: 'merge LP investors' },
+  lp_merge_entities: { label: 'merge LP entities' },
   delete_lp_positions: { label: 'delete an LP position' },
   diligence_delete_deal: { label: 'delete a diligence deal' },
   remove_member: { label: 'remove a team member' },
