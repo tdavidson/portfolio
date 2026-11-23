@@ -1,3 +1,4 @@
+import type { NavLayout } from '@/lib/nav/layout'
 import { createRoot, type Root } from 'react-dom/client'
 import { DemoApp } from './app'
 import { toast } from 'sonner'
@@ -55,6 +56,9 @@ export interface MountOptions {
   /** The host's theme storage key (next-themes' `storageKey`), so the demo's System / Light /
    *  Dark control and the host read and write one setting. */
   themeStorageKey?: string
+  /** The nav layout to open in (lib/nav/layout.ts). Default: the original sidebar. Switching it
+   *  in the demo's Settings lasts until the page is reloaded. */
+  navLayout?: NavLayout
 }
 
 export function mount(el: HTMLElement, opts: MountOptions): { unmount: () => void; navigate: (href: string) => void } {
@@ -83,6 +87,7 @@ export function mount(el: HTMLElement, opts: MountOptions): { unmount: () => voi
       onNavigate={opts.onNavigate}
       exposeNavigate={fn => { navigateTo = fn }}
       chrome={opts.chrome}
+      navLayout={opts.navLayout}
       onReady={opts.onReady}
       exit={{ href: opts.exitHref ?? '/', label: 'Exit demo' }}
       basePath={opts.basePath}
