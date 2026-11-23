@@ -96,6 +96,8 @@ const PAIRS: Pair[] = [
   { what: 'change an LP\'s record', route: 'api/lps/entities/profile', method: 'PATCH', tool: 'lp_update_profile' },
   { what: 'give an advisor portal access', route: 'api/lps/authorized-users', method: 'POST', tool: 'lp_authorized_user_add', handlerAdminOnly: true },
   { what: 'issue a capital call', route: 'api/accounting/capital-calls', method: 'POST', body: { action: 'issue' }, tool: 'issue_capital_call' },
+  { what: 'declare a distribution', route: 'api/accounting/distributions', method: 'POST', body: { action: 'declare' }, tool: 'declare_distribution' },
+  { what: 'sign off a distribution', route: 'api/accounting/distributions', method: 'POST', body: { action: 'sign_off' }, tool: 'distribution_sign_off' },
   { what: 'add a commitment', route: 'api/accounting/commitments', method: 'POST', tool: 'lp_record_commitment' },
   { what: 'add an LP investor', route: 'api/lps/investors', method: 'POST', tool: 'lp_create_investor', handlerAdminOnly: true },
   { what: 'delete LP positions', route: 'api/accounting/positions', method: 'DELETE', tool: 'delete_lp_positions' },

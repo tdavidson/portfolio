@@ -32,6 +32,11 @@ import { siteOrigin } from '@/lib/site-links'
 import { reviewCallNotices } from '@/lib/accounting/call-notice-review'
 import { unwrap } from '@/lib/service-outcome'
 import { investorGroups, type InvestorRecord } from '@/lib/lps/investor-groups'
+import { listDistributions, signOffDistribution } from '@/lib/accounting/distributions'
+import { previewWithChecks } from '@/lib/accounting/distribution-review'
+import { foldDeclaredCarry, foldPreviewCarry, recipientsToHide } from '@/lib/accounting/distribution-carry-fold'
+import { recordAudit } from '@/lib/audit/events'
+import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const STATEMENT_PRESETS: PeriodPreset[] = ['this_quarter', 'last_quarter', 'ytd', 'prior_year', 'itd']
@@ -428,6 +433,135 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
         })),
       })),
     }
+  },
+
+  // The distribution register, as the Capital accounts page lists it: each partner's capital line
+  // and carry line apart, with the stored return of capital / preferred / profit and the sign-off.
+  list_distributions: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
+    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
+    // Without gp_economics the carry recipients are one combined row (what each receives is GP economics).
+    const hide = await recipientsToHide(admin, fundId, vehicle, access)
+    const rows = (await listDistributions(admin, fundId, vehicle)).map(d => (hide ? foldDeclaredCarry(d, hide) : d))
+    return {
+      vehicle,
+      distributions: rows.map(d => ({
+        id: d.distributionId,
+        date: d.date,
+        description: d.description,
+        total: d.total,
+        lp_total: d.lpTotal,
+        carry_total: d.carryTotal,
+        split_method: d.splitMethod,
+        tiers: d.tiers,
+        character: d.characterised ? d.character : null,
+        status: d.status,
+        paid: d.settled,
+        unpaid: d.outstanding,
+        signed_off: d.signOff ? { by: d.signOff.by, at: d.signOff.at, note: d.signOff.note } : null,
+        lines: d.lines.map(l => ({
+          partner: l.name,
+          line: l.role === 'carry' ? 'carried interest' : 'distribution on capital',
+          amount: l.amount,
+          ...(l.breakdown ? { return_of_capital: l.breakdown.returnOfCapital, preferred_return: l.breakdown.preferred, profit: l.breakdown.profit } : {}),
+          deductions: l.deductions?.length ? l.deductions : undefined,
+          paid: l.settled,
+          unpaid: l.outstanding,
+          status: l.status,
+          paid_on: l.settledOn,
+          notice_published: !!l.noticeDocumentId,
+        })),
+      })),
+    }
+  },
+
+  // The split a distribution would get, with the checks and a workbook link. Writes nothing.
+  preview_distribution: async ({ admin, fundId, access, userId, origin }: AgentToolContext, input: any) => {
+    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
+    const total = Math.round(Number(input?.total) * 100) / 100
+    if (!Number.isFinite(total) || total <= 0) throw new Error('total must be a positive amount.')
+    const asOf = input?.asOf ? String(input.asOf) : new Date().toISOString().slice(0, 10)
+    if (!ISO_DATE.test(asOf)) throw new Error('asOf must be YYYY-MM-DD.')
+    const method = input?.method === 'pro_rata' ? 'pro_rata' as const : 'waterfall' as const
+    const hide = await recipientsToHide(admin, fundId, vehicle, access)
+    const raw = await previewWithChecks(admin, fundId, vehicle, total, asOf, method)
+    const p = hide ? foldPreviewCarry(raw, hide) : raw
+    const name = (id: string) => p.names[id] ?? id
+    const breakdown = new Map(p.lineBreakdown.map(b => [b.lpEntityId, b]))
+    const workbook = userId
+      ? reportLinkUrl(origin ?? siteOrigin(), signReportLink({ fundId, userId, kind: 'distribution_workbook', args: { vehicle, total: String(total), as_of: asOf, method } }).token)
+      : null
+    const blocked = p.checks.flags.some(f => f.severity === 'blocker') || p.checks.missing.some(m => m.required)
+    return {
+      vehicle, total, as_of: asOf, method: p.method,
+      lines: p.lines.map(l => {
+        const b = breakdown.get(l.lpEntityId)
+        return {
+          partner: name(l.lpEntityId), line: 'distribution on capital', amount: l.amount,
+          ...(b ? { return_of_capital: b.returnOfCapital, preferred_return: b.preferred, profit: b.profit } : {}),
+        }
+      }),
+      carry_lines: p.carryLines.map(l => ({ partner: name(l.lpEntityId), line: 'carried interest', amount: l.amount })),
+      tiers: p.method === 'waterfall' ? p.tiers : null,
+      suggested_character: p.suggestedCharacter,
+      missing: p.checks.missing,
+      flags: p.checks.flags,
+      workbook,
+      next: blocked
+        ? 'Nothing was written. It cannot be declared while a check is a blocker or a required item is missing: tell the user which.'
+        : 'Nothing was written. Show the user each partner\'s lines (the GP\'s capital and its carry apart), the tiers and every ' +
+          'flag, and the workbook link (it opens for an hour). Only if they confirm, call declare_distribution with this vehicle, ' +
+          'total and method and the date; an admin then approves it.',
+    }
+  },
+
+  // Always staged as the declare_distribution pending action (its manifest's `stagesAs`).
+  declare_distribution: async () => {
+    throw new Error('declare_distribution is always staged for an admin to approve; it cannot run directly.')
+  },
+
+  distribution_workbook: async ({ admin, fundId, access, userId, origin }: AgentToolContext, input: any) => {
+    if (!userId) throw new Error('Documents are issued to a signed-in member; this credential has no user.')
+    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
+    let args: Record<string, string>
+    if (input?.distributionId) {
+      const id = String(input.distributionId)
+      // Fail here rather than on a link that 404s later.
+      if (!(await listDistributions(admin, fundId, vehicle)).some(d => d.distributionId === id)) {
+        throw new Error(`No declared distribution ${id} in ${vehicle}. list_distributions shows them.`)
+      }
+      args = { vehicle, id }
+    } else {
+      const total = Math.round(Number(input?.total) * 100) / 100
+      if (!Number.isFinite(total) || total <= 0) throw new Error('Pass distributionId, or a positive total for a preview.')
+      const asOf = input?.asOf ? String(input.asOf) : new Date().toISOString().slice(0, 10)
+      if (!ISO_DATE.test(asOf)) throw new Error('asOf must be YYYY-MM-DD.')
+      args = { vehicle, total: String(total), as_of: asOf, method: input?.method === 'pro_rata' ? 'pro_rata' : 'waterfall' }
+    }
+    const { token, expiresAt } = signReportLink({ fundId, userId, kind: 'distribution_workbook', args })
+    return {
+      document: args.id ? 'Distribution calculation (Excel)' : 'Distribution calculation, preview (Excel)',
+      vehicle,
+      url: reportLinkUrl(origin ?? siteOrigin(), token),
+      expires_at: expiresAt,
+      note: linkNote('It opens the workbook for an hour, and only for this member.'),
+    }
+  },
+
+  // The person's own sign-off, in their name. The Capital accounts page records the same.
+  distribution_sign_off: async ({ admin, fundId, access, userId }: AgentToolContext, input: any) => {
+    if (!userId) throw new Error('A sign-off is recorded in a member\'s name; this credential has no user.')
+    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
+    const distributionId = String(input?.distributionId ?? '')
+    if (!distributionId) throw new Error('distributionId is required (list_distributions).')
+    const clear = input?.clear === true
+    const out = await signOffDistribution(admin, fundId, vehicle, userId, distributionId, { note: input?.note ?? null, clear })
+    if ('error' in out) throw new Error(out.error)
+    await recordAudit(admin, {
+      fundId, vehicleId: await vehicleIdByName(admin, fundId, vehicle), actorId: userId,
+      action: clear ? 'distribution.sign_off_cleared' : 'distribution.sign_off', subjectType: 'distribution', subjectId: distributionId,
+      details: { note: out.signOff?.note ?? null },
+    })
+    return { vehicle, distributionId, signed_off: clear ? null : out.signOff }
   },
 
   // What publishing a call's notices would do. The first of the two confirmations: the person reads

@@ -174,6 +174,8 @@ export const ADMIN_ONLY_TOOLS: Record<string, { label: string; when?: (input: an
 /** Analyst write actions that are admin-only to approve (lib/pending-actions/registry.ts). */
 export const ADMIN_ONLY_ACTIONS: Record<string, string> = {
   issue_capital_call: 'issue a capital call',
+  // As api/accounting/distributions POST action=declare (ADMIN_ONLY_ROUTES above).
+  declare_distribution: 'declare a distribution',
   publish_call_notices: 'publish notices to LPs',
   set_waterfall_terms: 'change waterfall terms',
 }

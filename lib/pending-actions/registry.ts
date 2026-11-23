@@ -8,6 +8,7 @@ import { previewUpdateCompany, executeUpdateCompany } from './company-edit'
 import { UPDATE_COMPANY_DESCRIPTION, UPDATE_COMPANY_PROPERTIES } from '@/lib/agent/holding-tools-manifest'
 import { previewRecordInvestment, executeRecordInvestment } from './investment'
 import { previewIssueCapitalCall, executeIssueCapitalCall } from './capital-call'
+import { previewDeclareDistribution, executeDeclareDistribution } from './distribution'
 import { previewPublishCallNotices, executePublishCallNoticesElsewhere } from './call-notices'
 import {
   previewUpdatePortfolioConstruction,
@@ -185,6 +186,27 @@ export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
     },
     preview: previewIssueCapitalCall,
     execute: executeIssueCapitalCall,
+  },
+  declare_distribution: {
+    entity: 'required',
+    domain: 'lp_capital',
+    description:
+      'Declare a fund-wide distribution, split through the vehicle\'s waterfall (LP lines, the GP\'s own capital and its ' +
+      'carried interest apart) or pro-rata by capital. Split again from the live books on approval; refused while the checks ' +
+      'show a blocker.',
+    inputSchema: {
+      type: 'object',
+      required: ['distributionDate', 'total'],
+      properties: {
+        vehicle: { type: 'string', description: 'The vehicle (portfolio_group).' },
+        distributionDate: { type: 'string', description: 'YYYY-MM-DD.' },
+        total: { type: 'number', description: 'Fund-wide amount to distribute.' },
+        description: { type: 'string' },
+        method: { type: 'string', enum: ['waterfall', 'pro_rata'], description: 'Default waterfall. pro_rata only where the LPA treats this distribution that way.' },
+      },
+    },
+    preview: previewDeclareDistribution,
+    execute: executeDeclareDistribution,
   },
   publish_call_notices: {
     entity: 'required',

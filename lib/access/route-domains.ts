@@ -189,6 +189,8 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/proposed-calls/pdf': { domain: 'lp_capital' },
   // The outbound mirror of capital-calls, and the same per-partner capital data.
   'api/accounting/distributions': { domain: 'lp_capital' },
+  // A distribution's calculation as a workbook: the same data, as a file.
+  'api/accounting/distributions/workbook': { domain: 'lp_capital' },
   'api/accounting/commitments': { domain: 'lp_capital' },
   'api/accounting/closings': { domain: 'lp_capital' },
   // ── Tax: its own area, so a preparer can do the tax work without changing the books ──

@@ -15,7 +15,7 @@ export type AuditAction =
   | 'lp_position.edit' | 'lp_position.delete'
   | 'snapshot.share' | 'snapshot.unshare' | 'snapshot.edit' | 'snapshot.delete'
   | 'lp_statement.force_publish'
-  | 'capital_call.issue' | 'distribution.declare'
+  | 'capital_call.issue' | 'distribution.declare' | 'distribution.sign_off' | 'distribution.sign_off_cleared'
   | 'credit_facility.save' | 'credit_facility.remove' | 'credit_facility.record' | 'credit_facility.remove_row'
   | 'proposed_call.create' | 'proposed_call.revise' | 'proposed_call.approve' | 'proposed_call.discard'
   | 'k1.generate' | 'k1.finalize' | 'k1.amend'
