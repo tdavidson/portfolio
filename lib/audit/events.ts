@@ -23,6 +23,7 @@ export type AuditAction =
   | 'pending_action.undo' | 'pending_action.withdraw'
   | 'agent.write' | 'agent.write_skipped'
   | 'lp_change.approve' | 'lp_change.reject'
+  | 'lp_wire.save' | 'lp_wire.verify' | 'lp_wire.reveal' | 'distribution.payout_sheet' | 'lp_profile.contact_change'
 
 export interface AuditEvent {
   fundId: string

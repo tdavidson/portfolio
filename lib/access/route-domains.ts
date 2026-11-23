@@ -191,6 +191,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/distributions': { domain: 'lp_capital' },
   // A distribution's calculation as a workbook: the same data, as a file.
   'api/accounting/distributions/workbook': { domain: 'lp_capital' },
+  'api/accounting/distributions/payouts': { domain: 'lp_capital' },
   'api/accounting/commitments': { domain: 'lp_capital' },
   'api/accounting/closings': { domain: 'lp_capital' },
   // ── Tax: its own area, so a preparer can do the tax work without changing the books ──
@@ -247,6 +248,8 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/statement-review/export': { domain: 'lp_capital', feature: 'lp_tracking' },
   'api/lps/entities': { domain: 'lp_capital' },
   'api/lps/entities/profile': { domain: 'lp_capital' },
+  'api/lps/wire-instructions': { domain: 'lp_capital' },
+  'api/lps/wire-instructions/request': { domain: 'lp_capital' },
   // LPs' requests to change their record: read to see, write to decide (re-checked in the handler,
   // where an authorized-user request is also admin-only).
   'api/lps/change-requests': { domain: 'lp_capital' },
@@ -675,7 +678,7 @@ export const UNGATED_ROUTES: Record<string, string> = {
 
   'api/mcp': 'MCP: authenticates by API key/OAuth token; gated per tool by domain.',
   'api/agent/reports/[token]': 'Signed, one-hour link an agent tool issued (lib/agent/report-links.ts); re-checks the member\'s live membership, lp_capital grant and entities in-handler; an investor connector link (portal_statement) re-checks the LP account and the fund\'s portal and connector switches instead.',
-  'api/agent/call-notices/publish': 'Called by this deployment\'s own agent functions, not a browser: authenticated by a signed five-minute token naming the fund, the member and the exact publish (lib/agent/notice-publish-link.ts); re-checks in-handler that the member is still an admin of the fund with agent access on and lp_relations/lp_portal write (a staged publish_call_notices) or lp_capital write (a proposed call\'s notices), and the vehicle within their entities.',
+  'api/agent/call-notices/publish': 'Called by this deployment\'s own agent functions, not a browser: authenticated by a signed five-minute token naming the fund, the member and the exact publish (lib/agent/notice-publish-link.ts); re-checks in-handler that the member is still an admin of the fund with agent access on and lp_relations/lp_portal write (a staged publish_call_notices or publish_distribution_notices) or lp_capital write (a proposed call\'s notices), and the vehicle within their entities.',
   'api/accounting/mcp': 'MCP (legacy path): as api/mcp.',
   'api/agent': 'Agent REST: as api/mcp.',
 

@@ -117,3 +117,38 @@ export async function resolveLpRecipients(
   }
   return Array.from(groups.values())
 }
+
+/**
+ * Where to email investors who have no portal account: the relationship contact on their record,
+ * else an entity's notice email, with the entities' other notice emails Cc'd. Only for the
+ * investors passed, so callers pass those `resolveLpRecipients` did not reach. A portal link means
+ * nothing to these recipients, so a send to them carries the document itself.
+ */
+export async function resolveContactRecipients(
+  admin: SupabaseClient,
+  fundId: string,
+  investorIds: string[],
+): Promise<Map<string, { to: string; cc: string[] }>> {
+  const out = new Map<string, { to: string; cc: string[] }>()
+  if (investorIds.length === 0) return out
+  const [{ data: investors }, { data: entities }] = await Promise.all([
+    (admin as any).from('lp_investors').select('id, contact_email').eq('fund_id', fundId).in('id', investorIds),
+    (admin as any).from('lp_entities').select('investor_id, notice_email').eq('fund_id', fundId).in('investor_id', investorIds).not('notice_email', 'is', null),
+  ])
+  const notices = new Map<string, string[]>()
+  for (const e of (entities ?? []) as { investor_id: string; notice_email: string | null }[]) {
+    const email = (e.notice_email ?? '').trim().toLowerCase()
+    if (!email) continue
+    const list = notices.get(e.investor_id) ?? []
+    if (!list.includes(email)) list.push(email)
+    notices.set(e.investor_id, list)
+  }
+  for (const inv of (investors ?? []) as { id: string; contact_email: string | null }[]) {
+    const list = notices.get(inv.id) ?? []
+    const contact = (inv.contact_email ?? '').trim().toLowerCase()
+    const to = contact || list[0]
+    if (!to) continue
+    out.set(inv.id, { to, cc: list.filter(e => e !== to) })
+  }
+  return out
+}

@@ -19,6 +19,7 @@ import { PeriodPicker } from '@/components/accounting/period-picker'
 import { NoticeAction } from '@/components/accounting/notice-action'
 import { IlpaDownload } from '@/components/accounting/ilpa-download'
 import { DistributionWorkbookLink, DistributionSignOff, type SignOff } from '@/components/accounting/distribution-review'
+import { PartnerBankDetails, DistributionPayoutLink } from '@/components/accounting/partner-bank-details'
 import { ReceiptAction } from '@/components/accounting/receipt-action'
 import { CallActivity } from '@/components/accounting/call-activity'
 import { ReconciliationPanel } from './reconciliation-panel'
@@ -886,6 +887,7 @@ export function CapitalAccountsView() {
                 <NoticeAction kind="distribution" id={d.distributionId} lines={d.lines} fmt={fmt} />
                 <div className="mt-2 flex flex-wrap gap-2">
                   <DistributionWorkbookLink id={d.distributionId} />
+                  {isAdmin && <DistributionPayoutLink id={d.distributionId} />}
                   <IlpaDownload kind="distribution" id={d.distributionId} />
                 </div>
               </div>
@@ -915,6 +917,19 @@ export function CapitalAccountsView() {
         <div className="pt-6">
           <GpPanel isAdmin={isAdmin} />
         </div>
+      )}
+
+      {/* Each partner's bank details for distributions, masked; admins enter, verify and reveal. */}
+      {rows.length > 0 && (
+        <details className="group border rounded-lg mt-6">
+          <summary className="flex cursor-pointer list-none items-center gap-2 px-3 py-2 text-sm font-medium">
+            <ChevronRight className="h-4 w-4 text-muted-foreground transition-transform group-open:rotate-90" />
+            Partner bank details
+          </summary>
+          <div className="px-3 pb-3">
+            <PartnerBankDetails partners={rows.map(r => ({ id: r.lpEntityId, name: r.name }))} isAdmin={isAdmin} />
+          </div>
+        </details>
       )}
 
       {/* The subscription line or other borrowing: its balance and each draw, repayment and interest

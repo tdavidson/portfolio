@@ -9,6 +9,7 @@ import { withChangeSource } from '@/lib/audit/source'
 import { bearerToken, verifyNoticePublish, type NoticePublishClaims, type NoticePublishResult } from '@/lib/agent/notice-publish-link'
 // Both render each partner's notice PDF, so this route ships Chromium (lib/pdf-routes.mjs).
 import { executePublishCallNotices } from '@/lib/pending-actions/call-notices-publish'
+import { executePublishDistributionNotices } from '@/lib/pending-actions/distribution-notices-publish'
 import { publishCallNotices } from '@/lib/accounting/proposed-call-publish'
 
 export const runtime = 'nodejs'
@@ -43,20 +44,28 @@ async function publish(claims: NoticePublishClaims) {
   if (!membership) return refuse('You are no longer a member of this fund.')
   if (!(await agentApiEnabled(admin, fundId))) return refuse('Agent access is off for this fund.')
   const role = (membership as { role: string }).role
-  const label = claims.mode === 'staged' ? ADMIN_ONLY_ACTIONS.publish_call_notices : ADMIN_ONLY_TOOLS.lp_proposed_call_approve.label
+  const label = claims.mode === 'staged' ? ADMIN_ONLY_ACTIONS.publish_call_notices
+    : claims.mode === 'staged_distribution' ? ADMIN_ONLY_ACTIONS.publish_distribution_notices
+    : ADMIN_ONLY_TOOLS.lp_proposed_call_approve.label
   if (role !== 'admin') return refuse(adminOnlyMessage(label))
 
   const access = await loadAccessContext(admin, fundId, userId, role)
   // The gate each door answers to in the app: the staged action's (lp_relations, lp_portal), and
   // the proposed-calls route's (lp_capital).
-  const allowed = claims.mode === 'staged'
+  const allowed = claims.mode === 'staged' || claims.mode === 'staged_distribution'
     ? hasAccess(access, 'lp_relations', 'write', 'lp_portal')
     : hasAccess(access, 'lp_capital', 'write')
   if (!allowed) return refuse('You no longer have the access publishing these notices needs.')
 
   try {
     let result: NoticePublishResult
-    if (claims.mode === 'staged') {
+    if (claims.mode === 'staged_distribution') {
+      // The distribution twin: re-reads the review (recipients included), refuses a stale token or a blocker.
+      const out = await executePublishDistributionNotices({ admin, fundId, userId, access }, {
+        vehicle: claims.vehicle, distributionId: claims.callId, lpEntityIds: claims.lpEntityIds, previewToken: claims.previewToken, email: claims.email,
+      })
+      return NextResponse.json({ ok: true, result: { callId: claims.callId, ...out } })
+    } else if (claims.mode === 'staged') {
       // Resolves the vehicle through the member's access, re-reads the review, refuses a stale
       // previewToken or any blocker: what goes out is what was approved.
       result = await executePublishCallNotices({ admin, fundId, userId, access }, {

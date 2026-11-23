@@ -34,8 +34,10 @@ import { unwrap } from '@/lib/service-outcome'
 import { investorGroups, type InvestorRecord } from '@/lib/lps/investor-groups'
 import { listDistributions, signOffDistribution } from '@/lib/accounting/distributions'
 import { previewWithChecks } from '@/lib/accounting/distribution-review'
-import { foldDeclaredCarry, foldPreviewCarry, recipientsToHide } from '@/lib/accounting/distribution-carry-fold'
 import { recordAudit } from '@/lib/audit/events'
+import { loadWireSummaries } from '@/lib/lps/wire-instructions'
+import { normalizeNoticeEmail, reviewDistributionNotices } from '@/lib/accounting/distribution-notice-review'
+import { adminOnlyDenial, HANDLER_CHECKED } from '@/lib/access/admin-only'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -439,9 +441,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
   // and carry line apart, with the stored return of capital / preferred / profit and the sign-off.
   list_distributions: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
-    // Without gp_economics the carry recipients are one combined row (what each receives is GP economics).
-    const hide = await recipientsToHide(admin, fundId, vehicle, access)
-    const rows = (await listDistributions(admin, fundId, vehicle)).map(d => (hide ? foldDeclaredCarry(d, hide) : d))
+    const rows = await listDistributions(admin, fundId, vehicle)
     return {
       vehicle,
       distributions: rows.map(d => ({
@@ -482,9 +482,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     const asOf = input?.asOf ? String(input.asOf) : new Date().toISOString().slice(0, 10)
     if (!ISO_DATE.test(asOf)) throw new Error('asOf must be YYYY-MM-DD.')
     const method = input?.method === 'pro_rata' ? 'pro_rata' as const : 'waterfall' as const
-    const hide = await recipientsToHide(admin, fundId, vehicle, access)
-    const raw = await previewWithChecks(admin, fundId, vehicle, total, asOf, method)
-    const p = hide ? foldPreviewCarry(raw, hide) : raw
+    const p = await previewWithChecks(admin, fundId, vehicle, total, asOf, method)
     const name = (id: string) => p.names[id] ?? id
     const breakdown = new Map(p.lineBreakdown.map(b => [b.lpEntityId, b]))
     const workbook = userId
@@ -562,6 +560,83 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
       details: { note: out.signOff?.note ?? null },
     })
     return { vehicle, distributionId, signed_off: clear ? null : out.signOff }
+  },
+
+  // Masked: last four digits only. Full numbers never go over this connection.
+  lp_bank_details: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
+    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
+    const partners = await lpCapitalSummary(admin, fundId, vehicle)
+    const wires = await loadWireSummaries(admin, fundId, partners.map(p => p.lpEntityId))
+    return {
+      vehicle,
+      partners: partners.map(p => {
+        const w = wires.get(p.lpEntityId)
+        return w
+          ? {
+              partner: p.name, lpEntityId: p.lpEntityId, beneficiary: w.beneficiaryName, bank: w.bankName, account: w.accountMasked,
+              routing: w.routingMasked, swift: w.swiftCode, reference: w.reference, status: w.status,
+              entered: { by: w.enteredBy, at: w.enteredAt }, verified: w.verifiedAt ? { by: w.verifiedBy, at: w.verifiedAt, callback: w.verificationNote } : null,
+            }
+          : { partner: p.name, lpEntityId: p.lpEntityId, status: 'none' }
+      }),
+      note: 'Account numbers are masked. Details are entered and verified in the app; request_bank_details asks partners for them.',
+    }
+  },
+
+  // Always staged as the request_bank_details pending action (its manifest's `stagesAs`).
+  request_bank_details: async () => {
+    throw new Error('request_bank_details is always staged for an admin to approve; it cannot run directly.')
+  },
+
+  // A link, never the numbers: the file goes to the member's browser. Admin-only (ADMIN_ONLY_TOOLS),
+  // and the report route checks the role again on the click.
+  distribution_payout_sheet: async ({ admin, fundId, access, userId, origin }: AgentToolContext, input: any) => {
+    if (!userId) throw new Error('Documents are issued to a signed-in member; this credential has no user.')
+    const denied = adminOnlyDenial(access.role, HANDLER_CHECKED.payoutSheet)
+    if (denied) throw new Error(denied)
+    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
+    const id = String(input?.distributionId ?? '')
+    if (!(await listDistributions(admin, fundId, vehicle)).some(d => d.distributionId === id)) {
+      throw new Error(`No declared distribution ${id} in ${vehicle}. list_distributions shows them.`)
+    }
+    const { token, expiresAt } = signReportLink({ fundId, userId, kind: 'distribution_payouts', args: { vehicle, id } })
+    return {
+      document: 'Distribution payout sheet (Excel)',
+      vehicle,
+      url: reportLinkUrl(origin ?? siteOrigin(), token),
+      expires_at: expiresAt,
+      note: linkNote('It contains full account numbers: it opens for an hour, only for this member, and the export is logged. Do not paste its contents into the chat.'),
+    }
+  },
+
+  // What publishing (and emailing) a distribution's notices would do. The first of two
+  // confirmations; the chat then stages publish_distribution_notices with its token.
+  preview_distribution_notices: async ({ admin, fundId, access, userId, origin }: AgentToolContext, input: any) => {
+    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
+    const distributionId = String(input?.distributionId ?? '')
+    const lpEntityIds = Array.isArray(input?.lpEntityIds) ? input.lpEntityIds.map(String) : null
+    const review = unwrap(await reviewDistributionNotices(admin, { fundId, group: vehicle }, distributionId, { lpEntityIds, email: normalizeNoticeEmail(input?.email) }))
+    if (!userId) throw new Error('A preview link names the member who asked; this credential has none.')
+    const base = origin ?? siteOrigin()
+    const blocked = review.flags.some(f => f.severity === 'blocker')
+    return {
+      ...review,
+      partners: review.partners.map(p => {
+        const { token } = signReportLink({ fundId, userId, kind: 'distribution_notice_preview', args: { vehicle, distribution: distributionId, lp: p.lpEntityId } })
+        return { ...p, draftPdf: reportLinkUrl(base, token) }
+      }),
+      next: blocked
+        ? 'Nothing can be published until the blockers in flags are resolved. Tell the user what they are.'
+        : 'Nothing has been published or emailed. Show the user every partner, amount (capital and carry apart), recipient and ' +
+          'draftPdf link, and every flag, in plain words. Ask them to confirm. Only if they do, call publish_distribution_notices ' +
+          'with this vehicle, distributionId, the same lpEntityIds and email, and this previewToken. That stages it; an admin then ' +
+          'approves it (approve_action on their explicit yes, or in the app). The draftPdf links open for an hour.',
+    }
+  },
+
+  // Always staged as the publish_distribution_notices pending action (its manifest's `stagesAs`).
+  publish_distribution_notices: async () => {
+    throw new Error('publish_distribution_notices is always staged for an admin to approve; it cannot run directly.')
   },
 
   // What publishing a call's notices would do. The first of the two confirmations: the person reads

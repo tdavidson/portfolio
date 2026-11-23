@@ -11,7 +11,7 @@ import * as XLSX from 'xlsx'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { DraftChecks } from '@/lib/drafting/checks'
 import type { WaterfallTiers } from './distribution-waterfall'
-import type { DeclaredDistribution, DistributionPreview } from './distributions'
+import type { DistributionPreview } from './distributions'
 import { roundCents } from './ledger'
 
 const NUM = '#,##0.00;(#,##0.00)'
@@ -232,13 +232,12 @@ export async function loadDeclaredCalc(
   fundId: string,
   group: string,
   distributionId: string,
-  meta: { fundName: string; generatedAt: string; terms?: DistributionCalc['terms']; fold?: (d: DeclaredDistribution) => DeclaredDistribution },
+  meta: { fundName: string; generatedAt: string; terms?: DistributionCalc['terms'] },
 ): Promise<DistributionCalc | null> {
   const { listDistributions } = await import('./distributions')
   const all = await listDistributions(admin, fundId, group)
-  const found = all.find(x => x.distributionId === distributionId)
-  if (!found) return null
-  const d = meta.fold ? meta.fold(found) : found
+  const d = all.find(x => x.distributionId === distributionId)
+  if (!d) return null
   return {
     fundName: meta.fundName,
     vehicle: group,

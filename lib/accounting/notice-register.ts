@@ -15,7 +15,7 @@ import { loadEntityNames } from './load'
 import { vehicleIdByName } from './vehicle-id'
 import { displayFontOf } from '@/lib/theme'
 import { ACTUAL_BOOK } from './books'
-import { resolveLpRecipients } from '@/lib/lp-recipients'
+import { resolveContactRecipients, resolveLpRecipients } from '@/lib/lp-recipients'
 import { getOutboundConfig } from '@/lib/email'
 import { buildLpEmailHtml, siteUrl } from '@/lib/lp-email'
 import { roundCents } from './ledger'
@@ -406,6 +406,8 @@ export interface NoticeRecipientPreview {
   amount: number
   to: string | null
   cc: string[]
+  /** 'portal': their portal account, with a link; 'contact': no account, so the contact or notice email on file, with the PDF attached. */
+  via?: 'portal' | 'contact' | null
   /** Why nothing would be sent to this partner. */
   skipped: string | null
 }
@@ -434,17 +436,22 @@ export async function previewNoticeRecipients(
   const groups = await resolveLpRecipients(admin, fundId, investorIds)
   const groupByInvestor = new Map<string, { to: string; cc: string[] }>()
   for (const g of groups) for (const inv of g.investorIds) groupByInvestor.set(inv, { to: g.primaryEmail, cc: g.ccEmails })
+  const contacts = await resolveContactRecipients(admin, fundId, investorIds.filter(id => !groupByInvestor.has(id)))
 
   const recipients: NoticeRecipientPreview[] = targets.map(line => {
     const investorId = investorByEntity.get(line.lpEntityId) ?? null
     const g = investorId ? groupByInvestor.get(investorId) : undefined
+    const c = !g && investorId ? contacts.get(investorId) : undefined
     return {
       lpEntityId: line.lpEntityId,
       name: names.get(line.lpEntityId) ?? line.lpEntityId,
       amount: line.amount,
-      to: g?.to ?? null,
-      cc: g?.cc ?? [],
-      skipped: !investorId ? 'No linked LP investor' : !g ? 'No portal account yet — invite them from LP Portal → Access' : null,
+      to: g?.to ?? c?.to ?? null,
+      cc: g?.cc ?? c?.cc ?? [],
+      via: g ? 'portal' : c ? 'contact' : null,
+      skipped: !investorId ? 'No linked LP investor'
+        : !g && !c ? 'No portal account, contact email or notice email. Add one on the entity profile, or invite them from LP Portal → Access.'
+        : null,
     }
   })
   // The vehicle's letterhead name where it has one, so the email matches the notice it carries.

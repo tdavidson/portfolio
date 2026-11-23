@@ -29,7 +29,7 @@ export const REPORT_KINDS = [
   'lp_statement', 'lp_report_card', 'lp_report_cards', 'portal_statement', 'portal_letter',
   'fund_performance', 'financial_statements', 'k1', 'lp_snapshot', 'tax_package', 'lp_letter',
   'template_document', 'call_notice_preview', 'close_bundle', 'forecast_workbook', 'custom_view',
-  'statement_review', 'distribution_workbook',
+  'statement_review', 'distribution_workbook', 'distribution_payouts', 'distribution_notice_preview',
 ] as const
 export type ReportKind = typeof REPORT_KINDS[number]
 

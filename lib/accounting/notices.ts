@@ -19,7 +19,7 @@ import { buildLpEmailHtml, siteUrl } from '@/lib/lp-email'
 import { logDelivery, listDeliveries, lastSentByItem, type DeliveryKind } from '@/lib/lp-deliveries'
 import { roundCents } from './ledger'
 import { lpCapitalSummary, listCapitalCalls } from './capital-calls'
-import { resolveLpRecipients } from '@/lib/lp-recipients'
+import { resolveContactRecipients, resolveLpRecipients } from '@/lib/lp-recipients'
 import { displayFontOf } from '@/lib/theme'
 import { documentLetterhead, contactBlock } from '@/lib/vehicle-letterhead'
 import {
@@ -186,19 +186,22 @@ export async function emailDocuments(
 
   const investorIds = Array.from(new Set(items.map(p => p.investorId).filter(Boolean) as string[]))
   const groups = await resolveLpRecipients(admin, fundId, investorIds)
-  const groupByInvestor = new Map<string, { to: string; cc: string[] }>()
+  const groupByInvestor = new Map<string, { to: string; cc: string[]; viaContact?: boolean }>()
   for (const g of groups) for (const inv of g.investorIds) groupByInvestor.set(inv, { to: g.primaryEmail, cc: g.ccEmails })
+  // No portal account: the contact or notice email on their record, with the PDF attached.
+  const contacts = await resolveContactRecipients(admin, fundId, investorIds.filter(id => !groupByInvestor.has(id)))
+  for (const [inv, c] of Array.from(contacts.entries())) groupByInvestor.set(inv, { ...c, viaContact: true })
 
   const result: NoticeSendResult = { sent: 0, failures: [], skipped: [] }
 
   await runPool(items, 3, async p => {
     const g = p.investorId ? groupByInvestor.get(p.investorId) : undefined
-    if (!g) { result.skipped.push(`${p.name}: no portal account`); return }
+    if (!g) { result.skipped.push(`${p.name}: no portal account, contact email or notice email`); return }
 
-    const html = buildLpEmailHtml({ fundName, itemTitle: opts.title, message, link, linkLabel: opts.linkLabel, facts: p.facts })
+    const html = buildLpEmailHtml({ fundName, itemTitle: opts.title, message, link: g.viaContact ? null : link, linkLabel: opts.linkLabel, facts: p.facts })
 
     const attachments: EmailAttachment[] = []
-    if (wantsAttachment) {
+    if (wantsAttachment || g.viaContact) {
       const { data: doc } = await admin.from('lp_documents' as any).select('storage_path, file_name').eq('id', p.documentId).maybeSingle()
       const path = (doc as any)?.storage_path as string | undefined
       const blob = path ? (await admin.storage.from('lp-documents').download(path)).data : null

@@ -28,7 +28,7 @@ import { PortalError, portalLetterShare, portalStatementInvestors } from '@/lib/
 import { getLetter } from '@/lib/lp-letters/service'
 import { exportLetter, LETTER_EXPORT_FORMATS, type LetterExportFormat } from '@/lib/lp-letters/export-letter'
 import { renderPdf as renderTemplateDocumentPdf } from '@/lib/document-templates/pdf'
-import { callNoticePreviewPdf } from '@/lib/accounting/notice-preview'
+import { callNoticePreviewPdf, distributionNoticePreviewPdf } from '@/lib/accounting/notice-preview'
 import { closeBundleZip, loadCloseBundle } from '@/lib/accounting/close-bundle'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { ForecastError } from '@/lib/forecast/service'
@@ -37,8 +37,10 @@ import { customViewDocument } from '@/lib/custom-views/document'
 import { getReview } from '@/lib/statement-review/store'
 import { reviewPdf } from '@/lib/statement-review/export-pdf'
 import { CustomViewError } from '@/lib/custom-views/store'
-import { distributionWorkbookDocument, ISO_DATE } from '@/lib/accounting/distribution-review'
-import { recipientsToHide } from '@/lib/accounting/distribution-carry-fold'
+import { distributionWorkbookDocument, fundNameFor, ISO_DATE } from '@/lib/accounting/distribution-review'
+import { distributionPayoutDocument } from '@/lib/accounting/distribution-payouts'
+import { adminOnlyDenial, HANDLER_CHECKED } from '@/lib/access/admin-only'
+import { recordAudit } from '@/lib/audit/events'
 import { ViewSpecError } from '@/lib/custom-views/spec'
 
 export const runtime = 'nodejs'
@@ -291,6 +293,15 @@ async function fundDocument(admin: ReturnType<typeof createAdminClient>, claims:
         doc = out.ok ? { body: out.value.pdf, fileName: out.value.fileName, contentType: 'application/pdf' } : null
         break
       }
+      // A distribution's DRAFT notice, as preview_distribution_notices links it: the notices' gate.
+      case 'distribution_notice_preview': {
+        if (!hasAccess(access, 'lp_relations', 'read', 'lp_portal')) return notFound()
+        if (!a.distribution || !a.lp) return notFound()
+        const group = await resolveVehicle(admin, fundId, a.vehicle ?? undefined, { access })
+        const out = await distributionNoticePreviewPdf(admin, { fundId, group }, a.distribution, a.lp)
+        doc = out.ok ? { body: out.value.pdf, fileName: out.value.fileName, contentType: 'application/pdf' } : null
+        break
+      }
       // /api/accounting/close-bundle?format=zip — accounting, plus lp_capital and gp_economics (the
       // bundle holds every partner's capital and the carry), and the bundle's entity.
       case 'close_bundle': {
@@ -336,13 +347,30 @@ async function fundDocument(admin: ReturnType<typeof createAdminClient>, claims:
         const group = await resolveVehicle(admin, fundId, a.vehicle ?? undefined, { access })
         const vehicleId = await vehicleIdByName(admin, fundId, group)
         if (!vehicleId || !canSeeVehicle(access, vehicleId)) return notFound()
-        const hideRecipients = await recipientsToHide(admin, fundId, group, access)
         if (a.id) {
-          doc = await distributionWorkbookDocument(admin, fundId, group, { distributionId: a.id }, new Date(), { hideRecipients })
+          doc = await distributionWorkbookDocument(admin, fundId, group, { distributionId: a.id })
         } else {
           const total = Number(a.total)
           if (!Number.isFinite(total) || total <= 0 || !a.as_of || !ISO_DATE.test(a.as_of)) return notFound()
-          doc = await distributionWorkbookDocument(admin, fundId, group, { total, asOf: a.as_of, method: a.method === 'pro_rata' ? 'pro_rata' : 'waterfall' }, new Date(), { hideRecipients })
+          doc = await distributionWorkbookDocument(admin, fundId, group, { total, asOf: a.as_of, method: a.method === 'pro_rata' ? 'pro_rata' : 'waterfall' })
+        }
+        break
+      }
+      // /api/accounting/distributions/payouts — lp_capital, admin-only (full account numbers), logged.
+      case 'distribution_payouts': {
+        if (!hasAccess(access, 'lp_capital', 'read') || adminOnlyDenial(access.role, HANDLER_CHECKED.payoutSheet)) return notFound()
+        if (!a.id) return notFound()
+        const group = await resolveVehicle(admin, fundId, a.vehicle ?? undefined, { access })
+        const vehicleId = await vehicleIdByName(admin, fundId, group)
+        if (!vehicleId || !canSeeVehicle(access, vehicleId)) return notFound()
+        const { data: who } = await admin.auth.admin.getUserById(claims.userId)
+        const out = await distributionPayoutDocument(admin, fundId, group, a.id, { fundName: await fundNameFor(admin, fundId, group), generatedBy: who?.user?.email ?? null })
+        if (out) {
+          await recordAudit(admin, {
+            fundId, vehicleId, actorId: claims.userId, action: 'distribution.payout_sheet', subjectType: 'distribution', subjectId: a.id,
+            details: { partners: out.rows.length, withBankDetails: out.rows.filter(r => r.wire).length, ready: out.rows.filter(r => r.ready).length },
+          })
+          doc = { body: out.body, fileName: out.fileName, contentType: out.contentType }
         }
         break
       }

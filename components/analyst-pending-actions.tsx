@@ -85,7 +85,7 @@ export function AnalystPendingActions({ actions, title = 'Proposed changes — a
               runs[a.id]
                 ? <RunResultView id={a.id} result={runs[a.id]} onChange={next => setRuns(r => ({ ...r, [a.id]: next }))} />
                 : <RunPreview details={a.preview.details} />
-            ) : a.actionType === CONFIRM_TWICE ? (
+            ) : a.actionType === 'publish_call_notices' ? (
               <CallNoticesPreview details={a.preview.details} />
             ) : (
               <PreviewDetails details={a.preview.details} />
@@ -98,7 +98,7 @@ export function AnalystPendingActions({ actions, title = 'Proposed changes — a
               <span className="text-xs text-muted-foreground flex items-center gap-1">
                 <X className="h-3.5 w-3.5" />Rejected.
               </span>
-            ) : a.actionType === CONFIRM_TWICE && confirming[a.id] ? (
+            ) : confirmsTwice(a.actionType) && confirming[a.id] ? (
               <div className="flex flex-wrap items-center gap-2 rounded-lg border border-warning bg-warning-subtle p-2">
                 <span className="text-xs">{confirmLine(a.preview.details)}</span>
                 <Button size="sm" onClick={() => act(a, 'approve', true)}>Yes, publish</Button>
@@ -108,10 +108,10 @@ export function AnalystPendingActions({ actions, title = 'Proposed changes — a
               <div className="flex items-center gap-2">
                 <Button
                   size="sm" variant="outline"
-                  onClick={() => a.actionType === CONFIRM_TWICE ? setConfirming(c => ({ ...c, [a.id]: true })) : act(a, 'approve')}
-                  disabled={st === 'busy' || (a.actionType === CONFIRM_TWICE && hasBlocker(a.preview.details))}
+                  onClick={() => confirmsTwice(a.actionType) ? setConfirming(c => ({ ...c, [a.id]: true })) : act(a, 'approve')}
+                  disabled={st === 'busy' || (confirmsTwice(a.actionType) && hasBlocker(a.preview.details))}
                 >
-                  {st === 'busy' ? 'Working…' : a.actionType === CONFIRM_TWICE ? 'Approve publishing…' : 'Approve'}
+                  {st === 'busy' ? 'Working…' : confirmsTwice(a.actionType) ? 'Approve publishing…' : 'Approve'}
                 </Button>
                 <Button size="sm" variant="ghost" onClick={() => act(a, 'reject')} disabled={st === 'busy'}>
                   Reject
@@ -127,7 +127,8 @@ export function AnalystPendingActions({ actions, title = 'Proposed changes — a
 }
 
 /** Actions that publish to LPs: previewed per partner, and approved with a second confirmation. */
-const CONFIRM_TWICE = 'publish_call_notices'
+const CONFIRM_TWICE_ACTIONS = ['publish_call_notices', 'publish_distribution_notices']
+const confirmsTwice = (t: string) => CONFIRM_TWICE_ACTIONS.includes(t)
 
 interface NoticeFlag { code: string; severity: 'blocker' | 'warning'; message: string }
 interface NoticeMissing { field: string; label: string; why: string }

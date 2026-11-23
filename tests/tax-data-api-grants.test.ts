@@ -30,6 +30,8 @@ const SERVICE_ROLE_ONLY = [
   'k1_delivery_consents',
   'k1_deliveries',
   'tax_year_close_events',
+  // Not tax, same rule: partners' bank details, behind admin-only routes (lib/lps/wire-instructions.ts).
+  'lp_wire_instructions',
 ]
 
 function migrationFiles(): { name: string; sql: string }[] {

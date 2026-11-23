@@ -62,6 +62,8 @@ export const ADMIN_ONLY_ROUTES: AdminOnlyRule[] = [
   // Drafting a call is an admin's job too; members with LP capital access can view proposals.
   { route: 'api/accounting/proposed-calls', method: 'POST', when: action('propose', 'revise', 'discard'), label: 'propose, revise or discard a capital call' },
   { route: 'api/accounting/distributions', method: 'POST', when: action('declare'), label: 'declare a distribution' },
+  // Partners' bank details: entering, verifying (by callback) and revealing the full numbers.
+  { route: 'api/lps/wire-instructions', method: 'POST', label: 'enter, verify or reveal bank details' },
 
   // ── Tell LPs something ─────────────────────────────────────────────────────
   { route: 'api/accounting/lp-statement/publish', method: 'POST', label: 'publish LP statements' },
@@ -73,6 +75,7 @@ export const ADMIN_ONLY_ROUTES: AdminOnlyRule[] = [
   { route: 'api/lps/live-report/share', method: 'POST', label: 'share the live LP report' },
   { route: 'api/lps/send', method: 'POST', label: 'send to LPs' },
   { route: 'api/lps/announce', method: 'POST', label: 'announce to LPs' },
+  { route: 'api/lps/wire-instructions/request', method: 'POST', when: (body: any) => body?.preview !== true, label: 'ask LPs for bank details' },
 
   // ── Tax ────────────────────────────────────────────────────────────────────
   { route: 'api/accounting/k1-packages', method: 'POST', when: action('finalize', 'amend'), label: 'finalize or amend K-1s' },
@@ -97,6 +100,9 @@ export const ADMIN_ONLY_ROUTES: AdminOnlyRule[] = [
 /** Rules a handler checks itself, because the database decides them. Named so a test can see them. */
 export const HANDLER_CHECKED = {
   voidPostedEntry: 'void a posted entry',
+  // A read the middleware's write-method rules cannot see: it prints every partner's full account
+  // number (api/accounting/distributions/payouts GET, and its MCP link).
+  payoutSheet: 'export a payout sheet',
 } as const
 
 /** Agent tools that are admin-only: the same operations as the routes above, reached from chat. */
@@ -176,7 +182,9 @@ export const ADMIN_ONLY_ACTIONS: Record<string, string> = {
   issue_capital_call: 'issue a capital call',
   // As api/accounting/distributions POST action=declare (ADMIN_ONLY_ROUTES above).
   declare_distribution: 'declare a distribution',
+  request_bank_details: 'ask LPs for bank details',
   publish_call_notices: 'publish notices to LPs',
+  publish_distribution_notices: 'publish notices to LPs',
   set_waterfall_terms: 'change waterfall terms',
 }
 

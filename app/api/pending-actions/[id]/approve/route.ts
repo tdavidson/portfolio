@@ -5,6 +5,7 @@ import { resolveBrowserPrincipal } from '@/lib/pending-actions/browser-principal
 import { approvePendingAction, PendingActionServiceError } from '@/lib/pending-actions/service'
 // Publishing notices renders each partner's PDF here, so this route ships Chromium (lib/pdf-routes.mjs).
 import { executePublishCallNotices } from '@/lib/pending-actions/call-notices-publish'
+import { executePublishDistributionNotices } from '@/lib/pending-actions/distribution-notices-publish'
 
 // Approving a staged company update runs the extraction pipeline (submit_company_update), and a
 // run (lib/agent/run-action.ts) applies up to a hundred steps in one approval.
@@ -38,7 +39,7 @@ export async function POST(req: Request, props: { params: Promise<{ id: string }
     const body = await req.json().catch(() => ({}))
     const result = await approvePendingAction(admin, principal, params.id, {
       confirmed: body?.confirmed === true,
-      executors: { publish_call_notices: executePublishCallNotices },
+      executors: { publish_call_notices: executePublishCallNotices, publish_distribution_notices: executePublishDistributionNotices },
       // A staged tool that calls back into the app (lp_send_item's attachment, lp_proposed_call_approve's notices).
       origin: new URL(req.url).origin,
     })
