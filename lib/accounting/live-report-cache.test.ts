@@ -55,6 +55,37 @@ describe('currentLiveReport', () => {
     expect(build).toHaveBeenCalledTimes(3)
   })
 
+  it('with allowStale, serves the stored report at once, marked stale, and builds nothing', async () => {
+    const m = memoryAdmin({ fund_data_versions: [{ fund_id: FUND, version: 3 }], lp_report_cache: [] })
+    build.mockResolvedValueOnce(report(60_000)).mockResolvedValueOnce(report(65_000))
+    const first = await currentLiveReport(m.admin, FUND)
+    expect(first.stale).toBe(false)
+    m.tables.fund_data_versions[0].version = 4
+
+    const stale = await currentLiveReport(m.admin, FUND, { allowStale: true })
+    expect(stale.stale).toBe(true)
+    expect(stale.fromCache).toBe(true)
+    expect(stale.rows[0].nav).toBe(60_000)
+    expect(build).toHaveBeenCalledTimes(1)
+
+    const fresh = await currentLiveReport(m.admin, FUND)
+    expect(fresh.stale).toBe(false)
+    expect(fresh.rows[0].nav).toBe(65_000)
+    expect((await currentLiveReport(m.admin, FUND, { allowStale: true })).stale).toBe(false)
+  })
+
+  it('with allowStale, still builds when nothing is stored or the stored report is over a day old', async () => {
+    const m = memoryAdmin({ fund_data_versions: [{ fund_id: FUND, version: 1 }], lp_report_cache: [] })
+    build.mockResolvedValue(report(60_000))
+    const t0 = new Date('2026-01-01T00:00:00Z')
+    expect((await currentLiveReport(m.admin, FUND, { allowStale: true, now: () => t0 })).fromCache).toBe(false)
+    m.tables.fund_data_versions[0].version = 2
+    const later = await currentLiveReport(m.admin, FUND, { allowStale: true, now: () => new Date('2026-01-02T00:00:01Z') })
+    expect(later.fromCache).toBe(false)
+    expect(later.stale).toBe(false)
+    expect(build).toHaveBeenCalledTimes(2)
+  })
+
   it('builds every time when the version table is not there yet (migration not applied)', async () => {
     const m = memoryAdmin({})
     m.failNext('fund_data_versions', 'select', 'relation "fund_data_versions" does not exist')

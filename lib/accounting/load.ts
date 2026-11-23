@@ -42,6 +42,59 @@ export async function fetchAllRows<T>(
   return out
 }
 
+/**
+ * Fetch every row of a big query by keyset, in id order: the same rows, in the same order, as
+ * `fetchAllRows` with `.order('id')`, without its OFFSET cost.
+ *
+ * OFFSET paging makes Postgres walk every row before the page it returns, so the last page of a
+ * 140,000-posting read walks all 140,000 of them and the whole read walks each row about 70
+ * times. On a large book that is tens of seconds and most of the disk reads of the LP report.
+ * Here each page starts after the last id the previous page returned (`id > last`), so each row
+ * is read once.
+ *
+ * The id range is also cut into `shards` slices read side by side. Ids are random UUIDs, so the
+ * slices are about the same size, and joined in slice order they are in id order (a uuid sorts
+ * the way its hex text does). `base()` must return a fresh query with the filters applied and no
+ * order or range; the rows it selects must include `id`.
+ *
+ * A query builder without `gt`/`gte`/`lt`/`limit` (a test fake) is read with OFFSET paging.
+ */
+export async function fetchAllRowsById<T extends { id: string }>(
+  base: () => any,
+  opts: { page?: number; shards?: number } = {},
+): Promise<T[]> {
+  const page = opts.page ?? 1000
+  const offsetPaging = () => fetchAllRows<T>((f, t) => base().order('id').range(f, t))
+  const probe = base()
+  if (['gt', 'gte', 'lt', 'limit'].some(m => typeof probe?.[m] !== 'function')) {
+    return offsetPaging()
+  }
+  const shards = Math.max(1, Math.min(16, opts.shards ?? 8))
+  const bound = (i: number) => `${Math.floor((i * 16) / shards).toString(16)}0000000-0000-0000-0000-000000000000`
+  // A builder that takes the keyset filters but does not apply them (a fake) would hand back the
+  // same page forever; a page that does not move past the last id means exactly that.
+  class KeysetIgnored extends Error {}
+  const slices = await Promise.all(Array.from({ length: shards }, async (_, i) => {
+    const out: T[] = []
+    let after: string | null = null
+    for (;;) {
+      let q = base()
+      if (i > 0) q = q.gte('id', bound(i))
+      if (i < shards - 1) q = q.lt('id', bound(i + 1))
+      if (after) q = q.gt('id', after)
+      const { data, error } = await q.order('id').limit(page)
+      if (error) throw error
+      const rows = (data ?? []) as T[]
+      if (rows.length > page || (after != null && rows.length > 0 && !(String(rows[0].id) > after))) throw new KeysetIgnored()
+      out.push(...rows)
+      if (rows.length < page) break
+      after = String(rows[rows.length - 1].id)
+    }
+    return out
+  })).catch(e => { if (e instanceof KeysetIgnored) return null; throw e })
+  return slices ? slices.flat() : offsetPaging()
+}
+
 export interface LoadedLedger {
   accounts: Account[]
   postings: Posting[]
@@ -79,13 +132,13 @@ export async function loadLedgerRowsBatch(
   const [acctRows, entryRows, postingRows] = opts.capitalOnly
     ? await loadCapitalRows(admin, fundId, vehicleIds, asOf)
     : await Promise.all([
-      fetchAllRows((f, t) => admin.from('chart_of_accounts' as any).select('id, code, name, type, subtype, lp_entity_id, company_id, vehicle_id').eq('fund_id', fundId).in('vehicle_id', vehicleIds).order('id').range(f, t)),
-      fetchAllRows((f, t) => {
+      fetchAllRowsById<any>(() => admin.from('chart_of_accounts' as any).select('id, code, name, type, subtype, lp_entity_id, company_id, vehicle_id').eq('fund_id', fundId).in('vehicle_id', vehicleIds), { shards: 1 }),
+      fetchAllRowsById<any>(() => {
         let q = admin.from('journal_entries' as any).select('id, source_type, status, entry_date, memo, vehicle_id').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('vehicle_id', vehicleIds).eq('status', 'posted')
         if (asOf) q = q.lte('entry_date', asOf)
-        return q.order('id').range(f, t)
+        return q
       }),
-      fetchAllRows((f, t) => admin.from('journal_postings' as any).select('journal_entry_id, account_id, amount, currency, lp_entity_id, vehicle_id').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('vehicle_id', vehicleIds).order('id').range(f, t)),
+      fetchAllRowsById<any>(() => admin.from('journal_postings' as any).select('id, journal_entry_id, account_id, amount, currency, lp_entity_id, vehicle_id').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('vehicle_id', vehicleIds)),
     ])
 
   for (const r of (acctRows as any[])) out.get(r.vehicle_id)?.acctRows.push(r)
@@ -108,8 +161,8 @@ async function loadCapitalRows(admin: SupabaseClient, fundId: string, vehicleIds
   // the same order. The order is also what makes the paging correct: see fetchAllRows.
   const POSTING_COLS = 'id, journal_entry_id, account_id, amount, currency, lp_entity_id, vehicle_id'
   const [acctRows, tagged] = await Promise.all([
-    fetchAllRows<any>((f, t) => admin.from('chart_of_accounts' as any).select('id, code, name, type, subtype, lp_entity_id, company_id, vehicle_id').eq('fund_id', fundId).in('vehicle_id', vehicleIds).order('id').range(f, t)),
-    fetchAllRows<any>((f, t) => admin.from('journal_postings' as any).select(POSTING_COLS).eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('vehicle_id', vehicleIds).not('lp_entity_id', 'is', null).order('id').range(f, t)),
+    fetchAllRowsById<any>(() => admin.from('chart_of_accounts' as any).select('id, code, name, type, subtype, lp_entity_id, company_id, vehicle_id').eq('fund_id', fundId).in('vehicle_id', vehicleIds), { shards: 1 }),
+    fetchAllRowsById<any>(() => admin.from('journal_postings' as any).select(POSTING_COLS).eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('vehicle_id', vehicleIds).not('lp_entity_id', 'is', null)),
   ])
   const entryIds = Array.from(new Set(tagged.map(p => p.journal_entry_id as string)))
   const entryRows = (await byIdChunks(entryIds, ids => fetchAllRows<any>((f, t) => {

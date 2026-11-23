@@ -20,6 +20,9 @@ export interface StoredLiveReport extends LiveReport {
   computedAt: string
   /** True when the figures came from the stored report rather than a fresh build. */
   fromCache: boolean
+  /** True when the stored report was served although the books changed after it was built
+   *  (`allowStale`). The caller fetches the current figures next. */
+  stale: boolean
 }
 
 interface SerializedReport {
@@ -59,7 +62,16 @@ async function readVersion(admin: SupabaseClient, fundId: string): Promise<numbe
 export async function currentLiveReport(
   admin: SupabaseClient,
   fundId: string,
-  opts: { refresh?: boolean; now?: () => Date } = {},
+  opts: {
+    refresh?: boolean
+    now?: () => Date
+    /**
+     * Serve the stored report even when the books changed since it was built (still within
+     * MAX_AGE_MS), marked `stale`, instead of rebuilding first. The LPs page shows those figures at
+     * once and asks for the current ones behind them. Nothing is built or stored on this path.
+     */
+    allowStale?: boolean
+  } = {},
 ): Promise<StoredLiveReport> {
   const now = opts.now ?? (() => new Date())
   // Read the version BEFORE building: a change that lands mid-build bumps it past the stored one.
@@ -68,13 +80,16 @@ export async function currentLiveReport(
   let report: LiveReport | null = null
   let computedAt: string | null = null
   let fromCache = false
+  let stale = false
   if (version != null && !opts.refresh) {
     const { data, error } = await (admin as any).from('lp_report_cache').select('data_version, report, computed_at').eq('fund_id', fundId).maybeSingle()
-    if (!error && data && Number(data.data_version) === version
+    const current = !error && !!data && Number(data.data_version) === version
+    if (!error && data && (current || opts.allowStale)
       && now().getTime() - new Date(data.computed_at).getTime() < MAX_AGE_MS) {
       report = deserializeReport(data.report as SerializedReport)
       computedAt = new Date(data.computed_at).toISOString()
       fromCache = true
+      stale = !current
     }
   }
 
@@ -93,5 +108,6 @@ export async function currentLiveReport(
     ...report,
     computedAt: computedAt!,
     fromCache,
+    stale,
   }
 }

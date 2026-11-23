@@ -9,7 +9,7 @@
 // document-based), then shares that.
 
 import Link from 'next/link'
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Loader2, ChevronRight, ChevronDown, Calendar, Search, X, Download, FileText, Settings, Pencil, Users, Trash2 } from 'lucide-react'
 import { Card, CardContent } from '@/components/ui/card'
 import { Button } from '@/components/ui/button'
@@ -57,6 +57,10 @@ interface LiveRow {
 interface Payload {
   asOf: string | null
   rows: LiveRow[]
+  /** When the figures were built (the stored report's time), for the latest report. */
+  computedAt?: string | null
+  /** The stored report, served although the books changed since; the current one follows. */
+  stale?: boolean
 }
 interface InvestorMeta { id: string; name: string; parent_id: string | null; alternate_name: string | null }
 
@@ -64,6 +68,14 @@ interface Totals {
   commitment: number; paid_in_capital: number | null; distributions: number | null; nav: number | null
   total_value: number | null; outstanding_balance: number | null
   pctFunded: number | null; dpi: number | null; rvpi: number | null; tvpi: number | null; irr: number | null
+}
+
+// When a stored report was built: the time today, the date and time before that.
+function builtAt(iso: string | null | undefined): string {
+  if (!iso) return 'earlier'
+  const d = new Date(iso)
+  const time = d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })
+  return d.toDateString() === new Date().toDateString() ? time : `${d.toLocaleDateString([], { month: 'short', day: 'numeric' })}, ${time}`
 }
 
 const moicX = (v: number | null | undefined) => (v == null ? '—' : `${v.toFixed(2)}x`)
@@ -122,26 +134,50 @@ function LpsInner() {
   const [grouping, setGrouping] = useState<{ id: string; name: string } | null>(null)
   const [shareOpen, setShareOpen] = useState(false)
 
+  // Investor names, alternate names and groupings. Read on their own, so a rename or a new
+  // alternate name reaches the table and the search at once, without rebuilding the figures.
+  const loadMeta = useCallback(async () => {
+    const invRes = await fetch('/api/lps/investors')
+    if (!invRes.ok) return
+    const inv = await invRes.json()
+    setMeta((Array.isArray(inv) ? inv : inv.investors ?? []).map((i: any) => ({ id: i.id, name: i.name, parent_id: i.parent_id ?? null, alternate_name: i.alternate_name ?? null })))
+  }, [])
+
+  // The latest report comes from the stored one when the server has it, so it is quick. When the
+  // books moved since it was built, it arrives marked `stale`: the page shows it and asks for the
+  // current figures behind it (`fresh=1`), which swap in when ready. A newer load drops the older
+  // one's late answers.
+  const loadSeq = useRef(0)
+  const [refreshing, setRefreshing] = useState(false)
   const load = useCallback(async (date: string) => {
-    setLoading(true); setError(null)
+    const seq = ++loadSeq.current
+    setLoading(true); setError(null); setRefreshing(false)
+    loadMeta().catch(() => {})
+    let stale = false
     try {
-      const [repRes, invRes] = await Promise.all([
-        fetch(`/api/lps/live-report${date ? `?asOf=${date}` : ''}`),
-        fetch('/api/lps/investors'),
-      ])
+      const repRes = await fetch(`/api/lps/live-report${date ? `?asOf=${date}` : ''}`)
       const rep = await repRes.json()
+      if (seq !== loadSeq.current) return
       if (!repRes.ok) throw new Error(rep.error || 'Failed to build the report')
       setData(rep)
-      if (invRes.ok) {
-        const inv = await invRes.json()
-        setMeta((Array.isArray(inv) ? inv : inv.investors ?? []).map((i: any) => ({ id: i.id, name: i.name, parent_id: i.parent_id ?? null, alternate_name: i.alternate_name ?? null })))
-      }
+      stale = !date && rep.stale === true
     } catch (e) {
-      setError((e as Error).message)
+      if (seq === loadSeq.current) setError((e as Error).message)
     } finally {
-      setLoading(false)
+      if (seq === loadSeq.current) setLoading(false)
     }
-  }, [])
+    if (!stale || seq !== loadSeq.current) return
+    setRefreshing(true)
+    try {
+      const res = await fetch('/api/lps/live-report?fresh=1')
+      const rep = await res.json()
+      if (seq === loadSeq.current && res.ok) setData(rep)
+    } catch {
+      // Keep the figures already shown; the next load tries again.
+    } finally {
+      if (seq === loadSeq.current) setRefreshing(false)
+    }
+  }, [loadMeta])
   useEffect(() => { load(applied) }, [load, applied])
 
   const allGroups = useMemo(
@@ -330,6 +366,12 @@ function LpsInner() {
           </div>
 
           {error && <Card><CardContent className="p-4 text-destructive text-sm">{error}</CardContent></Card>}
+          {refreshing && data && (
+            <div className="flex items-center text-xs text-muted-foreground" role="status">
+              <Loader2 className="h-3 w-3 animate-spin mr-1.5" />
+              Showing figures from {builtAt(data.computedAt)}; updating with the latest postings…
+            </div>
+          )}
 
           {loading && !data ? (
             <div className="flex items-center py-16 text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin mr-2" /> Deriving from the ledger…</div>
@@ -475,8 +517,8 @@ function LpsInner() {
           ) : null}
 
           {settingsOpen && <ReportSettingsDialog onClose={() => setSettingsOpen(false)} />}
-          {rename && <RenameInvestorDialog target={{ investorId: rename.id, name: rename.name, alternateName: metaOf.get(rename.id)?.alternate_name ?? null }} onClose={() => setRename(null)} onSaved={() => { setRename(null); load(applied) }} />}
-          {grouping && <GroupDialog investor={grouping} candidates={investors.map(i => ({ id: i.id, name: i.name }))} onClose={() => setGrouping(null)} onSaved={() => { setGrouping(null); load(applied) }} />}
+          {rename && <RenameInvestorDialog target={{ investorId: rename.id, name: rename.name, alternateName: metaOf.get(rename.id)?.alternate_name ?? null }} onClose={() => setRename(null)} onSaved={() => { setRename(null); loadMeta() }} />}
+          {grouping && <GroupDialog investor={grouping} candidates={investors.map(i => ({ id: i.id, name: i.name }))} onClose={() => setGrouping(null)} onSaved={() => { setGrouping(null); loadMeta() }} />}
 
           {/* Share freezes the current live report into a fixed snapshot, then lets you pick which
               LPs can see it in their portal — the same picker the capital-accounts publish uses.
