@@ -583,6 +583,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   // Personal preferences, not fund data.
   'api/settings/theme': { domain: 'portfolio', level: 'any' },
   'api/settings/notifications': { domain: 'portfolio', level: 'any' },
+  'api/settings/nav-layout': { domain: 'portfolio', level: 'any' },
   // The member's own OAuth connections (MCP connector, v1 API): listing and revoking their own
   // tokens, scoped to their user and fund in the handler.
   'api/settings/connected-apps': { domain: 'portfolio', level: 'any' },
