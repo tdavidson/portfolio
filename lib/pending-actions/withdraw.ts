@@ -22,7 +22,7 @@ const MAX_OPEN = 50
 /** Kinds where a later draft for the same entity and subject is a revision of the earlier one. */
 export const REPLACEABLE = new Set([
   'create_forecast_plan', 'update_forecast_plan', 'publish_forecast_plan',
-  'update_portfolio_construction', 'update_company', 'issue_capital_call',
+  'update_portfolio_construction', 'update_company', 'issue_capital_call', 'declare_distribution',
   'set_waterfall_terms', 'set_recycling_terms', 'set_credit_facility',
   'apply_admin_figures', 'set_vehicle_record_source',
 ])

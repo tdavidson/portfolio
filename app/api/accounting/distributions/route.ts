@@ -7,7 +7,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // exactly like capital calls, its inbound mirror.
 import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
-import { previewDistribution, declareDistribution, listDistributions } from '@/lib/accounting/distributions'
+import { declareDistribution, listDistributions, signOffDistribution } from '@/lib/accounting/distributions'
+import { previewWithChecks } from '@/lib/accounting/distribution-review'
 import { recordRegisterPayments } from '@/lib/accounting/register-import'
 import { postDistributionDeductions } from '@/lib/accounting/call-extras'
 
@@ -24,7 +25,8 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(await listDistributions(admin, gate.fundId, group))
 }
 
-// POST — { action: 'preview' | 'declare', … }
+// POST — { action: 'preview' | 'declare' | 'sign_off', … }
+//   sign_off: { distributionId, note?, clear? } → record (or withdraw) the caller's review of the calc
 //   preview: { total, asOf?, method?: 'waterfall' | 'pro_rata' }
 //            → the split, writing nothing. Through the waterfall when the vehicle has carry
 //              terms (LP lines + carry lines + the tier breakdown), else pro-rata by capital.
@@ -50,7 +52,8 @@ export async function POST(req: NextRequest) {
       ? body.asOf
       : new Date().toISOString().slice(0, 10)
     const method = body?.method === 'pro_rata' ? 'pro_rata' : 'waterfall'
-    return NextResponse.json(await previewDistribution(admin, gate.fundId, group, total, asOf, method))
+    // With the pre-declare checks (lib/accounting/distribution-check.ts): ties, terms, cash, warnings.
+    return NextResponse.json(await previewWithChecks(admin, gate.fundId, group, total, asOf, method))
   }
 
   if (body?.action === 'declare') {
@@ -120,7 +123,21 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ ...result, ...extras })
   }
 
-  return NextResponse.json({ error: "action must be 'preview' or 'declare'" }, { status: 400 })
+  if (body?.action === 'sign_off') {
+    const distributionId = String(body?.distributionId ?? '')
+    if (!distributionId) return NextResponse.json({ error: 'distributionId is required' }, { status: 400 })
+    const clear = body?.clear === true
+    const out = await signOffDistribution(admin, gate.fundId, group, user.id, distributionId, { note: body?.note ?? null, clear })
+    if ('error' in out) return NextResponse.json({ error: out.error }, { status: out.status })
+    await recordAudit(admin, {
+      fundId: gate.fundId, vehicleId: await vehicleIdByName(admin, gate.fundId, group), actorId: user.id,
+      action: clear ? 'distribution.sign_off_cleared' : 'distribution.sign_off', subjectType: 'distribution', subjectId: distributionId,
+      details: { note: out.signOff?.note ?? null },
+    })
+    return NextResponse.json(out)
+  }
+
+  return NextResponse.json({ error: "action must be 'preview', 'declare' or 'sign_off'" }, { status: 400 })
 }
 
 /** The register's own lines, per partner, for capping imported payments. */

@@ -391,6 +391,18 @@ export interface DeclaredDistributionLine {
   manualSettled?: number
   settlementReview?: string
   noticeDocumentId: string | null
+  /** Fees, tax withheld or a call netted off this partner's payment. */
+  deductions?: { amount: number; description: string }[]
+  /** LP lines declared through the waterfall: this line's return of capital, preferred return and profit. */
+  breakdown?: { returnOfCapital: number; preferred: number; profit: number } | null
+}
+
+/** Who reviewed a declared distribution's calculation, and when. */
+export interface DistributionSignOff {
+  by: string | null
+  byUserId: string | null
+  at: string
+  note: string | null
 }
 
 export interface DeclaredDistribution extends RegisterStatus {
@@ -417,6 +429,8 @@ export interface DeclaredDistribution extends RegisterStatus {
    * bucket derived from it — never stored, so the two cannot disagree.
    */
   lines: DeclaredDistributionLine[]
+  /** The reviewer's sign-off on the calculation, when someone has given it. */
+  signOff?: DistributionSignOff | null
 }
 
 /**
@@ -458,6 +472,7 @@ export async function listDistributions(
     .filter(l => Number(l.settled_amount) > 0)
     .map(l => ({ lineId: l.id as string, lpEntityId: l.lp_entity_id as string, date: (l.settled_on ?? d.distribution_date) as string, amount: Number(l.settled_amount) })))
   const settledByLine = reconcileSettlements(registerLines, settlements, manual, reviews)
+  const extras = await loadDistributionExtras(admin, fundId, all.map(d => d.id as string))
 
   return all.map(d => {
     const character = characterFromRow(d)
@@ -477,6 +492,7 @@ export async function listDistributions(
         manualSettled: Number(l.settled_amount ?? 0),
         noticeDocumentId: (l.notice_document_id ?? null) as string | null,
         deductions: deductions.get(d.id)?.get(l.lp_entity_id) ?? [],
+        breakdown: extras.lines.get(l.id) ?? null,
       }
     })
     const total = roundCents(rawLines.reduce((s: number, l: any) => s + l.amount, 0))
@@ -492,6 +508,7 @@ export async function listDistributions(
           profitToLP: roundCents(total - carryTotal - Number(d.wf_return_of_capital ?? 0) - Number(d.wf_preferred ?? 0)),
           toLP: roundCents(total - carryTotal),
           toGP: carryTotal,
+          ...(extras.carryFree.get(d.id) ?? {}),
         }
       : null
     return {
@@ -509,7 +526,93 @@ export async function listDistributions(
       character,
       characterised: !isUncharacterised(character),
       lines: rawLines.map((l: any) => ({ ...l, character: characterForLine(character, l.amount, total) })),
+      signOff: extras.signOff.get(d.id) ?? null,
       ...registerStatus(rawLines, null, today),
     }
   })
+}
+
+/**
+ * What later migrations added to the register: each line's breakdown, the GP's carry-free share
+ * and the reviewer's sign-off. Read on its own, an error read as none, so a release that is live
+ * before 20261123140000 / 20261123150000 are pushed still lists distributions.
+ */
+async function loadDistributionExtras(admin: SupabaseClient, fundId: string, distributionIds: string[]): Promise<{
+  lines: Map<string, { returnOfCapital: number; preferred: number; profit: number }>
+  carryFree: Map<string, { carryFree: number; carryFreeCapital: number }>
+  signOff: Map<string, DistributionSignOff>
+}> {
+  const out = { lines: new Map(), carryFree: new Map(), signOff: new Map() } as Awaited<ReturnType<typeof loadDistributionExtras>>
+  if (distributionIds.length === 0) return out
+  const [lineRes, regRes, reviewRes] = await Promise.all([
+    (admin as any).from('distribution_lines').select('id, return_of_capital, preferred, profit').eq('fund_id', fundId).in('distribution_id', distributionIds),
+    (admin as any).from('distributions').select('id, wf_carry_free, wf_carry_free_capital').eq('fund_id', fundId).in('id', distributionIds),
+    (admin as any).from('distributions').select('id, reviewed_by, reviewed_at, review_note').eq('fund_id', fundId).in('id', distributionIds),
+  ])
+  if (!lineRes.error) {
+    for (const r of (lineRes.data as any[]) ?? []) {
+      if (r.return_of_capital == null || r.preferred == null || r.profit == null) continue
+      out.lines.set(r.id, { returnOfCapital: Number(r.return_of_capital), preferred: Number(r.preferred), profit: Number(r.profit) })
+    }
+  }
+  if (!regRes.error) {
+    for (const r of (regRes.data as any[]) ?? []) {
+      if (r.wf_carry_free == null || !(Number(r.wf_carry_free) > 0)) continue
+      out.carryFree.set(r.id, { carryFree: Number(r.wf_carry_free), carryFreeCapital: Number(r.wf_carry_free_capital ?? 0) })
+    }
+  }
+  if (!reviewRes.error) {
+    const reviewed = ((reviewRes.data as any[]) ?? []).filter(r => r.reviewed_at)
+    const userIds = Array.from(new Set(reviewed.map(r => r.reviewed_by).filter(Boolean))) as string[]
+    const emails = await reviewerEmails(admin, userIds)
+    for (const r of reviewed) {
+      out.signOff.set(r.id, { by: r.reviewed_by ? emails.get(r.reviewed_by) ?? null : null, byUserId: r.reviewed_by ?? null, at: r.reviewed_at, note: r.review_note ?? null })
+    }
+  }
+  return out
+}
+
+async function reviewerEmails(admin: SupabaseClient, userIds: string[]): Promise<Map<string, string>> {
+  const out = new Map<string, string>()
+  for (const id of userIds) {
+    try {
+      const { data } = await (admin as any).auth.admin.getUserById(id)
+      if (data?.user?.email) out.set(id, data.user.email)
+    } catch { /* a reviewer we cannot name is still recorded by id */ }
+  }
+  return out
+}
+
+/**
+ * Record that a person reviewed a declared distribution's calculation. A new sign-off replaces the
+ * last one, and `clear` withdraws it: the record says who looked last and when, not a history (the
+ * audit trail keeps that).
+ */
+export async function signOffDistribution(
+  admin: SupabaseClient,
+  fundId: string,
+  group: string,
+  userId: string | null,
+  distributionId: string,
+  opts: { note?: string | null; clear?: boolean } = {},
+): Promise<{ signOff: DistributionSignOff | null } | { error: string; status: number }> {
+  const vehicleId = await vehicleIdByName(admin, fundId, group)
+  const { data: row } = await (admin as any).from('distributions').select('id, status')
+    .eq('id', distributionId).eq('fund_id', fundId).eq('vehicle_id', vehicleId).maybeSingle()
+  if (!row) return { error: 'Distribution not found on this vehicle', status: 404 }
+  if (row.status !== 'declared') return { error: 'Only a declared distribution can be signed off.', status: 400 }
+  if (!opts.clear && !userId) return { error: 'A sign-off names the person who gave it; this credential has none.', status: 400 }
+  const note = typeof opts.note === 'string' ? opts.note.trim().slice(0, 2000) || null : null
+  const patch = opts.clear
+    ? { reviewed_by: null, reviewed_at: null, review_note: null }
+    : { reviewed_by: userId, reviewed_at: new Date().toISOString(), review_note: note }
+  const { error } = await (admin as any).from('distributions').update(patch).eq('id', distributionId).eq('fund_id', fundId)
+  if (error) {
+    return /review(ed)?_/.test(error.message)
+      ? { error: 'Sign-off needs migration 20261123150000_distribution_sign_off.sql. Apply it, then try again.', status: 400 }
+      : { error: error.message, status: 500 }
+  }
+  if (opts.clear) return { signOff: null }
+  const emails = await reviewerEmails(admin, [userId!])
+  return { signOff: { by: emails.get(userId!) ?? null, byUserId: userId, at: (patch as any).reviewed_at, note } }
 }

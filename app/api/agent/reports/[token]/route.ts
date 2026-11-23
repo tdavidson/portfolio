@@ -37,6 +37,7 @@ import { customViewDocument } from '@/lib/custom-views/document'
 import { getReview } from '@/lib/statement-review/store'
 import { reviewPdf } from '@/lib/statement-review/export-pdf'
 import { CustomViewError } from '@/lib/custom-views/store'
+import { distributionWorkbookDocument, ISO_DATE } from '@/lib/accounting/distribution-review'
 import { ViewSpecError } from '@/lib/custom-views/spec'
 
 export const runtime = 'nodejs'
@@ -326,6 +327,21 @@ async function fundDocument(admin: ReturnType<typeof createAdminClient>, claims:
           vehicle: a.vehicle, planId: a.plan ?? undefined, versionId: a.version ?? undefined,
           view: (a.view as 'actual' | 'plan' | 'combined' | null) ?? undefined, start: a.start, end: a.end, interval,
         })
+        break
+      }
+      // /api/accounting/distributions/workbook — lp_capital, and the vehicle's entity.
+      case 'distribution_workbook': {
+        if (!hasAccess(access, 'lp_capital', 'read')) return notFound()
+        const group = await resolveVehicle(admin, fundId, a.vehicle ?? undefined, { access })
+        const vehicleId = await vehicleIdByName(admin, fundId, group)
+        if (!vehicleId || !canSeeVehicle(access, vehicleId)) return notFound()
+        if (a.id) {
+          doc = await distributionWorkbookDocument(admin, fundId, group, { distributionId: a.id })
+        } else {
+          const total = Number(a.total)
+          if (!Number.isFinite(total) || total <= 0 || !a.as_of || !ISO_DATE.test(a.as_of)) return notFound()
+          doc = await distributionWorkbookDocument(admin, fundId, group, { total, asOf: a.as_of, method: a.method === 'pro_rata' ? 'pro_rata' : 'waterfall' })
+        }
         break
       }
       // /api/views/[id]/export — level 'any'; every block is checked against this member's access as

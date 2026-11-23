@@ -229,6 +229,108 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
     },
   },
   {
+    name: 'list_distributions',
+    description:
+      'The distributions declared in a vehicle, newest first, from the register: date, description, total, how it was split ' +
+      '(waterfall, pro-rata or manual), the tiers, the K-1 character, paid and unpaid, whether someone has signed off the ' +
+      'calculation, and each partner\'s line: the distribution on their capital (with its return of capital, preferred return ' +
+      'and profit where the declaration stored them) and any carried interest, each separately.',
+    scope: 'read',
+    domain: 'lp',
+    accessDomain: 'lp_capital',
+    inputSchema: { type: 'object', properties: { vehicle: VEHICLE }, required: ['vehicle'] },
+  },
+  {
+    name: 'preview_distribution',
+    description:
+      'How a fund-wide distribution would be split, writing nothing: through the vehicle\'s own waterfall terms and capital ' +
+      '(the same preview the Capital accounts page shows), or pro-rata by capital. Returns each LP line with its return of ' +
+      'capital, preferred return and profit, the GP\'s own capital and its carried interest as separate lines, the tiers, where ' +
+      'the waterfall stood before and after, the suggested K-1 character, the checks (does it tie, which terms, is there the ' +
+      'cash, earlier distributions unpaid, the waterfall\'s own warnings) and a link to the calculation as a workbook. Use it to ' +
+      'audit a split against the LPA (waterfall_terms, extract_lpa_terms). declare_distribution declares it.',
+    scope: 'read',
+    domain: 'lp',
+    accessDomain: 'lp_capital',
+    inputSchema: {
+      type: 'object',
+      required: ['vehicle', 'total'],
+      properties: {
+        vehicle: VEHICLE,
+        total: { type: 'number', description: 'Fund-wide amount to distribute.' },
+        asOf: { type: 'string', description: 'YYYY-MM-DD the distribution would be dated. Default today.' },
+        method: { type: 'string', enum: ['waterfall', 'pro_rata'], description: 'Default waterfall (falls back to pro-rata when the vehicle has no carry terms).' },
+      },
+    },
+  },
+  {
+    name: 'declare_distribution',
+    description:
+      'Ask for a fund-wide distribution to be declared in a vehicle, split through its waterfall (or pro-rata). Always staged, ' +
+      'from any connection: an admin reviews the split, the GP\'s capital and carry lines, and the checks, and approves it. On ' +
+      'approval the split is worked out again from the live books, and refused while a check is a blocker. Call ' +
+      'preview_distribution first and show the user what it returns. Declaring posts each partner\'s capital to Distributions ' +
+      'payable; notices and payments follow.',
+    scope: 'write',
+    domain: 'lp',
+    accessDomain: 'lp_capital',
+    stagesAs: 'declare_distribution',
+    inputSchema: {
+      type: 'object',
+      required: ['vehicle', 'distributionDate', 'total'],
+      properties: {
+        vehicle: VEHICLE,
+        distributionDate: { type: 'string', description: 'YYYY-MM-DD.' },
+        total: { type: 'number', description: 'Fund-wide amount to distribute.' },
+        description: { type: 'string' },
+        method: { type: 'string', enum: ['waterfall', 'pro_rata'], description: 'Default waterfall. pro_rata only where the LPA treats this distribution that way.' },
+      },
+    },
+  },
+  {
+    name: 'distribution_workbook',
+    description:
+      'A distribution\'s calculation as an Excel workbook, by link: the terms, the tiers, the waterfall\'s position before and ' +
+      'after, each partner\'s line as return of capital, preferred return, profit and carried interest, deductions, net and paid, ' +
+      'the K-1 character, the checks and the sign-off. Pass distributionId for a declared one (list_distributions), or total ' +
+      '(and asOf, method) for a preview. Writes nothing. The link opens for an hour, for this member only.',
+    scope: 'read',
+    domain: 'lp',
+    accessDomain: 'lp_capital',
+    inputSchema: {
+      type: 'object',
+      required: ['vehicle'],
+      properties: {
+        vehicle: VEHICLE,
+        distributionId: { type: 'string', description: 'A declared distribution, from list_distributions.' },
+        total: { type: 'number', description: 'For a preview: the amount to distribute.' },
+        asOf: { type: 'string', description: 'For a preview: YYYY-MM-DD. Default today.' },
+        method: { type: 'string', enum: ['waterfall', 'pro_rata'] },
+      },
+    },
+  },
+  {
+    name: 'distribution_sign_off',
+    description:
+      'Record that the person you are working with reviewed a declared distribution\'s calculation (against the waterfall and ' +
+      'the LPA), with an optional note, or withdraw that sign-off with clear. It is recorded in their name, so call it only when ' +
+      'they say they have reviewed it, never on your own review. Nothing is gated on it; it shows on the Capital accounts page ' +
+      'and in the workbook.',
+    scope: 'write',
+    domain: 'lp',
+    accessDomain: 'lp_capital',
+    inputSchema: {
+      type: 'object',
+      required: ['vehicle', 'distributionId'],
+      properties: {
+        vehicle: VEHICLE,
+        distributionId: { type: 'string', description: 'From list_distributions.' },
+        note: { type: 'string', description: 'What they checked.' },
+        clear: { type: 'boolean', description: 'Withdraw the sign-off instead.' },
+      },
+    },
+  },
+  {
     name: 'preview_call_notices',
     description:
       "What publishing an issued capital call's notices would do, before anything goes out: each partner's amount and share " +

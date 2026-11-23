@@ -65,7 +65,7 @@ describe('agent tool registry', () => {
   it('LP writes are the register, letter, portal and proposed-call tools, and issuing a call and publishing notices, which are always staged', () => {
     const writable = AGENT_TOOLS.filter(t => t.domain === 'lp' && t.scope === 'write')
     expect(writable.map(t => t.name).sort()).toEqual([
-      'issue_capital_call', 'lp_add_document', 'lp_announce', 'lp_authorized_user_add', 'lp_authorized_user_remove',
+      'declare_distribution', 'distribution_sign_off', 'issue_capital_call', 'lp_add_document', 'lp_announce', 'lp_authorized_user_add', 'lp_authorized_user_remove',
       'lp_change_request_decide', 'lp_correct_commitment', 'lp_create_entity', 'lp_create_investor', 'lp_create_letter', 'lp_delete_commitment',
       'lp_delete_entity', 'lp_delete_investor', 'lp_document_upload_url', 'lp_draft_letter', 'lp_import_letter', 'lp_letter_add_chart', 'lp_letter_profile_save', 'lp_merge_entities', 'lp_merge_investors',
       'lp_portal_account_status', 'lp_portal_invite', 'lp_portal_invite_bulk', 'lp_portal_resend_invite', 'lp_portal_settings',
@@ -81,6 +81,9 @@ describe('agent tool registry', () => {
     // Issuing a call is the Analyst's pending action, staged from any connection and approved by an admin.
     expect(getTool('issue_capital_call')).toMatchObject({ stagesAs: 'issue_capital_call', accessDomain: 'lp_capital' })
     expect(shouldStage(getTool('issue_capital_call')!, {}, { keyId: 'key_script' })).toBe(true)
+    // Declaring a distribution is staged the same way, from any connection.
+    expect(getTool('declare_distribution')).toMatchObject({ stagesAs: 'declare_distribution', accessDomain: 'lp_capital' })
+    expect(shouldStage(getTool('declare_distribution')!, {}, { keyId: 'key_script' })).toBe(true)
     // Letters are the LP Letters pages': LP relations, under their switch.
     for (const t of writable.filter(t => t.name.endsWith('_letter'))) {
       expect(t, t.name).toMatchObject({ accessDomain: 'lp_relations', accessFeature: 'lp_letters' })

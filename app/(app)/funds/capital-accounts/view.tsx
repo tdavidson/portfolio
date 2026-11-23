@@ -18,6 +18,7 @@ import { BASIS_LABELS, STATEMENT_BASES, type StatementBasis } from '@/lib/accoun
 import { PeriodPicker } from '@/components/accounting/period-picker'
 import { NoticeAction } from '@/components/accounting/notice-action'
 import { IlpaDownload } from '@/components/accounting/ilpa-download'
+import { DistributionWorkbookLink, DistributionSignOff, type SignOff } from '@/components/accounting/distribution-review'
 import { ReceiptAction } from '@/components/accounting/receipt-action'
 import { CallActivity } from '@/components/accounting/call-activity'
 import { ReconciliationPanel } from './reconciliation-panel'
@@ -38,6 +39,7 @@ interface DistLine extends CallLine { role: 'lp' | 'carry' }
 interface DistRow extends RegisterStatus {
   distributionId: string; date: string; description: string | null; total: number; lpTotal: number; carryTotal: number
   splitMethod: 'waterfall' | 'pro_rata' | 'manual'; tiers: Tiers | null; lines: DistLine[]
+  signOff?: SignOff | null
 }
 interface DistPreview {
   method: 'waterfall' | 'pro_rata' | 'manual'
@@ -49,6 +51,11 @@ interface DistPreview {
   suggestedCharacter: { returnOfCapital: number; realizedGain: number; income: number }
   lineBreakdown?: { lpEntityId: string; returnOfCapital: number; preferred: number; profit: number }[]
   terms: { kind: string; carryRate: number; prefRate: number; recipients: string[] }
+  /** The pre-declare checks (lib/accounting/distribution-check.ts). */
+  checks?: {
+    missing: { field: string; label: string; why: string; required: boolean }[]
+    flags: { code: string; severity: 'blocker' | 'warning'; message: string }[]
+  }
 }
 interface Period { preset: PeriodPreset; start: string | null; end: string | null; label: string }
 
@@ -637,8 +644,24 @@ export function CapitalAccountsView() {
               {preview.warnings.map((w, i) => <p key={i} className="mt-1 text-sm text-warning">{w}</p>)}
             </div>
           )}
-          {isDist && preview && preview.method !== 'waterfall' && preview.warnings.length > 0 && (
+          {isDist && preview && preview.method !== 'waterfall' && preview.warnings.length > 0 && !preview.checks && (
             <div className="rounded-lg border px-3 py-2 text-sm text-warning">{preview.warnings.map((w, i) => <p key={i}>{w}</p>)}</div>
+          )}
+          {/* The checks before declaring: does the split tie, which terms it ran on, is there the
+              cash for it. They describe the split as previewed; edited rows are the declarer's own. */}
+          {isDist && preview?.checks && (
+            <div className={`rounded-lg border px-3 py-2.5 text-xs space-y-1 ${edited ? 'opacity-60' : ''}`}>
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <span className="font-medium text-sm">Checks</span>
+                {!edited && Number(callTotal) > 0 && (
+                  <DistributionWorkbookLink total={Number(callTotal)} asOf={callDate || new Date().toISOString().slice(0, 10)} method={preview.method === 'pro_rata' ? 'pro_rata' : 'waterfall'} description={description || null} />
+                )}
+              </div>
+              {preview.checks.flags.length === 0 && preview.checks.missing.length === 0 && <p className="text-muted-foreground">Nothing to flag: the split ties and the cash covers it.</p>}
+              {preview.checks.flags.filter(f => f.severity === 'blocker').map((f, i) => <p key={`b${i}`} className="text-sm text-destructive">{f.message}</p>)}
+              {preview.checks.missing.map((m, i) => <p key={`m${i}`} className="text-sm text-warning">{m.label}: {m.why}</p>)}
+              {preview.checks.flags.filter(f => f.severity === 'warning' && (f.code !== 'waterfall_warning' || preview.method !== 'waterfall')).map((f, i) => <p key={`w${i}`} className="text-sm text-warning">{f.message}</p>)}
+            </div>
           )}
 
           <div className="border rounded-lg overflow-x-auto">
@@ -859,8 +882,12 @@ export function CapitalAccountsView() {
                   ))}
                 </div>
                 {d.lines.map(line => <SettlementReviewAction key={line.id} kind="distribution" line={line} onChanged={load} />)}
+                <DistributionSignOff id={d.distributionId} signOff={d.signOff} onChanged={load} />
                 <NoticeAction kind="distribution" id={d.distributionId} lines={d.lines} fmt={fmt} />
-                <IlpaDownload kind="distribution" id={d.distributionId} />
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <DistributionWorkbookLink id={d.distributionId} />
+                  <IlpaDownload kind="distribution" id={d.distributionId} />
+                </div>
               </div>
             ))}
           </div>
