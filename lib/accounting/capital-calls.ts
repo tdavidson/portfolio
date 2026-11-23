@@ -32,6 +32,7 @@ import { commitmentsFromPositions } from './lp-positions'
 import { loadCommitmentEvents, resolveCommitmentMap } from './terms'
 import { accountIdByCode, ensureCapitalAccounts, persistEntry } from './persist'
 import { computeCapitalAccounts, emptyAccount, recontributedByLp, type CapitalAccount, type CapitalPeriod, type CapitalPosting } from './capital-account'
+import { calledAfterTransfers } from './irr-flows'
 import { buildCapitalCallIssuanceEntry } from './entries'
 import { allocateAmount } from './allocation'
 import { vehicleIdByName } from './vehicle-id'
@@ -399,6 +400,8 @@ export async function lpCapitalSummary(
   ])
   const accountByLp = computeCapitalAccounts(capitalPostings)
   const recontributedBy = recontributedByLp(capitalPostings)
+  // Called capital follows a transferred interest to its new holder (assignment or sale).
+  const calledBy = calledAfterTransfers(capitalPostings)
 
   const ids = new Set<string>([
     ...Array.from(names.keys()),
@@ -411,7 +414,7 @@ export async function lpCapitalSummary(
     const acct = accountByLp.get(lpEntityId)
     const evidence = evidenceByLp.get(lpEntityId)
     const commitment = commitmentByLp.get(lpEntityId) ?? 0
-    const called = evidence ? evidence.values.contributions : acct?.contributions ?? 0
+    const called = evidence ? evidence.values.contributions : calledBy.get(lpEntityId) ?? 0
     const receivable = evidence?.basis === 'reported' && !receivableByLp.has(lpEntityId) ? null : receivableByLp.get(lpEntityId) ?? 0
     const recontributed = recontributedBy.get(lpEntityId) ?? 0
     return {
@@ -420,8 +423,9 @@ export async function lpCapitalSummary(
       partnerClass: classes.get(lpEntityId) ?? 'lp',
       ...commitmentFigures(
         commitmentByLp.get(lpEntityId) ?? 0,
-        // Called = capital recognized via call entries (the contributions bucket).
-        acct?.contributions ?? 0,
+        // Called = capital recognized via call entries (the contributions bucket), including the
+        // called history of any interest transferred to this partner.
+        calledBy.get(lpEntityId) ?? 0,
         receivableByLp.get(lpEntityId) ?? 0,
         recontributed,
       ),

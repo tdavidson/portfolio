@@ -24,7 +24,7 @@ import { lpRatios } from '@/lib/lp-metrics'
 import { loadCapitalPostings, type CapitalSource } from './capital-source'
 import { loadCommitmentEvents, commitmentsFrom, loadPartnerTerms } from './terms'
 import { reportingIrr, tooNewForIrr } from './reporting-irr'
-import { irrFlowPostings, isIrrFlow } from './irr-flows'
+import { calledAfterTransfers, irrFlowPostings, isIrrFlow } from './irr-flows'
 import type { CapitalEvidence } from './capital-evidence'
 import { loadReportingCapital } from './reporting-capital'
 import { fetchAllRows, listVehicles, loadOwnership } from './load'
@@ -215,6 +215,7 @@ export async function liveRowsForVehicle(
 
   const accountByLp = computeCapitalAccounts(postings)
   const recontributed = recontributedByLp(postings)
+  const calledBy = calledAfterTransfers(postings)
 
   // Union: an LP with a commitment but no activity still belongs on the report (they show
   // as fully unfunded), and an LP with activity but no recorded commitment must not vanish.
@@ -242,6 +243,12 @@ export async function liveRowsForVehicle(
     const evidence = evidenceByLp.get(entityId)
     const irr = reportingIrr(lpPostings, account.ending, evidence)
     const metrics = deriveMetrics(account, commitmentByLp.get(entityId) ?? 0, receivableByLp.get(entityId) ?? 0, irr, recontributed.get(entityId) ?? 0)
+    // Called and uncalled are measured against the commitment, and a commitment moves with a
+    // transferred interest, so they include the transferor's called history. Paid-in, the
+    // performance denominator, stays the partner's own (a sale is the buyer's purchase at NAV).
+    const calledWithTransfers = calledBy.get(entityId) ?? 0
+    metrics.called_capital = calledWithTransfers
+    metrics.outstanding_balance = roundCents(metrics.commitment - calledWithTransfers + (recontributed.get(entityId) ?? 0))
     if (evidence) {
       metrics.called_capital = metrics.paid_in_capital = evidence.values.contributions
       metrics.distributions = evidence.values.distributions

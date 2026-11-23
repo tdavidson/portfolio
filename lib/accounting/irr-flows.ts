@@ -39,15 +39,50 @@ const isTransfer = (p: CapitalPosting) =>
  * entry. Legs that do not net to zero (one side never recorded) are left out, as before.
  */
 export function irrFlowPostings(postings: CapitalPosting[]): CapitalPosting[] {
-  let flows = postings.filter(isIrrFlow)
+  return carryTransferHistory(postings.filter(isIrrFlow), postings, [ASSIGNMENT_TRANSFER_SOURCE])
+}
+
+/**
+ * Each partner's CALLED capital (contributions recognized, positive), with the called history of
+ * every transferred interest moved to the partner who now holds it.
+ *
+ * Called capital is measured against the commitment, and a commitment moves with the interest
+ * whether it was given (an assignment) or sold (a secondary sale). So unlike the IRR flows, which
+ * treat a sale as the seller's exit, this carries the seller's called history over in BOTH cases,
+ * pro rata to the share of the seller's capital that moved. Without it the buyer shows the
+ * seller's called capital as still uncalled, and the seller shows a negative uncalled balance
+ * against a commitment of zero. This is how administrators report it: the transferee takes over
+ * the transferor's contributed capital and unfunded commitment.
+ *
+ * Pass the whole vehicle's postings, not one partner's.
+ */
+export function calledAfterTransfers(postings: CapitalPosting[]): Map<string, number> {
+  const contributions = postings.filter(p => bucketForSourceType(p.sourceType, p.amount) === 'contributions')
+  const flows = carryTransferHistory(contributions, postings, [ASSIGNMENT_TRANSFER_SOURCE, SECONDARY_TRANSFER_SOURCE])
+  // Every partner with a posting gets a figure, so one whose whole interest moved reads 0.
+  const out = new Map<string, number>(postings.filter(p => p.lpEntityId).map(p => [p.lpEntityId, 0]))
+  // Postings are debit-positive; a contribution is a credit, so called is the negated sum.
+  for (const f of flows) if (f.lpEntityId) out.set(f.lpEntityId, (out.get(f.lpEntityId) ?? 0) - f.amount)
+  for (const [id, v] of out) out.set(id, Math.round(v * 100) / 100)
+  return out
+}
+
+/**
+ * Move each transferor's dated `flows` up to a transfer to its transferees, for the transfer kinds
+ * given. An entry's legs are paired by journal entry, or by date for capital events, which carry no
+ * entry. Legs that do not net to zero (one side never recorded) are left out.
+ */
+function carryTransferHistory(flowsIn: CapitalPosting[], postings: CapitalPosting[], kinds: string[]): CapitalPosting[] {
+  let flows = flowsIn
 
   const groups = new Map<string, CapitalPosting[]>()
   for (const p of postings) {
-    if (p.sourceType !== ASSIGNMENT_TRANSFER_SOURCE || !p.entryDate || !p.lpEntityId) continue
-    const key = p.entryId ? `entry:${p.entryId}` : `date:${p.entryDate}`
+    if (!kinds.includes(p.sourceType ?? '') || !p.entryDate || !p.lpEntityId) continue
+    const key = p.entryId ? `entry:${p.entryId}` : `date:${p.entryDate}:${p.sourceType}`
     groups.set(key, [...(groups.get(key) ?? []), p])
   }
-  // Oldest first, so a partner who received an assignment passes the inherited history on.
+
+  // Oldest first, so a partner who received a transfer passes the inherited history on.
   const ordered = Array.from(groups.values()).sort((a, b) => a[0].entryDate!.localeCompare(b[0].entryDate!))
 
   for (const legs of ordered) {
