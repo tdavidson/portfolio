@@ -10,6 +10,9 @@ import { AnalystProvider } from '@/components/analyst-context'
 import { VehicleProvider } from '@/components/accounting-vehicle'
 import { AppHeader } from '@/components/app-header'
 import { AppSidebar } from '@/components/app-sidebar'
+import { FixedSidebar } from '@/components/nav/fixed-sidebar'
+import { TopNav } from '@/components/nav/top-nav'
+import { DEFAULT_NAV_LAYOUT, type NavLayout } from '@/lib/nav/layout'
 import { AppFooter } from '@/components/app-footer'
 import { MobileNav, MOBILE_TAB_BAR_SPACER } from '@/components/mobile-nav'
 import { CommandPaletteProvider } from '@/components/command-palette'
@@ -43,6 +46,10 @@ interface AppShellProps {
   domainAccess?: ClientAccess
   /** LP portal switched on for this fund. Gates every 'publish/share to LPs' button. */
   lpPortalEnabled?: boolean
+  /** The member's saved nav layout (lib/nav/layout.ts). Settings → Layout changes it live. */
+  navLayout?: NavLayout
+  /** False where there is no session to save a layout change to (the public demo). */
+  persistNavLayout?: boolean
   children: React.ReactNode
 }
 
@@ -60,7 +67,7 @@ export function AppShell(props: AppShellProps) {
   )
 }
 
-function AppShellContent({ fundName, fundLogo, userEmail, isAdmin, currency, hasAIKey, configuredProviders, defaultAIProvider, featureVisibility, domainAccess, lpPortalEnabled, fofActive, children }: AppShellProps) {
+function AppShellContent({ fundName, fundLogo, userEmail, isAdmin, currency, hasAIKey, configuredProviders, defaultAIProvider, featureVisibility, domainAccess, lpPortalEnabled, fofActive, navLayout, persistNavLayout, children }: AppShellProps) {
   const { reviewBadge, approvalsBadge, settingsBadge, notesBadge, updateAvailable } = useShellStatus()
   const router = useRouter()
   const navigate = useMemo(
@@ -73,7 +80,7 @@ function AppShellContent({ fundName, fundLogo, userEmail, isAdmin, currency, has
     <FeatureVisibilityProvider value={featureVisibility ?? DEFAULT_FEATURE_VISIBILITY} isAdmin={isAdmin} lpPortalEnabled={lpPortalEnabled ?? false}>
     <AccessProvider value={domainAccess ?? EMPTY_ACCESS}>
     <CurrencyProvider currency={currency ?? 'USD'}>
-      <SidebarProvider>
+      <SidebarProvider initialLayout={navLayout ?? DEFAULT_NAV_LAYOUT} persistLayout={persistNavLayout ?? true}>
         <AnalystProvider hasAIKey={hasAIKey ?? false} configuredProviders={configuredProviders ?? []} defaultAIProvider={defaultAIProvider ?? 'anthropic'} fundName={fundName}>
           {/* The selected fund lives here, above the sidebar, so the Funds subnav can build
               fund-first hrefs (/funds/<id>/...) from the current vehicle's id. */}
@@ -112,17 +119,72 @@ function AppShellContent({ fundName, fundLogo, userEmail, isAdmin, currency, has
 }
 
 function AppShellInner({ fundName, fundLogo, userEmail, reviewBadge, approvalsBadge, settingsBadge, notesBadge, isAdmin, updateAvailable, featureVisibility, fofActive, children }: AppShellProps) {
-  const { collapsed } = useSidebar()
+  const { collapsed, layout } = useSidebar()
   const pathname = usePathname()
+  const navProps = { reviewBadge, approvalsBadge, settingsBadge, notesBadge, isAdmin, updateAvailable, featureVisibility, fofActive }
 
   // The LP-portal preview renders full-screen (no GP header/sidebar) so it looks
   // like the real /portal an LP logs into.
   if (pathname === '/lps/preview') {
-    return <>{children}</>
+    return <div className={PAGE_WIDTH}>{children}</div>
+  }
+
+  // Page content. The bottom padding clears the phone's tab bar, which is fixed: without it the
+  // footer and the last row of any page sit underneath it. The measurement lives with the bar, so
+  // the two cannot drift.
+  const main = (extra = '') => (
+    <main className={`flex-1 min-w-0 flex flex-col ${MOBILE_TAB_BAR_SPACER} ${extra}`}>
+      <div className="flex-1">
+        {children}
+      </div>
+      {/* Not on the landing page. /start is a single centred composer that claims the
+          viewport, and the footer's row of links sat under it as a second, unrelated strip —
+          the one thing on the page that wasn't the page. Its links live on Support instead. */}
+      {pathname !== '/start' && <AppFooter />}
+    </main>
+  )
+
+  // Phone navigation, the same in every layout: rendered below md only.
+  const mobileNav = <MobileNav {...navProps} />
+
+  // The width cap (max-w-page) lives here rather than in app/(app)/layout.tsx because the fixed
+  // layout's sidebar must sit at the window's edge, outside it, while the page beside it keeps it.
+  if (layout === 'fixed') {
+    return (
+      <>
+        <div className="flex flex-1 w-full">
+          <FixedSidebar fundName={fundName} fundLogo={fundLogo} userEmail={userEmail} {...navProps} />
+          <div className="flex-1 min-w-0 flex flex-col">
+            <div className={PAGE_WIDTH}>
+              <AppHeader fundName={fundName} fundLogo={fundLogo} userEmail={userEmail} layout="fixed" />
+              {main()}
+            </div>
+          </div>
+        </div>
+        {mobileNav}
+      </>
+    )
+  }
+
+  if (layout === 'top') {
+    return (
+      <>
+        <div className="w-full border-b">
+          <div className="w-full max-w-page mx-auto">
+            <AppHeader fundName={fundName} fundLogo={fundLogo} userEmail={userEmail} layout="top" />
+            <TopNav {...navProps} />
+          </div>
+        </div>
+        <div className={PAGE_WIDTH}>
+          {main('md:pt-2')}
+        </div>
+        {mobileNav}
+      </>
+    )
   }
 
   return (
-    <>
+    <div className={PAGE_WIDTH}>
       <AppHeader
         fundName={fundName}
         fundLogo={fundLogo}
@@ -134,37 +196,16 @@ function AppShellInner({ fundName, fundLogo, userEmail, reviewBadge, approvalsBa
         <aside
           className={`hidden md:flex flex-col shrink-0 pt-6 transition-all duration-200 ${ collapsed ? 'w-16' : 'w-56' }`}
         >
-          <AppSidebar reviewBadge={reviewBadge} approvalsBadge={approvalsBadge} settingsBadge={settingsBadge} notesBadge={notesBadge} isAdmin={isAdmin} updateAvailable={updateAvailable} featureVisibility={featureVisibility} fofActive={fofActive} />
+          <AppSidebar {...navProps} />
         </aside>
 
-        {/* Page content. The width cap lives one level up, on the wrapper in
-            app/(app)/layout.tsx — capping again here would be inert.
-
-            The bottom padding clears the phone's tab bar, which is fixed: without it
-            the footer and the last row of any page sit underneath it. The measurement
-            lives with the bar, so the two cannot drift. */}
-        <main className={`flex-1 min-w-0 flex flex-col ${MOBILE_TAB_BAR_SPACER} ${collapsed ? 'md:pl-4' : ''}`}>
-          <div className="flex-1">
-            {children}
-          </div>
-          {/* Not on the landing page. /start is a single centred composer that claims the
-              viewport, and the footer's row of links sat under it as a second, unrelated strip —
-              the one thing on the page that wasn't the page. Its links live on Support instead. */}
-          {pathname !== '/start' && <AppFooter />}
-        </main>
+        {main(collapsed ? 'md:pl-4' : '')}
       </div>
 
-      {/* Phone navigation. Rendered below md only; the aside above covers desktop. */}
-      <MobileNav
-        reviewBadge={reviewBadge}
-        approvalsBadge={approvalsBadge}
-        settingsBadge={settingsBadge}
-        notesBadge={notesBadge}
-        isAdmin={isAdmin}
-        updateAvailable={updateAvailable}
-        featureVisibility={featureVisibility}
-        fofActive={fofActive}
-      />
-    </>
+      {mobileNav}
+    </div>
   )
 }
+
+/** The page column: capped at the design's page width and centred. */
+const PAGE_WIDTH = 'w-full max-w-page mx-auto flex flex-col flex-1'

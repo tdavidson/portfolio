@@ -364,18 +364,57 @@ interface AppSidebarProps {
    * it, so there is nothing for collapsing to buy here.
    */
   mobile?: boolean
+  /** Leave out the theme and Hide Sidebar rows: the fixed layout puts them in its own footer. */
+  hideUtilities?: boolean
   onNavigate?: () => void
 }
 
-export function AppSidebar({ reviewBadge, approvalsBadge, settingsBadge, notesBadge, isAdmin, updateAvailable, featureVisibility, fofActive, mobile, onNavigate }: AppSidebarProps) {
-  const pathname = usePathname()
-  const access = useAccess()
-  const { collapsed: collapsedPref, toggle } = useSidebar()
-  const collapsed = collapsedPref && !mobile
+/**
+ * The theme switch every layout carries (System → Light → Dark). `mounted` guards the icon: the
+ * theme is only known in the browser, so the server render shows System.
+ */
+export function useThemeCycle() {
   const { theme, setTheme } = useTheme()
   const [mounted, setMounted] = useState(false)
   useEffect(() => setMounted(true), [])
+  const currentTheme = (THEME_CYCLE.includes(theme as typeof THEME_CYCLE[number]) ? theme : 'system') as typeof THEME_CYCLE[number]
+  const icon = mounted ? THEME_ICONS[currentTheme] : Monitor
+  const label = mounted ? THEME_LABELS[currentTheme] : 'System'
+  const cycle = () => {
+    const idx = THEME_CYCLE.indexOf(currentTheme)
+    setTheme(THEME_CYCLE[(idx + 1) % THEME_CYCLE.length])
+  }
+  return { icon, label, cycle }
+}
 
+/** What one nav row shows: its badge count and whether it carries the admin lock. */
+export function navRowDecor(
+  item: Pick<NavItem, 'badgeKey' | 'adminOnly' | 'featureKey'>,
+  badges: { review: number; approvals?: number; settings?: number; notes?: number },
+  featureVisibility?: FeatureVisibilityMap,
+): { badgeCount: number; showLock: boolean } {
+  const badgeCount = item.badgeKey === 'review' ? badges.review
+    : item.badgeKey === 'approvals' ? (badges.approvals ?? 0)
+    : item.badgeKey === 'settings' ? (badges.settings ?? 0)
+    : item.badgeKey === 'notes' ? (badges.notes ?? 0)
+    : 0
+  const showLock = !!(item.adminOnly || (item.featureKey && featureVisibility?.[item.featureKey] === 'admin'))
+  return { badgeCount, showLock }
+}
+
+/**
+ * The nav every layout draws: the sections this user can see, each with the children they can
+ * see. One hook, so the sidebar, the fixed sidebar and the top bar cannot answer the access
+ * question differently (Approvals only while something is waiting, Inbound behind its switch,
+ * Getting started gone once complete, the Funds subnav fund-first inside a fund).
+ */
+export function useNavModel({ isAdmin, reviewBadge, approvalsBadge, fofActive }: {
+  isAdmin?: boolean
+  reviewBadge: number
+  approvalsBadge?: number
+  fofActive?: boolean
+}): { item: NavItem; children: NavChild[] }[] {
+  const access = useAccess()
   // The Funds subnav is fund-first inside a fund and firm-wide elsewhere — see useFundSeg /
   // fundsChildrenFor above. Inside a fund it shows the pages that vehicle's KIND has a use for
   // (lib/accounting/nav.ts hideFor); the kind comes from the context the fund pages pin to
@@ -384,21 +423,29 @@ export function AppSidebar({ reviewBadge, approvalsBadge, settingsBadge, notesBa
   const { kind: vehicleKind, group: vehicleGroup } = useVehicle()
   const pending = useNavPending(fundSeg, vehicleGroup, vehicleKind)
   const setupComplete = useSetupComplete(!!isAdmin)
+  return navSectionsFor(!!isAdmin, access, { review: reviewBadge, approvals: approvalsBadge, setupComplete }).map(item => ({
+    item,
+    // The shared resolver drops what the user can't access (admin gate, per-feature visibility)
+    // and the fund-of-funds pages that only exist once the fund holds a fund.
+    children: visibleChildrenFor(item, !!isAdmin, access, { fofActive, fundSeg, kind: vehicleKind, pending }),
+  }))
+}
 
-  const currentTheme = (THEME_CYCLE.includes(theme as typeof THEME_CYCLE[number]) ? theme : 'system') as typeof THEME_CYCLE[number]
-  const ThemeIcon = mounted ? THEME_ICONS[currentTheme] : Monitor
-  const themeLabel = mounted ? THEME_LABELS[currentTheme] : 'System'
-
-  function cycleTheme() {
-    const idx = THEME_CYCLE.indexOf(currentTheme)
-    setTheme(THEME_CYCLE[(idx + 1) % THEME_CYCLE.length])
-  }
+export function AppSidebar({ reviewBadge, approvalsBadge, settingsBadge, notesBadge, isAdmin, updateAvailable, featureVisibility, fofActive, mobile, hideUtilities, onNavigate }: AppSidebarProps) {
+  const pathname = usePathname()
+  const { collapsed: collapsedPref, toggle } = useSidebar()
+  const collapsed = collapsedPref && !mobile
+  const theme = useThemeCycle()
+  const ThemeIcon = theme.icon
+  const themeLabel = theme.label
+  const cycleTheme = theme.cycle
+  const sections = useNavModel({ isAdmin, reviewBadge, approvalsBadge, fofActive })
 
   return (
     <div className="flex flex-col flex-1">
       <nav className={`flex-1 p-2 space-y-0.5 ${collapsed ? 'md:px-1' : ''}`}>
-        {navSectionsFor(!!isAdmin, access, { review: reviewBadge, approvals: approvalsBadge, setupComplete }).map((item) => {
-          const { href, label, icon: Icon, badgeKey, adminOnly, featureKey, beta } = item
+        {sections.map(({ item, children: visibleChildren }) => {
+          const { href, label, icon: Icon, beta } = item
           // The parent row is highlighted ONLY when it is the exact current page — never
           // merely because a child is open. Otherwise the highlight was inconsistent: Funds
           // (/funds) and Diligence (/diligence) nest their children under their own path, so a
@@ -407,18 +454,9 @@ export function AppSidebar({ reviewBadge, approvalsBadge, settingsBadge, notesBa
           // lit the parent. Exact-match makes every section behave the same: one pill, on the
           // page you're actually on, with section context coming from the expanded children.
           const isActive = pathname === href
-          const badgeCount = badgeKey === 'review' ? reviewBadge
-            : badgeKey === 'approvals' ? (approvalsBadge ?? 0)
-            : badgeKey === 'settings' ? (settingsBadge ?? 0)
-            : badgeKey === 'notes' ? (notesBadge ?? 0)
-            : 0
-          const showLock = adminOnly || (featureKey && featureVisibility?.[featureKey] === 'admin')
+          const { badgeCount, showLock } = navRowDecor(item, { review: reviewBadge, approvals: approvalsBadge, settings: settingsBadge, notes: notesBadge }, featureVisibility)
 
-          // Children visibility — the shared resolver drops what the user can't access
-          // (admin gate, per-feature visibility) and the fund-of-funds pages that only
-          // exist once the fund holds a fund. Shown only when the parent or any visible
-          // child route is active.
-          const visibleChildren = visibleChildrenFor(item, !!isAdmin, access, { fofActive, fundSeg, kind: vehicleKind, pending })
+          // Children are shown only when the parent or any visible child route is active.
           const childActive = visibleChildren.some(c => pathname === c.href || pathname.startsWith(c.href + '/'))
           // Also keep the section open on any page UNDER its own path (e.g. /funds/allocation-terms,
           // a Funds page that isn't a listed child) — it's still this section, just not in the nav.
@@ -523,8 +561,8 @@ export function AppSidebar({ reviewBadge, approvalsBadge, settingsBadge, notesBa
           )
         })()}
 
-        {/* Theme toggle */}
-        <button
+        {/* Theme toggle. The fixed sidebar carries it (and its own collapse control) in its footer. */}
+        {!hideUtilities && <button
           onClick={cycleTheme}
           title={collapsed ? themeLabel : undefined}
           className={`flex w-full items-center gap-3 px-3 py-2 rounded-md text-xs transition-colors text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent ${ collapsed ? 'md:justify-center md:px-0' : '' }`}
@@ -533,10 +571,10 @@ export function AppSidebar({ reviewBadge, approvalsBadge, settingsBadge, notesBa
           <span className={`flex-1 text-left ${collapsed ? 'md:hidden' : ''}`}>
             {themeLabel}
           </span>
-        </button>
+        </button>}
 
         {/* Hide Sidebar toggle, only shown on desktop */}
-        <button
+        {!hideUtilities && <button
           onClick={toggle}
           title={collapsed ? 'Show Sidebar' : 'Hide Sidebar'}
           className={`hidden md:flex w-full items-center gap-3 px-3 py-2 rounded-md text-xs transition-colors text-muted-foreground/60 hover:text-muted-foreground hover:bg-accent ${ collapsed ? 'md:justify-center md:px-0' : '' }`}
@@ -549,7 +587,7 @@ export function AppSidebar({ reviewBadge, approvalsBadge, settingsBadge, notesBa
           <span className={`flex-1 text-left ${collapsed ? 'md:hidden' : ''}`}>
             {collapsed ? 'Show Sidebar' : 'Hide Sidebar'}
           </span>
-        </button>
+        </button>}
       </nav>
     </div>
   )
