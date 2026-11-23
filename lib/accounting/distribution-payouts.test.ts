@@ -12,7 +12,7 @@ const wire = (o: Partial<WireFull>): WireFull => ({
   lpEntityId: 'a', beneficiaryName: 'Acme Capital LP', beneficiaryAddress: null, bankName: 'Example Bank', bankAddress: null,
   routingMasked: '••••0015', swiftCode: null, accountMasked: '••••6789', intermediaryBank: null, intermediarySwift: null,
   reference: null, currency: null, status: 'verified', enteredBy: 'jane@fund.example', enteredAt: '2026-01-05T00:00:00Z',
-  verifiedBy: 'sam@fund.example', verifiedAt: '2026-01-06T00:00:00Z', verificationNote: 'Callback', routingNumber: '011000015',
+  verifiedBy: 'sam@fund.example', verifiedAt: '2026-01-06T00:00:00Z', verificationNote: 'Callback', sealBroken: false, routingNumber: '011000015',
   accountNumber: '00123456789', ...o,
 })
 

@@ -34,6 +34,7 @@ import { unwrap } from '@/lib/service-outcome'
 import { investorGroups, type InvestorRecord } from '@/lib/lps/investor-groups'
 import { listDistributions, signOffDistribution } from '@/lib/accounting/distributions'
 import { previewWithChecks } from '@/lib/accounting/distribution-review'
+import { foldDeclaredCarry, foldPreviewCarry, recipientsToHide } from '@/lib/accounting/distribution-carry-fold'
 import { recordAudit } from '@/lib/audit/events'
 import { loadWireSummaries } from '@/lib/lps/wire-instructions'
 import { normalizeNoticeEmail, reviewDistributionNotices } from '@/lib/accounting/distribution-notice-review'
@@ -441,7 +442,9 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
   // and carry line apart, with the stored return of capital / preferred / profit and the sign-off.
   list_distributions: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
-    const rows = await listDistributions(admin, fundId, vehicle)
+    // Without gp_economics the carry recipients are one combined row (what each receives is GP economics).
+    const hide = await recipientsToHide(admin, fundId, vehicle, access)
+    const rows = (await listDistributions(admin, fundId, vehicle)).map(d => (hide ? foldDeclaredCarry(d, hide) : d))
     return {
       vehicle,
       distributions: rows.map(d => ({
@@ -482,7 +485,9 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     const asOf = input?.asOf ? String(input.asOf) : new Date().toISOString().slice(0, 10)
     if (!ISO_DATE.test(asOf)) throw new Error('asOf must be YYYY-MM-DD.')
     const method = input?.method === 'pro_rata' ? 'pro_rata' as const : 'waterfall' as const
-    const p = await previewWithChecks(admin, fundId, vehicle, total, asOf, method)
+    const hide = await recipientsToHide(admin, fundId, vehicle, access)
+    const raw = await previewWithChecks(admin, fundId, vehicle, total, asOf, method)
+    const p = hide ? foldPreviewCarry(raw, hide) : raw
     const name = (id: string) => p.names[id] ?? id
     const breakdown = new Map(p.lineBreakdown.map(b => [b.lpEntityId, b]))
     const workbook = userId

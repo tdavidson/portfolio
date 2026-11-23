@@ -11,6 +11,8 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { dbFail, done, fail, type Outcome } from '@/lib/service-outcome'
 import { parseEntityProfile, parseInvestorContact } from '@/lib/lp-profile'
 import { logOnboardingEvent } from '@/lib/lp-onboarding-audit'
+import { notifyFundAdmins } from '@/lib/lp-onboarding-notify'
+import { siteUrl } from '@/lib/lp-email'
 import { auditReason, recordAudit } from '@/lib/audit/events'
 import { recordCommitmentChange } from '@/lib/accounting/terms'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
@@ -164,8 +166,11 @@ export async function updateEntityProfile(
   const db = admin as any
   if (!entityId) return fail(400, 'lp_entity_id is required')
   if (ctx.visibleEntityIds !== null && !ctx.visibleEntityIds.includes(entityId)) return fail(404, 'Entity not found in your fund')
-  const { data: entity } = await db.from('lp_entities').select('id, investor_id, onboarding_excluded').eq('id', entityId).eq('fund_id', fundId).maybeSingle()
+  const { data: entity } = await db.from('lp_entities').select('id, investor_id, entity_name, notice_email, onboarding_excluded').eq('id', entityId).eq('fund_id', fundId).maybeSingle()
   if (!entity) return fail(404, 'Entity not found in your fund')
+  const { data: before } = entity.investor_id
+    ? await db.from('lp_investors').select('contact_email, contact_phone').eq('id', entity.investor_id).eq('fund_id', fundId).maybeSingle()
+    : { data: null }
 
   const ent = input.entity != null ? parseEntityProfile(input.entity) : null
   if (ent && 'error' in ent) return fail(400, ent.error)
@@ -189,7 +194,60 @@ export async function updateEntityProfile(
     db.from('lp_entities').select('id, entity_name, entity_type, formation_jurisdiction, address_line1, address_line2, city, region, postal_code, country, notice_email, signatories, profile_notes, profile_updated_at, onboarding_excluded').eq('id', entityId).single(),
     db.from('lp_investors').select('id, name, contact_name, contact_email, contact_phone').eq('id', entity.investor_id).single(),
   ])
+  await flagContactChange(admin, ctx, entity, before, e, i)
   return done({ entity: e, investor: i })
+}
+
+/**
+ * The emails and phone on a partner's record decide where notices and bank-detail requests go,
+ * and which number a bank-detail callback might dial. Changing one is how a payment fraud starts,
+ * so every change is audited and the fund's admins are told, whoever made it and through which door.
+ */
+export function contactChanges(
+  before: { notice_email?: unknown; contact_email?: unknown; contact_phone?: unknown },
+  after: { notice_email?: unknown; contact_email?: unknown; contact_phone?: unknown },
+): { field: string; from: string | null; to: string | null }[] {
+  const norm = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
+  const out: { field: string; from: string | null; to: string | null }[] = []
+  for (const field of ['notice_email', 'contact_email', 'contact_phone'] as const) {
+    if (!(field in after)) continue
+    const from = norm(before[field]); const to = norm(after[field])
+    if ((from ?? '').toLowerCase() !== (to ?? '').toLowerCase()) out.push({ field, from, to })
+  }
+  return out
+}
+
+async function flagContactChange(
+  admin: SupabaseClient,
+  ctx: { fundId: string; userId: string },
+  entity: { id: string; entity_name?: string | null; notice_email?: string | null },
+  investorBefore: { contact_email?: string | null; contact_phone?: string | null } | null,
+  entityAfter: Row | null,
+  investorAfter: Row | null,
+): Promise<void> {
+  const changes = [
+    ...contactChanges({ notice_email: entity.notice_email }, entityAfter ? { notice_email: entityAfter.notice_email } : {}),
+    ...(investorBefore && investorAfter
+      ? contactChanges(investorBefore, { contact_email: investorAfter.contact_email, contact_phone: investorAfter.contact_phone })
+      : []),
+  ]
+  if (changes.length === 0) return
+  try {
+    await recordAudit(admin, {
+      fundId: ctx.fundId, actorId: ctx.userId, action: 'lp_profile.contact_change', subjectType: 'lp_entity', subjectId: entity.id,
+      details: { changes },
+    })
+    const esc = (s: string) => s.replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]!))
+    const label: Record<string, string> = { notice_email: 'Notice email', contact_email: 'Contact email', contact_phone: 'Contact phone' }
+    const name = entity.entity_name || 'a partner'
+    await notifyFundAdmins(admin, ctx.fundId, `Contact details changed: ${name}`,
+      `<p><strong>The contact details on ${esc(name)}'s record were changed in the app.</strong></p>` +
+      `<ul>${changes.map(c => `<li>${label[c.field]}: ${esc(c.from ?? '(none)')} → ${esc(c.to ?? '(none)')}</li>`).join('')}</ul>` +
+      `<p>Notices and bank-detail requests go to these addresses. If you did not expect this change, check it with the partner by a number you already hold before sending anything or paying against new bank details.</p>` +
+      `<p><a href="${esc(siteUrl())}/lp-portal">Open LP Portal</a>.</p>`)
+  } catch (err) {
+    console.error('[lp profile] contact change alert failed:', err instanceof Error ? err.message : err)
+  }
 }
 
 export interface CommitmentChange {

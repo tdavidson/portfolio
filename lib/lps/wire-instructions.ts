@@ -12,10 +12,13 @@
 //     admin is emailed to call back before paying.
 //   * Verification is a callback (who was called, on which number, when), and the person who
 //     entered or last changed the details cannot verify them.
+//   * A verification is sealed to the details it checked (`verified_digest`, an HMAC under a key
+//     the database never sees). Details changed outside the app, or swapped between partners,
+//     no longer match the seal and read as unverified everywhere.
 //
 // The table is service-role only (20261123160000_lp_wire_instructions.sql).
 
-import { hkdfSync } from 'crypto'
+import { createHmac, hkdfSync, timingSafeEqual } from 'crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { encrypt, decrypt } from '@/lib/crypto'
 import { notifyFundAdmins } from '@/lib/lp-onboarding-notify'
@@ -59,6 +62,8 @@ export interface WireSummary {
   verifiedBy: string | null
   verifiedAt: string | null
   verificationNote: string | null
+  /** Marked verified in the database, but the details no longer match what was verified. */
+  sealBroken: boolean
 }
 
 export interface WireFull extends WireSummary {
@@ -152,11 +157,40 @@ function wireKey(): string {
   return Buffer.from(hkdfSync('sha256', secret, 'portfolio', 'lp-wire-instructions-v1', 32)).toString('hex')
 }
 export const sealNumber = (plain: string): string => encrypt(plain, wireKey())
+
+function digestKey(): Buffer {
+  const secret = process.env.ENCRYPTION_KEY
+  if (!secret) throw new Error('ENCRYPTION_KEY environment variable is not set')
+  return Buffer.from(hkdfSync('sha256', secret, 'portfolio', 'lp-wire-verification-v1', 32))
+}
+const ms = (t: unknown): number | null => (typeof t === 'string' && t ? Date.parse(t) : null)
+
+/**
+ * The seal on a verification: every stored field (ciphertexts included, so a number changed or
+ * swapped in the database shows), the entity and fund, and who entered and verified it.
+ */
+export function verificationDigest(r: Record<string, any>): string {
+  const canonical = JSON.stringify([
+    r.fund_id, r.lp_entity_id, r.beneficiary_name, r.beneficiary_address ?? null, r.bank_name, r.bank_address ?? null,
+    r.routing_number_encrypted ?? null, r.routing_last4 ?? null, r.swift_code ?? null, r.account_number_encrypted, r.account_last4,
+    r.intermediary_bank ?? null, r.intermediary_swift ?? null, r.reference ?? null, r.currency ?? null,
+    r.entered_by ?? null, ms(r.entered_at), r.verified_by ?? null, ms(r.verified_at), r.verification_note ?? null,
+  ])
+  return createHmac('sha256', digestKey()).update(canonical).digest('hex')
+}
+
+/** A row marked verified whose seal is missing or does not match. */
+export function sealBroken(r: Record<string, any>): boolean {
+  if (r.status !== 'verified') return false
+  if (typeof r.verified_digest !== 'string' || !/^[0-9a-f]{64}$/.test(r.verified_digest)) return true
+  const a = Buffer.from(r.verified_digest, 'hex'); const b = Buffer.from(verificationDigest(r), 'hex')
+  return a.length !== b.length || !timingSafeEqual(a, b)
+}
 export const openNumber = (sealed: string): string => decrypt(sealed, wireKey())
 
 // ── Rows ───────────────────────────────────────────────────────────────────────────────────
 
-const COLUMNS = 'lp_entity_id, beneficiary_name, beneficiary_address, bank_name, bank_address, routing_number_encrypted, routing_last4, swift_code, account_number_encrypted, account_last4, intermediary_bank, intermediary_swift, reference, currency, status, entered_by, entered_at, verified_by, verified_at, verification_note'
+const COLUMNS = 'fund_id, lp_entity_id, beneficiary_name, beneficiary_address, bank_name, bank_address, routing_number_encrypted, routing_last4, swift_code, account_number_encrypted, account_last4, intermediary_bank, intermediary_swift, reference, currency, status, entered_by, entered_at, verified_by, verified_at, verification_note, verified_digest'
 
 async function emailsOf(admin: SupabaseClient, ids: (string | null)[]): Promise<Map<string, string>> {
   const out = new Map<string, string>()
@@ -170,6 +204,7 @@ async function emailsOf(admin: SupabaseClient, ids: (string | null)[]): Promise<
 }
 
 function summaryOf(r: any, emails: Map<string, string>): WireSummary {
+  const broken = sealBroken(r)
   return {
     lpEntityId: r.lp_entity_id,
     beneficiaryName: r.beneficiary_name,
@@ -183,12 +218,13 @@ function summaryOf(r: any, emails: Map<string, string>): WireSummary {
     intermediarySwift: r.intermediary_swift ?? null,
     reference: r.reference ?? null,
     currency: r.currency ?? null,
-    status: r.status === 'verified' ? 'verified' : 'unverified',
+    status: r.status === 'verified' && !broken ? 'verified' : 'unverified',
     enteredBy: r.entered_by ? emails.get(r.entered_by) ?? 'a team member' : null,
     enteredAt: r.entered_at,
     verifiedBy: r.verified_by ? emails.get(r.verified_by) ?? 'a team member' : null,
     verifiedAt: r.verified_at ?? null,
     verificationNote: r.verification_note ?? null,
+    sealBroken: broken,
   }
 }
 
@@ -290,7 +326,7 @@ export async function saveWire(
     swift_code: w.swiftCode,
     account_number_encrypted: sealNumber(w.accountNumber), account_last4: last4(w.accountNumber),
     intermediary_bank: w.intermediaryBank, intermediary_swift: w.intermediarySwift, reference: w.reference, currency: w.currency,
-    status: 'unverified', entered_by: userId, entered_at: now, verified_by: null, verified_at: null, verification_note: null, updated_at: now,
+    status: 'unverified', entered_by: userId, entered_at: now, verified_by: null, verified_at: null, verification_note: null, verified_digest: null, updated_at: now,
   }
   const { error } = await (admin as any).from('lp_wire_instructions').upsert(row, { onConflict: 'fund_id,lp_entity_id' })
   if (error) {
@@ -330,8 +366,11 @@ export async function verifyWire(
   }
   const { calledName, calledNumber, calledOn, note } = cb.value
   const verificationNote = `Callback ${calledOn} to ${calledName} at ${calledNumber}${note ? `. ${note}` : ''}`
+  const now = new Date().toISOString()
+  const sealed = { verified_by: userId, verified_at: now, verification_note: verificationNote }
+  const verified_digest = verificationDigest({ ...row, ...sealed })
   const { error } = await (admin as any).from('lp_wire_instructions')
-    .update({ status: 'verified', verified_by: userId, verified_at: new Date().toISOString(), verification_note: verificationNote, updated_at: new Date().toISOString() })
+    .update({ status: 'verified', ...sealed, verified_digest, updated_at: now })
     .eq('fund_id', fundId).eq('lp_entity_id', entityId).eq('entered_at', row.entered_at)
   if (error) return fail(error.message, 500)
   const summary = (await loadWireSummaries(admin, fundId, [entityId])).get(entityId)

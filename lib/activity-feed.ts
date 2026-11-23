@@ -163,6 +163,7 @@ const ACTION_LABELS: Record<string, string> = {
   'lp_wire.save': 'Change Wire Instructions',
   'lp_wire.verify': 'Verify Wire Instructions',
   'lp_wire.reveal': 'Reveal Wire Instructions',
+  'lp_profile.contact_change': 'Change Partner Contact Details',
   'pending_action.approve': 'Approve Change',
   'pending_action.reject': 'Reject Change',
   'pending_action.stage': 'Stage Change',

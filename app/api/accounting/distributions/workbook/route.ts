@@ -7,6 +7,8 @@ import { assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { rateLimit } from '@/lib/rate-limit'
 import { distributionWorkbookDocument, ISO_DATE } from '@/lib/accounting/distribution-review'
+import { recipientsToHide } from '@/lib/accounting/distribution-carry-fold'
+import { loadAccessContext } from '@/lib/access/effective'
 
 export const runtime = 'nodejs'
 
@@ -14,7 +16,8 @@ export const runtime = 'nodejs'
 // GET ?group=&total=&asOf=&method=&description=      — a preview's, before declaring
 //
 // The workbook: terms, tiers, where the waterfall stood before and after, each partner's line as
-// return of capital, preferred return, profit and carried interest, and the checks.
+// return of capital, preferred return, profit and carried interest, and the checks. Without
+// gp_economics, the carry recipients are one combined row (what each receives is GP economics).
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
   const admin = createAdminClient()
@@ -40,7 +43,9 @@ export async function GET(req: NextRequest) {
     args = { total, asOf, method: sp.get('method') === 'pro_rata' ? 'pro_rata' : 'waterfall', description: sp.get('description') }
   }
 
-  const doc = await distributionWorkbookDocument(admin, gate.fundId, group, args)
+  const access = await loadAccessContext(admin, gate.fundId, user.id, gate.role)
+  const hideRecipients = await recipientsToHide(admin, gate.fundId, group, access)
+  const doc = await distributionWorkbookDocument(admin, gate.fundId, group, args, new Date(), { hideRecipients })
   if (!doc) return NextResponse.json({ error: 'Distribution not found on this vehicle' }, { status: 404 })
   return new NextResponse(new Uint8Array(doc.body), {
     headers: {
