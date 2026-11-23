@@ -32,7 +32,7 @@ import { commitmentsFromPositions } from './lp-positions'
 import { loadCommitmentEvents, resolveCommitmentMap } from './terms'
 import { accountIdByCode, ensureCapitalAccounts, persistEntry } from './persist'
 import { computeCapitalAccounts, emptyAccount, recontributedByLp, type CapitalAccount, type CapitalPeriod, type CapitalPosting } from './capital-account'
-import { calledAfterTransfers } from './irr-flows'
+import { calledAfterTransfers, calledCapitalFor } from './irr-flows'
 import { buildCapitalCallIssuanceEntry } from './entries'
 import { allocateAmount } from './allocation'
 import { vehicleIdByName } from './vehicle-id'
@@ -414,7 +414,7 @@ export async function lpCapitalSummary(
     const acct = accountByLp.get(lpEntityId)
     const evidence = evidenceByLp.get(lpEntityId)
     const commitment = commitmentByLp.get(lpEntityId) ?? 0
-    const called = evidence ? evidence.values.contributions : calledBy.get(lpEntityId) ?? 0
+    const called = calledCapitalFor(lpEntityId, evidence, calledBy)
     const receivable = evidence?.basis === 'reported' && !receivableByLp.has(lpEntityId) ? null : receivableByLp.get(lpEntityId) ?? 0
     const recontributed = recontributedBy.get(lpEntityId) ?? 0
     return {

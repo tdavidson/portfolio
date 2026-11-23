@@ -24,7 +24,7 @@ import { lpRatios } from '@/lib/lp-metrics'
 import { loadCapitalPostings, type CapitalSource } from './capital-source'
 import { loadCommitmentEvents, commitmentsFrom, loadPartnerTerms } from './terms'
 import { reportingIrr, tooNewForIrr } from './reporting-irr'
-import { calledAfterTransfers, irrFlowPostings, isIrrFlow } from './irr-flows'
+import { calledAfterTransfers, calledCapitalFor, irrFlowPostings, isIrrFlow } from './irr-flows'
 import type { CapitalEvidence } from './capital-evidence'
 import { loadReportingCapital } from './reporting-capital'
 import { fetchAllRows, listVehicles, loadOwnership } from './load'
@@ -250,11 +250,16 @@ export async function liveRowsForVehicle(
     metrics.called_capital = calledWithTransfers
     metrics.outstanding_balance = roundCents(metrics.commitment - calledWithTransfers + (recontributed.get(entityId) ?? 0))
     if (evidence) {
-      metrics.called_capital = metrics.paid_in_capital = evidence.values.contributions
+      metrics.paid_in_capital = evidence.values.contributions
       metrics.distributions = evidence.values.distributions
       metrics.nav = evidence.values.nav
       metrics.total_value = metrics.nav == null || metrics.distributions == null ? null : roundCents(metrics.nav + metrics.distributions)
-      metrics.outstanding_balance = metrics.paid_in_capital == null ? null : roundCents(metrics.commitment - metrics.paid_in_capital)
+      // Ledger-basis evidence is the partner's own contributions, so called and uncalled keep the
+      // transferred history; only a reported observation replaces them.
+      if (evidence.basis === 'reported') {
+        metrics.called_capital = calledCapitalFor(entityId, evidence, calledBy)
+        metrics.outstanding_balance = metrics.called_capital == null ? null : roundCents(metrics.commitment - metrics.called_capital)
+      }
       const ratios = lpRatios({ commitment: metrics.commitment, paidIn: metrics.paid_in_capital, distributions: metrics.distributions, nav: metrics.nav })
       metrics.dpi = ratios.dpi; metrics.rvpi = ratios.rvpi; metrics.tvpi = ratios.tvpi
       if (evidence.basis === 'reported' && !receivableByLp.has(entityId)) metrics.receivable = null

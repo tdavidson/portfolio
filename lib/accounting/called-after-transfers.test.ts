@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
-import { calledAfterTransfers, irrFlowPostings } from './irr-flows'
+import { calledAfterTransfers, calledCapitalFor, irrFlowPostings } from './irr-flows'
+import { resolveCapitalEvidence, type CapitalEvidence } from './capital-evidence'
 import type { CapitalPosting } from './capital-account'
 
 // Called capital is measured against the commitment, and the commitment moves with a transferred
@@ -87,5 +88,24 @@ describe('calledAfterTransfers', () => {
     const flows = irrFlowPostings(books)
     expect(flows.filter(f => f.lpEntityId === 'seller')).toHaveLength(2)
     expect(flows.filter(f => f.lpEntityId === 'buyer')).toHaveLength(1)
+  })
+
+  it('keeps the carried figure for ledger-basis partners, who all carry evidence', () => {
+    const books = [
+      ...calls('seller', ['2020-01-01', 90_000]),
+      ...xfer('secondary_transfer', 'sale', '2021-01-01', 'seller', { buyer: 90_000 }),
+    ]
+    // The live load resolves evidence for every partner with books; that evidence holds only the
+    // partner's own contributions, so it must not override the transferred history.
+    const { postings, evidenceByLp } = resolveCapitalEvidence(books, [])
+    const calledBy = calledAfterTransfers(postings)
+    expect(evidenceByLp.get('buyer')?.basis).toBe('ledger')
+    expect(calledCapitalFor('buyer', evidenceByLp.get('buyer'), calledBy)).toBeCloseTo(90_000, 2)
+    expect(calledCapitalFor('seller', evidenceByLp.get('seller'), calledBy)).toBeCloseTo(0, 2)
+  })
+
+  it('uses a reported observation where there are no books', () => {
+    const reported = { basis: 'reported', values: { contributions: 50_000, distributions: 0, nav: 60_000 } } as CapitalEvidence
+    expect(calledCapitalFor('lp', reported, new Map())).toBe(50_000)
   })
 })
