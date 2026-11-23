@@ -9,7 +9,11 @@ import { ExternalLink } from 'lucide-react'
  * LP), giving them a way into their LP portal. LP-only users never see the GP
  * app — middleware routes them straight to /portal.
  */
-export function LpPortalSwitchLink() {
+export function LpPortalSwitchLink({ variant = 'header', collapsed }: {
+  /** `sidebar`: a nav row at the foot of the fixed sidebar (lib/nav/layout.ts). */
+  variant?: 'header' | 'sidebar'
+  collapsed?: boolean
+} = {}) {
   const [isLp, setIsLp] = useState(false)
 
   useEffect(() => {
@@ -20,6 +24,18 @@ export function LpPortalSwitchLink() {
   }, [])
 
   if (!isLp) return null
+  if (variant === 'sidebar') {
+    return (
+      <Link
+        href="/portal/snapshots"
+        title={collapsed ? 'LP Portal' : 'Switch to your LP portal'}
+        className={`flex w-full items-center gap-3 px-3 py-2 rounded-md text-xs transition-colors text-muted-foreground hover:text-foreground hover:bg-accent ${collapsed ? 'justify-center px-0' : ''}`}
+      >
+        <ExternalLink className="h-5 w-5 shrink-0" />
+        {!collapsed && <span className="flex-1 text-left">LP Portal</span>}
+      </Link>
+    )
+  }
   return (
     <Link
       href="/portal/snapshots"

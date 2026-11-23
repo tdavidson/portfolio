@@ -25,10 +25,17 @@ function HemrockIcon({ className }: { className?: string }) {
  * lib/site-links.ts). The marketing page that used to add social links and a demo
  * button to this footer lives at www.hemrock.com now.
  */
-export function AppFooter() {
+export function AppFooter({ variant = 'page' }: {
+  /** `sidebar`: a compact list at the foot of the fixed sidebar (lib/nav/layout.ts) instead of a
+   *  strip under the page. */
+  variant?: 'page' | 'sidebar'
+} = {}) {
+  const compact = variant === 'sidebar'
   return (
-    <footer className="px-4 md:px-8 pt-2 pb-8 shrink-0">
-      <ul className="flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-9 text-sm text-muted-foreground border-t pt-3">
+    <footer className={compact ? 'px-3 pt-2 pb-1 shrink-0' : 'px-4 md:px-8 pt-2 pb-8 shrink-0'}>
+      <ul className={compact
+        ? 'flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground'
+        : 'flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-9 text-sm text-muted-foreground border-t pt-3'}>
         <li className="flex items-center gap-1.5">
           <a
             href={PRODUCT_SITE}

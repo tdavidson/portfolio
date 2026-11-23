@@ -1351,6 +1351,7 @@ export type Database = {
           fund_id: string
           id: string
           invited_by: string | null
+          nav_layout: string
           role: string
           user_id: string
         }
@@ -1360,6 +1361,7 @@ export type Database = {
           fund_id: string
           id?: string
           invited_by?: string | null
+          nav_layout?: string
           role?: string
           user_id: string
         }
@@ -1369,6 +1371,7 @@ export type Database = {
           fund_id?: string
           id?: string
           invited_by?: string | null
+          nav_layout?: string
           role?: string
           user_id?: string
         }

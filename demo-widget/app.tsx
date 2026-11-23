@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { AppRuntimeProvider } from '@/components/app-runtime'
 import { AppShell } from '@/components/app-shell'
+import type { NavLayout } from '@/lib/nav/layout'
 import { ConfirmProvider } from '@/components/confirm-dialog'
 import { Toaster } from '@/components/toaster'
 import type { ClientAccess } from '@/components/access-context'
@@ -54,9 +55,11 @@ export interface DemoAppProps extends HrefOptions {
    * element it is mounted in, no border — the host gives it the viewport and the demo is the page.
    */
   chrome?: 'card' | 'page'
+  /** The nav layout to open in. Default: the original sidebar. */
+  navLayout?: NavLayout
 }
 
-export function DemoApp({ data, fetch, initialPath = '/dashboard', onNavigate, exposeNavigate, onReady, exit, chrome = 'card', basePath, hrefFor }: DemoAppProps) {
+export function DemoApp({ data, fetch, initialPath = '/dashboard', onNavigate, exposeNavigate, onReady, exit, chrome = 'card', navLayout, basePath, hrefFor }: DemoAppProps) {
   const [loc, setLoc] = useState<Location>(() => parse(initialPath))
   const frame = useRef<HTMLDivElement>(null)
   const linker = useMemo(() => createLinker({ basePath, hrefFor }), [basePath, hrefFor])
@@ -137,8 +140,10 @@ export function DemoApp({ data, fetch, initialPath = '/dashboard', onNavigate, e
       >
         {/* The root layout's providers (app/layout.tsx), minus the theme: the host owns that. */}
         <ConfirmProvider>
-        <div className="w-full max-w-page mx-auto flex flex-col flex-1 min-h-full">
+        <div className="w-full flex flex-col flex-1 min-h-full">
           <AppShell
+            navLayout={navLayout}
+            persistNavLayout={false}
             fundName={data.snapshot.fund.name}
             fundLogo={null}
             userEmail="viewer@hemrock.demo"

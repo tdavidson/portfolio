@@ -13,6 +13,7 @@ import { ProfileSection } from './_sections/account/profile-section'
 import { MfaSection } from './_sections/account/mfa-section'
 import { PasswordSection } from './_sections/account/password-section'
 import { NotificationPreferencesSection } from './_sections/account/notification-preferences-section'
+import { LayoutSection } from './_sections/account/layout-section'
 import { ConnectedAppsSection } from './_sections/account/connected-apps-section'
 import { LinkedSignInsSection } from './_sections/account/linked-sign-ins-section'
 import { VersionSection } from './_sections/fund/version-section'
@@ -153,6 +154,7 @@ export default function SettingsPage() {
       <PasswordSection />
       <MfaSection />
       <NotificationPreferencesSection />
+      <LayoutSection />
       {/* Per-user API/MCP keys, so this lives on the page for all users; the admin on/off
           toggle lives in Organization below. */}
       <Section title="API and MCP">

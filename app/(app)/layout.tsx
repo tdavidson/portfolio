@@ -16,6 +16,7 @@ import {
 import { DEFAULT_FEATURE_VISIBILITY } from '@/lib/types/features'
 import { themeCssVars, type FundTheme } from '@/lib/theme'
 import { PRODUCT_NAME } from '@/lib/site-links'
+import { loadNavLayout } from '@/lib/nav/layout-store'
 
 export default async function AppLayout({ children }: { children: React.ReactNode }) {
   const nonce = (await headers()).get(NONCE_HEADER) ?? undefined
@@ -27,10 +28,11 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   // in this same RPC, without separate fund, membership or grant queries in the layout.
   const page = await resolvePageAccess(user.id)
   if (!page) redirect(await nonMemberDestination(user.id))
-  const [fundData, fundSettings, fofActive] = await Promise.all([
+  const [fundData, fundSettings, fofActive, navLayout] = await Promise.all([
     getFundData(page.fundId),
     getFundSettings(page.fundId),
     getFofActive(page.fundId),
+    loadNavLayout(user.id, page.fundId),
   ])
   const isAdmin = page.isAdmin
   const noEntities = !page.access.vehicles.all && page.access.vehicles.ids.length === 0
@@ -66,8 +68,10 @@ export default async function AppLayout({ children }: { children: React.ReactNod
   return (
     <div className="min-h-screen flex flex-col bg-background">
       {themeVars && <style dangerouslySetInnerHTML={{ __html: `:root{${themeVars}}` }} />}
-      <div className="w-full max-w-page mx-auto flex flex-col flex-1">
+      {/* The page-width cap lives in AppShell: the fixed nav layout's sidebar sits outside it. */}
+      <div className="w-full flex flex-col flex-1">
         <AppShell
+          navLayout={navLayout}
           lpPortalEnabled={!!fundSettings?.lp_portal_enabled}
           fundName={fundName}
           fundLogo={fundLogo}
