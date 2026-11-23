@@ -1,4 +1,5 @@
 import { bucketForSourceType, type CapitalPosting } from './capital-account'
+import type { CapitalEvidence } from './capital-evidence'
 
 /**
  * The dated flows a partner's IRR is built from, with LP-to-LP transfers resolved.
@@ -72,6 +73,16 @@ export function calledAfterTransfers(postings: CapitalPosting[]): Map<string, nu
  * given. An entry's legs are paired by journal entry, or by date for capital events, which carry no
  * entry. Legs that do not net to zero (one side never recorded) are left out.
  */
+/**
+ * A partner's called capital for display. Every partner carries evidence, ledger-basis ones too, and
+ * a ledger-basis evidence figure is the partner's own contributions only. So the evidence figure is
+ * used only when it is a reported observation (no books to carry a transfer through); otherwise the
+ * figure includes the called history of any interest transferred to the partner.
+ */
+export function calledCapitalFor(lpEntityId: string, evidence: CapitalEvidence | undefined, calledBy: Map<string, number>): number | null {
+  return evidence?.basis === 'reported' ? evidence.values.contributions : calledBy.get(lpEntityId) ?? 0
+}
+
 function carryTransferHistory(flowsIn: CapitalPosting[], postings: CapitalPosting[], kinds: string[]): CapitalPosting[] {
   let flows = flowsIn
 
