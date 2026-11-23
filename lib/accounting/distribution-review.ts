@@ -11,7 +11,9 @@ import {
 import { loadCarryTerms } from './carry'
 import { loadEntityNames } from './load'
 import { documentLetterhead } from '@/lib/vehicle-letterhead'
+import { COMBINED_RECIPIENTS_NAME } from '@/lib/access/carry-visibility'
 import type { DraftChecks } from '@/lib/drafting/checks'
+import { foldDeclaredCarry, foldPreviewCarry } from './distribution-carry-fold'
 
 export interface CheckedPreview extends DistributionPreview {
   checks: DraftChecks
@@ -53,14 +55,14 @@ async function fundNameFor(admin: SupabaseClient, fundId: string, group: string)
   return (await documentLetterhead(admin, fundId, fund, [group])).name || (fund as any)?.name || 'Fund'
 }
 
-async function termsFor(admin: SupabaseClient, fundId: string, group: string) {
+async function termsFor(admin: SupabaseClient, fundId: string, group: string, hide: boolean) {
   const [terms, names] = await Promise.all([loadCarryTerms(admin, fundId, group), loadEntityNames(admin, fundId, group)])
   return {
     kind: terms.kind,
     carryRate: terms.carryRate,
     prefRate: terms.prefRate,
     prefBase: terms.prefBase ?? 'contributed',
-    recipients: terms.recipients.map(r => names.get(r.lpEntityId) ?? r.lpEntityId),
+    recipients: hide && terms.recipients.length ? [COMBINED_RECIPIENTS_NAME] : terms.recipients.map(r => names.get(r.lpEntityId) ?? r.lpEntityId),
   }
 }
 
@@ -68,22 +70,32 @@ export type DistributionWorkbookArgs =
   | { distributionId: string }
   | { total: number; asOf: string; method?: 'waterfall' | 'pro_rata'; description?: string | null }
 
-/** The workbook for a declared distribution, or for a preview. Null when the distribution is not on this vehicle. */
+/**
+ * The workbook for a declared distribution, or for a preview. Null when the distribution is not on
+ * this vehicle. `hideRecipients` (a member without gp_economics: carryRecipientIds) folds every
+ * carry recipient into one combined row (lib/accounting/distribution-carry-fold.ts).
+ */
 export async function distributionWorkbookDocument(
   admin: SupabaseClient,
   fundId: string,
   group: string,
   args: DistributionWorkbookArgs,
   now: Date = new Date(),
+  opts: { hideRecipients?: Set<string> | null } = {},
 ): Promise<{ body: Buffer; fileName: string; contentType: string } | null> {
   const fundName = await fundNameFor(admin, fundId, group)
   const generatedAt = now.toISOString()
+  const hide = opts.hideRecipients && opts.hideRecipients.size ? opts.hideRecipients : null
   if ('distributionId' in args) {
-    const calc = await loadDeclaredCalc(admin, fundId, group, args.distributionId, { fundName, generatedAt, terms: await termsFor(admin, fundId, group) })
+    const calc = await loadDeclaredCalc(admin, fundId, group, args.distributionId, {
+      fundName, generatedAt, terms: await termsFor(admin, fundId, group, !!hide),
+      fold: hide ? d => foldDeclaredCarry(d, hide) : undefined,
+    })
     if (!calc) return null
     return { body: buildDistributionWorkbook(calc), fileName: distributionWorkbookFileName(fundName, group, calc.date, 'declared'), contentType: DISTRIBUTION_XLSX_TYPE }
   }
-  const preview = await previewWithChecks(admin, fundId, group, args.total, args.asOf, args.method ?? 'waterfall')
+  const raw = await previewWithChecks(admin, fundId, group, args.total, args.asOf, args.method ?? 'waterfall')
+  const preview = hide ? foldPreviewCarry(raw, hide) : raw
   const calc = calcFromPreview(preview, { fundName, vehicle: group, date: args.asOf, description: args.description ?? null, total: args.total, checks: preview.checks, generatedAt })
   return { body: buildDistributionWorkbook(calc), fileName: distributionWorkbookFileName(fundName, group, args.asOf, 'preview'), contentType: DISTRIBUTION_XLSX_TYPE }
 }

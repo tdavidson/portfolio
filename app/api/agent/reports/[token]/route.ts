@@ -38,6 +38,7 @@ import { getReview } from '@/lib/statement-review/store'
 import { reviewPdf } from '@/lib/statement-review/export-pdf'
 import { CustomViewError } from '@/lib/custom-views/store'
 import { distributionWorkbookDocument, ISO_DATE } from '@/lib/accounting/distribution-review'
+import { recipientsToHide } from '@/lib/accounting/distribution-carry-fold'
 import { ViewSpecError } from '@/lib/custom-views/spec'
 
 export const runtime = 'nodejs'
@@ -335,12 +336,13 @@ async function fundDocument(admin: ReturnType<typeof createAdminClient>, claims:
         const group = await resolveVehicle(admin, fundId, a.vehicle ?? undefined, { access })
         const vehicleId = await vehicleIdByName(admin, fundId, group)
         if (!vehicleId || !canSeeVehicle(access, vehicleId)) return notFound()
+        const hideRecipients = await recipientsToHide(admin, fundId, group, access)
         if (a.id) {
-          doc = await distributionWorkbookDocument(admin, fundId, group, { distributionId: a.id })
+          doc = await distributionWorkbookDocument(admin, fundId, group, { distributionId: a.id }, new Date(), { hideRecipients })
         } else {
           const total = Number(a.total)
           if (!Number.isFinite(total) || total <= 0 || !a.as_of || !ISO_DATE.test(a.as_of)) return notFound()
-          doc = await distributionWorkbookDocument(admin, fundId, group, { total, asOf: a.as_of, method: a.method === 'pro_rata' ? 'pro_rata' : 'waterfall' })
+          doc = await distributionWorkbookDocument(admin, fundId, group, { total, asOf: a.as_of, method: a.method === 'pro_rata' ? 'pro_rata' : 'waterfall' }, new Date(), { hideRecipients })
         }
         break
       }
