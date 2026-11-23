@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeAll } from 'vitest'
-import { changedFields, daysBetween, mask, openNumber, sealNumber, validAba, validateCallback, validateWire } from './wire-instructions'
+import { changedFields, daysBetween, mask, openNumber, sealBroken, sealNumber, validAba, validateCallback, validateWire, verificationDigest } from './wire-instructions'
 
 beforeAll(() => { process.env.ENCRYPTION_KEY ??= 'a'.repeat(64) })
 
@@ -64,4 +64,31 @@ describe('changedFields', () => {
 it('counts days between dates', () => {
   expect(daysBetween('2026-06-20T10:00:00Z', '2026-06-30')).toBe(10)
   expect(daysBetween('2026-07-02', '2026-06-30')).toBe(-2)
+})
+
+describe('the verification seal', () => {
+  const row = () => ({
+    fund_id: 'f1', lp_entity_id: 'e1', beneficiary_name: 'Acme Capital LP', bank_name: 'Example Bank',
+    routing_number_encrypted: sealNumber('011000015'), routing_last4: '0015', account_number_encrypted: sealNumber('00123456789'), account_last4: '6789',
+    status: 'verified', entered_by: 'u1', entered_at: '2026-01-05T00:00:00.000Z', verified_by: 'u2', verified_at: '2026-01-06T10:00:00.123Z',
+    verification_note: 'Callback 2026-01-06 to Jane Doe at 555-0100',
+  } as Record<string, any>)
+  const sealed = () => { const r = row(); r.verified_digest = verificationDigest(r); return r }
+
+  it('holds for the details that were verified, whatever format the timestamps come back in', () => {
+    const r = sealed()
+    expect(sealBroken(r)).toBe(false)
+    expect(sealBroken({ ...r, verified_at: '2026-01-06 10:00:00.123+00', entered_at: '2026-01-05T00:00:00+00:00' })).toBe(false)
+  })
+  it('breaks when a number, a name, the entity or the verifier changes in the database', () => {
+    const r = sealed()
+    expect(sealBroken({ ...r, account_number_encrypted: sealNumber('99999999') })).toBe(true)
+    expect(sealBroken({ ...r, beneficiary_name: 'Someone Else LLC' })).toBe(true)
+    expect(sealBroken({ ...r, lp_entity_id: 'e2' })).toBe(true)
+    expect(sealBroken({ ...r, verified_by: 'u1' })).toBe(true)
+  })
+  it('treats verified with no seal as broken, and unverified rows as never broken', () => {
+    expect(sealBroken(row())).toBe(true)
+    expect(sealBroken({ ...row(), status: 'unverified' })).toBe(false)
+  })
 })

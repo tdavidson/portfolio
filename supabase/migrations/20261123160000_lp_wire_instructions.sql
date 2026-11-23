@@ -40,15 +40,20 @@ create table if not exists public.lp_wire_instructions (
   verified_by               uuid references auth.users(id) on delete set null,
   verified_at               timestamptz,
   verification_note         text,
+  verified_digest           text,
   created_at                timestamptz not null default now(),
   updated_at                timestamptz not null default now(),
   unique (fund_id, lp_entity_id)
 );
 
+-- For a copy of this file pasted before verified_digest was added.
+alter table public.lp_wire_instructions add column if not exists verified_digest text;
+
 create index if not exists lp_wire_instructions_fund_idx on public.lp_wire_instructions (fund_id);
 
 comment on table public.lp_wire_instructions is 'Partners'' bank details for distributions. Account and routing numbers are encrypted by the app; service role only.';
 comment on column public.lp_wire_instructions.entered_by is 'Who entered or last changed the details. They cannot also verify them.';
+comment on column public.lp_wire_instructions.verified_digest is 'HMAC sealing the verification to the exact details checked (app key). A mismatch reads as unverified.';
 comment on column public.lp_wire_instructions.verification_note is 'The callback: who was called, the number, the date, and what was confirmed.';
 
 -- Service role only, reads included (see the header).

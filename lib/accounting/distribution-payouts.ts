@@ -61,6 +61,8 @@ export function payoutRows(d: Pick<DeclaredDistribution, 'date' | 'lines'>, wire
       r.flags.push('Paid in full.')
     } else if (!w) {
       r.flags.push('No bank details on file.')
+    } else if (w.sealBroken) {
+      r.flags.push(`Bank details (ending ${w.accountMasked.slice(-4)}) no longer match what was verified: they were changed outside the app. Do not pay until someone confirms them again by callback.`)
     } else if (w.status !== 'verified') {
       r.flags.push(`Bank details not verified by callback (ending ${w.accountMasked.slice(-4)}). Verify before paying.`)
     } else {

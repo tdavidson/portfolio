@@ -15,6 +15,7 @@ interface WireSummary {
   accountMasked: string
   reference: string | null
   status: 'unverified' | 'verified'
+  sealBroken?: boolean
   enteredBy: string | null
   enteredAt: string
   verifiedBy: string | null
@@ -142,7 +143,10 @@ export function PartnerBankDetails({ partners, isAdmin }: { partners: { id: stri
                     <CheckCircle2 className="h-3.5 w-3.5" />Verified {w.verifiedAt?.slice(0, 10)}{w.verifiedBy ? ` by ${w.verifiedBy}` : ''}
                   </span>
                 )}
-                {w?.status === 'unverified' && (
+                {w?.sealBroken && (
+                  <span className="inline-flex items-center gap-1 text-sm text-destructive"><ShieldAlert className="h-3.5 w-3.5" />Changed outside the app since it was verified. Verify again by callback before paying.</span>
+                )}
+                {w?.status === 'unverified' && !w.sealBroken && (
                   <span className="inline-flex items-center gap-1 text-sm text-warning"><ShieldAlert className="h-3.5 w-3.5" />Not verified · entered {w.enteredAt.slice(0, 10)}{w.enteredBy ? ` by ${w.enteredBy}` : ''}</span>
                 )}
                 {isAdmin && (
