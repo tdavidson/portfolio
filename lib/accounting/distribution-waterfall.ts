@@ -4,11 +4,13 @@
 
 export {
   ZERO_TIERS,
+  lineBreakdown,
   replayWaterfallState,
   splitDistribution,
   suggestedCharacter,
 } from '@portfolio/fund-engine'
 export type {
+  LineBreakdown,
   PartnerEconomics,
   PriorDistribution,
   SplitMethod,

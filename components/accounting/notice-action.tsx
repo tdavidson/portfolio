@@ -33,12 +33,32 @@ const DELIVERY_OPTIONS: { value: Delivery; label: string; hint: string }[] = [
  * Cc for every partner, who would be skipped and why, and the email itself — before Send.
  * Publishing is idempotent: a partner whose notice already exists keeps the same document.
  */
-export function NoticeAction({ kind, id, lines, fmt }: {
+/**
+ * One row per partner: a GP's LP line and carry line go out on one notice, so they are picked
+ * together and show their total, marked as including carry.
+ */
+export function partnerRows(lines: Line[]): (Line & { hasCarry: boolean })[] {
+  const out = new Map<string, Line & { hasCarry: boolean }>()
+  for (const l of lines) {
+    const prev = out.get(l.lpEntityId)
+    if (!prev) { out.set(l.lpEntityId, { ...l, hasCarry: l.role === 'carry' }); continue }
+    out.set(l.lpEntityId, {
+      ...prev,
+      amount: Math.round((prev.amount + l.amount) * 100) / 100,
+      role: prev.role === 'lp' || l.role === 'lp' ? 'lp' : 'carry',
+      hasCarry: prev.hasCarry || l.role === 'carry',
+    })
+  }
+  return Array.from(out.values())
+}
+
+export function NoticeAction({ kind, id, lines: registerLines, fmt }: {
   kind: 'capital_call' | 'distribution'
   id: string
   lines: Line[]
   fmt: (v: number) => string
 }) {
+  const lines = partnerRows(registerLines)
   const lf = useLedgerFetch()
   const lpPortalEnabled = useLpPortalEnabled()
   const [open, setOpen] = useState(false)
@@ -231,7 +251,7 @@ export function NoticeAction({ kind, id, lines, fmt }: {
                     return (
                       <label key={l.lpEntityId} className="flex items-center gap-2 px-3 py-2 text-sm cursor-pointer hover:bg-muted/30 min-w-0">
                         <input type="checkbox" checked={selected.has(l.lpEntityId)} onChange={() => toggle(l.lpEntityId)} className="h-3.5 w-3.5 shrink-0" />
-                        <span className="flex-1 min-w-0 truncate">{l.name}{l.role === 'carry' ? <span className="text-xs text-muted-foreground"> &middot; carry</span> : null}</span>
+                        <span className="flex-1 min-w-0 truncate">{l.name}{l.hasCarry ? <span className="text-xs text-muted-foreground"> &middot; {l.role === 'carry' ? 'carry' : 'incl. carry'}</span> : null}</span>
                         <span className="text-xs text-muted-foreground shrink-0">
                           {st?.lastSentAt ? `emailed ${fmtDate(st.lastSentAt)}` : st?.published ? 'in portal' : ''}
                         </span>

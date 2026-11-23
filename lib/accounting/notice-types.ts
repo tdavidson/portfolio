@@ -37,6 +37,11 @@ export interface NoticeData {
    * the amount above.
    */
   purposes?: { label: string; amount: number; basis?: string | null }[] | null
+  /**
+   * Distributions: what the amount is made of, each a separate figure that adds to it. The GP's
+   * notice shows the distribution on its own capital investment and its carried interest apart.
+   */
+  components?: { label: string; amount: number; detail?: { label: string; value: number }[] }[] | null
   /** The partner's share of the vehicle's commitments, 0..1, shown beside the purposes. */
   share?: number | null
   /** A preview: marked DRAFT on every page, so it can never pass for a demand. */

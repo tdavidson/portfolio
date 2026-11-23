@@ -92,6 +92,24 @@ export function buildNoticeHtml(d: NoticeData): string {
     </tbody></table>
     ${d.share != null ? `<p style="font-size:11px;color:#555;margin-top:6px;">Your share is ${(d.share * 100).toFixed(4).replace(/0+$/, '').replace(/\.$/, '')}% of the fund's total commitments.</p>` : ''}` : ''
 
+  // What the amount is made of, each part its own figure. On the GP's notice: the distribution on
+  // its capital investment and the carried interest, never one number standing for both.
+  const comps = !isCall ? (d.components ?? []).filter(c => Number.isFinite(c.amount)) : []
+  const componentRows = comps.map(c => `
+    <tr>
+      <td style="padding:5px 8px;border-top:1px solid #e5e5e5;font-weight:600;">${esc(c.label)}</td>
+      <td style="padding:5px 8px;border-top:1px solid #e5e5e5;text-align:right;font-weight:600;font-variant-numeric:tabular-nums;">${m(c.amount)}</td>
+    </tr>${(c.detail ?? []).map(x => `
+    <tr>
+      <td style="padding:3px 8px 3px 22px;color:#555;">${esc(x.label)}</td>
+      <td style="padding:3px 8px;text-align:right;color:#555;font-variant-numeric:tabular-nums;">${m(x.value)}</td>
+    </tr>`).join('')}`).join('')
+  const componentSection = componentRows ? `
+    <h3 style="font-size:12px;font-weight:600;margin:24px 0 6px;">What this distribution is made of</h3>
+    <table><tbody>${componentRows}
+      <tr><td style="padding:5px 8px;border-top:2px solid #ccc;font-weight:600;">Total payable to you</td><td style="padding:5px 8px;border-top:2px solid #ccc;text-align:right;font-weight:600;font-variant-numeric:tabular-nums;">${m(Math.round(comps.reduce((s, c) => s + c.amount, 0) * 100) / 100)}</td></tr>
+    </tbody></table>` : ''
+
   const draftBanner = d.draft ? `
     <div style="margin-bottom:18px;padding:8px 12px;border:1px solid #111;font-size:11px;font-weight:600;letter-spacing:0.04em;text-transform:uppercase;">
       Draft for review. Not a demand for payment.
@@ -128,6 +146,7 @@ export function buildNoticeHtml(d: NoticeData): string {
     ${d.description ? `<p style="font-size:12px;color:#333;margin-top:18px;">${esc(d.description)}</p>` : ''}
 
     ${headline}
+    ${componentSection}
     ${purposeSection}
     ${contextSection}
     ${wireSection}

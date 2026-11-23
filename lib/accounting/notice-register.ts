@@ -23,11 +23,132 @@ import { documentLetterhead, contactBlock } from '@/lib/vehicle-letterhead'
 import { PURPOSE_LABEL, type PurposeCategory } from './capital-call-check'
 
 export interface NoticeLine {
+  /** The register line the notice hangs off: a partner's LP line when it has one. */
   id: string
   lpEntityId: string
+  /** The partner's whole figure on the notice: on a distribution, its LP and carry lines together. */
   amount: number
+  /** 'carry' only when the partner holds nothing but a carry line. */
   role: 'lp' | 'carry'
   noticeDocumentId: string | null
+  /** Every register line this notice covers (distributions join a partner's LP and carry lines). */
+  lineIds?: string[]
+  /** A distribution partner's lines, each with its own breakdown where one was declared. */
+  parts?: NoticeLinePart[]
+}
+
+/** One register line on a distribution notice. */
+export interface NoticeLinePart {
+  lineId: string
+  role: 'lp' | 'carry'
+  amount: number
+  /** LP lines declared through the waterfall; null when not broken down. */
+  returnOfCapital: number | null
+  preferred: number | null
+  profit: number | null
+}
+
+/**
+ * A distribution's register lines, one notice per partner. The GP's own commitment takes an LP
+ * line and its carry a carry line on the same distribution; a partner reads one notice that shows
+ * both, not two that each look like the whole story.
+ */
+export function groupDistributionLines(
+  raw: { id: string; lp_entity_id: string; amount: number | string; role?: string | null; notice_document_id?: string | null }[],
+  breakdowns: Map<string, { returnOfCapital: number; preferred: number; profit: number }> = new Map(),
+): NoticeLine[] {
+  const byEntity = new Map<string, NoticeLinePart[]>()
+  const docOf = new Map<string, string | null>()
+  for (const l of raw) {
+    const b = breakdowns.get(l.id)
+    const part: NoticeLinePart = {
+      lineId: l.id,
+      role: l.role === 'carry' ? 'carry' : 'lp',
+      amount: Number(l.amount),
+      returnOfCapital: b ? b.returnOfCapital : null,
+      preferred: b ? b.preferred : null,
+      profit: b ? b.profit : null,
+    }
+    byEntity.set(l.lp_entity_id, [...(byEntity.get(l.lp_entity_id) ?? []), part])
+    if (l.notice_document_id && !docOf.get(l.lp_entity_id)) docOf.set(l.lp_entity_id, l.notice_document_id)
+  }
+  return Array.from(byEntity.entries()).map(([lpEntityId, parts]) => {
+    // LP line first, so the notice (and its delivery log) hangs off the same line it always did.
+    parts.sort((a, b) => (a.role === b.role ? 0 : a.role === 'lp' ? -1 : 1))
+    return {
+      id: parts[0].lineId,
+      lpEntityId,
+      amount: roundCents(parts.reduce((s, p) => s + p.amount, 0)),
+      role: parts.some(p => p.role === 'lp') ? 'lp' as const : 'carry' as const,
+      noticeDocumentId: docOf.get(lpEntityId) ?? null,
+      lineIds: parts.map(p => p.lineId),
+      parts,
+    }
+  })
+}
+
+/**
+ * What a distribution notice says under the amount, for one partner.
+ *
+ *   * A partner with carry (the GP) gets its figure split into the distribution on its own capital
+ *     investment and the carried interest, each a separate amount, with the capital part broken into
+ *     return of capital and profit where the declaration recorded it.
+ *   * An LP gets "of which return of capital / preferred return / profit" from its own line where
+ *     the declaration recorded a breakdown, else (older declarations) its share of the fund-wide
+ *     return-of-capital and preferred tiers, as before.
+ */
+export function distributionNoticeFigures(
+  line: NoticeLine,
+  tiers: NoticeRegister['tiers'],
+): { components: NonNullable<NoticeData['components']> | null; ofWhich: { label: string; value: number }[] } {
+  const parts = line.parts ?? [{ lineId: line.id, role: line.role, amount: line.amount, returnOfCapital: null, preferred: null, profit: null }]
+  const lp = parts.filter(p => p.role === 'lp')
+  const carry = parts.filter(p => p.role === 'carry')
+  const lpAmount = roundCents(lp.reduce((s, p) => s + p.amount, 0))
+  const carryAmount = roundCents(carry.reduce((s, p) => s + p.amount, 0))
+  const broken = lp.length > 0 && lp.every(p => p.returnOfCapital != null)
+  const sum = (k: 'returnOfCapital' | 'preferred' | 'profit') => roundCents(lp.reduce((s, p) => s + (p[k] ?? 0), 0))
+
+  if (carry.length > 0) {
+    const components: NonNullable<NoticeData['components']> = []
+    if (lpAmount > 0) {
+      const detail: { label: string; value: number }[] = []
+      if (broken) {
+        detail.push({ label: 'Return of capital', value: sum('returnOfCapital') })
+        if (sum('preferred') > 0) detail.push({ label: 'Preferred return', value: sum('preferred') })
+        detail.push({ label: 'Profit on capital', value: sum('profit') })
+      }
+      components.push({ label: 'Distribution on your capital investment', amount: lpAmount, detail })
+    }
+    components.push({ label: 'Carried interest', amount: carryAmount, detail: [] })
+    return { components, ofWhich: [] }
+  }
+
+  const ofWhich: { label: string; value: number }[] = []
+  if (broken) {
+    ofWhich.push({ label: 'Of which return of capital', value: sum('returnOfCapital') })
+    if (sum('preferred') > 0) ofWhich.push({ label: 'Of which preferred return', value: sum('preferred') })
+    if (sum('profit') > 0) ofWhich.push({ label: 'Of which profit', value: sum('profit') })
+  } else if (tiers && tiers.lpTotal > 0) {
+    const share = lpAmount / tiers.lpTotal
+    ofWhich.push({ label: 'Of which return of capital', value: roundCents(tiers.returnOfCapital * share) })
+    if (tiers.preferred > 0) ofWhich.push({ label: 'Of which preferred return', value: roundCents(tiers.preferred * share) })
+  }
+  return { components: null, ofWhich }
+}
+
+/** Each line's stored breakdown. Read on its own, an error read as none, so a release live before its columns are pushed still renders. */
+async function loadLineBreakdowns(admin: SupabaseClient, fundId: string, lineIds: string[]): Promise<Map<string, { returnOfCapital: number; preferred: number; profit: number }>> {
+  const out = new Map<string, { returnOfCapital: number; preferred: number; profit: number }>()
+  if (lineIds.length === 0) return out
+  const { data, error } = await (admin as any).from('distribution_lines')
+    .select('id, return_of_capital, preferred, profit').eq('fund_id', fundId).in('id', lineIds)
+  if (error) return out
+  for (const r of (data as any[]) ?? []) {
+    if (r.return_of_capital == null || r.preferred == null || r.profit == null) continue
+    out.set(r.id, { returnOfCapital: Number(r.return_of_capital), preferred: Number(r.preferred), profit: Number(r.profit) })
+  }
+  return out
 }
 
 export interface NoticeRegister {
@@ -81,13 +202,15 @@ export async function loadNoticeRegister(
   }
 
   const rawLines: any[] = kind === 'capital_call' ? (row.capital_call_lines ?? []) : (row.distribution_lines ?? [])
-  const lines: NoticeLine[] = rawLines.map(l => ({
-    id: l.id,
-    lpEntityId: l.lp_entity_id,
-    amount: Number(l.amount),
-    role: l.role === 'carry' ? 'carry' : 'lp',
-    noticeDocumentId: l.notice_document_id ?? null,
-  }))
+  const lines: NoticeLine[] = kind === 'capital_call'
+    ? rawLines.map(l => ({
+        id: l.id,
+        lpEntityId: l.lp_entity_id,
+        amount: Number(l.amount),
+        role: 'lp' as const,
+        noticeDocumentId: l.notice_document_id ?? null,
+      }))
+    : groupDistributionLines(rawLines, await loadLineBreakdowns(admin, fundId, rawLines.map(l => l.id as string)))
   if (lines.length === 0) return { error: 'That has no partner lines to notice', status: 400 }
 
   // REFUSE TO NOTICE SOMETHING NOT IN THE BOOKS.
@@ -114,7 +237,8 @@ export async function loadNoticeRegister(
     }
   }
 
-  const lpTotal = roundCents(lines.filter(l => l.role === 'lp').reduce((s, l) => s + l.amount, 0))
+  // The LP tiers' total: LP lines only, never a carry line joined onto the same partner.
+  const lpTotal = roundCents(lines.reduce((s, l) => s + (l.parts ?? [l]).filter(p => p.role === 'lp').reduce((t, p) => t + p.amount, 0), 0))
   const purposes = kind === 'capital_call' ? await loadCallPurposes(admin, fundId, id) : null
   return {
     purposes,
@@ -221,6 +345,7 @@ export async function noticeDataFor(
     const partnerName = names.get(line.lpEntityId) ?? line.lpEntityId
     const row = summaryByLp.get(line.lpEntityId)
     const context: { label: string; value: number | null }[] = []
+    let components: NoticeData['components'] = null
     if (reg.kind === 'capital_call') {
       const charges = extras?.charges.get(line.lpEntityId) ?? []
       const applied = extras?.advance.get(line.lpEntityId) ?? 0
@@ -242,11 +367,9 @@ export async function noticeDataFor(
       const taken = deductions?.get(line.lpEntityId) ?? []
       for (const d of taken) context.push({ label: `Less: ${d.description}`, value: -d.amount })
       if (taken.length) context.push({ label: 'Net paid to you', value: roundCents(line.amount - taken.reduce((s, d) => s + d.amount, 0)) })
-      if (line.role === 'lp' && reg.tiers && reg.tiers.lpTotal > 0) {
-        const share = line.amount / reg.tiers.lpTotal
-        context.push({ label: 'Of which return of capital', value: roundCents(reg.tiers.returnOfCapital * share) })
-        if (reg.tiers.preferred > 0) context.push({ label: 'Of which preferred return', value: roundCents(reg.tiers.preferred * share) })
-      }
+      const figures = distributionNoticeFigures(line, reg.tiers)
+      components = figures.components
+      context.push(...figures.ofWhich)
       if (row) context.push({ label: 'Capital account balance', value: row.ending })
     }
     return {
@@ -265,6 +388,7 @@ export async function noticeDataFor(
         noticeDate: reg.noticeDate,
         number: reg.numberLabel,
         description: line.role === 'carry' ? `${reg.description ?? 'Distribution'} — carried interest` : reg.description,
+        components,
         amount: line.amount,
         dueDate: reg.dueDate,
         wireInstructions,

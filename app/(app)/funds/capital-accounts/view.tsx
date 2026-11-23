@@ -47,6 +47,7 @@ interface DistPreview {
   warnings: string[]
   names: Record<string, string>
   suggestedCharacter: { returnOfCapital: number; realizedGain: number; income: number }
+  lineBreakdown?: { lpEntityId: string; returnOfCapital: number; preferred: number; profit: number }[]
   terms: { kind: string; carryRate: number; prefRate: number; recipients: string[] }
 }
 interface Period { preset: PeriodPreset; start: string | null; end: string | null; label: string }
@@ -295,6 +296,7 @@ export function CapitalAccountsView() {
             action: 'declare', requestKey: operationNonce.current, distributionDate: callDate, description: description || null, lines, carryLines,
             splitMethod: fromPreview ? preview.method : 'manual',
             tiers: fromPreview && preview.method === 'waterfall' ? preview.tiers : null,
+            lineBreakdown: fromPreview && preview.method === 'waterfall' ? (preview.lineBreakdown ?? null) : null,
             character: fromPreview && preview.method === 'waterfall' ? preview.suggestedCharacter : undefined,
             ...(paidNow.length ? { payments: paidNow } : {}),
             ...(extraLines.length ? { deductions: extraLines } : {}),
@@ -850,7 +852,7 @@ export function CapitalAccountsView() {
                 )}
                 <div className="mt-2 text-xs text-muted-foreground flex flex-wrap gap-x-4 gap-y-0.5">
                   {d.lines.map(l => (
-                    <span key={l.lpEntityId} className={l.status === 'settled' ? 'text-muted-foreground/70' : ''}>
+                    <span key={l.id} className={l.status === 'settled' ? 'text-muted-foreground/70' : ''}>
                       {l.name}{l.role === 'carry' ? ' (carry)' : ''}: <span className="tabular-nums">{fmt(l.amount)}</span>
                       {lineNote(l, 'paid') && <span className="ml-1 text-[11px]">({lineNote(l, 'paid')})</span>}
                     </span>
