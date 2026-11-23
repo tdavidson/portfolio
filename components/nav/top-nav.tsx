@@ -18,7 +18,7 @@ interface TopMenuProps {
   fofActive?: boolean
 }
 
-/** Listed last in the Menu, below a rule. */
+/** Listed last in the Menu, after a small gap. */
 const UTILITY_HREFS = new Set(['/settings', '/support'])
 
 const under = (pathname: string, href: string) => pathname === href || pathname.startsWith(href + '/')
@@ -31,7 +31,7 @@ function sectionMatches(item: NavItem, children: NavChild[], pathname: string): 
 /**
  * The "Top menu" layout's navigation (lib/nav/layout.ts): one "Menu" button in the header, beside
  * Jump to, that opens a panel centred on the page. Every section the user can see is listed down
- * the left (Settings and Support last, below a rule); pointing at one shows its pages on the
+ * the left (Settings and Support last); pointing at one shows its pages on the
  * right, starting from the section the page is in. Clicking a section opens it. Same entries and rules as the sidebar (useNavModel). Desktop only: phones
  * keep the tab bar.
  */
@@ -41,7 +41,7 @@ export function TopMenu({ reviewBadge, approvalsBadge, settingsBadge, notesBadge
   const sections = useNavModel({ isAdmin, reviewBadge, approvalsBadge, fofActive })
   const badges = { review: reviewBadge, approvals: approvalsBadge, settings: settingsBadge, notes: notesBadge }
   const active = sections.find(s => sectionMatches(s.item, s.children, pathname))
-  // Settings and Support sit at the foot of the list, below a rule.
+  // Settings and Support sit at the foot of the list, after a small gap.
   const main = sections.filter(s => !UTILITY_HREFS.has(s.item.href))
   const utility = sections.filter(s => UTILITY_HREFS.has(s.item.href))
   // Anything waiting (Review, Approvals, Settings) shows on the closed button too.
@@ -161,7 +161,7 @@ export function TopMenu({ reviewBadge, approvalsBadge, settingsBadge, notesBadge
         <nav aria-label="Menu" className="flex min-h-[22rem]">
           <div className="w-56 shrink-0 space-y-0.5 border-r pr-2">
             {main.map(({ item, children }) => sectionRow(item, children.length > 0))}
-            {(utility.length > 0 || (isAdmin && updateAvailable)) && <div className="my-1.5 border-t" />}
+            {(utility.length > 0 || (isAdmin && updateAvailable)) && <div className="h-3" />}
             {utility.map(({ item, children }) => sectionRow(item, children.length > 0))}
             {isAdmin && updateAvailable && (
               <Link
