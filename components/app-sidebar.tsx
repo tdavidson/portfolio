@@ -366,6 +366,8 @@ interface AppSidebarProps {
   mobile?: boolean
   /** Leave out the theme and Hide Sidebar rows: the fixed layout puts them in its own footer. */
   hideUtilities?: boolean
+  /** Rendered at the end of the list, right under Support (the fixed layout's footer links). */
+  after?: React.ReactNode
   onNavigate?: () => void
 }
 
@@ -431,7 +433,7 @@ export function useNavModel({ isAdmin, reviewBadge, approvalsBadge, fofActive }:
   }))
 }
 
-export function AppSidebar({ reviewBadge, approvalsBadge, settingsBadge, notesBadge, isAdmin, updateAvailable, featureVisibility, fofActive, mobile, hideUtilities, onNavigate }: AppSidebarProps) {
+export function AppSidebar({ reviewBadge, approvalsBadge, settingsBadge, notesBadge, isAdmin, updateAvailable, featureVisibility, fofActive, mobile, hideUtilities, after, onNavigate }: AppSidebarProps) {
   const pathname = usePathname()
   const { collapsed: collapsedPref, toggle } = useSidebar()
   const collapsed = collapsedPref && !mobile
@@ -539,6 +541,8 @@ export function AppSidebar({ reviewBadge, approvalsBadge, settingsBadge, notesBa
             </div>
           )
         })}
+
+        {after}
 
         {/* Update available, admin only */}
         {isAdmin && updateAvailable && (() => {

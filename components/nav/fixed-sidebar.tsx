@@ -27,7 +27,7 @@ interface FixedSidebarProps {
  * The "Fixed sidebar" layout (lib/nav/layout.ts): a full-height column pinned to the left edge
  * of the window, the way a chat app's history rail is. It carries everything the header would:
  * the fund and the collapse control at the top with Jump to under them, the nav scrolling on its
- * own in the middle, and the LP portal switch, theme, account and footer links at the foot. So on
+ * own in the middle, the footer links right under Support, and the LP portal switch, theme and account at the foot. So on
  * a computer there is no header row and the page starts at the top of the window.
  *
  * The rows themselves are AppSidebar's, so the entries and every visibility rule are the same
@@ -43,7 +43,9 @@ export function FixedSidebar({ fundName, fundLogo, userEmail, ...nav }: FixedSid
     <aside
       className={`hidden md:flex sticky top-0 self-start h-dvh shrink-0 flex-col border-r bg-muted/40 transition-[width] duration-200 ${collapsed ? 'w-16' : 'w-64'}`}
     >
-      <div className={`flex items-center gap-2 h-[60px] shrink-0 ${collapsed ? 'justify-center px-1' : 'pl-4 pr-2'}`}>
+      {/* Lined up with the page title: pages start their content at md:p-8 (32px) with a 32px-tall
+          text-2xl heading, so a 32px row 32px down shares its centre line. */}
+      <div className={`flex items-center gap-2 h-8 mt-8 mb-3 shrink-0 ${collapsed ? 'justify-center px-1' : 'pl-4 pr-2'}`}>
         {!collapsed && (
           <>
             <FundMark fundLogo={fundLogo} />
@@ -78,7 +80,7 @@ export function FixedSidebar({ fundName, fundLogo, userEmail, ...nav }: FixedSid
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
-        <AppSidebar {...nav} hideUtilities />
+        <AppSidebar {...nav} hideUtilities after={!collapsed && <div className="pt-2 pb-1"><AppFooter variant="sidebar" /></div>} />
       </div>
 
       <div className={`shrink-0 border-t p-2 space-y-1 ${collapsed ? 'px-1' : ''}`}>
@@ -98,7 +100,6 @@ export function FixedSidebar({ fundName, fundLogo, userEmail, ...nav }: FixedSid
           )}
           <AccountControls fundName={fundName} userEmail={userEmail} compact />
         </div>
-        {!collapsed && <AppFooter variant="sidebar" />}
       </div>
     </aside>
   )
