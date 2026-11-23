@@ -106,7 +106,8 @@ export async function publishNotices(
       if (docErr || !doc) { errors.push(`${partnerName}: ${docErr?.message ?? 'insert failed'}`); return }
       const documentId = (doc as any).id as string
 
-      await admin.from(table as any).update({ notice_document_id: documentId }).eq('id', line.id).eq('fund_id', fundId)
+      // Every line the notice covers: a GP's LP and carry lines share one document.
+      await admin.from(table as any).update({ notice_document_id: documentId }).in('id', line.lineIds ?? [line.id]).eq('fund_id', fundId)
 
       if (investorId) {
         await ensureShare(admin, fundId, documentId, investorId)

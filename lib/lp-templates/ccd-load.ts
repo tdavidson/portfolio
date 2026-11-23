@@ -93,17 +93,24 @@ export async function loadCcdNotices(
     const declared = distributions.find(d => d.distributionId === id)
     const deductions = (await distributionDeductions(admin, fundId, vehicleId, [id])).get(id)
     const lineById = new Map((declared?.lines ?? []).map(l => [l.id, l]))
-    build = line => distributionTransactions({
-      amount: line.amount,
-      role: line.role,
-      description: reg.description,
-      kind: declared?.kind ?? 'cash',
-      character: lineById.get(line.id)?.character ?? UNCHARACTERISED,
-      waterfallReturnOfCapital: line.role === 'lp' && reg.tiers && reg.tiers.lpTotal > 0
-        ? roundCents(reg.tiers.returnOfCapital * (line.amount / reg.tiers.lpTotal))
-        : null,
-      deductions: deductions?.get(line.lpEntityId) ?? [],
-    })
+    // One notice per partner: a GP's LP line and carry line are separate transactions on it, and
+    // the deductions are taken once.
+    build = line => (line.parts ?? [{ lineId: line.id, role: line.role, amount: line.amount, returnOfCapital: null, preferred: null, profit: null }])
+      .flatMap((part, i) => distributionTransactions({
+        amount: part.amount,
+        role: part.role,
+        description: reg.description,
+        kind: declared?.kind ?? 'cash',
+        character: lineById.get(part.lineId)?.character ?? UNCHARACTERISED,
+        waterfallReturnOfCapital: part.role !== 'lp'
+          ? null
+          : part.returnOfCapital != null
+            ? part.returnOfCapital
+            : reg.tiers && reg.tiers.lpTotal > 0
+              ? roundCents(reg.tiers.returnOfCapital * (part.amount / reg.tiers.lpTotal))
+              : null,
+        deductions: i === 0 ? deductions?.get(line.lpEntityId) ?? [] : [],
+      }))
   }
 
   const notices = targets.map(line => {

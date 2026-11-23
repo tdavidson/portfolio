@@ -28,7 +28,7 @@ export async function GET(req: NextRequest) {
 //   preview: { total, asOf?, method?: 'waterfall' | 'pro_rata' }
 //            → the split, writing nothing. Through the waterfall when the vehicle has carry
 //              terms (LP lines + carry lines + the tier breakdown), else pro-rata by capital.
-//   declare: { distributionDate, description?, lines, carryLines?, splitMethod?, tiers?, kind?, character? }
+//   declare: { distributionDate, description?, lines, carryLines?, splitMethod?, tiers?, lineBreakdown?, kind?, character? }
 //            → Dr each partner's capital, Cr 2300 Distributions payable; carry as its own entry
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -75,7 +75,17 @@ export async function POST(req: NextRequest) {
             profitToLP: Number(t.profitToLP ?? 0),
             toLP: Number(t.toLP ?? 0),
             toGP: Number(t.toGP ?? 0),
+            // The GP's own capital, outside the tiers: stored so its notice can state it.
+            ...(Number(t.carryFree) > 0 ? { carryFree: Number(t.carryFree), carryFreeCapital: Number(t.carryFreeCapital ?? 0) } : {}),
           }
+        : null,
+      lineBreakdown: Array.isArray(body?.lineBreakdown)
+        ? body.lineBreakdown.map((b: any) => ({
+            lpEntityId: String(b?.lpEntityId ?? ''),
+            returnOfCapital: Number(b?.returnOfCapital),
+            preferred: Number(b?.preferred),
+            profit: Number(b?.profit),
+          }))
         : null,
       kind: body?.kind,
       character: c

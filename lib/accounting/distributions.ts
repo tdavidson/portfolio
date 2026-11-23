@@ -38,10 +38,12 @@ import { carryFreeIds, distributionSplitInputs, runsPerLp } from '@portfolio/fun
 import { reconcileSettlements, registerStatus, type LineStatus, type RegisterStatus, type Settlement } from './settlement'
 import { loadSettlements } from './capital-calls'
 import {
+  lineBreakdown,
   splitDistribution,
   suggestedCharacter,
   ZERO_TIERS,
   type DistributionSplit,
+  type LineBreakdown,
   type SplitMethod,
   type WaterfallTiers,
 } from './distribution-waterfall'
@@ -71,6 +73,12 @@ export interface DeclareDistributionInput {
   splitMethod?: SplitMethod
   /** The tier breakdown the waterfall produced, when it did. Stored for the notice and the K-1. */
   tiers?: WaterfallTiers | null
+  /**
+   * Each LP line's own return of capital, preferred return and profit, as the preview gave them
+   * (`DistributionPreview.lineBreakdown`). Frozen on the line so a notice states the partner's
+   * figures, the GP's own capital included. Waterfall splits only; each must add to its line.
+   */
+  lineBreakdown?: LineBreakdown[] | null
   /** K-1 box 19 form. Defaults to cash, which is every distribution this app can yet produce. */
   kind?: DistributionKind
   /** Return of capital / realized gain / income. Omitted or all-zero leaves it uncharacterised. */
@@ -103,6 +111,8 @@ export interface DistributionPreview extends DistributionSplit {
   names: Record<string, string>
   /** What the waterfall suggests for the K-1 character. Editable before declaring. */
   suggestedCharacter: DistributionCharacter
+  /** Each LP line as return of capital, preferred return and profit (fund engine `lineBreakdown`). */
+  lineBreakdown: LineBreakdown[]
   /** The carry terms in force, so the UI can say what it applied. */
   terms: { kind: string; carryRate: number; prefRate: number; prefBase: string; recipients: string[] }
 }
@@ -165,6 +175,7 @@ export async function previewDistribution(
     warnings: split.warnings.map(w => Array.from(names.entries()).reduce((s, [id, n]) => s.split(id).join(n), w)),
     names: Object.fromEntries([...split.lines, ...split.carryLines].map(l => [l.lpEntityId, nameOf(l.lpEntityId)])),
     suggestedCharacter: suggestedCharacter(split.tiers, roundCents(total)),
+    lineBreakdown: lineBreakdown(split),
     terms: {
       kind: effectiveTerms.kind,
       carryRate: effectiveTerms.carryRate,
@@ -173,6 +184,30 @@ export async function previewDistribution(
       recipients: effectiveTerms.recipients.map(r => nameOf(r.lpEntityId)),
     },
   }
+}
+
+/**
+ * The per-line breakdown a declaration may carry, checked against the LP lines it describes: every
+ * entry names an LP line, its parts are nonnegative cents, and they add to that line to the cent.
+ * A breakdown that disagrees with the lines is refused rather than half-stored.
+ */
+export function checkLineBreakdown(
+  perLp: Map<string, number>,
+  breakdown: LineBreakdown[],
+): Map<string, LineBreakdown> | { error: string } {
+  const out = new Map<string, LineBreakdown>()
+  const cents = (v: unknown) => typeof v === 'number' && Number.isFinite(v) && v >= 0 && Math.abs(v * 100 - Math.round(v * 100)) < 1e-6
+  for (const b of breakdown) {
+    const amount = perLp.get(b?.lpEntityId)
+    if (amount == null) return { error: 'The breakdown names a partner with no LP line on this distribution' }
+    if (out.has(b.lpEntityId)) return { error: 'The breakdown names a partner twice' }
+    if (![b.returnOfCapital, b.preferred, b.profit].every(cents)) return { error: 'Breakdown amounts must be nonnegative amounts in cents' }
+    if (Math.abs(roundCents(b.returnOfCapital + b.preferred + b.profit) - amount) > 0.004) {
+      return { error: 'A partner\u2019s return of capital, preferred return and profit must add to their line. Preview the split again, or declare it as a manual split.' }
+    }
+    out.set(b.lpEntityId, { lpEntityId: b.lpEntityId, returnOfCapital: roundCents(b.returnOfCapital), preferred: roundCents(b.preferred), profit: roundCents(b.profit) })
+  }
+  return out
 }
 
 function cleanLines(lines: DistributionLineInput[] | undefined): Map<string, number> {
@@ -204,9 +239,8 @@ export async function declareDistribution(
   const perRecipient = cleanLines(input.carryLines)
   if (perLp.size === 0 && perRecipient.size === 0) return { error: 'A distribution needs at least one partner with a positive amount' }
   if (!validCapitalDate(input.distributionDate)) return { error: 'A valid distribution date is required' }
-  for (const id of Array.from(perRecipient.keys())) {
-    if (perLp.has(id)) return { error: 'A partner cannot appear as both an LP line and a carry line' }
-  }
+  // One entity may hold both lines: the GP's own commitment takes an LP line and its carry a carry
+  // line. They stay two lines (two entries, two roll-forward buckets) and one notice joins them.
 
   // Validate the character BEFORE anything is posted: a split that disagrees with what the
   // partners are being told they will receive is two claims about one wire, and the cheap moment
@@ -221,6 +255,10 @@ export async function declareDistribution(
   const kind: DistributionKind = isDistributionKind(input.kind) ? input.kind : 'cash'
   const splitMethod: SplitMethod = input.splitMethod === 'waterfall' || input.splitMethod === 'pro_rata' ? input.splitMethod : 'manual'
   const tiers = splitMethod === 'waterfall' && input.tiers ? input.tiers : null
+  const breakdown = splitMethod === 'waterfall' && input.lineBreakdown && input.lineBreakdown.length > 0
+    ? checkLineBreakdown(perLp, input.lineBreakdown)
+    : null
+  if (breakdown && 'error' in breakdown) return { error: breakdown.error }
 
   const vehicleId = await vehicleIdByName(admin, fundId, group)
   // Refuse before anything is written, for the reason spelled out in issueCapitalCall: a null
@@ -303,17 +341,36 @@ export async function declareDistribution(
       return { error: `${regErr.message}${cleanupError ? `; draft cleanup failed: ${cleanupError.message}` : ''}` }
     }
     distributionId = (row as any).id
+    // The GP's carry-free capital, written apart from the insert so a release that is live before
+    // its columns are pushed still declares. Read the same way (an error reads as none).
+    if (tiers && (tiers.carryFree ?? 0) > 0) {
+      await (admin as any).from('distributions')
+        .update({ wf_carry_free: tiers.carryFree ?? null, wf_carry_free_capital: tiers.carryFreeCapital ?? null })
+        .eq('id', distributionId).eq('fund_id', fundId)
+    }
   }
 
   const lineRows = [
-    ...Array.from(perLp.entries()).map(([lpEntityId, amount]) => ({ lpEntityId, amount, role: 'lp' })),
+    ...Array.from(perLp.entries()).map(([lpEntityId, amount]) => {
+      const b = breakdown && !('error' in breakdown) ? breakdown.get(lpEntityId) : undefined
+      return b
+        ? { lpEntityId, amount, role: 'lp', returnOfCapital: b.returnOfCapital, preferred: b.preferred, profit: b.profit }
+        : { lpEntityId, amount, role: 'lp' }
+    }),
     ...Array.from(perRecipient.entries()).map(([lpEntityId, amount]) => ({ lpEntityId, amount, role: 'carry' })),
   ]
   const { error: finalizeError } = await admin.rpc('complete_capital_operation' as any, {
     p_fund_id: fundId, p_vehicle_id: vehicleId, p_kind: 'distribution', p_register_id: distributionId,
     p_entry_ids: Array.from(new Set([entryId, carryEntryId].filter(Boolean))), p_lines: lineRows,
   })
-  if (finalizeError) return { error: `Distribution remains a draft: ${finalizeError.message}` }
+  if (finalizeError) {
+    // The database still on the one-line-per-partner check (before 20261123140000).
+    const both = Array.from(perRecipient.keys()).some(id => perLp.has(id))
+    if (both && /Duplicate recipient/.test(finalizeError.message)) {
+      return { error: 'Distribution remains a draft: the database does not yet allow one partner both a capital line and a carry line. Apply migration 20261123140000_distribution_line_breakdown.sql, then declare again.' }
+    }
+    return { error: `Distribution remains a draft: ${finalizeError.message}` }
+  }
   return { entryId: entryId ?? carryEntryId ?? '', carryEntryId, distributionId }
 }
 

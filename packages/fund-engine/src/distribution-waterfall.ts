@@ -348,3 +348,52 @@ export function suggestedCharacter(tiers: WaterfallTiers, total: number): { retu
   const roc = roundCents(Math.min(tiers.returnOfCapital + (tiers.carryFreeCapital ?? 0), total))
   return { returnOfCapital: roc, realizedGain: roundCents(total - roc), income: 0 }
 }
+
+/** One LP line of a split, broken into what it is: capital back, preferred return, and profit. */
+export interface LineBreakdown {
+  lpEntityId: string
+  returnOfCapital: number
+  preferred: number
+  /** Everything else on the line: the LPs' share of the catch-up and of the final split, or the profit on carry-free capital. */
+  profit: number
+}
+
+/**
+ * Each LP line of a waterfall split, broken into return of capital, preferred return and profit,
+ * so a notice can state a partner's own figures instead of a share of the fund-wide tiers.
+ *
+ * A carry recipient's own capital (the GP's commitment) comes from `carryFreeLines`, exactly as
+ * the split computed it. Every other line is a share of its group's tiers (or the fund's, without
+ * groups) by line amount: `share()` divided `toLP` by the same basis, so each tier divides the same
+ * way, and the cent apportioning keeps each tier's lines adding to the tier. Profit is the rest of
+ * the line, so the three always add to it.
+ */
+export function lineBreakdown(split: Pick<DistributionSplit, 'method' | 'lines' | 'tiers' | 'groups' | 'carryFreeLines'>): LineBreakdown[] {
+  if (split.method !== 'waterfall') return []
+  const out: LineBreakdown[] = []
+  const carryFree = new Map((split.carryFreeLines ?? []).map(l => [l.lpEntityId, l]))
+  for (const l of split.lines) {
+    const cf = carryFree.get(l.lpEntityId)
+    if (cf) out.push({ lpEntityId: l.lpEntityId, returnOfCapital: roundCents(cf.capital), preferred: 0, profit: roundCents(l.amount - cf.capital) })
+  }
+  const tierLines = split.lines.filter(l => !carryFree.has(l.lpEntityId))
+  const pools: { lines: typeof tierLines; tiers: WaterfallTiers }[] = split.groups && split.groups.length > 0
+    ? split.groups.map(g => { const ids = new Set(g.lpEntityIds); return { lines: tierLines.filter(l => ids.has(l.lpEntityId)), tiers: g.tiers } })
+    : [{ lines: tierLines, tiers: split.tiers }]
+  for (const pool of pools) {
+    if (pool.lines.length === 0) continue
+    const basis = pool.lines.map(l => ({ lpEntityId: l.lpEntityId, commitment: l.amount }))
+    const poolTotal = roundCents(pool.lines.reduce((s, l) => s + l.amount, 0))
+    // Never more than the lines hold between them, whatever the tiers say.
+    const rocTotal = Math.min(Math.max(0, pool.tiers.returnOfCapital), poolTotal)
+    const prefTotal = Math.min(Math.max(0, pool.tiers.preferred), roundCents(poolTotal - rocTotal))
+    const roc = allocateAmount(rocTotal, basis)
+    const pref = allocateAmount(prefTotal, basis)
+    for (const l of pool.lines) {
+      const r = Math.min(roc.get(l.lpEntityId) ?? 0, l.amount)
+      const p = Math.min(pref.get(l.lpEntityId) ?? 0, roundCents(l.amount - r))
+      out.push({ lpEntityId: l.lpEntityId, returnOfCapital: roundCents(r), preferred: roundCents(p), profit: roundCents(l.amount - r - p) })
+    }
+  }
+  return out
+}
