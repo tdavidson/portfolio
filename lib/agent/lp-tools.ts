@@ -27,14 +27,13 @@ import { BASIS_LABELS, BASIS_NOTES } from '@/lib/accounting/statement-basis'
 import { resolveStatementBasis } from '@/lib/accounting/statement-basis-default'
 import { statementColumns } from '@/lib/accounting/capital-statement-layout'
 import { linkNote, reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
-import { COMBINED_RECIPIENTS_ID, CarryRecipientStatementError, carryRecipientIds, seesIndividualCarry } from '@/lib/access/carry-visibility'
+import { CarryRecipientStatementError, carryRecipientIds, seesIndividualCarry } from '@/lib/access/carry-visibility'
 import { siteOrigin } from '@/lib/site-links'
 import { reviewCallNotices } from '@/lib/accounting/call-notice-review'
 import { unwrap } from '@/lib/service-outcome'
 import { investorGroups, type InvestorRecord } from '@/lib/lps/investor-groups'
 import { listDistributions, signOffDistribution } from '@/lib/accounting/distributions'
 import { previewWithChecks } from '@/lib/accounting/distribution-review'
-import { foldDeclaredCarry, foldFlags, foldNoticePartners, foldPreviewCarry, recipientsToHide } from '@/lib/accounting/distribution-carry-fold'
 import { recordAudit } from '@/lib/audit/events'
 import { loadWireSummaries } from '@/lib/lps/wire-instructions'
 import { normalizeNoticeEmail, reviewDistributionNotices } from '@/lib/accounting/distribution-notice-review'
@@ -442,9 +441,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
   // and carry line apart, with the stored return of capital / preferred / profit and the sign-off.
   list_distributions: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
     const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
-    // Without gp_economics the carry recipients are one combined row (what each receives is GP economics).
-    const hide = await recipientsToHide(admin, fundId, vehicle, access)
-    const rows = (await listDistributions(admin, fundId, vehicle)).map(d => (hide ? foldDeclaredCarry(d, hide) : d))
+    const rows = await listDistributions(admin, fundId, vehicle)
     return {
       vehicle,
       distributions: rows.map(d => ({
@@ -485,9 +482,7 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     const asOf = input?.asOf ? String(input.asOf) : new Date().toISOString().slice(0, 10)
     if (!ISO_DATE.test(asOf)) throw new Error('asOf must be YYYY-MM-DD.')
     const method = input?.method === 'pro_rata' ? 'pro_rata' as const : 'waterfall' as const
-    const hide = await recipientsToHide(admin, fundId, vehicle, access)
-    const raw = await previewWithChecks(admin, fundId, vehicle, total, asOf, method)
-    const p = hide ? foldPreviewCarry(raw, hide) : raw
+    const p = await previewWithChecks(admin, fundId, vehicle, total, asOf, method)
     const name = (id: string) => p.names[id] ?? id
     const breakdown = new Map(p.lineBreakdown.map(b => [b.lpEntityId, b]))
     const workbook = userId
@@ -624,14 +619,9 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     if (!userId) throw new Error('A preview link names the member who asked; this credential has none.')
     const base = origin ?? siteOrigin()
     const blocked = review.flags.some(f => f.severity === 'blocker')
-    // Without gp_economics the carry recipients are one combined row with no draft link: a
-    // recipient's notice is what they receive. The preview token still covers every notice.
-    const hide = await recipientsToHide(admin, fundId, vehicle, access)
     return {
       ...review,
-      flags: hide ? foldFlags(review.flags, hide) : review.flags,
-      partners: (hide ? foldNoticePartners(review.partners, hide) : review.partners).map(p => {
-        if (p.lpEntityId === COMBINED_RECIPIENTS_ID) return { ...p, draftPdf: null }
+      partners: review.partners.map(p => {
         const { token } = signReportLink({ fundId, userId, kind: 'distribution_notice_preview', args: { vehicle, distribution: distributionId, lp: p.lpEntityId } })
         return { ...p, draftPdf: reportLinkUrl(base, token) }
       }),

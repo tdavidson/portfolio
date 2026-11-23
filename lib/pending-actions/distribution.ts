@@ -2,7 +2,6 @@ import type { ActionDeps, PreviewResult } from './types'
 import { resolveVehicle } from '@/lib/accounting/agent-tools'
 import { declareDistribution } from '@/lib/accounting/distributions'
 import { previewWithChecks, ISO_DATE } from '@/lib/accounting/distribution-review'
-import { foldPreviewCarry, recipientsToHide } from '@/lib/accounting/distribution-carry-fold'
 
 export interface DeclareDistributionActionInput {
   vehicle?: string
@@ -28,10 +27,7 @@ function validate(input: DeclareDistributionActionInput) {
 export async function previewDeclareDistribution(deps: ActionDeps, input: DeclareDistributionActionInput): Promise<PreviewResult> {
   const { total, method } = validate(input)
   const group = await resolveVehicle(deps.admin, deps.fundId, input.vehicle, { access: deps.access })
-  // The preview shows what the stager may see: without gp_economics, recipients combined.
-  const hide = await recipientsToHide(deps.admin, deps.fundId, group, deps.access)
-  const raw = await previewWithChecks(deps.admin, deps.fundId, group, total, input.distributionDate, method)
-  const p = hide ? foldPreviewCarry(raw, hide) : raw
+  const p = await previewWithChecks(deps.admin, deps.fundId, group, total, input.distributionDate, method)
   const breakdown = new Map(p.lineBreakdown.map(b => [b.lpEntityId, b]))
   const name = (id: string) => p.names[id] ?? id
   return {
