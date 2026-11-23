@@ -114,6 +114,25 @@ describe('shared reporting capital', () => {
     expect(econ.fund.nav).toBe(62)
   })
 
+  it('carries paid-in and distributions with a transferred interest', async () => {
+    const pre = fixture('ledger')
+    const ledger = pre.ledgerByVehicleId.get('v')!
+    ledger.acctRows.push({ id: 'cap-gp', code: '3100-gp', name: 'GP capital', type: 'equity', lp_entity_id: 'gp' })
+    ledger.entryRows.push(
+      { id: 'd', entry_date: '2025-02-15', source_type: 'distribution' },
+      { id: 't', entry_date: '2025-03-01', source_type: 'transfer' },
+    )
+    ledger.postingRows.push(
+      { journal_entry_id: 'd', account_id: 'cap', amount: 10, currency: 'USD', lp_entity_id: 'lp' },
+      { journal_entry_id: 'd', account_id: 'due', amount: -10, currency: 'USD', lp_entity_id: 'lp' },
+      { journal_entry_id: 't', account_id: 'cap', amount: 30, currency: 'USD', lp_entity_id: 'lp' },
+      { journal_entry_id: 't', account_id: 'cap-gp', amount: -30, currency: 'USD', lp_entity_id: 'gp' },
+    )
+    const { rows } = await liveRowsForVehicle(noQueries, 'firm', group, '2025-03-31', pre)
+    expect(rows.find(r => r.entity_id === 'gp')).toMatchObject({ called_capital: 40, paid_in_capital: 40, distributions: 10, nav: 30, tvpi: 1 })
+    expect(rows.find(r => r.entity_id === 'lp')).toMatchObject({ called_capital: 0, paid_in_capital: 0, distributions: 0, nav: 0 })
+  })
+
   it('excludes future journal entries from a reused preload', async () => {
     const pre = fixture('ledger')
     const ledger = pre.ledgerByVehicleId.get('v')!

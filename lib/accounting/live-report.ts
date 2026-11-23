@@ -24,7 +24,7 @@ import { lpRatios } from '@/lib/lp-metrics'
 import { loadCapitalPostings, type CapitalSource } from './capital-source'
 import { loadCommitmentEvents, commitmentsFrom, loadPartnerTerms } from './terms'
 import { reportingIrr, tooNewForIrr } from './reporting-irr'
-import { calledAfterTransfers, calledCapitalFor, irrFlowPostings, isIrrFlow } from './irr-flows'
+import { calledAfterTransfers, calledCapitalFor, distributionsAfterTransfers, irrFlowPostings, isIrrFlow } from './irr-flows'
 import type { CapitalEvidence } from './capital-evidence'
 import { loadReportingCapital } from './reporting-capital'
 import { fetchAllRows, listVehicles, loadOwnership } from './load'
@@ -216,6 +216,7 @@ export async function liveRowsForVehicle(
   const accountByLp = computeCapitalAccounts(postings)
   const recontributed = recontributedByLp(postings)
   const calledBy = calledAfterTransfers(postings)
+  const distributedBy = distributionsAfterTransfers(postings)
 
   // Union: an LP with a commitment but no activity still belongs on the report (they show
   // as fully unfunded), and an LP with activity but no recorded commitment must not vanish.
@@ -243,27 +244,33 @@ export async function liveRowsForVehicle(
     const evidence = evidenceByLp.get(entityId)
     const irr = reportingIrr(lpPostings, account.ending, evidence)
     const metrics = deriveMetrics(account, commitmentByLp.get(entityId) ?? 0, receivableByLp.get(entityId) ?? 0, irr, recontributed.get(entityId) ?? 0)
-    // Called and uncalled are measured against the commitment, and a commitment moves with a
-    // transferred interest, so they include the transferor's called history. Paid-in, the
-    // performance denominator, stays the partner's own (a sale is the buyer's purchase at NAV).
+    // A transferred interest carries its history: called capital is measured against the
+    // commitment, which moves with the interest, and paid-in and distributions move with it too,
+    // as administrators report a transfer. Otherwise the transferee's DPI and TVPI compare part of
+    // the history with all of the NAV. IRR is separate: a secondary sale is the seller's exit and
+    // the buyer's purchase at NAV (irrFlowPostings).
     const calledWithTransfers = calledBy.get(entityId) ?? 0
     metrics.called_capital = calledWithTransfers
+    metrics.paid_in_capital = calledWithTransfers
+    metrics.distributions = distributedBy.get(entityId) ?? 0
     metrics.outstanding_balance = roundCents(metrics.commitment - calledWithTransfers + (recontributed.get(entityId) ?? 0))
-    if (evidence) {
+    if (evidence?.basis === 'reported') {
+      // A reported observation has no books to carry a transfer through, so it stands as given.
+      // Ledger-basis evidence is the partner's own figures only, so it does not replace these.
       metrics.paid_in_capital = evidence.values.contributions
       metrics.distributions = evidence.values.distributions
       metrics.nav = evidence.values.nav
-      metrics.total_value = metrics.nav == null || metrics.distributions == null ? null : roundCents(metrics.nav + metrics.distributions)
-      // Ledger-basis evidence is the partner's own contributions, so called and uncalled keep the
-      // transferred history; only a reported observation replaces them.
-      if (evidence.basis === 'reported') {
-        metrics.called_capital = calledCapitalFor(entityId, evidence, calledBy)
-        metrics.outstanding_balance = metrics.called_capital == null ? null : roundCents(metrics.commitment - metrics.called_capital)
-      }
-      const ratios = lpRatios({ commitment: metrics.commitment, paidIn: metrics.paid_in_capital, distributions: metrics.distributions, nav: metrics.nav })
-      metrics.dpi = ratios.dpi; metrics.rvpi = ratios.rvpi; metrics.tvpi = ratios.tvpi
-      if (evidence.basis === 'reported' && !receivableByLp.has(entityId)) metrics.receivable = null
+      metrics.called_capital = calledCapitalFor(entityId, evidence, calledBy)
+      metrics.outstanding_balance = metrics.called_capital == null ? null : roundCents(metrics.commitment - metrics.called_capital)
+      if (!receivableByLp.has(entityId)) metrics.receivable = null
+    } else if (evidence) {
+      metrics.nav = evidence.values.nav
     }
+    metrics.total_value = metrics.nav == null || metrics.distributions == null ? null : roundCents(metrics.nav + metrics.distributions)
+    const ratios = lpRatios({ commitment: metrics.commitment, paidIn: metrics.paid_in_capital, distributions: metrics.distributions, nav: metrics.nav })
+    metrics.dpi = round4(ratios.dpi)
+    metrics.rvpi = round4(ratios.rvpi)
+    metrics.tvpi = round4(ratios.tvpi)
     return { entity_id: entityId, evidence, portfolio_group: group, source, ...metrics }
   })
   return { source, rows }

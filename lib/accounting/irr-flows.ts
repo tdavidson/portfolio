@@ -58,12 +58,31 @@ export function irrFlowPostings(postings: CapitalPosting[]): CapitalPosting[] {
  * Pass the whole vehicle's postings, not one partner's.
  */
 export function calledAfterTransfers(postings: CapitalPosting[]): Map<string, number> {
-  const contributions = postings.filter(p => bucketForSourceType(p.sourceType, p.amount) === 'contributions')
-  const flows = carryTransferHistory(contributions, postings, [ASSIGNMENT_TRANSFER_SOURCE, SECONDARY_TRANSFER_SOURCE])
+  // Postings are debit-positive; a contribution is a credit, so called is the negated sum.
+  return bucketAfterTransfers(postings, 'contributions', -1)
+}
+
+/**
+ * Each partner's DISTRIBUTIONS received (positive), with the distribution history of every
+ * transferred interest moved to the partner who now holds it, on the same terms as
+ * `calledAfterTransfers`. Paid-in is called capital, so it moves with the interest; distributions
+ * have to move with it too, or the transferee's DPI and TVPI compare the seller's contributions
+ * with only the transferee's own distributions. This is how administrators report a transfer: the
+ * transferee takes over the transferor's contributed capital and distributions.
+ *
+ * Pass the whole vehicle's postings, not one partner's.
+ */
+export function distributionsAfterTransfers(postings: CapitalPosting[]): Map<string, number> {
+  // A distribution is a debit to capital, so the sum is already positive.
+  return bucketAfterTransfers(postings, 'distributions', 1)
+}
+
+function bucketAfterTransfers(postings: CapitalPosting[], bucket: 'contributions' | 'distributions', sign: 1 | -1): Map<string, number> {
+  const inBucket = postings.filter(p => bucketForSourceType(p.sourceType, p.amount) === bucket)
+  const flows = carryTransferHistory(inBucket, postings, [ASSIGNMENT_TRANSFER_SOURCE, SECONDARY_TRANSFER_SOURCE])
   // Every partner with a posting gets a figure, so one whose whole interest moved reads 0.
   const out = new Map<string, number>(postings.filter(p => p.lpEntityId).map(p => [p.lpEntityId, 0]))
-  // Postings are debit-positive; a contribution is a credit, so called is the negated sum.
-  for (const f of flows) if (f.lpEntityId) out.set(f.lpEntityId, (out.get(f.lpEntityId) ?? 0) - f.amount)
+  for (const f of flows) if (f.lpEntityId) out.set(f.lpEntityId, (out.get(f.lpEntityId) ?? 0) + sign * f.amount)
   for (const [id, v] of out) out.set(id, Math.round(v * 100) / 100)
   return out
 }
