@@ -5,7 +5,7 @@
 // entry is retracted: a row the database will refuse must not cost the transaction its journal entry.
 // Used by POST /api/companies/[id]/investments (the new row) and PATCH …/[txnId] (the edited row).
 
-import { escrowExceedsGross } from './proceeds'
+import { escrowExceedsGross, holdbackError } from './proceeds'
 
 export const TRANSACTION_TYPES = ['investment', 'proceeds', 'escrow_receipt', 'unrealized_gain_change', 'round_info', 'split', 'income']
 export const INCOME_KINDS = ['staking', 'airdrop', 'dividend', 'other']
@@ -52,7 +52,7 @@ export function splitError(row: any): string | null {
 
 const NUMERIC_FIELDS = [
   'investment_cost', 'interest_converted', 'shares_acquired', 'share_price', 'split_ratio',
-  'income_amount', 'fee_amount', 'cost_basis_exited', 'proceeds_received', 'proceeds_escrow', 'consideration_in_kind',
+  'income_amount', 'fee_amount', 'cost_basis_exited', 'proceeds_received', 'proceeds_escrow', 'proceeds_holdback', 'consideration_in_kind',
   'proceeds_written_off', 'proceeds_per_share', 'unrealized_value_change', 'current_share_price',
   'postmoney_valuation', 'ownership_pct', 'latest_postmoney_valuation', 'exit_valuation',
   'original_investment_cost', 'original_share_price', 'original_postmoney_valuation',
@@ -106,5 +106,5 @@ export function transactionRowError(row: Record<string, unknown>): string | null
   }
   // Not a database constraint: escrow is part of the gross proceeds (lib/portfolio/proceeds.ts), so
   // a row with more in escrow than in proceeds was entered under the old net reading.
-  return splitError(row) ?? incomeError(row) ?? escrowExceedsGross(row)
+  return splitError(row) ?? incomeError(row) ?? escrowExceedsGross(row) ?? holdbackError(row)
 }

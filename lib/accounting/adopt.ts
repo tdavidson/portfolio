@@ -34,6 +34,8 @@ import { roundCents } from './ledger'
 import { investmentKind, isPooledInvestmentAccount, type ChartAccount } from './investment-accounts'
 
 export const ESCROW_CODE = '1350'
+/** A holdback the buyer owes directly, kept apart from escrow; part of the exit's escrow figure. */
+export const HOLDBACK_CODE = '1355'
 
 export interface ReadPosting { accountId: string; amount: number }
 
@@ -47,6 +49,8 @@ export interface AdoptedTxn {
   cost_basis_exited?: number
   proceeds_received?: number
   proceeds_escrow?: number
+  /** The part of proceeds_escrow booked to 1355. */
+  proceeds_holdback?: number
   unrealized_value_change?: number
   fx_value_change?: number
   valuation_change_source?: 'mark' | 'fx'
@@ -104,6 +108,7 @@ export function readInvestmentLines(postings: ReadPosting[], chart: ChartAccount
   }
   let pooledGain = 0
   let escrow = 0
+  let holdback = 0
 
   for (const p of postings) {
     const a = byId.get(p.accountId)
@@ -125,6 +130,7 @@ export function readInvestmentLines(postings: ReadPosting[], chart: ChartAccount
     // Context the reader consults: pooled realized gain, escrow receivable.
     if (a.subtype === 'realized_gain' && !a.companyId) pooledGain = roundCents(pooledGain + amount)
     else if (a.code === ESCROW_CODE && amount > 0) escrow = roundCents(escrow + amount)
+    else if (a.code === HOLDBACK_CODE && amount > 0) { escrow = roundCents(escrow + amount); holdback = roundCents(holdback + amount) }
   }
 
   const companies = Array.from(per.keys()).filter(id => {
@@ -169,6 +175,7 @@ export function readInvestmentLines(postings: ReadPosting[], chart: ChartAccount
       const held = companies.length === 1 || exits.length === 1 ? escrow : 0
       const txn: AdoptedTxn = { company_id: id, transaction_type: 'proceeds', cost_basis_exited: basis, proceeds_received: roundCents(basis + gain) }
       if (held !== 0) txn.proceeds_escrow = held
+      if (held !== 0 && holdback !== 0) txn.proceeds_holdback = holdback
       transactions.push(txn)
       continue
     }

@@ -155,7 +155,7 @@ const RULES: Rule[] = [
   // receipt recorded on the holding posts that (Dr cash, Cr 1350), so this row is flagged as an
   // escrow release and LINKED to the receipt's entry; posting it to 1350 itself is refused
   // (ESCROW_VIA_HOLDING), or the receivable would clear twice.
-  { when: 'any', re: /\b(escrow|holdback)\b/, subtypes: ['escrow_receivable'], sourceType: 'realized_gain', label: 'Escrow release — link it to the receipt on the holding' },
+  { when: 'any', re: /\b(escrow|holdback)\b/, subtypes: ['escrow_receivable', 'holdback_receivable'], sourceType: 'realized_gain', label: 'Escrow release — link it to the receipt on the holding' },
 
   // Fees. The same words mean revenue to the manager and a cost to the fund.
   { when: 'out', re: /\b(management fee|mgmt fee)\b/, subtypes: ['management_fee'], sourceType: 'management_fee', label: 'Management fee' },
@@ -278,6 +278,7 @@ export function sourceTypeForAccount(a: ChartAccountRef, inflow: boolean): strin
     case 'management_fee': return 'management_fee'
     case 'organizational_expense': return 'organizational_expense'
     case 'escrow_receivable': return 'realized_gain'
+    case 'holdback_receivable': return 'realized_gain'
   }
   if (a.type === 'income') return 'income'
   if (a.type === 'expense') return 'partnership_expense'

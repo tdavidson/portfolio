@@ -141,7 +141,7 @@ export async function loadEscrowExits(admin: SupabaseClient, fundId: string, opt
       const a = accounts.get(p.account_id)
       const amount = Number(p.amount)
       if (a?.code === '1000') cash += amount
-      else if (a?.code === '1350') escrow += amount
+      else if (a?.code === '1350' || a?.code === '1355') escrow += amount
       else if (a?.subtype === 'realized_gain') gain -= amount
     }
     return { cash: roundCents(cash), escrow: roundCents(escrow), gain: roundCents(gain) }

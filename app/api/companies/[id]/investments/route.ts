@@ -10,7 +10,7 @@ import { computeSummary } from '@/lib/investments'
 import { draftEntryForTransaction } from '@/lib/accounting/from-portfolio'
 import { validateConversionLink } from '@/lib/accounting/conversion-link'
 import { TRANSACTION_TYPES, incomeError, splitError } from '@/lib/portfolio/transaction-checks'
-import { escrowExceedsGross } from '@/lib/portfolio/proceeds'
+import { escrowExceedsGross, holdbackError } from '@/lib/portfolio/proceeds'
 import { normalizeSecurityType, SECURITY_TYPES } from '@/lib/accounting/soi'
 import { disposalBasis, isLotMethod, type LotMethod } from '@/lib/portfolio/lots'
 import { ensureVehiclesByName } from '@/lib/accounting/vehicle-id'
@@ -148,7 +148,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
   if (incomeProblem) return NextResponse.json({ error: incomeProblem }, { status: 400 })
 
   // Proceeds are gross, escrow included (lib/portfolio/proceeds.ts) — escrow can't exceed them.
-  const escrowProblem = escrowExceedsGross(body)
+  const escrowProblem = escrowExceedsGross(body) ?? holdbackError(body)
   if (escrowProblem) return NextResponse.json({ error: escrowProblem }, { status: 400 })
 
   // security_type is CHECK-constrained. Unvalidated, a bad value reached Postgres and came back as
@@ -209,6 +209,7 @@ export async function POST(req: NextRequest, props: { params: Promise<{ id: stri
       cost_basis_exited: body.cost_basis_exited ?? null,
       proceeds_received: body.proceeds_received ?? null,
       proceeds_escrow: body.proceeds_escrow ?? 0,
+      proceeds_holdback: body.proceeds_holdback ?? 0,
       proceeds_written_off: body.proceeds_written_off ?? 0,
       proceeds_per_share: body.proceeds_per_share ?? null,
       unrealized_value_change: body.unrealized_value_change ?? null,

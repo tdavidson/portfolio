@@ -9,7 +9,7 @@ import { recordAudit } from '@/lib/audit/events'
 import { vehicleIdByName } from './vehicle-id'
 import { accountIdByCode } from './persist'
 import { ESCROW_VIA_HOLDING, counterPosting } from './bank'
-import { ESCROW_CODE } from './adopt'
+import { ESCROW_CODE, HOLDBACK_CODE } from './adopt'
 import { closedPeriodRanges, dateInAnyClosedPeriod } from './periods'
 import { ACTUAL_BOOK } from './books'
 import { postExistingEntryWithAllocation, setGeneratedAllocationStatus } from './continuous-allocation'
@@ -68,10 +68,10 @@ export async function bankEscrowPostings(
 ): Promise<string | null> {
   if (entryIds.length === 0) return null
   const codes = await accountIdByCode(admin, fundId, group)
-  const escrowId = codes.get(ESCROW_CODE)
-  if (!escrowId) return null
+  const receivableIds = [codes.get(ESCROW_CODE), codes.get(HOLDBACK_CODE)].filter((id): id is string => !!id)
+  if (receivableIds.length === 0) return null
   const { data, error } = await admin.from('journal_postings' as any).select('journal_entry_id')
-    .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('journal_entry_id', entryIds).eq('account_id', escrowId).limit(1)
+    .eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('journal_entry_id', entryIds).in('account_id', receivableIds).limit(1)
   if (error) return `The entry could not be checked: ${error.message}`
   return ((data as any[]) ?? []).length > 0 ? ESCROW_VIA_HOLDING : null
 }
@@ -134,7 +134,7 @@ export async function setBankTransactionAccount(
   if (txn.status !== 'drafted') return { error: 'Only a drafted transaction can be re-categorized', status: 400 }
   const code = String(accountCode ?? '').trim()
   if (!code) return { error: 'accountCode is required', status: 400 }
-  if (code === ESCROW_CODE) return { error: ESCROW_VIA_HOLDING, status: 400 }
+  if (code === ESCROW_CODE || code === HOLDBACK_CODE) return { error: ESCROW_VIA_HOLDING, status: 400 }
   const codes = await accountIdByCode(admin, fundId, group)
   const newAccountId = codes.get(code)
   if (!newAccountId) return { error: 'Unknown account for this vehicle', status: 400 }

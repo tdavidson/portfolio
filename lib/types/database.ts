@@ -2375,6 +2375,7 @@ export type Database = {
           prior_fx_rate: number | null
           proceeds_escrow: number | null
           consideration_in_kind: number
+          proceeds_holdback: number
           proceeds_per_share: number | null
           proceeds_received: number | null
           proceeds_written_off: number | null
@@ -2422,6 +2423,7 @@ export type Database = {
           prior_fx_rate?: number | null
           proceeds_escrow?: number | null
           consideration_in_kind?: number
+          proceeds_holdback?: number
           proceeds_per_share?: number | null
           proceeds_received?: number | null
           proceeds_written_off?: number | null
@@ -2469,6 +2471,7 @@ export type Database = {
           prior_fx_rate?: number | null
           proceeds_escrow?: number | null
           consideration_in_kind?: number
+          proceeds_holdback?: number
           proceeds_per_share?: number | null
           proceeds_received?: number | null
           proceeds_written_off?: number | null

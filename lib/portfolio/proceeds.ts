@@ -11,6 +11,13 @@
 // realized gain is gross − basis. When the escrow lands, an `escrow_receipt` row (its own
 // proceeds_received = the amount released) moves it from 1350 to cash and adds no proceeds.
 //
+//   proceeds_holdback  The part of proceeds_escrow that is a holdback or deferred payment the buyer
+//                      owes directly (a note, a deferred tranche) rather than money sitting in an
+//                      escrow account. Still part of the escrow figure, so every report reads the
+//                      same totals; the ledger books it to its own receivable (1355) instead of
+//                      1350. On an `escrow_receipt` row it is the part of the cash received that
+//                      clears 1355; the rest clears 1350.
+//
 // Before this was pinned down, the ledger and several reports read proceeds_received as the cash
 // received and added the escrow on top, so a gross figure entered on the form booked the escrow
 // twice. Rows recorded before then may hold either reading; scripts/diagnose-escrow-exits.ts lists
@@ -32,6 +39,29 @@ export function proceedsSplit(t: { proceeds_received?: unknown; proceeds_escrow?
   const gross = n(t.proceeds_received)
   const escrow = n(t.proceeds_escrow)
   return { gross, escrow, cash: Math.round((gross - escrow) * 100) / 100 }
+}
+
+/**
+ * Why a row's holdback doesn't fit, or null. On an exit the holdback is part of the escrow; on an
+ * escrow receipt it is part of the cash received. Nowhere else.
+ */
+export function holdbackError(t: {
+  transaction_type?: unknown; proceeds_received?: unknown; proceeds_escrow?: unknown; proceeds_holdback?: unknown
+}): string | null {
+  const holdback = n(t.proceeds_holdback)
+  if (holdback === 0) return null
+  if (holdback < 0) return 'proceeds_holdback cannot be negative.'
+  if (t.transaction_type === 'proceeds') {
+    if (holdback - n(t.proceeds_escrow) > 0.005) {
+      return 'The holdback is larger than the escrow. proceeds_escrow is everything held back; the holdback is the part of it the buyer owes directly rather than through an escrow account.'
+    }
+    return null
+  }
+  if (t.transaction_type === 'escrow_receipt') {
+    if (holdback - n(t.proceeds_received) > 0.005) return 'The holdback cleared is larger than the cash received.'
+    return null
+  }
+  return 'proceeds_holdback applies only to an exit (proceeds) or an escrow receipt.'
 }
 
 /** Gross proceeds of a `proceeds` row — the figure every return and gain is measured on. */

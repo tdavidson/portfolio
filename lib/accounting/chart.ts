@@ -41,6 +41,9 @@ export const DEFAULT_CHART: ChartAccountSeed[] = [
   // holdback. Recognizing it as a RECEIVABLE at exit puts the two back in agreement, and the
   // receivable clears when the money actually lands.
   { code: '1350', name: 'Escrow receivable', type: 'asset', subtype: 'escrow_receivable' },
+  // A holdback or deferred payment the buyer owes directly (a note, a deferred tranche), kept apart
+  // from money held in an escrow account. Part of an exit's escrow figure; clears on receipt.
+  { code: '1355', name: 'Holdback receivable', type: 'asset', subtype: 'holdback_receivable' },
   // Shares a buyer paid as consideration in an exit, on their way into the new holding. The exit
   // debits it and the purchase of those shares credits it on the same day, so it nets to zero.
   { code: '1360', name: 'Securities received in exits', type: 'asset', subtype: 'in_kind_consideration' },
@@ -439,6 +442,9 @@ export const INDIVIDUAL_CHART: ChartAccountSeed[] = [
   { code: '1200', name: 'Unrealized appreciation/(depreciation)', type: 'asset', subtype: 'unrealized' },
   { code: '1250', name: 'Foreign currency translation', type: 'asset', subtype: 'fx_translation' },
   { code: '1350', name: 'Escrow receivable', type: 'asset', subtype: 'escrow_receivable' },
+  // A holdback or deferred payment the buyer owes directly (a note, a deferred tranche), kept apart
+  // from money held in an escrow account. Part of an exit's escrow figure; clears on receipt.
+  { code: '1355', name: 'Holdback receivable', type: 'asset', subtype: 'holdback_receivable' },
   // Shares a buyer paid as consideration in an exit, on their way into the new holding. The exit
   // debits it and the purchase of those shares credits it on the same day, so it nets to zero.
   { code: '1360', name: 'Securities received in exits', type: 'asset', subtype: 'in_kind_consideration' },

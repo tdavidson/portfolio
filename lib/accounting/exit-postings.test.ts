@@ -208,3 +208,37 @@ describe('exitPostings — an acquisition paid partly in the buyer\'s shares', (
     expect(bal(p, 'gain4000')).toBe(-300_000)
   })
 })
+
+describe('exitPostings — a holdback kept apart from escrow', () => {
+  const HOLDBACK: ExitAccounts = { ...ACC, holdbackId: 'holdback1355' }
+
+  it('books the holdback to 1355 and the rest of the escrow to 1350', () => {
+    // Sold for 1m: 500k cash, 500k held back, of which 200k is a holdback note the buyer owes.
+    const p = exitPostings(
+      { proceeds: 1_000_000, escrow: 500_000, holdback: 200_000, basis: 400_000, carried: { cost: 400_000, unrealized: 0, fx: 0 } },
+      HOLDBACK
+    )
+    expect(() => balanced(p)).not.toThrow()
+    expect(bal(p, 'cash')).toBe(500_000)
+    expect(bal(p, 'escrow1350')).toBe(300_000)
+    expect(bal(p, 'holdback1355')).toBe(200_000)
+    expect(bal(p, 'gain4000')).toBe(-600_000)
+  })
+
+  it('posts no 1350 line when the whole escrow is a holdback', () => {
+    const p = exitPostings(
+      { proceeds: 1_000_000, escrow: 250_000, holdback: 250_000, basis: 400_000, carried: { cost: 400_000, unrealized: 0, fx: 0 } },
+      HOLDBACK
+    )
+    expect(p.some(x => x.accountId === 'escrow1350')).toBe(false)
+    expect(bal(p, 'holdback1355')).toBe(250_000)
+  })
+
+  it('keeps everything in 1350 when there is no 1355', () => {
+    const p = exitPostings(
+      { proceeds: 1_000_000, escrow: 500_000, holdback: 200_000, basis: 400_000, carried: { cost: 400_000, unrealized: 0, fx: 0 } },
+      ACC
+    )
+    expect(bal(p, 'escrow1350')).toBe(500_000)
+  })
+})

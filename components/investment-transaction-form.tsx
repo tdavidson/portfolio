@@ -83,6 +83,7 @@ export const EMPTY_FORM: Record<string, string> = {
   cost_basis_exited: '',
   proceeds_received: '',
   proceeds_escrow: '',
+  proceeds_holdback: '',
   proceeds_written_off: '',
   proceeds_per_share: '',
   exit_valuation: '',
@@ -140,6 +141,7 @@ export function formFromTransaction(txn: InvestmentTransaction): Record<string, 
     cost_basis_exited: txn.cost_basis_exited?.toString() ?? '',
     proceeds_received: txn.proceeds_received?.toString() ?? '',
     proceeds_escrow: txn.proceeds_escrow?.toString() ?? '',
+    proceeds_holdback: (txn as any).proceeds_holdback ? String((txn as any).proceeds_holdback) : '',
     proceeds_written_off: txn.proceeds_written_off?.toString() ?? '',
     proceeds_per_share: txn.proceeds_per_share?.toString() ?? '',
     exit_valuation: txn.exit_valuation?.toString() ?? '',
@@ -391,7 +393,7 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
       // Clear every type-specific amount; the new type's fields start blank for re-entry.
       investment_cost: '', interest_converted: '', converts_from_txn_id: '',
       shares_acquired: '', share_price: '', postmoney_valuation: '', ownership_pct: '',
-      cost_basis_exited: '', proceeds_received: '', proceeds_escrow: '', proceeds_written_off: '',
+      cost_basis_exited: '', proceeds_received: '', proceeds_escrow: '', proceeds_holdback: '', proceeds_written_off: '',
       proceeds_per_share: '', exit_valuation: '',
       unrealized_value_change: '',
       fx_rate: '', prior_fx_rate: '', original_position_value: '',
@@ -568,6 +570,7 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
       cost_basis_exited: numOrNull(form.cost_basis_exited),
       proceeds_received: numOrNull(form.proceeds_received),
       proceeds_escrow: numOrNull(form.proceeds_escrow) ?? 0,
+      proceeds_holdback: numOrNull(form.proceeds_holdback) ?? 0,
       proceeds_written_off: numOrNull(form.proceeds_written_off) ?? 0,
       proceeds_per_share: numOrNull(form.proceeds_per_share),
       exit_valuation: numOrNull(form.exit_valuation),
@@ -1005,6 +1008,21 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
               </p>
             </div>
             <div>
+              <Label>Of which holdback ({symbol.trim()})</Label>
+              <Input
+                className="mt-1"
+                type="number"
+                min="0"
+                step="any"
+                value={form.proceeds_holdback}
+                onChange={e => setForm(f => ({ ...f, proceeds_holdback: e.target.value }))}
+              />
+              <p className="mt-1 text-xs text-muted-foreground">
+                The part of the escrow the buyer owes directly, such as a note or deferred payment.
+                It is kept in its own receivable.
+              </p>
+            </div>
+            <div>
               <Label>Written Off ({symbol.trim()})</Label>
               <Input
                 className="mt-1"
@@ -1049,6 +1067,17 @@ export function InvestmentTransactionForm({ companyId, editing, transactions, su
                 step="any"
                 value={form.proceeds_received}
                 onChange={e => setForm(f => ({ ...f, proceeds_received: e.target.value }))}
+              />
+            </div>
+            <div>
+              <Label>Of which holdback ({symbol.trim()})</Label>
+              <Input
+                className="mt-1"
+                type="number"
+                min="0"
+                step="any"
+                value={form.proceeds_holdback}
+                onChange={e => setForm(f => ({ ...f, proceeds_holdback: e.target.value }))}
               />
             </div>
             <p className="text-xs text-muted-foreground">

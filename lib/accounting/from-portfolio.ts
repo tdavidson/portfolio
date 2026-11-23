@@ -34,11 +34,12 @@ import type { JournalEntry, Posting } from './types'
 import { ACTUAL_BOOK } from './books'
 import { computeSummary, sortForRollup } from '@/lib/investments'
 import { txnsForVehicle } from './soi'
-import { proceedsSplit, escrowExceedsGross, inKindExceeds } from '@/lib/portfolio/proceeds'
+import { proceedsSplit, escrowExceedsGross, inKindExceeds, holdbackError } from '@/lib/portfolio/proceeds'
 import { acquiresHolding } from '@/lib/portfolio/cost-transfer-math'
 
 const CASH = '1000'
 const ESCROW_RECEIVABLE = '1350'
+const HOLDBACK_RECEIVABLE = '1355'
 const IN_KIND_CLEARING = '1360'
 const REALIZED_GAIN = '4000'
 const UNREALIZED_INCOME = '4200'
@@ -194,6 +195,25 @@ async function ensureInKindClearing(
   return id
 }
 
+/**
+ * 1355 for this vehicle, created on first use, like 1360: a chart seeded before it existed would
+ * otherwise refuse every exit with a holdback until someone re-synced it.
+ */
+async function ensureHoldbackReceivable(
+  admin: SupabaseClient, fundId: string, group: string, vehicleId: string, codes: Map<string, string>,
+): Promise<string> {
+  const have = codes.get(HOLDBACK_RECEIVABLE)
+  if (have) return have
+  const { data, error } = await admin.from('chart_of_accounts' as any).insert({
+    fund_id: fundId, portfolio_group: group, vehicle_id: vehicleId,
+    code: HOLDBACK_RECEIVABLE, name: 'Holdback receivable', type: 'asset', subtype: 'holdback_receivable',
+  }).select('id').single()
+  if (error || !data) throw new Error(`Couldn't add account ${HOLDBACK_RECEIVABLE}: ${error?.message ?? 'no row'}`)
+  const id = (data as any).id as string
+  codes.set(HOLDBACK_RECEIVABLE, id)
+  return id
+}
+
 export interface ExitInputs {
   /**
    * GROSS proceeds realized at the exit — the row's `proceeds_received`, escrow included
@@ -206,6 +226,11 @@ export interface ExitInputs {
    * the gain is gross − basis, the same figure the tracker reports.
    */
   escrow?: number
+  /**
+   * The part of `escrow` the buyer owes directly (a holdback, a deferred payment) rather than
+   * through an escrow account. Booked to 1355 instead of 1350; never added to the escrow.
+   */
+  holdback?: number
   /**
    * The part of the gross the buyer paid in its own shares. Not cash: it lands in 1360 and the
    * purchase of those shares takes it out. Part of the gross, like escrow.
@@ -224,6 +249,7 @@ export interface ExitAccounts {
   unrealizedId: string
   fxId: string
   escrowId?: string
+  holdbackId?: string
   inKindId?: string
   unrealizedIncomeId?: string
   fxIncomeId?: string
@@ -274,8 +300,14 @@ export function exitPostings(inputs: ExitInputs, acc: ExitAccounts, currency = '
     { accountId: acc.costId, amount: roundCents(-basis), currency, lpEntityId: null },
   ]
   // Dr escrow receivable. It clears when the money lands (the escrow receipt on the holding).
-  if (escrow !== 0 && acc.escrowId) {
-    postings.push({ accountId: acc.escrowId, amount: escrow, currency, lpEntityId: null })
+  // The holdback part, when there is a 1355 to hold it, is its own receivable.
+  const holdback = acc.escrowId && acc.holdbackId ? Math.min(escrow, roundCents(inputs.holdback ?? 0)) : 0
+  const inEscrow = roundCents(escrow - holdback)
+  if (inEscrow !== 0 && acc.escrowId) {
+    postings.push({ accountId: acc.escrowId, amount: inEscrow, currency, lpEntityId: null })
+  }
+  if (holdback !== 0 && acc.holdbackId) {
+    postings.push({ accountId: acc.holdbackId, amount: holdback, currency, lpEntityId: null })
   }
   // Dr shares received. The purchase of those shares, recorded the same day, clears it.
   if (inKind !== 0 && acc.inKindId) {
@@ -870,6 +902,11 @@ export async function buildEntryForTransaction(
     if (proceeds === 0 && escrow === 0 && basis === 0) return { skip: nothing('The exit has neither proceeds nor cost basis — nothing to book.') }
     const escrowProblem = escrowExceedsGross(txn)
     if (escrowProblem) return { skip: skip(escrowProblem) }
+    const holdbackProblem = holdbackError(txn as any)
+    if (holdbackProblem) return { skip: skip(holdbackProblem) }
+    const holdback = roundCents(num((txn as any).proceeds_holdback))
+    const holdbackId = holdback !== 0 && codes.get(ESCROW_RECEIVABLE)
+      ? await ensureHoldbackReceivable(admin, fundId, group, vehicleId, codes) : undefined
     const inKind = roundCents(num((txn as any).consideration_in_kind))
     const inKindProblem = inKindExceeds(txn)
     if (inKindProblem) return { skip: skip(inKindProblem) }
@@ -899,7 +936,7 @@ export async function buildEntryForTransaction(
       entryDate,
       sourceType: 'realized_gain',
       memo: `Exit — ${companyName}${txn.round_name ? ` (${txn.round_name})` : ''}`,
-      postings: exitPostings({ proceeds, escrow, inKind, basis, carried }, {
+      postings: exitPostings({ proceeds, escrow, holdback, inKind, basis, carried }, {
         cashId,
         gainId,
         costId: a.costId,
@@ -909,6 +946,7 @@ export async function buildEntryForTransaction(
         // recognized, so the entry books the cash only (gross − escrow) rather than posting an
         // unbalanced entry; the receipt books the rest as gain. Re-syncing the chart adds it.
         escrowId: codes.get(ESCROW_RECEIVABLE),
+        holdbackId,
         inKindId,
         unrealizedIncomeId: codes.get(UNREALIZED_INCOME),
         fxIncomeId: codes.get(FX_INCOME),
@@ -927,6 +965,12 @@ export async function buildEntryForTransaction(
     const escrowId = codes.get(ESCROW_RECEIVABLE)
     const creditId = escrowId ?? a.realizedId ?? codes.get(REALIZED_GAIN)
     if (!creditId) return { skip: skip(`${group} is missing account ${ESCROW_RECEIVABLE} (Escrow receivable).`) }
+    // The part that pays down a holdback clears 1355; the rest clears 1350.
+    const holdbackProblem = holdbackError(txn as any)
+    if (holdbackProblem) return { skip: skip(holdbackProblem) }
+    const holdback = escrowId ? roundCents(num((txn as any).proceeds_holdback)) : 0
+    const holdbackId = holdback !== 0 ? await ensureHoldbackReceivable(admin, fundId, group, vehicleId, codes) : undefined
+    const fromEscrow = roundCents(received - holdback)
 
     amount = received
     kind = 'proceeds'
@@ -934,10 +978,11 @@ export async function buildEntryForTransaction(
       fundId,
       entryDate,
       sourceType: 'realized_gain',
-      memo: `Escrow received — ${companyName}${txn.round_name ? ` (${txn.round_name})` : ''}`,
+      memo: `${holdback !== 0 && fromEscrow === 0 ? 'Holdback received' : 'Escrow received'} — ${companyName}${txn.round_name ? ` (${txn.round_name})` : ''}`,
       postings: [
         { accountId: cashId, amount: received, currency: 'USD', lpEntityId: null },
-        { accountId: creditId, amount: roundCents(-received), currency: 'USD', lpEntityId: null },
+        ...(fromEscrow !== 0 ? [{ accountId: creditId, amount: roundCents(-fromEscrow), currency: 'USD', lpEntityId: null }] : []),
+        ...(holdback !== 0 && holdbackId ? [{ accountId: holdbackId, amount: roundCents(-holdback), currency: 'USD', lpEntityId: null }] : []),
       ],
     }
   }
