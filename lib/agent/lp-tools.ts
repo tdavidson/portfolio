@@ -27,14 +27,14 @@ import { BASIS_LABELS, BASIS_NOTES } from '@/lib/accounting/statement-basis'
 import { resolveStatementBasis } from '@/lib/accounting/statement-basis-default'
 import { statementColumns } from '@/lib/accounting/capital-statement-layout'
 import { linkNote, reportLinkUrl, signReportLink } from '@/lib/agent/report-links'
-import { CarryRecipientStatementError, carryRecipientIds, seesIndividualCarry } from '@/lib/access/carry-visibility'
+import { COMBINED_RECIPIENTS_ID, CarryRecipientStatementError, carryRecipientIds, seesIndividualCarry } from '@/lib/access/carry-visibility'
 import { siteOrigin } from '@/lib/site-links'
 import { reviewCallNotices } from '@/lib/accounting/call-notice-review'
 import { unwrap } from '@/lib/service-outcome'
 import { investorGroups, type InvestorRecord } from '@/lib/lps/investor-groups'
 import { listDistributions, signOffDistribution } from '@/lib/accounting/distributions'
 import { previewWithChecks } from '@/lib/accounting/distribution-review'
-import { foldDeclaredCarry, foldPreviewCarry, recipientsToHide } from '@/lib/accounting/distribution-carry-fold'
+import { foldDeclaredCarry, foldFlags, foldNoticePartners, foldPreviewCarry, recipientsToHide } from '@/lib/accounting/distribution-carry-fold'
 import { recordAudit } from '@/lib/audit/events'
 import { loadWireSummaries } from '@/lib/lps/wire-instructions'
 import { normalizeNoticeEmail, reviewDistributionNotices } from '@/lib/accounting/distribution-notice-review'
@@ -624,9 +624,14 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     if (!userId) throw new Error('A preview link names the member who asked; this credential has none.')
     const base = origin ?? siteOrigin()
     const blocked = review.flags.some(f => f.severity === 'blocker')
+    // Without gp_economics the carry recipients are one combined row with no draft link: a
+    // recipient's notice is what they receive. The preview token still covers every notice.
+    const hide = await recipientsToHide(admin, fundId, vehicle, access)
     return {
       ...review,
-      partners: review.partners.map(p => {
+      flags: hide ? foldFlags(review.flags, hide) : review.flags,
+      partners: (hide ? foldNoticePartners(review.partners, hide) : review.partners).map(p => {
+        if (p.lpEntityId === COMBINED_RECIPIENTS_ID) return { ...p, draftPdf: null }
         const { token } = signReportLink({ fundId, userId, kind: 'distribution_notice_preview', args: { vehicle, distribution: distributionId, lp: p.lpEntityId } })
         return { ...p, draftPdf: reportLinkUrl(base, token) }
       }),

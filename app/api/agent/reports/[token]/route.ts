@@ -299,6 +299,8 @@ async function fundDocument(admin: ReturnType<typeof createAdminClient>, claims:
         if (!hasAccess(access, 'lp_relations', 'read', 'lp_portal')) return notFound()
         if (!a.distribution || !a.lp) return notFound()
         const group = await resolveVehicle(admin, fundId, a.vehicle ?? undefined, { access })
+        // A carry recipient's notice is what they receive: GP economics.
+        if ((await recipientsToHide(admin, fundId, group, access))?.has(a.lp)) return notFound()
         const out = await distributionNoticePreviewPdf(admin, { fundId, group }, a.distribution, a.lp)
         doc = out.ok ? { body: out.value.pdf, fileName: out.value.fileName, contentType: 'application/pdf' } : null
         break
