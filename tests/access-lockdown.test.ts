@@ -170,6 +170,9 @@ describe('the admin-only list', () => {
     expect(read('lib/accounting/journal-state.ts')).toContain('HANDLER_CHECKED.voidPostedEntry')
     expect(adminOnlyDenial('member', HANDLER_CHECKED.voidPostedEntry)).toBe('Only an admin can void a posted entry.')
     expect(adminOnlyDenial('admin', HANDLER_CHECKED.voidPostedEntry)).toBeNull()
+    expect(read('app/api/accounting/distributions/payouts/route.ts')).toContain('HANDLER_CHECKED.payoutSheet')
+    expect(read('lib/agent/lp-tools.ts')).toContain('HANDLER_CHECKED.payoutSheet')
+    expect(read('app/api/agent/reports/[token]/route.ts')).toContain('HANDLER_CHECKED.payoutSheet')
   })
 
   it('names only tools and Analyst actions that exist, and marks them for approval', () => {

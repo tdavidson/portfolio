@@ -12,7 +12,7 @@ type Mode = 'publish' | 'email'
 
 interface Line { id: string; lpEntityId: string; name: string; amount: number; role?: 'lp' | 'carry' }
 interface Recipient {
-  lpEntityId: string; name: string; amount: number; to: string | null; cc: string[]; skipped: string | null
+  lpEntityId: string; name: string; amount: number; to: string | null; cc: string[]; via?: 'portal' | 'contact' | null; skipped: string | null
   published: boolean; lastSentAt: string | null
 }
 interface Preview { recipients: Recipient[]; portalEnabled: boolean; hasProvider: boolean; subject: string; html: string }
@@ -195,6 +195,7 @@ export function NoticeAction({ kind, id, lines: registerLines, fmt }: {
                       <div className="flex items-baseline gap-2 min-w-0 mt-0.5">
                         <span className="text-[10px] uppercase tracking-wide text-muted-foreground shrink-0 w-6">To</span>
                         <span className="font-mono text-xs truncate">{r.to}</span>
+                        {r.via === 'contact' && <span className="text-xs text-muted-foreground shrink-0" title="No portal account: sent to the contact or notice email on file">no portal account, PDF attached</span>}
                       </div>
                       {r.cc.map((c, j) => (
                         <div key={j} className="flex items-baseline gap-2 min-w-0 mt-0.5">

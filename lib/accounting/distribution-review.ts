@@ -48,7 +48,7 @@ export async function previewWithChecks(
   return { ...preview, checks }
 }
 
-async function fundNameFor(admin: SupabaseClient, fundId: string, group: string): Promise<string> {
+export async function fundNameFor(admin: SupabaseClient, fundId: string, group: string): Promise<string> {
   const { data: fund } = await (admin as any).from('funds').select('name, logo_url, address').eq('id', fundId).maybeSingle()
   return (await documentLetterhead(admin, fundId, fund, [group])).name || (fund as any)?.name || 'Fund'
 }

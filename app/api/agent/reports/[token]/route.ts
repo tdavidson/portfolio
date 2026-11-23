@@ -37,7 +37,10 @@ import { customViewDocument } from '@/lib/custom-views/document'
 import { getReview } from '@/lib/statement-review/store'
 import { reviewPdf } from '@/lib/statement-review/export-pdf'
 import { CustomViewError } from '@/lib/custom-views/store'
-import { distributionWorkbookDocument, ISO_DATE } from '@/lib/accounting/distribution-review'
+import { distributionWorkbookDocument, fundNameFor, ISO_DATE } from '@/lib/accounting/distribution-review'
+import { distributionPayoutDocument } from '@/lib/accounting/distribution-payouts'
+import { adminOnlyDenial, HANDLER_CHECKED } from '@/lib/access/admin-only'
+import { recordAudit } from '@/lib/audit/events'
 import { ViewSpecError } from '@/lib/custom-views/spec'
 
 export const runtime = 'nodejs'
@@ -341,6 +344,24 @@ async function fundDocument(admin: ReturnType<typeof createAdminClient>, claims:
           const total = Number(a.total)
           if (!Number.isFinite(total) || total <= 0 || !a.as_of || !ISO_DATE.test(a.as_of)) return notFound()
           doc = await distributionWorkbookDocument(admin, fundId, group, { total, asOf: a.as_of, method: a.method === 'pro_rata' ? 'pro_rata' : 'waterfall' })
+        }
+        break
+      }
+      // /api/accounting/distributions/payouts — lp_capital, admin-only (full account numbers), logged.
+      case 'distribution_payouts': {
+        if (!hasAccess(access, 'lp_capital', 'read') || adminOnlyDenial(access.role, HANDLER_CHECKED.payoutSheet)) return notFound()
+        if (!a.id) return notFound()
+        const group = await resolveVehicle(admin, fundId, a.vehicle ?? undefined, { access })
+        const vehicleId = await vehicleIdByName(admin, fundId, group)
+        if (!vehicleId || !canSeeVehicle(access, vehicleId)) return notFound()
+        const { data: who } = await admin.auth.admin.getUserById(claims.userId)
+        const out = await distributionPayoutDocument(admin, fundId, group, a.id, { fundName: await fundNameFor(admin, fundId, group), generatedBy: who?.user?.email ?? null })
+        if (out) {
+          await recordAudit(admin, {
+            fundId, vehicleId, actorId: claims.userId, action: 'distribution.payout_sheet', subjectType: 'distribution', subjectId: a.id,
+            details: { partners: out.rows.length, withBankDetails: out.rows.filter(r => r.wire).length, ready: out.rows.filter(r => r.ready).length },
+          })
+          doc = { body: out.body, fileName: out.fileName, contentType: out.contentType }
         }
         break
       }

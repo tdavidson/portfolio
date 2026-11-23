@@ -191,6 +191,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/distributions': { domain: 'lp_capital' },
   // A distribution's calculation as a workbook: the same data, as a file.
   'api/accounting/distributions/workbook': { domain: 'lp_capital' },
+  'api/accounting/distributions/payouts': { domain: 'lp_capital' },
   'api/accounting/commitments': { domain: 'lp_capital' },
   'api/accounting/closings': { domain: 'lp_capital' },
   // ── Tax: its own area, so a preparer can do the tax work without changing the books ──
@@ -247,6 +248,8 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/statement-review/export': { domain: 'lp_capital', feature: 'lp_tracking' },
   'api/lps/entities': { domain: 'lp_capital' },
   'api/lps/entities/profile': { domain: 'lp_capital' },
+  'api/lps/wire-instructions': { domain: 'lp_capital' },
+  'api/lps/wire-instructions/request': { domain: 'lp_capital' },
   // LPs' requests to change their record: read to see, write to decide (re-checked in the handler,
   // where an authorized-user request is also admin-only).
   'api/lps/change-requests': { domain: 'lp_capital' },

@@ -35,6 +35,8 @@ import { investorGroups, type InvestorRecord } from '@/lib/lps/investor-groups'
 import { listDistributions, signOffDistribution } from '@/lib/accounting/distributions'
 import { previewWithChecks } from '@/lib/accounting/distribution-review'
 import { recordAudit } from '@/lib/audit/events'
+import { loadWireSummaries } from '@/lib/lps/wire-instructions'
+import { adminOnlyDenial, HANDLER_CHECKED } from '@/lib/access/admin-only'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
@@ -557,6 +559,53 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
       details: { note: out.signOff?.note ?? null },
     })
     return { vehicle, distributionId, signed_off: clear ? null : out.signOff }
+  },
+
+  // Masked: last four digits only. Full numbers never go over this connection.
+  lp_bank_details: async ({ admin, fundId, access }: AgentToolContext, input: any) => {
+    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
+    const partners = await lpCapitalSummary(admin, fundId, vehicle)
+    const wires = await loadWireSummaries(admin, fundId, partners.map(p => p.lpEntityId))
+    return {
+      vehicle,
+      partners: partners.map(p => {
+        const w = wires.get(p.lpEntityId)
+        return w
+          ? {
+              partner: p.name, lpEntityId: p.lpEntityId, beneficiary: w.beneficiaryName, bank: w.bankName, account: w.accountMasked,
+              routing: w.routingMasked, swift: w.swiftCode, reference: w.reference, status: w.status,
+              entered: { by: w.enteredBy, at: w.enteredAt }, verified: w.verifiedAt ? { by: w.verifiedBy, at: w.verifiedAt, callback: w.verificationNote } : null,
+            }
+          : { partner: p.name, lpEntityId: p.lpEntityId, status: 'none' }
+      }),
+      note: 'Account numbers are masked. Details are entered and verified in the app; request_bank_details asks partners for them.',
+    }
+  },
+
+  // Always staged as the request_bank_details pending action (its manifest's `stagesAs`).
+  request_bank_details: async () => {
+    throw new Error('request_bank_details is always staged for an admin to approve; it cannot run directly.')
+  },
+
+  // A link, never the numbers: the file goes to the member's browser. Admin-only (ADMIN_ONLY_TOOLS),
+  // and the report route checks the role again on the click.
+  distribution_payout_sheet: async ({ admin, fundId, access, userId, origin }: AgentToolContext, input: any) => {
+    if (!userId) throw new Error('Documents are issued to a signed-in member; this credential has no user.')
+    const denied = adminOnlyDenial(access.role, HANDLER_CHECKED.payoutSheet)
+    if (denied) throw new Error(denied)
+    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
+    const id = String(input?.distributionId ?? '')
+    if (!(await listDistributions(admin, fundId, vehicle)).some(d => d.distributionId === id)) {
+      throw new Error(`No declared distribution ${id} in ${vehicle}. list_distributions shows them.`)
+    }
+    const { token, expiresAt } = signReportLink({ fundId, userId, kind: 'distribution_payouts', args: { vehicle, id } })
+    return {
+      document: 'Distribution payout sheet (Excel)',
+      vehicle,
+      url: reportLinkUrl(origin ?? siteOrigin(), token),
+      expires_at: expiresAt,
+      note: linkNote('It contains full account numbers: it opens for an hour, only for this member, and the export is logged. Do not paste its contents into the chat.'),
+    }
   },
 
   // What publishing a call's notices would do. The first of the two confirmations: the person reads

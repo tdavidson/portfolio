@@ -346,6 +346,7 @@ export const TABLE_RULES: Record<string, TableRule> = {
   k1_packages: { scope: 'service', note: 'A tax year’s K-1 package; frozen once issued.' },
   k1_partners: { scope: 'service', note: 'Per-partner K-1 header within a package.' },
   k1_lines: { scope: 'service', note: 'Per-partner allocated income by K-1 box.' },
+  lp_wire_instructions: { scope: 'service', note: 'Partners\' bank details, numbers encrypted by the app; admin-only routes.' },
   tax_year_closes: { scope: 'service', note: 'Closed tax years; reopening must go through the route, never a console.' },
   accounting_audit_events: { scope: 'service', appendOnly: true, note: 'The books\' audit trail — voids, reopens, approvals, commitment edits; append-only, enforced by trigger.' },
   tax_year_close_events: { scope: 'service', appendOnly: true, note: 'Append-only history of tax-year closes and reopens; written by the route, never edited.' },

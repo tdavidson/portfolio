@@ -9,6 +9,7 @@ import { UPDATE_COMPANY_DESCRIPTION, UPDATE_COMPANY_PROPERTIES } from '@/lib/age
 import { previewRecordInvestment, executeRecordInvestment } from './investment'
 import { previewIssueCapitalCall, executeIssueCapitalCall } from './capital-call'
 import { previewDeclareDistribution, executeDeclareDistribution } from './distribution'
+import { previewRequestBankDetails, executeRequestBankDetails } from './bank-details-request'
 import { previewPublishCallNotices, executePublishCallNoticesElsewhere } from './call-notices'
 import {
   previewUpdatePortfolioConstruction,
@@ -207,6 +208,24 @@ export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
     },
     preview: previewDeclareDistribution,
     execute: executeDeclareDistribution,
+  },
+  request_bank_details: {
+    entity: 'required',
+    domain: 'lp_capital',
+    description:
+      'Email partners asking for their bank details for distributions: by portal account, or the contact or notice email ' +
+      'on file when they have none. Partners with verified details are left out unless includeVerified.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        vehicle: { type: 'string', description: 'The vehicle (portfolio_group).' },
+        lpEntityIds: { type: 'array', items: { type: 'string' }, description: 'Only these partners. Omit for every partner without verified details.' },
+        message: { type: 'string', description: 'Replaces the opening line. The how-to and the fraud warning are always included.' },
+        includeVerified: { type: 'boolean', description: 'Also ask partners whose details are verified to re-confirm them.' },
+      },
+    },
+    preview: previewRequestBankDetails,
+    execute: executeRequestBankDetails,
   },
   publish_call_notices: {
     entity: 'required',
