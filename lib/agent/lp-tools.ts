@@ -36,6 +36,7 @@ import { listDistributions, signOffDistribution } from '@/lib/accounting/distrib
 import { previewWithChecks } from '@/lib/accounting/distribution-review'
 import { recordAudit } from '@/lib/audit/events'
 import { loadWireSummaries } from '@/lib/lps/wire-instructions'
+import { normalizeNoticeEmail, reviewDistributionNotices } from '@/lib/accounting/distribution-notice-review'
 import { adminOnlyDenial, HANDLER_CHECKED } from '@/lib/access/admin-only'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 
@@ -606,6 +607,36 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
       expires_at: expiresAt,
       note: linkNote('It contains full account numbers: it opens for an hour, only for this member, and the export is logged. Do not paste its contents into the chat.'),
     }
+  },
+
+  // What publishing (and emailing) a distribution's notices would do. The first of two
+  // confirmations; the chat then stages publish_distribution_notices with its token.
+  preview_distribution_notices: async ({ admin, fundId, access, userId, origin }: AgentToolContext, input: any) => {
+    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
+    const distributionId = String(input?.distributionId ?? '')
+    const lpEntityIds = Array.isArray(input?.lpEntityIds) ? input.lpEntityIds.map(String) : null
+    const review = unwrap(await reviewDistributionNotices(admin, { fundId, group: vehicle }, distributionId, { lpEntityIds, email: normalizeNoticeEmail(input?.email) }))
+    if (!userId) throw new Error('A preview link names the member who asked; this credential has none.')
+    const base = origin ?? siteOrigin()
+    const blocked = review.flags.some(f => f.severity === 'blocker')
+    return {
+      ...review,
+      partners: review.partners.map(p => {
+        const { token } = signReportLink({ fundId, userId, kind: 'distribution_notice_preview', args: { vehicle, distribution: distributionId, lp: p.lpEntityId } })
+        return { ...p, draftPdf: reportLinkUrl(base, token) }
+      }),
+      next: blocked
+        ? 'Nothing can be published until the blockers in flags are resolved. Tell the user what they are.'
+        : 'Nothing has been published or emailed. Show the user every partner, amount (capital and carry apart), recipient and ' +
+          'draftPdf link, and every flag, in plain words. Ask them to confirm. Only if they do, call publish_distribution_notices ' +
+          'with this vehicle, distributionId, the same lpEntityIds and email, and this previewToken. That stages it; an admin then ' +
+          'approves it (approve_action on their explicit yes, or in the app). The draftPdf links open for an hour.',
+    }
+  },
+
+  // Always staged as the publish_distribution_notices pending action (its manifest's `stagesAs`).
+  publish_distribution_notices: async () => {
+    throw new Error('publish_distribution_notices is always staged for an admin to approve; it cannot run directly.')
   },
 
   // What publishing a call's notices would do. The first of the two confirmations: the person reads

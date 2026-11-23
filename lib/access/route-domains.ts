@@ -677,7 +677,7 @@ export const UNGATED_ROUTES: Record<string, string> = {
 
   'api/mcp': 'MCP: authenticates by API key/OAuth token; gated per tool by domain.',
   'api/agent/reports/[token]': 'Signed, one-hour link an agent tool issued (lib/agent/report-links.ts); re-checks the member\'s live membership, lp_capital grant and entities in-handler; an investor connector link (portal_statement) re-checks the LP account and the fund\'s portal and connector switches instead.',
-  'api/agent/call-notices/publish': 'Called by this deployment\'s own agent functions, not a browser: authenticated by a signed five-minute token naming the fund, the member and the exact publish (lib/agent/notice-publish-link.ts); re-checks in-handler that the member is still an admin of the fund with agent access on and lp_relations/lp_portal write (a staged publish_call_notices) or lp_capital write (a proposed call\'s notices), and the vehicle within their entities.',
+  'api/agent/call-notices/publish': 'Called by this deployment\'s own agent functions, not a browser: authenticated by a signed five-minute token naming the fund, the member and the exact publish (lib/agent/notice-publish-link.ts); re-checks in-handler that the member is still an admin of the fund with agent access on and lp_relations/lp_portal write (a staged publish_call_notices or publish_distribution_notices) or lp_capital write (a proposed call\'s notices), and the vehicle within their entities.',
   'api/accounting/mcp': 'MCP (legacy path): as api/mcp.',
   'api/agent': 'Agent REST: as api/mcp.',
 

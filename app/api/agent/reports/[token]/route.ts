@@ -28,7 +28,7 @@ import { PortalError, portalLetterShare, portalStatementInvestors } from '@/lib/
 import { getLetter } from '@/lib/lp-letters/service'
 import { exportLetter, LETTER_EXPORT_FORMATS, type LetterExportFormat } from '@/lib/lp-letters/export-letter'
 import { renderPdf as renderTemplateDocumentPdf } from '@/lib/document-templates/pdf'
-import { callNoticePreviewPdf } from '@/lib/accounting/notice-preview'
+import { callNoticePreviewPdf, distributionNoticePreviewPdf } from '@/lib/accounting/notice-preview'
 import { closeBundleZip, loadCloseBundle } from '@/lib/accounting/close-bundle'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
 import { ForecastError } from '@/lib/forecast/service'
@@ -290,6 +290,15 @@ async function fundDocument(admin: ReturnType<typeof createAdminClient>, claims:
         if (!a.call || !a.lp) return notFound()
         const group = await resolveVehicle(admin, fundId, a.vehicle ?? undefined, { access })
         const out = await callNoticePreviewPdf(admin, { fundId, group }, a.call, a.lp)
+        doc = out.ok ? { body: out.value.pdf, fileName: out.value.fileName, contentType: 'application/pdf' } : null
+        break
+      }
+      // A distribution's DRAFT notice, as preview_distribution_notices links it: the notices' gate.
+      case 'distribution_notice_preview': {
+        if (!hasAccess(access, 'lp_relations', 'read', 'lp_portal')) return notFound()
+        if (!a.distribution || !a.lp) return notFound()
+        const group = await resolveVehicle(admin, fundId, a.vehicle ?? undefined, { access })
+        const out = await distributionNoticePreviewPdf(admin, { fundId, group }, a.distribution, a.lp)
         doc = out.ok ? { body: out.value.pdf, fileName: out.value.fileName, contentType: 'application/pdf' } : null
         break
       }

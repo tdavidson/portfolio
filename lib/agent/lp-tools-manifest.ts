@@ -381,6 +381,70 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
     },
   },
   {
+    name: 'preview_distribution_notices',
+    description:
+      "What publishing a declared distribution's notices would do, and with email who each would be emailed to, before " +
+      'anything goes out: one notice per partner (the GP\'s distribution on capital and carried interest shown apart), whether ' +
+      'their portal already holds it, the recipient (portal account, or the contact or notice email with the PDF attached when ' +
+      'they have none), a link to each notice as a DRAFT PDF, and what is missing or wrong. Show the user all of it. Only if ' +
+      'they confirm, call publish_distribution_notices with the same inputs and the previewToken.',
+    scope: 'read',
+    domain: 'lp',
+    accessDomain: 'lp_relations',
+    accessFeature: 'lp_portal',
+    inputSchema: {
+      type: 'object',
+      required: ['vehicle', 'distributionId'],
+      properties: {
+        vehicle: VEHICLE,
+        distributionId: { type: 'string', description: 'The declared distribution, from list_distributions.' },
+        lpEntityIds: { type: 'array', items: { type: 'string' }, description: 'Only these partners. Omit for every partner on the distribution.' },
+        email: {
+          type: 'object',
+          description: 'Preview emailing them too. Omit to publish to the portal only.',
+          properties: {
+            delivery: { type: 'string', enum: ['link', 'attachment', 'both'], description: 'Default attachment.' },
+            subject: { type: 'string' },
+            message: { type: 'string' },
+          },
+        },
+      },
+    },
+  },
+  {
+    name: 'publish_distribution_notices',
+    description:
+      "Ask for a declared distribution's notices to be published to the partners and, with email, emailed to them. Call " +
+      'preview_distribution_notices first, show the user what it returns, and call this only after they confirm, with the same ' +
+      'inputs and its previewToken. Always staged, from any connection. An admin approves it: from their chat with ' +
+      'approve_action, only on their explicit yes, or in the app, opening the notices and confirming twice. A script\'s key ' +
+      'cannot approve it.',
+    scope: 'write',
+    domain: 'lp',
+    accessDomain: 'lp_relations',
+    accessFeature: 'lp_portal',
+    stagesAs: 'publish_distribution_notices',
+    inputSchema: {
+      type: 'object',
+      required: ['vehicle', 'distributionId', 'previewToken'],
+      properties: {
+        vehicle: VEHICLE,
+        distributionId: { type: 'string', description: 'The declared distribution, from list_distributions.' },
+        lpEntityIds: { type: 'array', items: { type: 'string' }, description: 'Only these partners, as previewed.' },
+        email: {
+          type: 'object',
+          description: 'Also email them, exactly as previewed. Omit to publish to the portal only.',
+          properties: {
+            delivery: { type: 'string', enum: ['link', 'attachment', 'both'] },
+            subject: { type: 'string' },
+            message: { type: 'string' },
+          },
+        },
+        previewToken: { type: 'string', description: 'From preview_distribution_notices, for exactly these notices and this email.' },
+      },
+    },
+  },
+  {
     name: 'preview_call_notices',
     description:
       "What publishing an issued capital call's notices would do, before anything goes out: each partner's amount and share " +

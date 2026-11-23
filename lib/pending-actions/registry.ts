@@ -11,6 +11,7 @@ import { previewIssueCapitalCall, executeIssueCapitalCall } from './capital-call
 import { previewDeclareDistribution, executeDeclareDistribution } from './distribution'
 import { previewRequestBankDetails, executeRequestBankDetails } from './bank-details-request'
 import { previewPublishCallNotices, executePublishCallNoticesElsewhere } from './call-notices'
+import { previewPublishDistributionNotices, executePublishDistributionNoticesElsewhere } from './distribution-notices'
 import {
   previewUpdatePortfolioConstruction,
   executeUpdatePortfolioConstruction,
@@ -249,6 +250,39 @@ export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
     },
     preview: previewPublishCallNotices,
     execute: executePublishCallNoticesElsewhere,
+  },
+  publish_distribution_notices: {
+    entity: 'required',
+    domain: 'lp_relations',
+    accessFeature: 'lp_portal',
+    stageAccess: 'write',
+    personConfirms: true,
+    description:
+      "Publish a declared distribution's notices (one per partner; the GP's capital and carry shown apart) and, with email, " +
+      'email them: to the portal account, or the contact or notice email with the PDF attached when there is none. Call ' +
+      'preview_distribution_notices first, show the user every partner, figure and recipient, and stage this only once they ' +
+      'confirm, passing its previewToken. An admin then approves it: in the app, confirming twice, or from their chat on an explicit yes.',
+    inputSchema: {
+      type: 'object',
+      required: ['distributionId', 'previewToken'],
+      properties: {
+        vehicle: { type: 'string', description: 'The vehicle (portfolio_group).' },
+        distributionId: { type: 'string', description: 'The declared distribution (list_distributions lists them).' },
+        lpEntityIds: { type: 'array', items: { type: 'string' }, description: 'Only these partners. Omit for every partner on the distribution.' },
+        email: {
+          type: 'object',
+          description: 'Also email each partner their notice. Omit to publish to the portal only.',
+          properties: {
+            delivery: { type: 'string', enum: ['link', 'attachment', 'both'], description: 'Default attachment. Partners with no portal account always get the PDF.' },
+            subject: { type: 'string' },
+            message: { type: 'string' },
+          },
+        },
+        previewToken: { type: 'string', description: 'The previewToken preview_distribution_notices returned for exactly these notices and this email.' },
+      },
+    },
+    preview: previewPublishDistributionNotices,
+    execute: executePublishDistributionNoticesElsewhere,
   },
   update_portfolio_construction: {
     entity: 'required',

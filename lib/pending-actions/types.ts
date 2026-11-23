@@ -10,6 +10,7 @@ export type ActionType =
   | 'declare_distribution'
   | 'request_bank_details'
   | 'publish_call_notices'
+  | 'publish_distribution_notices'
   | 'update_portfolio_construction'
   | 'update_forecast_plan'
   | 'publish_forecast_plan'

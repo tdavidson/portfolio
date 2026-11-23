@@ -184,6 +184,7 @@ export const ADMIN_ONLY_ACTIONS: Record<string, string> = {
   declare_distribution: 'declare a distribution',
   request_bank_details: 'ask LPs for bank details',
   publish_call_notices: 'publish notices to LPs',
+  publish_distribution_notices: 'publish notices to LPs',
   set_waterfall_terms: 'change waterfall terms',
 }
 

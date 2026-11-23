@@ -37,13 +37,18 @@ interface Base {
   source?: ChangeSource
 }
 
+/** An approved publish_distribution_notices: `callId` carries the distribution's id. */
+export interface DistributionNoticeEmailClaim { delivery: 'link' | 'attachment' | 'both'; subject?: string | null; message?: string | null }
+
 export type NoticePublishClaims =
   | (Base & { mode: 'staged'; lpEntityIds: string[] | null; previewToken: string; exp: number })
   | (Base & { mode: 'proposed_call'; proposedCallId: string; exp: number })
+  | (Base & { mode: 'staged_distribution'; lpEntityIds: string[] | null; previewToken: string; email: DistributionNoticeEmailClaim | null; exp: number })
 
 export type NoticePublishRequest =
   | Omit<Extract<NoticePublishClaims, { mode: 'staged' }>, 'exp'>
   | Omit<Extract<NoticePublishClaims, { mode: 'proposed_call' }>, 'exp'>
+  | Omit<Extract<NoticePublishClaims, { mode: 'staged_distribution' }>, 'exp'>
 
 /** What the route returns: as executePublishCallNotices does. */
 export interface NoticePublishResult {
@@ -87,6 +92,12 @@ export function verifyNoticePublish(token: string, now = Date.now()): NoticePubl
     return c
   }
   if (c.mode === 'proposed_call') return str(c.proposedCallId) ? c : null
+  if (c.mode === 'staged_distribution') {
+    if (!str(c.previewToken)) return null
+    if (c.lpEntityIds !== null && !(Array.isArray(c.lpEntityIds) && c.lpEntityIds.every(str))) return null
+    if (c.email !== null && !(c.email && ['link', 'attachment', 'both'].includes(c.email.delivery))) return null
+    return c
+  }
   return null
 }
 
@@ -139,6 +150,29 @@ export function remotePublishCallNoticesExecutor(opts: { origin?: string; fetch?
     const lpEntityIds = Array.isArray(input?.lpEntityIds) ? input.lpEntityIds.map(String) : null
     const result = await publishNoticesRemotely(
       { mode: 'staged', fundId: deps.fundId, userId: deps.userId, vehicle, callId, lpEntityIds, previewToken },
+      { origin: opts.origin ?? deps.origin, fetch: opts.fetch },
+    )
+    return { ...result }
+  }
+}
+
+/**
+ * The executor a chat's approve_action supplies for a staged publish_distribution_notices: the
+ * Approvals page's executor, run by the Chromium-bundled route as the approving admin.
+ */
+export function remotePublishDistributionNoticesExecutor(opts: { origin?: string; fetch?: FetchLike } = {}) {
+  return async (deps: { fundId: string; userId: string; origin?: string }, input: any): Promise<Record<string, unknown>> => {
+    const vehicle = typeof input?.vehicle === 'string' ? input.vehicle : ''
+    const distributionId = String(input?.distributionId ?? '')
+    const previewToken = String(input?.previewToken ?? '')
+    if (!vehicle || !distributionId || !previewToken) throw new Error('This request names no vehicle, distribution or preview token. Reject it and stage it again.')
+    const lpEntityIds = Array.isArray(input?.lpEntityIds) ? input.lpEntityIds.map(String) : null
+    const e = input?.email
+    const email = e && typeof e === 'object'
+      ? { delivery: (['link', 'attachment', 'both'].includes(e.delivery) ? e.delivery : 'attachment') as DistributionNoticeEmailClaim['delivery'], subject: typeof e.subject === 'string' ? e.subject : null, message: typeof e.message === 'string' ? e.message : null }
+      : null
+    const result = await publishNoticesRemotely(
+      { mode: 'staged_distribution', fundId: deps.fundId, userId: deps.userId, vehicle, callId: distributionId, lpEntityIds, previewToken, email },
       { origin: opts.origin ?? deps.origin, fetch: opts.fetch },
     )
     return { ...result }

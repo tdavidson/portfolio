@@ -72,7 +72,7 @@ describe('agent tool registry', () => {
       'lp_portal_unlink', 'lp_proposed_call_approve', 'lp_proposed_call_discard', 'lp_proposed_call_propose',
       'lp_proposed_call_revise', 'lp_record_commitment', 'lp_send_item', 'lp_share_letter', 'lp_update_entity',
       'lp_update_investor', 'lp_update_profile', 'lp_write_letter',
-      'publish_call_notices', 'request_bank_details',
+      'publish_call_notices', 'publish_distribution_notices', 'request_bank_details',
     ])
     // What goes out to LPs is staged from any credential and approved in the app, gated like the
     // notices publish route.

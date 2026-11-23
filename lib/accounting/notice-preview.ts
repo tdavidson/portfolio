@@ -22,3 +22,20 @@ export async function callNoticePreviewPdf(
   const safe = (s: string) => s.replace(/[^a-zA-Z0-9 ._-]/g, '_')
   return done({ pdf, fileName: `DRAFT Capital Call Notice — ${safe(ctx.group)} — ${safe(notice.partnerName)}.pdf` })
 }
+
+/** One partner's distribution notice, as publishing would render it, marked DRAFT and filed nowhere. */
+export async function distributionNoticePreviewPdf(
+  admin: SupabaseClient,
+  ctx: { fundId: string; group: string },
+  distributionId: string,
+  lpEntityId: string,
+): Promise<Outcome<{ pdf: Buffer; fileName: string }>> {
+  const reg = await loadNoticeRegister(admin, ctx.fundId, ctx.group, 'distribution', distributionId)
+  if ('error' in reg) return fail(reg.status, reg.error)
+  const line = reg.lines.find(l => l.lpEntityId === lpEntityId)
+  if (!line) return fail(404, 'That partner has no line on this distribution.')
+  const [notice] = await noticeDataFor(admin, ctx, reg, [line])
+  const pdf = await generateNoticePdf({ ...notice.data, draft: true })
+  const safe = (s: string) => s.replace(/[^a-zA-Z0-9 ._-]/g, '_')
+  return done({ pdf, fileName: `DRAFT Distribution Notice — ${safe(ctx.group)} — ${safe(notice.partnerName)}.pdf` })
+}

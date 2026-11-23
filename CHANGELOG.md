@@ -2,6 +2,10 @@
 
 ## Unreleased
 
+### Distribution notices from Claude and ChatGPT
+- **`preview_distribution_notices`** shows what publishing a declared distribution's notices would do, and with `email` who each would be emailed to: one notice per partner (the GP's distribution on capital and carried interest apart), whether it is already published, the recipient (portal account, or the contact or notice email with the PDF attached), a DRAFT PDF link per partner, and the flags (not signed off, no email provider, a portal link with the portal off, partners nobody can reach).
+- **`publish_distribution_notices`** stages it with the preview's token, which covers the figures and, when emailing, the recipients. An admin approves it in the app (confirming twice) or from their chat on an explicit yes; it runs on the Chromium route like capital call notices, and refuses a stale token or any blocker.
+
 ### Paying a distribution: bank details as encrypted data, a payout sheet, and notices without the portal
 - **Partner bank details.** Capital accounts → Partner bank details lists each partner's beneficiary, bank and the last four digits of the account and routing numbers, and whether the details were verified. Admins enter or change them, verify them by recording the callback (who, which number, when), and reveal the full numbers with a reason. The account and routing numbers are encrypted by the app before they reach the database (AES-256-GCM, key derived from `ENCRYPTION_KEY`), the table is service-role only, ABA routing numbers are checked against their check digit, and every save (field names only), verification, reveal and payout export is in the audit log.
 - **Fraud controls.** Any change clears the verification; changing verified details emails every admin to call back before paying; and whoever entered or last changed the details cannot verify them.
