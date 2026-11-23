@@ -420,7 +420,7 @@ Effort is a guess: S is a tool wrapping an existing `lib` function, M needs logi
 | Customize sign-in screen (logo, title) | `/api/settings (PATCH signInLogo, signInTitle)` | gap | - | UI-only cosmetic (branding of login page; image payload) | None needed | - |
 | Disable user activity tracking | `/api/settings (PATCH disableUserTracking)` | gap | - | UI-only privacy preference for web activity logging | None needed | - |
 | Edit fund theme/appearance | `/api/settings/theme (GET/PATCH)` | gap | - | UI-only cosmetic | None needed | - |
-| Choose own nav layout (sidebar, fixed sidebar, top bar) | `/api/settings/nav-layout (PATCH)` | gap | - | UI-only cosmetic: per-user placement of the web app's nav | None needed | - |
+| Choose own nav layout (sidebar, fixed sidebar, top menu) | `/api/settings/nav-layout (PATCH)` | gap | - | UI-only cosmetic: per-user placement of the web app's nav | None needed | - |
 | List/view/edit/delete style anchors | `/api/firm/style-anchors (GET), /[id] (GET/PATCH/DELETE)` | gap | - | no reason found | Tools style_anchors list/update/delete | S |
 | Manage entity groups (create, rename, reorder, delete, assign entity to group) | `/api/settings/vehicle-groups (GET/POST/PATCH/DELETE)` | gap | list_vehicles (no group info?) | no reason found - likely oversight; groups drive list grouping | Admin tool vehicle_groups {op} using loadGroups and same updates | S-M |
 | Manage signup allow-list (email patterns) | `/api/settings/whitelist (GET/POST), /api/settings/whitelist/[id] (DELETE)` | partial | setup_fund(team) inserts exact emails | no patterns (e.g. *@firm.com), no list, no removal; signup gate is security-sensitive | Admin-only tool if needed; else keep web-only | S |

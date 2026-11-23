@@ -80,8 +80,11 @@ function LayoutPreview({ layout }: { layout: NavLayout }) {
       )}
       {layout === 'top' && (
         <>
-          <div className="h-3 flex items-center gap-1 px-1.5"><div className={`h-1.5 w-1.5 ${bar}`} /><div className={`h-1 w-6 ${bar}`} /></div>
-          <div className="h-2.5 border-b flex items-center gap-1 px-1.5">{[0, 1, 2, 3, 4].map(i => <div key={i} className={`h-1 w-3 ${bar}`} />)}</div>
+          <div className="h-4 border-b flex items-center gap-1 px-1.5">
+            <div className={`h-1.5 w-1.5 ${bar}`} /><div className={`h-1 w-6 ${bar}`} />
+            <div className="ml-auto h-2 w-5 rounded-sm border border-muted-foreground/40" />
+            <div className="h-2 w-7 rounded-sm border" />
+          </div>
           <div className="flex-1 p-1.5"><div className="h-full rounded-sm bg-muted" /></div>
         </>
       )}

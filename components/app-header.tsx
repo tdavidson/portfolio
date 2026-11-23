@@ -16,11 +16,14 @@ interface AppHeaderProps {
   fundLogo?: string | null
   userEmail: string
   /**
-   * The member's nav layout (lib/nav/layout.ts). `fixed` moves the fund and the account into the
-   * pinned sidebar on desktop, so the header keeps only the palette there; `top` adds the theme
-   * switch, which has no sidebar to live in. Phones get the full header in every layout.
+   * The member's nav layout (lib/nav/layout.ts). `fixed` moves everything in the header (fund,
+   * Jump to, LP portal switch, account) into the pinned sidebar on desktop, so there is no header
+   * there at all; `top` adds the theme switch, which has no sidebar to live in. Phones get the
+   * full header in every layout.
    */
   layout?: NavLayout
+  /** The top-bar layout's Menu dropdown, shown to the left of Jump to. */
+  menu?: React.ReactNode
 }
 
 // Identity and sign-out. Navigation is NOT here any more: on desktop it is the aside
@@ -46,7 +49,7 @@ export function FundMark({ fundLogo }: { fundLogo?: string | null }) {
   )
 }
 
-export function AppHeader({ fundName, fundLogo, userEmail, layout = 'sidebar' }: AppHeaderProps) {
+export function AppHeader({ fundName, fundLogo, userEmail, layout = 'sidebar', menu }: AppHeaderProps) {
   const { collapsed: collapsedPref } = useSidebar()
   // Collapsing only applies to the original sidebar; the other layouts always show the name.
   const collapsed = collapsedPref && layout === 'sidebar'
@@ -54,15 +57,14 @@ export function AppHeader({ fundName, fundLogo, userEmail, layout = 'sidebar' }:
   const ThemeIcon = theme.icon
 
   return (
-    <header className="relative flex items-center justify-between px-4 py-3 shrink-0">
-      {/* Left: logo + fund name. In the fixed layout they sit at the top of the sidebar instead. */}
-      <div className={`flex items-center gap-3 min-w-0 ${layout === 'fixed' ? 'md:hidden' : ''}`}>
+    <header className={`relative flex items-center justify-between px-4 py-3 shrink-0 ${layout === 'fixed' ? 'md:hidden' : ''}`}>
+      {/* Left: logo + fund name */}
+      <div className="flex items-center gap-3 min-w-0">
         <FundMark fundLogo={fundLogo} />
         {!collapsed && (
           <span className="font-medium text-sm text-muted-foreground tracking-tight truncate">{fundName}</span>
         )}
       </div>
-      {layout === 'fixed' && <div className="hidden md:block" />}
 
       {/* Fund name aligned above page content when sidebar collapsed.
           left-28 (112px) is the page content's left edge, and has to be kept in step with it:
@@ -77,6 +79,7 @@ export function AppHeader({ fundName, fundLogo, userEmail, layout = 'sidebar' }:
       {/* Right: palette + sign out. The signed-in address is the sign-out button's tooltip rather
           than a line of header text: it is only ever looked for when deciding whether to sign out. */}
       <div className="flex items-center gap-3">
+        {menu}
         <CommandPaletteTrigger />
         <LpPortalSwitchLink />
         {layout === 'top' && (
@@ -92,9 +95,7 @@ export function AppHeader({ fundName, fundLogo, userEmail, layout = 'sidebar' }:
             <ThemeIcon className="h-3.5 w-3.5" />
           </Button>
         )}
-        <div className={layout === 'fixed' ? 'md:hidden' : ''}>
-          <AccountControls fundName={fundName} userEmail={userEmail} />
-        </div>
+        <AccountControls fundName={fundName} userEmail={userEmail} />
       </div>
     </header>
   )

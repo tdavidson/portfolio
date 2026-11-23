@@ -404,7 +404,7 @@ export function navRowDecor(
 
 /**
  * The nav every layout draws: the sections this user can see, each with the children they can
- * see. One hook, so the sidebar, the fixed sidebar and the top bar cannot answer the access
+ * see. One hook, so the sidebar, the fixed sidebar and the top menu cannot answer the access
  * question differently (Approvals only while something is waiting, Inbound behind its switch,
  * Getting started gone once complete, the Funds subnav fund-first inside a fund).
  */

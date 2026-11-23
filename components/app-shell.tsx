@@ -11,7 +11,7 @@ import { VehicleProvider } from '@/components/accounting-vehicle'
 import { AppHeader } from '@/components/app-header'
 import { AppSidebar } from '@/components/app-sidebar'
 import { FixedSidebar } from '@/components/nav/fixed-sidebar'
-import { TopNav } from '@/components/nav/top-nav'
+import { TopMenu } from '@/components/nav/top-nav'
 import { DEFAULT_NAV_LAYOUT, type NavLayout } from '@/lib/nav/layout'
 import { AppFooter } from '@/components/app-footer'
 import { MobileNav, MOBILE_TAB_BAR_SPACER } from '@/components/mobile-nav'
@@ -132,7 +132,7 @@ function AppShellInner({ fundName, fundLogo, userEmail, reviewBadge, approvalsBa
   // Page content. The bottom padding clears the phone's tab bar, which is fixed: without it the
   // footer and the last row of any page sit underneath it. The measurement lives with the bar, so
   // the two cannot drift.
-  const main = (extra = '') => (
+  const main = (extra = '', footerClass = '') => (
     <main className={`flex-1 min-w-0 flex flex-col ${MOBILE_TAB_BAR_SPACER} ${extra}`}>
       <div className="flex-1">
         {children}
@@ -140,7 +140,7 @@ function AppShellInner({ fundName, fundLogo, userEmail, reviewBadge, approvalsBa
       {/* Not on the landing page. /start is a single centred composer that claims the
           viewport, and the footer's row of links sat under it as a second, unrelated strip —
           the one thing on the page that wasn't the page. Its links live on Support instead. */}
-      {pathname !== '/start' && <AppFooter />}
+      {pathname !== '/start' && <div className={footerClass}><AppFooter /></div>}
     </main>
   )
 
@@ -156,8 +156,10 @@ function AppShellInner({ fundName, fundLogo, userEmail, reviewBadge, approvalsBa
           <FixedSidebar fundName={fundName} fundLogo={fundLogo} userEmail={userEmail} {...navProps} />
           <div className="flex-1 min-w-0 flex flex-col">
             <div className={PAGE_WIDTH}>
+              {/* Phones only: on a computer the fixed sidebar carries the header's controls and the
+                  footer's links, so the page starts at the top of the window. */}
               <AppHeader fundName={fundName} fundLogo={fundLogo} userEmail={userEmail} layout="fixed" />
-              {main()}
+              {main('', 'md:hidden')}
             </div>
           </div>
         </div>
@@ -171,12 +173,11 @@ function AppShellInner({ fundName, fundLogo, userEmail, reviewBadge, approvalsBa
       <>
         <div className="w-full border-b">
           <div className="w-full max-w-page mx-auto">
-            <AppHeader fundName={fundName} fundLogo={fundLogo} userEmail={userEmail} layout="top" />
-            <TopNav {...navProps} />
+            <AppHeader fundName={fundName} fundLogo={fundLogo} userEmail={userEmail} layout="top" menu={<TopMenu {...navProps} />} />
           </div>
         </div>
         <div className={PAGE_WIDTH}>
-          {main('md:pt-2')}
+          {main()}
         </div>
         {mobileNav}
       </>

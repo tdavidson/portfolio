@@ -6,7 +6,8 @@
  *   - `sidebar` — the original: a column beside the page under the header, collapsible to icons.
  *   - `fixed`   — a full-height column pinned to the left edge of the window, with the fund at the
  *                 top and the account at the bottom; it stays put while the page scrolls.
- *   - `top`     — a bar of sections across the top, with the open section's pages in a row below.
+ *   - `top`     — no sidebar: a Menu button in the header, beside Jump to, opens a large dropdown
+ *                 of every section and its pages, and the page gets the full width.
  *
  * Phones keep the bottom tab bar in every layout; this only moves the desktop nav.
  */
@@ -18,7 +19,7 @@ export const DEFAULT_NAV_LAYOUT: NavLayout = 'sidebar'
 export const NAV_LAYOUT_OPTIONS: { value: NavLayout; label: string; description: string }[] = [
   { value: 'sidebar', label: 'Sidebar', description: 'Navigation beside the page, under the header. Collapses to icons.' },
   { value: 'fixed', label: 'Fixed sidebar', description: 'A full-height sidebar pinned to the left edge that stays put as you scroll.' },
-  { value: 'top', label: 'Top bar', description: 'Sections across the top, with the open section’s pages in a row below.' },
+  { value: 'top', label: 'Top menu', description: 'No sidebar. A Menu button at the top opens every section and page.' },
 ]
 
 export function isNavLayout(value: unknown): value is NavLayout {

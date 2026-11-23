@@ -1,9 +1,12 @@
 'use client'
 
-import { PanelLeftClose, PanelLeftOpen } from 'lucide-react'
+import { PanelLeftClose, PanelLeftOpen, Search } from 'lucide-react'
 import { AppSidebar, useThemeCycle } from '@/components/app-sidebar'
 import { AccountControls, FundMark } from '@/components/app-header'
 import { useSidebar } from '@/components/sidebar-context'
+import { CommandPaletteTrigger, useCommandPalette } from '@/components/command-palette'
+import { LpPortalSwitchLink } from '@/components/lp-portal-switch-link'
+import { AppFooter } from '@/components/app-footer'
 import type { FeatureVisibilityMap } from '@/lib/types/features'
 
 interface FixedSidebarProps {
@@ -22,9 +25,10 @@ interface FixedSidebarProps {
 
 /**
  * The "Fixed sidebar" layout (lib/nav/layout.ts): a full-height column pinned to the left edge
- * of the window, the way a chat app's history rail is. The fund sits at the top with the
- * collapse control, the nav scrolls on its own between them, and the theme switch and the
- * account sit at the foot, so the page beside it can scroll without the nav moving.
+ * of the window, the way a chat app's history rail is. It carries everything the header would:
+ * the fund and the collapse control at the top with Jump to under them, the nav scrolling on its
+ * own in the middle, and the LP portal switch, theme, account and footer links at the foot. So on
+ * a computer there is no header row and the page starts at the top of the window.
  *
  * The rows themselves are AppSidebar's, so the entries and every visibility rule are the same
  * as the original sidebar's. Desktop only: phones keep the tab bar.
@@ -33,6 +37,7 @@ export function FixedSidebar({ fundName, fundLogo, userEmail, ...nav }: FixedSid
   const { collapsed, toggle } = useSidebar()
   const theme = useThemeCycle()
   const ThemeIcon = theme.icon
+  const palette = useCommandPalette()
 
   return (
     <aside
@@ -56,11 +61,28 @@ export function FixedSidebar({ fundName, fundLogo, userEmail, ...nav }: FixedSid
         </button>
       </div>
 
+      <div className={`shrink-0 pb-1 ${collapsed ? 'flex justify-center px-1' : 'px-2'}`}>
+        {collapsed ? (
+          <button
+            type="button"
+            onClick={palette.open}
+            title="Jump to…"
+            aria-label="Jump to a page"
+            className="h-8 w-8 inline-flex items-center justify-center rounded-md text-muted-foreground hover:text-foreground hover:bg-accent transition-colors"
+          >
+            <Search className="h-4 w-4" />
+          </button>
+        ) : (
+          <CommandPaletteTrigger className="w-full" />
+        )}
+      </div>
+
       <div className="flex-1 min-h-0 overflow-y-auto flex flex-col">
         <AppSidebar {...nav} hideUtilities />
       </div>
 
       <div className={`shrink-0 border-t p-2 space-y-1 ${collapsed ? 'px-1' : ''}`}>
+        <LpPortalSwitchLink variant="sidebar" collapsed={collapsed} />
         <button
           type="button"
           onClick={theme.cycle}
@@ -76,6 +98,7 @@ export function FixedSidebar({ fundName, fundLogo, userEmail, ...nav }: FixedSid
           )}
           <AccountControls fundName={fundName} userEmail={userEmail} compact />
         </div>
+        {!collapsed && <AppFooter variant="sidebar" />}
       </div>
     </aside>
   )
