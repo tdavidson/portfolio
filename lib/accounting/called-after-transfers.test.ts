@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { calledAfterTransfers, calledCapitalFor, irrFlowPostings } from './irr-flows'
+import { calledAfterTransfers, calledCapitalFor, distributionsAfterTransfers, irrFlowPostings } from './irr-flows'
 import { resolveCapitalEvidence, type CapitalEvidence } from './capital-evidence'
 import type { CapitalPosting } from './capital-account'
 
@@ -107,5 +107,38 @@ describe('calledAfterTransfers', () => {
   it('uses a reported observation where there are no books', () => {
     const reported = { basis: 'reported', values: { contributions: 50_000, distributions: 0, nav: 60_000 } } as CapitalEvidence
     expect(calledCapitalFor('lp', reported, new Map())).toBe(50_000)
+  })
+})
+
+// Distributions move with a transferred interest on the same terms as called capital, so the
+// holder's DPI and TVPI compare the interest's whole paid-in with its whole distribution history.
+const dists = (lp: string, ...rows: [string, number][]): CapitalPosting[] =>
+  rows.map(([entryDate, amount]) => ({ lpEntityId: lp, entryDate, sourceType: 'distribution', amount }))
+
+describe('distributionsAfterTransfers', () => {
+  it('moves the distribution history to the buyer of a whole interest', () => {
+    const books = [
+      ...calls('seller', ['2020-01-01', 100_000]),
+      ...dists('seller', ['2021-01-01', 30_000]),
+      ...xfer('secondary_transfer', 'sale', '2022-01-01', 'seller', { buyer: 70_000 }),
+      ...dists('buyer', ['2023-01-01', 10_000]),
+    ]
+    const distributed = distributionsAfterTransfers(books)
+    expect(distributed.get('seller')).toBeCloseTo(0, 2)
+    expect(distributed.get('buyer')).toBeCloseTo(40_000, 2)
+    expect(calledAfterTransfers(books).get('buyer')).toBeCloseTo(100_000, 2)
+  })
+
+  it('splits pro rata on a partial assignment and keeps the fund total', () => {
+    const books = [
+      ...calls('estate', ['2020-01-01', 80_000]),
+      ...dists('estate', ['2021-01-01', 20_000]),
+      // Capital before the move is 60,000; a quarter of it moves.
+      ...xfer('transfer', 'gift', '2022-01-01', 'estate', { trust: 15_000 }),
+    ]
+    const distributed = distributionsAfterTransfers(books)
+    expect(distributed.get('estate')).toBeCloseTo(15_000, 2)
+    expect(distributed.get('trust')).toBeCloseTo(5_000, 2)
+    expect(calledAfterTransfers(books).get('trust')).toBeCloseTo(20_000, 2)
   })
 })
