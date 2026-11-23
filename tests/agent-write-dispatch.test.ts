@@ -478,6 +478,7 @@ describe('the same access rules as the web', () => {
     ['delete_inactive_company_accounts', 'api/accounting/chart'],
     ['lp_delete_investor', 'api/lps/investors'],
     ['lp_merge_investors', 'api/lps/investors'],
+    ['lp_merge_entities', 'api/lps/entities'],
     ['lp_delete_entity', 'api/lps/entities'],
     ['lp_delete_commitment', 'api/accounting/commitments'],
     ['diligence_delete_deal', 'api/diligence/[id]'],

@@ -230,6 +230,25 @@ export const DESTRUCTIVE_TOOL_MANIFEST: AgentToolMeta[] = [
     },
   },
   {
+    name: 'lp_merge_entities',
+    description:
+      'Merge one LP legal entity into another, for one subscriber entered twice: everything that points at `from` (positions, ' +
+      'commitments, capital-call lines, its capital accounts and their postings, documents) moves to `into`, and `from` is deleted. ' +
+      'No balance changes, closed periods included. Refused where both hold a position in the same vehicle. Cannot be undone.' + STAGED,
+    scope: 'write',
+    domain: 'lp',
+    destructive: true,
+    inputSchema: {
+      type: 'object',
+      required: ['from', 'into'],
+      properties: {
+        from: { type: 'string', description: 'The entity to merge away (name or id). It is deleted.' },
+        into: { type: 'string', description: 'The entity that keeps its record and receives everything (name or id).' },
+      },
+      additionalProperties: false,
+    },
+  },
+  {
     name: 'lp_merge_investors',
     description:
       'Merge one LP investor into another: every legal entity of `from` moves to `into`, then `from` is deleted. Cannot be undone: the ' +

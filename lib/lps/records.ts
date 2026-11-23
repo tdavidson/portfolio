@@ -358,6 +358,28 @@ export async function mergeInvestors(
 }
 
 /**
+ * Merge one LP entity into another: every row that points at `sourceId` (positions, commitments,
+ * capital-call lines, capital accounts and their postings, documents, ...) is re-pointed at
+ * `targetId`, and `sourceId` is deleted. One database transaction (merge_lp_entities), so it applies
+ * whole or not at all; it is refused where both entities hold a row that may exist only once, such
+ * as a position in the same vehicle. No balance changes: the same money, under one record.
+ */
+export async function mergeEntities(
+  admin: SupabaseClient, fundId: string, sourceId: unknown, targetId: unknown,
+): Promise<Outcome<{ ok: true; merged: { from: string; into: string }; moved: Record<string, number> }>> {
+  if (!sourceId || !targetId) return fail(400, 'sourceId and targetId are required')
+  if (sourceId === targetId) return fail(400, 'Cannot merge an LP entity into itself')
+  const { data, error } = await (admin as any).rpc('merge_lp_entities', { p_fund_id: fundId, p_from: sourceId, p_into: targetId })
+  if (error) {
+    if (error.code === '23505') {
+      return fail(409, 'Both entities hold a record that can exist only once (for example a position in the same vehicle), so they cannot be merged as they are. Nothing was changed.')
+    }
+    return fail(400, error.message)
+  }
+  return done({ ok: true, merged: { from: String(sourceId), into: String(targetId) }, moved: (data as any)?.moved ?? {} })
+}
+
+/**
  * Remove a wrongly-entered commitment event. A transfer leg deletes BOTH legs sharing its
  * transfer_id, so the fund's total commitment can't drift. Needs a reason; the deleted event,
  * whole, is audited as the record that it ever existed.

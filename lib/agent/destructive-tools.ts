@@ -29,7 +29,7 @@ import { mergeCompanies } from '@/lib/companies/merge'
 import { deleteFundHolding } from '@/lib/portfolio/fund-holding-delete'
 import { clearFundRegister, readRegisterRows } from '@/lib/portfolio/fund-register-clear'
 import { DILIGENCE_CASCADE_TABLES, deleteDiligenceDeal } from '@/lib/diligence/service'
-import { deleteCommitmentEvent, deleteEntity, deleteInvestor, entityLedgerActivity, mergeInvestors } from '@/lib/lps/records'
+import { deleteCommitmentEvent, deleteEntity, deleteInvestor, entityLedgerActivity, mergeEntities, mergeInvestors } from '@/lib/lps/records'
 import { unwrap } from '@/lib/service-outcome'
 import { mergeVehicles } from '@/lib/vehicles-merge'
 import type { ActionDeps } from '@/lib/pending-actions/types'
@@ -196,6 +196,13 @@ export const DESTRUCTIVE_HANDLERS: Record<string, AgentToolHandler> = {
     const ev = await resolveCommitmentEvent(ctx, vehicle, text(input?.event_id, 'event_id'))
     const out = unwrap(await deleteCommitmentEvent(ctx.admin, { fundId: ctx.fundId, userId }, vehicle, ev.id, input?.reason))
     return { deleted: ev.id, legs: out.legs, vehicle }
+  },
+
+  lp_merge_entities: async (ctx: AgentToolContext, input: any) => {
+    const from = await resolveLpEntity(ctx, text(input?.from, 'from'))
+    const into = await resolveLpEntity(ctx, text(input?.into, 'into'))
+    const out = unwrap(await mergeEntities(ctx.admin, ctx.fundId, from.entityId, into.entityId))
+    return { merged: { from: { id: from.entityId, name: from.entityName }, into: { id: into.entityId, name: into.entityName } }, moved: out.moved }
   },
 
   lp_merge_investors: async (ctx: AgentToolContext, input: any) => {
@@ -437,6 +444,27 @@ export const DESTRUCTIVE_PREVIEWS: Record<string, Previewer> = {
         event: { id: ev.id, lp, date: ev.effective_date, amount: Number(ev.amount), kind: ev.kind, memo: ev.memo ?? null },
         legsDeleted: ev.transfer_id ? 2 : 1,
       },
+    }
+  },
+
+  lp_merge_entities: async (deps, input) => {
+    const from = await resolveLpEntity(deps, text(input.from, 'from'))
+    const into = await resolveLpEntity(deps, text(input.into, 'into'))
+    if (from.entityId === into.entityId) throw new Error('Cannot merge an LP entity into itself')
+    const activity = await entityLedgerActivity(deps.admin, deps.fundId, from.entityId)
+    const { data: positions } = await (deps.admin as any).from('commitment_events').select('vehicle_id, lp_entity_id')
+      .eq('fund_id', deps.fundId).in('lp_entity_id', [from.entityId, into.entityId])
+    const vehiclesOf = (id: string) => new Set(((positions as any[]) ?? []).filter(p => p.lp_entity_id === id).map(p => p.vehicle_id as string))
+    const fromVehicles = vehiclesOf(from.entityId)
+    const intoVehicles = vehiclesOf(into.entityId)
+    const shared = Array.from(fromVehicles).filter(v => intoVehicles.has(v))
+    return {
+      pin: { from: from.entityId, into: into.entityId },
+      summary: `Merge LP entity ${from.entityName} into ${into.entityName}: its commitments in ${fromVehicles.size} vehicle${fromVehicles.size === 1 ? '' : 's'}, ` +
+        `${activity.postings} capital posting${activity.postings === 1 ? '' : 's'} and ${activity.callLines} capital-call line${activity.callLines === 1 ? '' : 's'} move to ${into.entityName}, ` +
+        `then ${from.entityName} is deleted. No balance changes.` +
+        (shared.length ? ` Both hold commitments in ${shared.length} of the same vehicle${shared.length === 1 ? '' : 's'}; the merge may be refused there.` : ''),
+      impact: { from: { id: from.entityId, name: from.entityName }, into: { id: into.entityId, name: into.entityName }, vehicles: fromVehicles.size, sharedVehicles: shared.length, ...activity },
     }
   },
 
