@@ -172,7 +172,7 @@ export function FeeScheduleCard() {
             </div>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={monthly} onChange={e => setMonthly(e.target.checked)} />
-              Accrue the fee monthly (book each month&rsquo;s share at month end instead of the whole period on its due date)
+              Spread the fee monthly: bill the period on its due date, then recognize each month&rsquo;s share at month end, whenever the cash arrives (in arrears, it accrues monthly instead)
             </label>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={managerSide} onChange={e => setManagerSide(e.target.checked)} />

@@ -151,7 +151,7 @@ export function FeePeriodsTable() {
                             </Button>
                           )}
                           {view.schedule?.monthlyAccrual && p.status === 'posted' && (
-                            <span className="text-xs text-muted-foreground self-center">{p.postings.length} accrued</span>
+                            <span className="text-xs text-muted-foreground self-center">{p.postings.length} booked</span>
                           )}
                           {!booked && (p.status === 'waived'
                             ? <Button size="sm" variant="ghost" className="h-7 text-muted-foreground" onClick={() => act(`w:${p.id}`, { action: 'unwaive', periodId: p.id })}>Un-waive</Button>

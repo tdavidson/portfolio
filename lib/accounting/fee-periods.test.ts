@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest'
 import {
+  buildFeeBillEntry, buildManagerFeeEntry, feeBookings,
   applyFeePeriodEdit, buildFeeSliceEntry, draftFeePeriods, dueDateFor, feeInvoiceNumber, feeSlices, monthsIn,
   parseFeePeriodPatch, periodTotal,
 } from './fee-periods'
@@ -154,5 +155,35 @@ describe('the LPA fee schedule', () => {
     expect(coerceFeeScheduleReading({ steps: [{ afterYears: 3, rate: 0.02, basis: 'committed' }] })).toBeNull()
     const r = coerceFeeScheduleReading({ steps: [{ afterYears: 0, rate: 0.02, basis: 'nav' }] })!
     expect(lpaFeeScheduleToStored(r, '2024-01-01').warnings[0]).toContain('ten years')
+  })
+})
+
+describe('spreading a fee billed in advance', () => {
+  const p = { start: '2025-01-01', end: '2025-04-01', dueDate: '2025-01-01', offset: 0, lines: [
+    { lpEntityId: 'a', kind: 'fee' as const, basisAmount: null, rate: null, amount: 3000, auto: true, note: null },
+  ] }
+  it('bills the quarter on its due date, then recognizes it month by month', () => {
+    const plan = feeBookings(p, true, 'advance')
+    expect(plan.map(b => [b.kind, b.date, b.lines[0].amount])).toEqual([
+      ['bill', '2025-01-01', 3000], ['recognize', '2025-01-31', 1000], ['recognize', '2025-02-28', 1000], ['recognize', '2025-03-31', 1000],
+    ])
+  })
+  it('accrues month by month when billed in arrears, and charges once without spreading', () => {
+    expect(feeBookings(p, true, 'arrears').map(b => b.kind)).toEqual(['charge', 'charge', 'charge'])
+    expect(feeBookings(p, false, 'advance').map(b => [b.kind, b.date])).toEqual([['charge', '2025-01-01']])
+  })
+  it('books the bill to prepaid fees on the fund and deferred revenue on the manager', () => {
+    const base = { fundId: 'f', entryDate: '2025-01-01', memo: 'm', sourceRef: 'r' }
+    expect(buildFeeBillEntry(base, 3000, { prepaid: '1500', payable: '2150' })!.postings.map(x => [x.accountId, x.amount])).toEqual([['1500', 3000], ['2150', -3000]])
+    const m = { receivable: '1900', income: '4000', deferred: '2400' }
+    expect(buildManagerFeeEntry(base, 'bill', 3000, m)!.postings.map(x => [x.accountId, x.amount])).toEqual([['1900', 3000], ['2400', -3000]])
+    expect(buildManagerFeeEntry(base, 'recognize', 1000, m)!.postings.map(x => [x.accountId, x.amount])).toEqual([['2400', 1000], ['4000', -1000]])
+    expect(buildManagerFeeEntry(base, 'charge', 1000, m)!.postings.map(x => [x.accountId, x.amount])).toEqual([['1900', 1000], ['4000', -1000]])
+  })
+  it('recognizes a month out of prepaid fees, each partner charged its share', () => {
+    const e = buildFeeSliceEntry({ fundId: 'f', entryDate: '2025-01-31', memo: 'm', sourceRef: 'r' },
+      { lines: [{ lpEntityId: 'a', amount: 1000 }], offset: 0 },
+      { expense: '5000', offset: null, payable: '1500', bridge: '3200' }, new Map([['a', 'cap-a']]))!
+    expect(e.postings.map(x => [x.accountId, x.amount])).toEqual([['5000', 1000], ['1500', -1000], ['cap-a', 1000], ['3200', -1000]])
   })
 })

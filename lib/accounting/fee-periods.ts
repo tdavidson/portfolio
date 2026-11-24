@@ -14,7 +14,13 @@
 // Regenerating from the terms rewrites only rows nobody has edited and nothing has booked. An
 // edited row is locked; resetting it hands it back to the terms.
 //
-// POSTING a period books, on its due date (or month by month with monthlyAccrual):
+// MONTHLY SPREADING (monthlyAccrual), whatever day the cash arrives: a period billed in advance is
+// billed whole on its due date (fund Dr 1500 Prepaid management fees / Cr payable; manager Dr Due
+// from the fund / Cr 2400 Deferred management fee revenue), and each month end recognizes its share
+// (fund Dr 5000 / Cr 1500 with the partners' capital; manager Dr 2400 / Cr income). A period billed
+// in arrears accrues month by month as charges instead.
+//
+// POSTING a period (a charge) books, on its due date:
 //   the fund    Dr 5000 Management fee (gross)   Cr 5010 offsets   Cr payable to the manager
 //               Dr 3100-<partner> its own lines  Cr 3200 bridge    (self-allocated: ACCOUNTING.md §4)
 //   the manager Dr Due from <fund>               Cr Management fee income
@@ -34,7 +40,7 @@ import { chargeScheduledFee, loadFeeSchedule, loadScheduleInputs, type ScheduleP
 import { vehicleIdByName, vehicleNameById } from './vehicle-id'
 import { accountIdByCode, ensureCapitalAccounts, persistEntry } from './persist'
 import { ensureVehicleAccounts } from './provision-accounts'
-import { ensureIntercompanyAccounts, resolveSideAccounts, buildPayeeEntry, type SideAccounts } from './intercompany'
+import { ensureIntercompanyAccounts, resolveSideAccounts } from './intercompany'
 import { ACTUAL_BOOK } from './books'
 import type { JournalEntry, Posting } from './types'
 
@@ -74,6 +80,14 @@ export interface FeePeriodDraft {
 }
 
 export interface FeeSlice {
+  /**
+   * charge: the fee itself (expense and payable, receivable and income), on the due date or one
+   * month. bill: an in-advance period billed whole on its due date when the fee is spread monthly
+   * (prepaid and payable, receivable and deferred revenue). recognize: one month of a billed period
+   * spread (expense out of prepaid, income out of deferred revenue). Absent on rows booked before
+   * kinds existed: a charge.
+   */
+  kind?: 'charge' | 'bill' | 'recognize'
   date: string
   entryId: string
   managerEntryId?: string | null
@@ -263,6 +277,69 @@ export function buildFeeSliceEntry(
   }
   postings.push({ accountId: accts.bridge, amount: -net, currency: 'USD', lpEntityId: null })
   return { fundId: base.fundId, entryDate: base.entryDate, memo: base.memo, sourceType: 'management_fee', sourceRef: base.sourceRef, postings }
+}
+
+export interface FeeBooking { kind: 'charge' | 'bill' | 'recognize'; date: string; lines: { lpEntityId: string; amount: number }[]; offset: number }
+
+/**
+ * Pure: what booking a period means. Without monthly spreading, one charge on the due date. With
+ * it, a period billed IN ADVANCE is billed whole on its due date (the manager's receivable and the
+ * fund's payable, which the payment a day or two later clears) and then recognized month by month
+ * out of prepaid fees and deferred revenue: the fee is already billed, so the months spread it, they
+ * do not accrue it. A period billed IN ARREARS accrues month by month as a charge and is invoiced at
+ * its end.
+ */
+export function feeBookings(
+  p: Pick<FeePeriodDraft, 'start' | 'end' | 'dueDate' | 'lines' | 'offset'>,
+  monthly: boolean,
+  timing: StoredFeeSchedule['timing'],
+): FeeBooking[] {
+  if (!monthly) return feeSlices(p, false).map(x => ({ kind: 'charge' as const, ...x }))
+  const months = feeSlices(p, true)
+  if (timing === 'arrears') return months.map(x => ({ kind: 'charge' as const, ...x }))
+  const [whole] = feeSlices(p, false)
+  return [{ kind: 'bill' as const, ...whole }, ...months.map(x => ({ kind: 'recognize' as const, ...x }))]
+}
+
+export const bookingKey = (s: { kind?: string; date: string }) => `${s.kind ?? 'charge'}:${s.date}`
+
+/** Pure: the fund's bill for an in-advance period it spreads monthly. Dr prepaid fees / Cr payable. */
+export function buildFeeBillEntry(
+  base: { fundId: string; entryDate: string; memo: string; sourceRef: string },
+  net: number,
+  accts: { prepaid: string; payable: string },
+): JournalEntry | null {
+  const amount = roundCents(net)
+  if (!(amount > 0)) return null
+  return {
+    fundId: base.fundId, entryDate: base.entryDate, memo: base.memo, sourceType: 'management_fee_billing', sourceRef: base.sourceRef,
+    postings: [
+      { accountId: accts.prepaid, amount, currency: 'USD', lpEntityId: null },
+      { accountId: accts.payable, amount: -amount, currency: 'USD', lpEntityId: null },
+    ],
+  }
+}
+
+/** Pure: the manager's side of a booking: the receivable, the income, or deferred revenue between them. */
+export function buildManagerFeeEntry(
+  base: { fundId: string; entryDate: string; memo: string; sourceRef: string },
+  kind: FeeBooking['kind'],
+  net: number,
+  accts: { receivable: string; income: string; deferred: string | null },
+): JournalEntry | null {
+  const amount = roundCents(net)
+  if (!(amount > 0)) return null
+  const [debit, credit] = kind === 'charge' ? [accts.receivable, accts.income]
+    : kind === 'bill' ? [accts.receivable, accts.deferred]
+    : [accts.deferred, accts.income]
+  if (!debit || !credit) return null
+  return {
+    fundId: base.fundId, entryDate: base.entryDate, memo: base.memo, sourceType: kind === 'bill' ? 'management_fee_billing' : 'intercompany', sourceRef: base.sourceRef,
+    postings: [
+      { accountId: debit, amount, currency: 'USD', lpEntityId: null },
+      { accountId: credit, amount: -amount, currency: 'USD', lpEntityId: null },
+    ],
+  }
 }
 
 export function feeInvoiceNumber(periodStart: string, vehicleId: string, seq: number): string {
@@ -622,57 +699,67 @@ export async function postFeePeriod(
   }
 
   const manager = schedule?.bookManagerSide === false ? null : await feeManager(admin, fundId, vehicleId)
-  const fundSide = await fundAccounts(admin, fundId, group, manager)
+  const timing = schedule?.timing
+  const plan = feeBookings(period, monthly, timing)
+  const spreads = plan.some(b => b.kind === 'bill')
+  const fundSide = await fundAccounts(admin, fundId, group, manager, spreads)
   if ('error' in fundSide) return { error: fundSide.error, status: 400 }
 
   const today = opts.through ?? new Date().toISOString().slice(0, 10)
-  const slices = feeSlices(period, monthly).filter(s => opts.all || s.date <= today)
-  const done = new Set(booked.map(s => s.date))
-  for (const slice of slices) {
-    if (done.has(slice.date)) continue
-    const net = periodTotal(slice.lines)
+  const done = new Set(booked.map(bookingKey))
+  const periodLabel = `${period.start} to ${addDays(period.end, -1)}`
+  for (const b of plan.filter(x => opts.all || x.date <= today)) {
+    if (done.has(bookingKey(b))) continue
+    const net = periodTotal(b.lines)
     if (!(net > 0)) continue
-    const capMap = await ensureCapitalAccounts(admin, fundId, group, slice.lines.map(l => l.lpEntityId))
-    const memo = `Management fee ${period.start} to ${addDays(period.end, -1)}${monthly ? ` (accrued through ${slice.date})` : ''}`
-    const entry = buildFeeSliceEntry({ fundId, entryDate: slice.date, memo, sourceRef: `fee-period:${period.id}:${slice.date}` }, slice, fundSide.accts, capMap)
+    const sourceRef = `fee-period:${period.id}:${b.kind}:${b.date}`
+    const memo = b.kind === 'bill' ? `Management fee ${periodLabel}, billed in advance`
+      : b.kind === 'recognize' ? `Management fee ${periodLabel}, recognized through ${b.date}`
+      : `Management fee ${periodLabel}${monthly ? ` (accrued through ${b.date})` : ''}`
+    let entry: JournalEntry | null
+    if (b.kind === 'bill') {
+      entry = buildFeeBillEntry({ fundId, entryDate: b.date, memo, sourceRef }, net, { prepaid: fundSide.prepaid!, payable: fundSide.accts.payable })
+    } else {
+      const capMap = await ensureCapitalAccounts(admin, fundId, group, b.lines.map(l => l.lpEntityId))
+      // A recognized month comes out of prepaid fees, not a new payable.
+      const accts = b.kind === 'recognize' ? { ...fundSide.accts, payable: fundSide.prepaid! } : fundSide.accts
+      entry = buildFeeSliceEntry({ fundId, entryDate: b.date, memo, sourceRef }, b, accts, capMap)
+    }
     if (!entry) continue
     const status = opts.mode === 'post' ? 'posted' : 'draft'
     const fundRes = await persistEntry(admin, fundId, group, userId, entry, status)
     if ('error' in fundRes) {
       await (admin as any).from('management_fee_periods').update({ last_error: fundRes.error, postings: booked, updated_at: new Date().toISOString() }).eq('id', period.id)
-      return { error: `${group} ${slice.date}: ${fundRes.error}`, status: 400 }
+      return { error: `${group} ${b.date}: ${fundRes.error}`, status: 400 }
     }
-    const s: FeeSlice = { date: slice.date, entryId: fundRes.entryId, amount: net }
-    if (manager && fundSide.managerAccts) {
-      const managerEntry = buildPayeeEntry(
-        { fundId, kind: 'management_fee', chargeDate: slice.date, amount: net, memo: `${memo}, ${group}`, chargeId: period.id },
-        fundSide.managerAccts,
-      )
-      managerEntry.sourceRef = `fee-period:${period.id}:${slice.date}`
-      const mRes = await persistEntry(admin, fundId, manager.name, userId, managerEntry, status)
-      if ('error' in mRes) warnings.push(`${manager.name}'s side was not booked for ${slice.date}: ${mRes.error}. Book its receivable by hand.`)
+    const s: FeeSlice = { kind: b.kind, date: b.date, entryId: fundRes.entryId, amount: net }
+    if (manager && fundSide.manager) {
+      const managerEntry = buildManagerFeeEntry({ fundId, entryDate: b.date, memo: `${memo}, ${group}`, sourceRef }, b.kind, net, fundSide.manager)
+      const mRes = managerEntry ? await persistEntry(admin, fundId, manager.name, userId, managerEntry, status) : { error: 'no deferred revenue account' }
+      if ('error' in mRes) warnings.push(`${manager.name}'s side was not booked for ${b.date}: ${mRes.error}. Book it by hand.`)
       else s.managerEntryId = mRes.entryId
     }
     booked.push(s)
-    done.add(slice.date)
+    done.add(bookingKey(s))
   }
 
-  // Link both sides as an intercompany charge once both are posted, so the manager settles it.
+  // Link the receivable and the payable as an intercompany charge once both are posted, so the
+  // manager settles it. A recognized month moves nothing between the two, so it is not a charge.
   if (manager) {
     for (const s of booked) {
-      if (s.chargeId || !s.managerEntryId) continue
+      if (s.chargeId || !s.managerEntryId || s.kind === 'recognize') continue
       const { data } = await (admin as any).from('journal_entries').select('id, status').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('id', [s.entryId, s.managerEntryId])
       if (((data as any[]) ?? []).filter(e => e.status === 'posted').length !== 2) continue
       const { data: row } = await (admin as any).from('intercompany_transactions').insert({
         fund_id: fundId, from_vehicle_id: vehicleId, to_vehicle_id: manager.vehicleId, kind: 'management_fee',
-        charge_date: s.date, amount: s.amount, memo: `Management fee ${period.start} to ${addDays(period.end, -1)}`, status: 'accrued',
+        charge_date: s.date, amount: s.amount, memo: `Management fee ${periodLabel}`, status: 'accrued',
         from_entry_id: s.entryId, to_entry_id: s.managerEntryId, created_by: userId,
       }).select('id').single()
       if (row?.id) s.chargeId = row.id
     }
   }
 
-  const allSlices = feeSlices(period, monthly).filter(s => periodTotal(s.lines) > 0)
+  const allSlices = plan.filter(b => periodTotal(b.lines) > 0)
   const statusNow: FeePeriodStatus = booked.length === 0 ? 'scheduled' : opts.mode === 'post' ? 'posted' : 'drafted'
   const patch: Record<string, unknown> = { postings: booked, status: statusNow, last_error: null, updated_at: new Date().toISOString() }
   if (statusNow === 'posted') patch.posted_at = new Date().toISOString()
@@ -692,13 +779,23 @@ export async function postFeePeriod(
   }
   const { error } = await (admin as any).from('management_fee_periods').update(patch).eq('id', period.id).eq('fund_id', fundId)
   if (error) return { error: error.message, status: 500 }
-  if (monthly && booked.length < allSlices.length) warnings.push(`${booked.length} of ${allSlices.length} monthly accruals are booked; the rest book as each month ends.`)
+  if (monthly && booked.length < allSlices.length) warnings.push(`${booked.length} of ${allSlices.length} entries for this period are booked; the rest book as each month ends.`)
   return { periodId: period.id, status: statusNow, booked, invoice, warnings }
 }
 
+async function accountBySubtype(admin: SupabaseClient, fundId: string, group: string, subtype: string): Promise<string | null> {
+  const vehicleId = await vehicleIdByName(admin, fundId, group)
+  const { data } = await (admin as any).from('chart_of_accounts').select('id').eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('subtype', subtype).limit(1)
+  return ((data as any[])?.[0]?.id as string | undefined) ?? null
+}
+
 async function fundAccounts(
-  admin: SupabaseClient, fundId: string, group: string, manager: { vehicleId: string; name: string } | null,
-): Promise<{ accts: { expense: string; offset: string | null; payable: string; bridge: string }; managerAccts?: SideAccounts } | { error: string }> {
+  admin: SupabaseClient, fundId: string, group: string, manager: { vehicleId: string; name: string } | null, spreads: boolean,
+): Promise<{
+  accts: { expense: string; offset: string | null; payable: string; bridge: string }
+  prepaid?: string
+  manager?: { receivable: string; income: string; deferred: string | null }
+} | { error: string }> {
   let codes = await accountIdByCode(admin, fundId, group)
   if (!codes.has('5000') || !codes.has('3200') || !codes.has('2100') || !codes.has('5010')) {
     await ensureVehicleAccounts(admin, fundId, group)
@@ -706,8 +803,17 @@ async function fundAccounts(
   }
   const expense = codes.get('5000'), bridge = codes.get('3200')
   if (!expense || !bridge) return { error: `${group}'s chart is missing 5000 Management fee or 3200 Undistributed earnings.` }
+  let prepaid: string | undefined
+  if (spreads) {
+    prepaid = (await accountBySubtype(admin, fundId, group, 'prepaid_management_fee')) ?? undefined
+    if (!prepaid) {
+      await ensureVehicleAccounts(admin, fundId, group)
+      prepaid = (await accountBySubtype(admin, fundId, group, 'prepaid_management_fee')) ?? undefined
+    }
+    if (!prepaid) return { error: `${group}'s chart has no Prepaid management fees account (1500), which spreading a fee billed in advance needs.` }
+  }
   let payable = codes.get('2100') ?? null
-  let managerAccts: any
+  let managerAccts: { receivable: string; income: string; deferred: string | null } | undefined
   if (manager) {
     try {
       const vehicleId = await vehicleIdByName(admin, fundId, group)
@@ -715,14 +821,23 @@ async function fundAccounts(
       const mIc = await ensureIntercompanyAccounts(admin, fundId, manager.name, { vehicleId: vehicleId!, name: group })
       const side = await resolveSideAccounts(admin, fundId, manager.name, 'management_fee', 'payee', mIc.receivableAccountId)
       if ('error' in side) return { error: side.error }
+      let deferred: string | null = null
+      if (spreads) {
+        deferred = await accountBySubtype(admin, fundId, manager.name, 'deferred_revenue')
+        if (!deferred) {
+          await ensureVehicleAccounts(admin, fundId, manager.name)
+          deferred = await accountBySubtype(admin, fundId, manager.name, 'deferred_revenue')
+        }
+        if (!deferred) return { error: `${manager.name}'s chart has no Deferred management fee revenue account (2400), which spreading a fee billed in advance needs.` }
+      }
       payable = fundIc.payableAccountId
-      managerAccts = side
+      managerAccts = { receivable: side.intercompanyAccountId, income: side.pnlAccountId!, deferred }
     } catch (e) {
       return { error: (e as Error).message }
     }
   }
   if (!payable) return { error: `${group}'s chart is missing 2100 Due to GP.` }
-  return { accts: { expense, offset: codes.get('5010') ?? null, payable, bridge }, ...(managerAccts ? { managerAccts } : {}) }
+  return { accts: { expense, offset: codes.get('5010') ?? null, payable, bridge }, ...(prepaid ? { prepaid } : {}), ...(managerAccts ? { manager: managerAccts } : {}) }
 }
 
 /**
@@ -746,10 +861,12 @@ export async function postDueFeePeriods(admin: SupabaseClient, today: string): P
     if ('error' in view) { errors.push(`${group}: ${view.error}`); continue }
     const monthly = !!view.schedule?.monthlyAccrual
     for (const p of view.periods) {
-      if (p.status === 'waived' || p.status === 'posted' && (!monthly || p.postings.length >= feeSlices(p, true).filter(s => periodTotal(s.lines) > 0).length)) continue
+      if (p.status === 'waived') continue
+      const plan = feeBookings(p, monthly, view.schedule?.timing).filter(b => periodTotal(b.lines) > 0)
+      const have = new Set(p.postings.map(bookingKey))
+      const due = plan.filter(b => b.date <= today && !have.has(bookingKey(b)))
       if (p.status === 'drafted' && !monthly) continue // waiting for a person to post the drafts
-      const first = feeSlices(p, monthly)[0]?.date ?? p.dueDate
-      if (first > today && p.dueDate > today) continue
+      if (due.length === 0 && (p.invoice || p.dueDate > today)) continue
       const r = await postFeePeriod(admin, row.fund_id, group, null, p.id, { mode, through: today })
       if ('error' in r) errors.push(`${group} ${p.start}: ${r.error}`)
       else booked += r.booked.length - p.postings.length

@@ -292,7 +292,7 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
             offsets: { type: 'object', description: '{ kind: share } for portfolio-company fees, share 0 to 1.' },
             timing: { type: 'string', enum: ['advance', 'arrears'], description: 'When each period\'s fee falls due: its first day (advance, the default) or its last.' },
             postMode: { type: 'string', enum: ['off', 'draft', 'post'], description: 'What the daily run does on each due date: nothing (off, the default), draft entries and a draft invoice, or posted entries and an issued invoice.' },
-            monthlyAccrual: { type: 'boolean', description: 'Book each period month by month at each month end instead of all on its due date. Off by default; rarely needed on cash-basis books.' },
+            monthlyAccrual: { type: 'boolean', description: 'Spread each period monthly, whenever the cash arrives. In advance: the period is billed whole on its due date (fund prepaid fees and payable; manager receivable and deferred revenue), and each month end recognizes its share (fund expense out of prepaid; manager income out of deferred revenue). In arrears: the fee accrues month by month. Off by default; rarely needed on cash-basis books.' },
             bookManagerSide: { type: 'boolean', description: 'Also book the linked management company\'s receivable and income (default true when a management company is linked to the fund).' },
             reminderDays: { type: 'number', description: 'Days before a due date that the reminder digest lists an unbooked fee (default 5).' },
           },
