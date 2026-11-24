@@ -551,6 +551,22 @@ Expense hits the income statement; each LP's capital is reduced. Line: **managem
 ```
 Paying the fee later is a separate plain entry: `Dr 2100 Due to GP / Cr 1000 Cash`.
 
+**The fee schedule, period by period** (`lib/accounting/fee-periods.ts`). The vehicle's fee terms
+(`fee_schedule`) are written out as stored, editable periods (`management_fee_periods`), each with
+per-partner lines: the partners' fee, a later closer's catch-up (the fee for the periods before its
+closing, charged in the first period it is in), equalization fees and adjustments. Posting a period
+books this entry on its due date, each partner's capital debited with its own lines, tagged
+`fee-period:<id>:<kind>:<date>`. With `monthlyAccrual`, a period billed in advance is billed whole on
+its due date (`Dr 1500 Prepaid management fees / Cr payable`; the manager `Dr Due from <fund> / Cr 2400
+Deferred management fee revenue`) and each month end recognizes its share (`Dr 5000 / Cr 1500` with
+the partners' capital; the manager `Dr 2400 / Cr 4000`), whenever the cash arrives. A period billed
+in arrears accrues month by month instead. When a management company is linked
+to the fund (`manco_fee_links`), the credit is the fund's *Due to <manager>* account instead of
+2100, the manager books `Dr Due from <fund> / Cr 4000 Management fee income`, and an intercompany
+charge links the two so the manager's Intercompany tab settles the cash. Each payment gets an
+invoice from the manager to the fund (`fee-invoice-pdf.ts`). With `postMode` draft or post the
+daily tick does this on the due date; otherwise the reminder digest lists the fee as it comes due.
+
 ### 5. Partnership expense — `source: partnership_expense` (compound, via bridge)
 Same shape as the fee, but paid from cash and allocated pro-rata. Line: **expenses**.
 

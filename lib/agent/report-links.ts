@@ -25,11 +25,13 @@ import { createHmac, hkdfSync, timingSafeEqual } from 'crypto'
 // `custom_view` is a saved custom view as a PDF or workbook, loaded as the member (lib/custom-views/document.ts).
 // `lp_report_cards` is many investors' live report cards as a ZIP of PDFs (lib/lp-report-cards.ts).
 // `statement_review` is one statement review as a PDF (lib/statement-review/export.ts).
+// `fee_invoice` is one management fee period's invoice as a PDF (lib/accounting/fee-invoice-pdf.ts).
 export const REPORT_KINDS = [
   'lp_statement', 'lp_report_card', 'lp_report_cards', 'portal_statement', 'portal_letter',
   'fund_performance', 'financial_statements', 'k1', 'lp_snapshot', 'tax_package', 'lp_letter',
   'template_document', 'call_notice_preview', 'close_bundle', 'forecast_workbook', 'custom_view',
   'statement_review', 'distribution_workbook', 'distribution_payouts', 'distribution_notice_preview',
+  'fee_invoice',
 ] as const
 export type ReportKind = typeof REPORT_KINDS[number]
 

@@ -4,6 +4,7 @@
 // connects. Client code that only needs the metadata imports the manifest.
 
 import { feeSchedulePeriods, saveFeeSchedule } from './fee-schedule'
+import { listFeePeriods, runFeePeriodAction } from './fee-periods'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { AGENT_TOOL_MANIFEST, type AgentToolMeta } from './agent-tools-manifest'
 import type { Domain } from '@/lib/access/domains'
@@ -345,6 +346,21 @@ const HANDLERS: Record<string, AgentToolHandler> = {
     const out = await feeSchedulePeriods(admin, fundId, portfolioGroup)
     if ('error' in out) throw new Error(out.error)
     return { vehicle: portfolioGroup, ...out }
+  },
+
+  fee_periods: async ({ admin, fundId, portfolioGroup }) => {
+    const out = await listFeePeriods(admin, fundId, portfolioGroup)
+    if ('error' in out) throw new Error(out.error)
+    return out
+  },
+
+  update_fee_periods: async ({ admin, fundId, portfolioGroup, userId, access }, input) => {
+    const out = await runFeePeriodAction(admin, {
+      fundId, userId: userId ?? null, role: access.role,
+      mayTouchInvestments: async () => mayTouchInvestments(access),
+    }, portfolioGroup, input ?? {})
+    if (out.status >= 400) throw new Error(String(out.body.error ?? 'The fee periods could not be changed.'))
+    return { vehicle: portfolioGroup, ...out.body }
   },
 
   set_fee_schedule: async ({ admin, fundId, portfolioGroup }, input) => {

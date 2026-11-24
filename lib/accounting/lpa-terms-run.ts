@@ -15,7 +15,7 @@ import { getDocument, KIND_LABELS, type DocumentKind } from '@/lib/entity-docume
 import { fundHasAIKey } from '@/lib/ai/keyless'
 import {
   buildLpaTermsPrompt, heuristicLpaTerms, LPA_TERMS_RESPONSE_SHAPE, LPA_TERMS_RULES, parseLpaTermsResponse,
-  proposalToTermsInput, relevantPassages, sourcesOf, TERM_FIELDS, type LpaTermsProposal,
+  proposalToTermsInput, relevantPassages, sourcesOf, TERM_FIELDS, lpaFeeScheduleToStored, type LpaTermsProposal,
 } from './lpa-terms'
 
 export const MAX_LPA_TEXT = 1_000_000
@@ -102,6 +102,8 @@ export interface ExtractLpaTermsResult {
   /** The input for set_waterfall_terms: every field, with where each came from. */
   proposedTerms: Record<string, unknown>
   filledFrom: Record<string, string>
+  /** The management fee as set_fee_schedule takes it, dated from the vehicle's first closing, when the LPA states it. */
+  proposedFeeSchedule?: Record<string, unknown>
   /** For a keyless assistant: the passages to read, and the JSON to hand back as assistantProposal. */
   passages?: { page: number | null; section: string | null; text: string }[]
   responseShape?: string
@@ -161,10 +163,30 @@ export async function extractLpaTerms(
     sources: sourcesOf(proposal),
   }
 
+  // The fee schedule, dated from the first closing (or the LPA reading's own words when none is recorded).
+  let proposedFeeSchedule: Record<string, unknown> | undefined
+  const feeReading = proposal.info.managementFeeSchedule?.value
+  if (feeReading) {
+    const vehicleId = await vehicleIdByName(admin, fundId, group)
+    const { data: closings } = vehicleId
+      ? await (admin as any).from('vehicle_closings').select('close_date').eq('fund_id', fundId).eq('vehicle_id', vehicleId).order('close_date').limit(1)
+      : { data: [] }
+    const first = (closings as any[])?.[0]?.close_date as string | undefined
+    if (first) {
+      const { schedule, warnings } = lpaFeeScheduleToStored(feeReading, first)
+      proposedFeeSchedule = { vehicle: group, schedule }
+      proposal.warnings.push(...warnings)
+    } else {
+      proposal.warnings.push('The LPA states the management fee, but no closing is recorded for this vehicle, so the fee schedule cannot be dated. Ask the person for the initial closing date, then call set_fee_schedule.')
+    }
+  }
+
   const show = 'Show the person every proposed term with its quote and confidence, the fields not found, every unsupported provision ' +
     '(the engine does not model them: say what that means for this fund), and every warning. Only if they confirm, call ' +
     'set_waterfall_terms with proposedTerms (adjusted for anything they corrected). It is always staged: a person with GP ' +
-    'economics write approves it, and nothing changes until then.'
+    'economics write approves it, and nothing changes until then. If proposedFeeSchedule is present, show it too (frequency, timing, ' +
+    'each rate and basis from its date, the end), and only if they confirm, call set_fee_schedule with its schedule, then ' +
+    'update_fee_periods action generate to write the periods.'
   return {
     vehicle: group,
     source: source.document ?? { pasted: true, chars: source.text.length },
@@ -173,6 +195,7 @@ export async function extractLpaTerms(
     proposal,
     proposedTerms,
     filledFrom: filled,
+    ...(proposedFeeSchedule ? { proposedFeeSchedule } : {}),
     ...(keyless
       ? {
           passages: relevantPassages(source.text, ASSISTANT_PASSAGE_BUDGET).map(p => ({ page: p.page, section: p.section, text: p.text })),

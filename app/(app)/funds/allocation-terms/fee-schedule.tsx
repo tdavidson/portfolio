@@ -11,7 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useLedgerFetch } from '@/components/accounting-vehicle'
 import { FEE_KIND_LABELS, PortfolioFeesList } from './portfolio-fees'
-import { useCurrency, formatCurrencyFull } from '@/components/currency-context'
+import { FeePeriodsTable } from './fee-periods'
 
 type Frequency = 'quarterly' | 'semiannual' | 'annual'
 type Basis = 'commitments' | 'invested' | 'nav'
@@ -38,6 +38,11 @@ export function FeeScheduleCard() {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [saved, setSaved] = useState(false)
+  const [timing, setTiming] = useState<'advance' | 'arrears'>('advance')
+  const [postMode, setPostMode] = useState<'off' | 'draft' | 'post'>('off')
+  const [monthly, setMonthly] = useState(false)
+  const [managerSide, setManagerSide] = useState(true)
+  const [reminderDays, setReminderDays] = useState('5')
 
   const apply = useCallback((s: any) => {
     setOn(!!s)
@@ -48,6 +53,11 @@ export function FeeScheduleCard() {
     setSteps(s.steps.map((x: any) => ({ from: x.from, rate: pct(x.rate), basis: x.basis })))
     setCap(s.organizationalExpenseCap != null ? String(s.organizationalExpenseCap) : '')
     setOffsets(Object.fromEntries(FEE_KINDS.map(k => [k, s.offsets?.[k] != null ? pct(s.offsets[k]) : ''])) as Record<FeeKind, string>)
+    setTiming(s.timing === 'arrears' ? 'arrears' : 'advance')
+    setPostMode(s.postMode === 'draft' || s.postMode === 'post' ? s.postMode : 'off')
+    setMonthly(!!s.monthlyAccrual)
+    setManagerSide(s.bookManagerSide !== false)
+    setReminderDays(s.reminderDays != null ? String(s.reminderDays) : '5')
   }, [])
 
   useEffect(() => {
@@ -64,6 +74,11 @@ export function FeeScheduleCard() {
       steps: steps.map((s, i) => ({ from: s.from || (i === 0 ? start : ''), rate: frac(s.rate), basis: s.basis })),
       ...(cap.trim() !== '' ? { organizationalExpenseCap: Number(cap) } : {}),
       offsets: Object.fromEntries(FEE_KINDS.filter(k => offsets[k].trim() !== '').map(k => [k, frac(offsets[k])])),
+      timing,
+      postMode,
+      monthlyAccrual: monthly,
+      bookManagerSide: managerSide,
+      ...(reminderDays.trim() !== '' ? { reminderDays: Number(reminderDays) } : {}),
     } : null
     const res = await lf('/api/accounting/fee-schedule', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ schedule }) })
     const d = await res.json().catch(() => ({}))
@@ -84,7 +99,8 @@ export function FeeScheduleCard() {
         The management fee as the LPA states it: how often it&rsquo;s charged, each rate and what
         it&rsquo;s charged on, from the date it starts. Booking the fee from the schedule charges the
         period the entry date falls in. A rate that starts mid-period is charged for its share of the
-        days, and partners exempt from the fee on the Allocation terms page don&rsquo;t bear it.
+        days, and partners exempt from the fee on the Allocation terms page don&rsquo;t bear it. The
+        schedule below writes each period out so you can edit it, post it and invoice it.
       </p>
       <label className="flex items-center gap-2 text-sm">
         <input type="checkbox" checked={on} onChange={e => setOn(e.target.checked)} />
@@ -135,6 +151,40 @@ export function FeeScheduleCard() {
           </div>
 
           <div className="space-y-2">
+            <p className="text-xs font-medium">Payment and posting</p>
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+              <label className="space-y-1 text-xs font-medium">Due
+                <select value={timing} onChange={e => setTiming(e.target.value as 'advance' | 'arrears')} className="w-full border border-border rounded-sm bg-background text-foreground px-3 py-2 text-sm">
+                  <option value="advance">In advance (first day)</option>
+                  <option value="arrears">In arrears (last day)</option>
+                </select>
+              </label>
+              <label className="space-y-1 text-xs font-medium">On the due date
+                <select value={postMode} onChange={e => setPostMode(e.target.value as 'off' | 'draft' | 'post')} className="w-full border border-border rounded-sm bg-background text-foreground px-3 py-2 text-sm">
+                  <option value="off">Remind me only</option>
+                  <option value="draft">Draft the entries and invoice</option>
+                  <option value="post">Post the entries and issue the invoice</option>
+                </select>
+              </label>
+              <label className="space-y-1 text-xs font-medium">Remind this many days before
+                <Input inputMode="numeric" value={reminderDays} onChange={e => setReminderDays(e.target.value)} className="tabular-nums" />
+              </label>
+            </div>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={monthly} onChange={e => setMonthly(e.target.checked)} />
+              Spread the fee monthly: bill the period on its due date, then recognize each month&rsquo;s share at month end, whenever the cash arrives (in arrears, it accrues monthly instead)
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input type="checkbox" checked={managerSide} onChange={e => setManagerSide(e.target.checked)} />
+              Book the management company&rsquo;s receivable too, when one is linked to this fund
+            </label>
+            <p className="text-xs text-muted-foreground max-w-3xl">
+              Reminders go out in the daily digest when reminders are turned on in Settings. Cash-basis
+              books rarely need monthly accrual.
+            </p>
+          </div>
+
+          <div className="space-y-2">
             <p className="text-xs font-medium">Offsets</p>
             <p className="text-xs text-muted-foreground max-w-3xl">
               The share of each kind of portfolio-company fee that reduces the management fee. Leave
@@ -163,122 +213,9 @@ export function FeeScheduleCard() {
         {saved && <span className="text-xs text-success">Saved</span>}
       </div>
 
-      {on && <FeeSchedulePeriods key={saved ? 'saved' : 'idle'} />}
+      {on && <FeePeriodsTable key={saved ? 'saved' : 'idle'} />}
       {on && <PortfolioFeesList />}
     </div>
   )
 }
 
-interface PeriodRow {
-  start: string
-  end: string
-  rate: number
-  basis: Basis
-  gross: number
-  offset: number
-  net: number
-  booked: number
-  status: 'booked' | 'partial' | 'over' | 'unbooked' | 'upcoming'
-  entryIds: string[]
-}
-
-const STATUS_LABEL: Record<PeriodRow['status'], string> = {
-  booked: 'Booked', partial: 'Partly booked', over: 'Over-booked', unbooked: 'Not booked', upcoming: 'Upcoming',
-}
-const STATUS_TONE: Record<PeriodRow['status'], string> = {
-  booked: 'text-success', partial: 'text-warning', over: 'text-warning', unbooked: 'text-warning', upcoming: 'text-muted-foreground',
-}
-const BASIS_LABEL: Record<Basis, string> = { commitments: 'commitments', invested: 'invested capital', nav: 'NAV' }
-
-/** The day before an exclusive end, for display. */
-function lastDay(end: string): string {
-  const d = new Date(`${end}T00:00:00Z`)
-  d.setUTCDate(d.getUTCDate() - 1)
-  return d.toISOString().slice(0, 10)
-}
-
-/**
- * Every period the schedule charges, with the fee and what the books hold for it: what an admin
- * reads to see what is due and what is missing. A period with nothing booked can be drafted from
- * here (the same management fee allocation, from the schedule); the draft posts from the journal.
- */
-export function FeeSchedulePeriods() {
-  const lf = useLedgerFetch()
-  const currency = useCurrency()
-  const [rows, setRows] = useState<PeriodRow[] | null>(null)
-  const [error, setError] = useState<string | null>(null)
-  const [busy, setBusy] = useState<string | null>(null)
-  const [drafted, setDrafted] = useState<Set<string>>(new Set())
-  const fmt = (v: number) => formatCurrencyFull(v, currency)
-
-  const load = useCallback(async () => {
-    const r = await lf('/api/accounting/fee-schedule?periods=1')
-    const d = await r.json().catch(() => ({}))
-    if (!r.ok) { setError(d.error ?? 'Could not work out the fee periods'); setRows([]); return }
-    setRows(d.periods ?? [])
-  }, [lf])
-  useEffect(() => { void load() }, [load])
-
-  const draft = async (p: PeriodRow) => {
-    setBusy(p.start); setError(null)
-    const r = await lf('/api/accounting/allocation', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ action: 'management_fee', fromSchedule: true, entryDate: p.start }),
-    })
-    const d = await r.json().catch(() => ({}))
-    setBusy(null)
-    if (!r.ok) { setError(d.error ?? 'Could not draft the fee'); return }
-    setDrafted(prev => new Set(prev).add(p.start))
-  }
-
-  if (!rows) return <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Working out the fee periods…</div>
-  if (rows.length === 0 && !error) return null
-  return (
-    <div className="space-y-2">
-      <p className="text-xs font-medium">Fee by period</p>
-      <p className="text-xs text-muted-foreground max-w-3xl">
-        What the schedule charges each period, after offsets and side letters, against the fee
-        expense booked with a date in that period. Drafting a period books the whole period&rsquo;s
-        fee on its first day as a draft; post it from the journal.
-      </p>
-      {error && <p className="text-sm text-warning">{error}</p>}
-      <div className="overflow-x-auto">
-        <table className="w-full text-sm">
-          <thead>
-            <tr className="text-left text-xs text-muted-foreground">
-              <th className="py-1 pr-3 font-medium">Period</th>
-              <th className="py-1 pr-3 font-medium">Rate</th>
-              <th className="py-1 pr-3 font-medium text-right">Gross</th>
-              <th className="py-1 pr-3 font-medium text-right">Offsets</th>
-              <th className="py-1 pr-3 font-medium text-right">Fee</th>
-              <th className="py-1 pr-3 font-medium text-right">Booked</th>
-              <th className="py-1 font-medium">Status</th>
-            </tr>
-          </thead>
-          <tbody>
-            {rows.map(p => (
-              <tr key={p.start} className="border-t border-border">
-                <td className="py-1.5 pr-3 whitespace-nowrap tabular-nums">{p.start} – {lastDay(p.end)}</td>
-                <td className="py-1.5 pr-3 whitespace-nowrap">{pct(p.rate)}% of {BASIS_LABEL[p.basis]}</td>
-                <td className="py-1.5 pr-3 text-right tabular-nums">{fmt(p.gross)}</td>
-                <td className="py-1.5 pr-3 text-right tabular-nums">{p.offset ? fmt(-p.offset) : '—'}</td>
-                <td className="py-1.5 pr-3 text-right tabular-nums">{fmt(p.net)}</td>
-                <td className="py-1.5 pr-3 text-right tabular-nums">{p.booked ? fmt(p.booked) : '—'}</td>
-                <td className="py-1.5 whitespace-nowrap">
-                  <span className={`text-xs ${STATUS_TONE[p.status]}`}>{STATUS_LABEL[p.status]}</span>
-                  {p.status === 'unbooked' && p.net > 0 && (
-                    drafted.has(p.start)
-                      ? <span className="ml-2 text-xs text-muted-foreground">Drafted</span>
-                      : <Button size="sm" variant="outline" className="ml-2 h-7" disabled={busy === p.start} onClick={() => draft(p)}>
-                          {busy === p.start ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Draft entry'}
-                        </Button>
-                  )}
-                </td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      </div>
-    </div>
-  )
-}

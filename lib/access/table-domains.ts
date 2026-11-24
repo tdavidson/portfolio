@@ -213,6 +213,8 @@ export const TABLE_RULES: Record<string, TableRule> = {
   // thing that is manco-only by construction — is gated where it can be.
   intercompany_transactions: { scope: 'fund', domain: 'management_company' },
   receipts: { scope: 'service', note: 'Receipts behind journal entries; served by the receipts routes, which resolve the receipt\'s entity (management-company grant for a manco\'s) or require every-entity visibility for an unassigned one.' },
+  management_fee_periods: { scope: 'service', note: 'Each vehicle\'s management fee schedule written out by period, with its bookings and invoice; served by the fee-periods route and MCP tools (accounting).' },
+  management_fee_period_lines: { scope: 'service', note: 'The per-partner lines of a management fee period; read and written only with its period.' },
   partnership_invoices: { scope: 'service', note: 'Quarterly partnership-expense invoices between two entities; served by the invoices route, which checks the caller may see both.' },
   partnership_invoice_lines: { scope: 'service', note: 'Which Due-from postings each partnership invoice bills; read and written only with its invoice.' },
   partnership_invoice_adjustments: { scope: 'service', note: 'Credits and charges typed onto a partnership invoice that change its amount due; read and written only with its invoice.' },

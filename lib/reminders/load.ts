@@ -6,6 +6,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { lastEndedQuarter, metricQuarter, responseKey } from '@/lib/requests/response-status'
 import type { FundReminderData } from './collect'
 import type { OpenCall } from './sources/calls'
+import type { FeesData } from './sources/fees'
 import { loadOnboardingReminderData } from './sources/onboarding-load'
 import { fromHeader } from './settings'
 import { listCapitalCalls } from '@/lib/accounting/capital-calls'
@@ -127,9 +128,11 @@ export async function loadFundReminderData(
   }
 
   const onboarding = await loadOnboardingReminderData(admin, fundId, today)
+  const fees = await loadDueFeePeriods(db, fundId, today, vehicleById, currency)
 
   return {
     calls: { openCalls },
+    ...(fees ? { fees } : {}),
     onboarding,
     compliance,
     asks: {
@@ -139,5 +142,30 @@ export async function loadFundReminderData(
       hasData,
       overrides: overrideMap,
     },
+  }
+}
+
+/**
+ * Fee periods not yet booked whose due date is within 60 days (the longest lead time) or past, with
+ * each vehicle's lead time from its fee schedule. Null when the table is absent (migration
+ * 20261124030000 not applied) or nothing is waiting.
+ */
+async function loadDueFeePeriods(db: any, fundId: string, today: string, vehicleById: Map<string, string>, currency: string): Promise<FeesData | null> {
+  const horizon = new Date(Date.parse(`${today}T00:00:00Z`) + 60 * 86_400_000).toISOString().slice(0, 10)
+  const { data, error } = await db.from('management_fee_periods').select('id, vehicle_id, period_start, due_date, status')
+    .eq('fund_id', fundId).in('status', ['scheduled', 'drafted']).lte('due_date', horizon)
+  if (error || !data?.length) return null
+  const rows = data as { id: string; vehicle_id: string; period_start: string; due_date: string; status: 'scheduled' | 'drafted' }[]
+  const { data: settings } = await db.from('vehicle_accounting_settings').select('vehicle_id, fee_schedule')
+    .eq('fund_id', fundId).in('vehicle_id', Array.from(new Set(rows.map(r => r.vehicle_id))))
+  const lead = new Map<string, number>(((settings ?? []) as any[]).map(s => [s.vehicle_id, Number(s.fee_schedule?.reminderDays ?? 5)]))
+  const { data: lines } = await db.from('management_fee_period_lines').select('period_id, amount').eq('fund_id', fundId).in('period_id', rows.map(r => r.id))
+  const totals = new Map<string, number>()
+  for (const l of (lines ?? []) as { period_id: string; amount: number }[]) totals.set(l.period_id, (totals.get(l.period_id) ?? 0) + Number(l.amount))
+  return {
+    periods: rows.filter(r => vehicleById.has(r.vehicle_id) && lead.has(r.vehicle_id)).map(r => ({
+      id: r.id, vehicleId: r.vehicle_id, vehicle: vehicleById.get(r.vehicle_id)!, start: r.period_start, dueDate: r.due_date,
+      status: r.status, total: Math.round((totals.get(r.id) ?? 0) * 100) / 100, leadDays: lead.get(r.vehicle_id) ?? 5, currency,
+    })),
   }
 }
