@@ -11,6 +11,7 @@ import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
 import { useLedgerFetch } from '@/components/accounting-vehicle'
 import { FEE_KIND_LABELS, PortfolioFeesList } from './portfolio-fees'
+import { useCurrency, formatCurrencyFull } from '@/components/currency-context'
 
 type Frequency = 'quarterly' | 'semiannual' | 'annual'
 type Basis = 'commitments' | 'invested' | 'nav'
@@ -162,7 +163,122 @@ export function FeeScheduleCard() {
         {saved && <span className="text-xs text-success">Saved</span>}
       </div>
 
+      {on && <FeeSchedulePeriods key={saved ? 'saved' : 'idle'} />}
       {on && <PortfolioFeesList />}
+    </div>
+  )
+}
+
+interface PeriodRow {
+  start: string
+  end: string
+  rate: number
+  basis: Basis
+  gross: number
+  offset: number
+  net: number
+  booked: number
+  status: 'booked' | 'partial' | 'over' | 'unbooked' | 'upcoming'
+  entryIds: string[]
+}
+
+const STATUS_LABEL: Record<PeriodRow['status'], string> = {
+  booked: 'Booked', partial: 'Partly booked', over: 'Over-booked', unbooked: 'Not booked', upcoming: 'Upcoming',
+}
+const STATUS_TONE: Record<PeriodRow['status'], string> = {
+  booked: 'text-success', partial: 'text-warning', over: 'text-warning', unbooked: 'text-warning', upcoming: 'text-muted-foreground',
+}
+const BASIS_LABEL: Record<Basis, string> = { commitments: 'commitments', invested: 'invested capital', nav: 'NAV' }
+
+/** The day before an exclusive end, for display. */
+function lastDay(end: string): string {
+  const d = new Date(`${end}T00:00:00Z`)
+  d.setUTCDate(d.getUTCDate() - 1)
+  return d.toISOString().slice(0, 10)
+}
+
+/**
+ * Every period the schedule charges, with the fee and what the books hold for it: what an admin
+ * reads to see what is due and what is missing. A period with nothing booked can be drafted from
+ * here (the same management fee allocation, from the schedule); the draft posts from the journal.
+ */
+export function FeeSchedulePeriods() {
+  const lf = useLedgerFetch()
+  const currency = useCurrency()
+  const [rows, setRows] = useState<PeriodRow[] | null>(null)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState<string | null>(null)
+  const [drafted, setDrafted] = useState<Set<string>>(new Set())
+  const fmt = (v: number) => formatCurrencyFull(v, currency)
+
+  const load = useCallback(async () => {
+    const r = await lf('/api/accounting/fee-schedule?periods=1')
+    const d = await r.json().catch(() => ({}))
+    if (!r.ok) { setError(d.error ?? 'Could not work out the fee periods'); setRows([]); return }
+    setRows(d.periods ?? [])
+  }, [lf])
+  useEffect(() => { void load() }, [load])
+
+  const draft = async (p: PeriodRow) => {
+    setBusy(p.start); setError(null)
+    const r = await lf('/api/accounting/allocation', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'management_fee', fromSchedule: true, entryDate: p.start }),
+    })
+    const d = await r.json().catch(() => ({}))
+    setBusy(null)
+    if (!r.ok) { setError(d.error ?? 'Could not draft the fee'); return }
+    setDrafted(prev => new Set(prev).add(p.start))
+  }
+
+  if (!rows) return <div className="flex items-center gap-2 text-sm text-muted-foreground"><Loader2 className="h-4 w-4 animate-spin" />Working out the fee periods…</div>
+  if (rows.length === 0 && !error) return null
+  return (
+    <div className="space-y-2">
+      <p className="text-xs font-medium">Fee by period</p>
+      <p className="text-xs text-muted-foreground max-w-3xl">
+        What the schedule charges each period, after offsets and side letters, against the fee
+        expense booked with a date in that period. Drafting a period books the whole period&rsquo;s
+        fee on its first day as a draft; post it from the journal.
+      </p>
+      {error && <p className="text-sm text-warning">{error}</p>}
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm">
+          <thead>
+            <tr className="text-left text-xs text-muted-foreground">
+              <th className="py-1 pr-3 font-medium">Period</th>
+              <th className="py-1 pr-3 font-medium">Rate</th>
+              <th className="py-1 pr-3 font-medium text-right">Gross</th>
+              <th className="py-1 pr-3 font-medium text-right">Offsets</th>
+              <th className="py-1 pr-3 font-medium text-right">Fee</th>
+              <th className="py-1 pr-3 font-medium text-right">Booked</th>
+              <th className="py-1 font-medium">Status</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map(p => (
+              <tr key={p.start} className="border-t border-border">
+                <td className="py-1.5 pr-3 whitespace-nowrap tabular-nums">{p.start} – {lastDay(p.end)}</td>
+                <td className="py-1.5 pr-3 whitespace-nowrap">{pct(p.rate)}% of {BASIS_LABEL[p.basis]}</td>
+                <td className="py-1.5 pr-3 text-right tabular-nums">{fmt(p.gross)}</td>
+                <td className="py-1.5 pr-3 text-right tabular-nums">{p.offset ? fmt(-p.offset) : '—'}</td>
+                <td className="py-1.5 pr-3 text-right tabular-nums">{fmt(p.net)}</td>
+                <td className="py-1.5 pr-3 text-right tabular-nums">{p.booked ? fmt(p.booked) : '—'}</td>
+                <td className="py-1.5 whitespace-nowrap">
+                  <span className={`text-xs ${STATUS_TONE[p.status]}`}>{STATUS_LABEL[p.status]}</span>
+                  {p.status === 'unbooked' && p.net > 0 && (
+                    drafted.has(p.start)
+                      ? <span className="ml-2 text-xs text-muted-foreground">Drafted</span>
+                      : <Button size="sm" variant="outline" className="ml-2 h-7" disabled={busy === p.start} onClick={() => draft(p)}>
+                          {busy === p.start ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Draft entry'}
+                        </Button>
+                  )}
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

@@ -257,6 +257,45 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
     },
   },
   {
+    name: 'fee_schedule',
+    description: "The vehicle's management fee schedule as the Allocation terms page stores it (frequency, dates, rate steps and bases, organizational expense cap, offsets), and every period it covers: dates, the rate and basis in force, gross, offsets and net fee (side letters applied), what is booked against it (fee expense net of offsets dated in the period, with the entries), and a status of booked, partial, over, unbooked or upcoming. Read it to see what is due and what is missing; book a period with allocation (action management_fee, fromSchedule, entryDate in the period).",
+    scope: 'read',
+    inputSchema: EMPTY_SCHEMA,
+  },
+  {
+    name: 'set_fee_schedule',
+    description: "Set (or clear, with schedule null) the vehicle's management fee schedule as the LPA states it, the same as the Allocation terms page: frequency (quarterly, semiannual, annual), start, end (exclusive), steps [{ from, rate (annual fraction, 0.02 = 2%), basis (commitments, invested, nav) }], optional organizationalExpenseCap and offsets by kind of portfolio-company fee (share 0 to 1). Replaces the whole schedule. Side-letter rates and exemptions live on the allocation terms (set_allocation_terms).",
+    scope: 'write',
+    inputSchema: {
+      type: 'object',
+      required: ['schedule'],
+      properties: {
+        schedule: {
+          type: ['object', 'null'],
+          properties: {
+            frequency: { type: 'string', enum: ['quarterly', 'semiannual', 'annual'] },
+            start: { type: 'string', description: 'YYYY-MM-DD, the first period\'s first day.' },
+            end: { type: 'string', description: 'YYYY-MM-DD, exclusive: the day the fee stops.' },
+            steps: {
+              type: 'array',
+              items: {
+                type: 'object',
+                required: ['from', 'rate', 'basis'],
+                properties: {
+                  from: { type: 'string', description: 'YYYY-MM-DD.' },
+                  rate: { type: 'number', description: 'Annual rate as a fraction (0.02 = 2%).' },
+                  basis: { type: 'string', enum: ['commitments', 'invested', 'nav'] },
+                },
+              },
+            },
+            organizationalExpenseCap: { type: 'number' },
+            offsets: { type: 'object', description: '{ kind: share } for portfolio-company fees, share 0 to 1.' },
+          },
+        },
+      },
+    },
+  },
+  {
     name: 'list_periods',
     description: 'List the vehicle\'s fiscal periods and whether each is open or closed (locked).',
     scope: 'read',

@@ -145,7 +145,19 @@ export async function scheduledFee(
   const schedule = await loadFeeSchedule(admin, fundId, group)
   if (!schedule) return { error: `${group} has no fee schedule. Set one on the Allocation terms page, or give a rate.` }
   if (date < schedule.start || date >= schedule.end) return null
+  const inputs = await loadScheduleInputs(admin, fundId, group, schedule, overrides)
+  if ('error' in inputs) return inputs
+  return chargeScheduledFee(schedule, inputs.payers, date, inputs.facts)
+}
 
+/** What the schedule reads from the books: the fee-bearing partners and the dated facts. */
+async function loadScheduleInputs(
+  admin: SupabaseClient,
+  fundId: string,
+  group: string,
+  schedule: StoredFeeSchedule,
+  overrides: Record<string, { rateOverride?: number; exempt?: boolean }> = {},
+): Promise<{ payers: SchedulePayer[]; facts: Omit<FeeScheduleFacts, 'feeBearingCommitments' | 'allCommitments'>; ledger: Awaited<ReturnType<typeof loadPostedLedger>> } | { error: string }> {
   const [owners, terms, ledger, txns, companies, portfolioFees] = await Promise.all([
     loadOwnership(admin, fundId, group),
     loadPartnerTerms(admin, fundId, group),
@@ -191,13 +203,77 @@ export async function scheduledFee(
     .filter(p => p.sourceType === 'organizational_expense' && p.entryDate && p.amount > 0)
     .map(p => ({ date: p.entryDate!, amount: p.amount }))
 
-  return chargeScheduledFee(schedule, payers, date, {
-    investments,
-    exits,
-    navs,
-    organizationalExpenses,
-    portfolioFees: portfolioFees.map(f => ({ date: f.date, kind: f.kind, amount: f.amount })),
-  })
+  return {
+    payers,
+    ledger,
+    facts: {
+      investments,
+      exits,
+      navs,
+      organizationalExpenses,
+      portfolioFees: portfolioFees.map(f => ({ date: f.date, kind: f.kind, amount: f.amount })),
+    },
+  }
+}
+
+/** One period of the schedule as the admin sees it: what it charges, and what the books hold for it. */
+export interface FeeSchedulePeriodRow {
+  start: string
+  /** Exclusive. */
+  end: string
+  /** The rate and basis in force on the period's first day. */
+  rate: number
+  basis: FeeScheduleBasis
+  gross: number
+  offset: number
+  /** What the schedule charges for the period, after offsets and side letters. */
+  net: number
+  /** Management fee expense net of offsets (5000 and 5010) posted with an entry date inside the period. */
+  booked: number
+  /** booked vs net: 'booked' within a dollar, 'partial', 'unbooked' for a past or current period, 'upcoming' before it starts. */
+  status: 'booked' | 'partial' | 'unbooked' | 'over' | 'upcoming'
+  /** The posted entries counted in `booked`. */
+  entryIds: string[]
+}
+
+/**
+ * Every period of the vehicle's fee schedule, each with the fee it charges and what has been booked
+ * against it. What an admin reads to see what is due and what is missing; nothing is written.
+ */
+export async function feeSchedulePeriods(
+  admin: SupabaseClient,
+  fundId: string,
+  group: string,
+  today: string = new Date().toISOString().slice(0, 10),
+): Promise<{ schedule: StoredFeeSchedule | null; periods: FeeSchedulePeriodRow[] } | { error: string }> {
+  const schedule = await loadFeeSchedule(admin, fundId, group)
+  if (!schedule) return { schedule: null, periods: [] }
+  const inputs = await loadScheduleInputs(admin, fundId, group, schedule)
+  if ('error' in inputs) return inputs
+  // Net of offsets: the fee expense (5000) and its contra (5010), as a booked period posts them.
+  const feeAccounts = new Set(inputs.ledger.accounts.filter(a => a.code === '5000' || a.code === '5010').map(a => a.id))
+  const feePostings = inputs.ledger.sourcedPostings.filter(p => feeAccounts.has(p.accountId))
+
+  const step = { quarterly: 3, semiannual: 6, annual: 12 }[schedule.frequency]
+  const rows: FeeSchedulePeriodRow[] = []
+  for (let d = schedule.start; d < schedule.end; d = addMonths(d, step)) {
+    const charged = chargeScheduledFee(schedule, inputs.payers, d, inputs.facts)
+    if (!charged) continue
+    const { period } = charged
+    const inPeriod = feePostings.filter(p => p.entryDate && p.entryDate >= period.start && p.entryDate < period.end)
+    const booked = roundCents(inPeriod.reduce((s, p) => s + p.amount, 0))
+    const net = charged.fee.total
+    const stepNow = [...schedule.steps].reverse().find(st => st.from <= period.start) ?? schedule.steps[0]
+    const status: FeeSchedulePeriodRow['status'] = period.start > today
+      ? (booked > 0 ? 'partial' : 'upcoming')
+      : Math.abs(booked - net) <= 1 ? 'booked' : booked > net ? 'over' : booked > 0 ? 'partial' : 'unbooked'
+    rows.push({
+      start: period.start, end: period.end, rate: stepNow.rate, basis: stepNow.basis,
+      gross: roundCents(period.gross), offset: roundCents(period.offset), net,
+      booked, status, entryIds: Array.from(new Set(inPeriod.map(p => p.entryId).filter((id): id is string => !!id))),
+    })
+  }
+  return { schedule, periods: rows }
 }
 
 /** A partner the schedule may charge. */

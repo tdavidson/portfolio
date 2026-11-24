@@ -2,6 +2,7 @@
 //
 //   GET  ?group=X               the schedule, or null
 //   GET  ?group=X&date=D        also the fee it charges for the period D falls in
+//   GET  ?group=X&periods=1     also every period: its fee and what is booked against it
 //   PUT  ?group=X  { schedule } set it; a null schedule clears it
 
 import { NextRequest, NextResponse } from 'next/server'
@@ -10,7 +11,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // accounting domain (see lib/access/route-domains.ts), the same as the allocation that books the fee.
 import { assertWriteAccess, assertReadAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
-import { loadFeeSchedule, saveFeeSchedule, scheduledFee } from '@/lib/accounting/fee-schedule'
+import { feeSchedulePeriods, loadFeeSchedule, saveFeeSchedule, scheduledFee } from '@/lib/accounting/fee-schedule'
 import { dbError } from '@/lib/api-error'
 
 export async function GET(req: NextRequest) {
@@ -22,6 +23,12 @@ export async function GET(req: NextRequest) {
   if (gate instanceof NextResponse) return gate
   const group = await resolveGroupOr400(admin, gate, req.nextUrl.searchParams.get('group'))
   if (group instanceof NextResponse) return group
+
+  if (req.nextUrl.searchParams.get('periods') === '1') {
+    const out = await feeSchedulePeriods(admin, gate.fundId, group)
+    if ('error' in out) return NextResponse.json({ error: out.error }, { status: 400 })
+    return NextResponse.json({ group, ...out })
+  }
 
   const schedule = await loadFeeSchedule(admin, gate.fundId, group)
   const date = req.nextUrl.searchParams.get('date')
