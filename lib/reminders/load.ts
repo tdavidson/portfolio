@@ -10,6 +10,7 @@ import type { FeesData } from './sources/fees'
 import { loadOnboardingReminderData } from './sources/onboarding-load'
 import { fromHeader } from './settings'
 import { listCapitalCalls } from '@/lib/accounting/capital-calls'
+import { loadDueRecurring } from '@/lib/accounting/recurring-entries'
 
 type QueryResult<T> = { data: T | null; error: { message: string } | null }
 
@@ -129,10 +130,13 @@ export async function loadFundReminderData(
 
   const onboarding = await loadOnboardingReminderData(admin, fundId, today)
   const fees = await loadDueFeePeriods(db, fundId, today, vehicleById, currency)
+  const due = await loadDueRecurring(admin, fundId, today)
+  const recurring = due ? { entries: due.filter(e => vehicleById.has(e.vehicleId)).map(e => ({ ...e, vehicle: vehicleById.get(e.vehicleId)!, currency })) } : null
 
   return {
     calls: { openCalls },
     ...(fees ? { fees } : {}),
+    ...(recurring?.entries.length ? { recurring } : {}),
     onboarding,
     compliance,
     asks: {

@@ -165,11 +165,15 @@ describe('spreading a fee billed in advance', () => {
   it('bills the quarter on its due date, then recognizes it month by month', () => {
     const plan = feeBookings(p, true, 'advance')
     expect(plan.map(b => [b.kind, b.date, b.lines[0].amount])).toEqual([
-      ['bill', '2025-01-01', 3000], ['recognize', '2025-01-31', 1000], ['recognize', '2025-02-28', 1000], ['recognize', '2025-03-31', 1000],
+      ['bill', '2025-01-01', 3000], ['recognize', '2025-01-01', 1000], ['recognize', '2025-02-01', 1000], ['recognize', '2025-03-01', 1000],
     ])
   })
+  it('recognizes from the period start when it begins mid-month', () => {
+    const mid = { ...p, start: '2025-01-15', end: '2025-04-15', dueDate: '2025-01-15' }
+    expect(feeBookings(mid, true, 'advance').filter(b => b.kind === 'recognize').map(b => b.date)).toEqual(['2025-01-15', '2025-02-01', '2025-03-01'])
+  })
   it('accrues month by month when billed in arrears, and charges once without spreading', () => {
-    expect(feeBookings(p, true, 'arrears').map(b => b.kind)).toEqual(['charge', 'charge', 'charge'])
+    expect(feeBookings(p, true, 'arrears').map(b => [b.kind, b.date])).toEqual([['charge', '2025-01-31'], ['charge', '2025-02-28'], ['charge', '2025-03-31']])
     expect(feeBookings(p, false, 'advance').map(b => [b.kind, b.date])).toEqual([['charge', '2025-01-01']])
   })
   it('books the bill to prepaid fees on the fund and deferred revenue on the manager', () => {

@@ -14,11 +14,17 @@
 // Regenerating from the terms rewrites only rows nobody has edited and nothing has booked. An
 // edited row is locked; resetting it hands it back to the terms.
 //
-// MONTHLY SPREADING (monthlyAccrual), whatever day the cash arrives: a period billed in advance is
-// billed whole on its due date (fund Dr 1500 Prepaid management fees / Cr payable; manager Dr Due
-// from the fund / Cr 2400 Deferred management fee revenue), and each month end recognizes its share
+// MONTHLY SPREADING, whatever day the cash arrives: a period billed in advance is billed whole on
+// its due date (fund Dr 1500 Prepaid management fees / Cr payable; manager Dr Due from the fund /
+// Cr 2400 Deferred management fee revenue), and the 1st of each month recognizes that month's share
 // (fund Dr 5000 / Cr 1500 with the partners' capital; manager Dr 2400 / Cr income). A period billed
-// in arrears accrues month by month as charges instead.
+// in arrears accrues month by month, at each month end, as charges instead.
+//
+// The spread is a RECURRING JOURNAL ENTRY (kind management_fee_spread, lib/accounting/
+// recurring-entries.ts): it is on when the vehicle has an active one (loadFeeSchedule reports it as
+// `monthlyAccrual`), and it books the month slices with its own mode (remind, draft or post). The
+// fee schedule books only its part: the bill on the due date (or the whole charge when nothing is
+// spread) and the invoice. postFeePeriod's `part` says which.
 //
 // POSTING a period (a charge) books, on its due date:
 //   the fund    Dr 5000 Management fee (gross)   Cr 5010 offsets   Cr payable to the manager
@@ -229,10 +235,12 @@ export function applyFeePeriodEdit(
 }
 
 /**
- * Pure: the slices a period is booked in. One on its due date; with monthly accrual, one at each
- * month's end (the last on the period's last day), cents carried so the slices add up exactly.
+ * Pure: the slices a period is booked in. One on its due date; with monthly accrual, one a month,
+ * cents carried so the slices add up exactly. `end` dates each at its month's end (the last on the
+ * period's last day); `first` dates each on its month's first day (the first on the period's start),
+ * so a fee billed in advance on the 1st of the quarter is recognized on the 1st of each month.
  */
-export function feeSlices(p: Pick<FeePeriodDraft, 'start' | 'end' | 'dueDate' | 'lines' | 'offset'>, monthly: boolean): { date: string; lines: { lpEntityId: string; amount: number }[]; offset: number }[] {
+export function feeSlices(p: Pick<FeePeriodDraft, 'start' | 'end' | 'dueDate' | 'lines' | 'offset'>, monthly: boolean, on: 'first' | 'end' = 'end'): { date: string; lines: { lpEntityId: string; amount: number }[]; offset: number }[] {
   const byLp = new Map<string, number>()
   for (const l of p.lines) byLp.set(l.lpEntityId, roundCents((byLp.get(l.lpEntityId) ?? 0) + l.amount))
   const lines = [...byLp].map(([lpEntityId, amount]) => ({ lpEntityId, amount })).filter(l => l.amount !== 0)
@@ -241,8 +249,11 @@ export function feeSlices(p: Pick<FeePeriodDraft, 'start' | 'end' | 'dueDate' | 
   const cut = (amount: number, k: number) => roundCents(Math.round(amount * 100 * k / n) / 100)
   const out = []
   for (let k = 1; k <= n; k++) {
+    const first = addMonths(p.start.slice(0, 8) + '01', k - 1)
     const monthEnd = addDays(addMonths(p.start.slice(0, 8) + '01', k), -1)
-    const date = monthEnd < p.end ? monthEnd : addDays(p.end, -1)
+    const date = on === 'first'
+      ? (first > p.start ? first : p.start)
+      : (monthEnd < p.end ? monthEnd : addDays(p.end, -1))
     out.push({
       date,
       lines: lines.map(l => ({ lpEntityId: l.lpEntityId, amount: roundCents(cut(l.amount, k) - cut(l.amount, k - 1)) })).filter(l => l.amount !== 0),
@@ -295,13 +306,23 @@ export function feeBookings(
   timing: StoredFeeSchedule['timing'],
 ): FeeBooking[] {
   if (!monthly) return feeSlices(p, false).map(x => ({ kind: 'charge' as const, ...x }))
-  const months = feeSlices(p, true)
-  if (timing === 'arrears') return months.map(x => ({ kind: 'charge' as const, ...x }))
+  if (timing === 'arrears') return feeSlices(p, true, 'end').map(x => ({ kind: 'charge' as const, ...x }))
+  const months = feeSlices(p, true, 'first')
   const [whole] = feeSlices(p, false)
   return [{ kind: 'bill' as const, ...whole }, ...months.map(x => ({ kind: 'recognize' as const, ...x }))]
 }
 
 export const bookingKey = (s: { kind?: string; date: string }) => `${s.kind ?? 'charge'}:${s.date}`
+
+/**
+ * Which side books a booking. With monthly spreading the recurring spread books every month slice
+ * (a recognized month, or an arrears month's charge) and the fee schedule books only the bill;
+ * without it the fee schedule books everything.
+ */
+export type FeeBookingPart = 'schedule' | 'months'
+export function bookingPart(b: Pick<FeeBooking, 'kind'>, monthly: boolean): FeeBookingPart {
+  return monthly && b.kind !== 'bill' ? 'months' : 'schedule'
+}
 
 /** Pure: the fund's bill for an in-advance period it spreads monthly. Dr prepaid fees / Cr payable. */
 export function buildFeeBillEntry(
@@ -570,6 +591,7 @@ export interface FeePeriodPatch {
 }
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
 
 /** Check an edit without touching the database. */
 export function parseFeePeriodPatch(raw: any): { ok: true; patch: FeePeriodPatch & { lines?: FeeLine[] } } | { error: string } {
@@ -674,7 +696,13 @@ export async function postFeePeriod(
   group: string,
   userId: string | null,
   periodId: string,
-  opts: { mode: 'draft' | 'post'; through?: string; all?: boolean; promote?: (entryId: string) => Promise<{ error?: string }> },
+  opts: {
+    mode: 'draft' | 'post'; through?: string; all?: boolean; promote?: (entryId: string) => Promise<{ error?: string }>
+    /** Which bookings: the fee schedule's (default) or the monthly spread's (the recurring entry). */
+    part?: FeeBookingPart
+    /** months only: book exactly these slice dates. */
+    dates?: string[]
+  },
 ): Promise<PostFeePeriodResult | { error: string; status: number }> {
   const found = await onePeriod(admin, fundId, group, periodId)
   if ('error' in found) return found
@@ -682,16 +710,20 @@ export async function postFeePeriod(
   if (period.status === 'waived') return { error: 'This period is waived. Un-waive it to book it.', status: 409 }
   const schedule = await loadFeeSchedule(admin, fundId, group)
   const monthly = !!schedule?.monthlyAccrual
+  const part: FeeBookingPart = opts.part ?? 'schedule'
+  const inPart = (b: Pick<FeeBooking, 'kind'>) => bookingPart(b, monthly) === part
   const warnings: string[] = []
 
-  // Promote drafts first.
+  // Promote drafts first: this part's, and only the dates asked for.
   const booked: FeeSlice[] = [...period.postings]
   if (opts.mode === 'post' && period.status === 'drafted') {
-    if (!opts.promote) return { error: 'Drafts can only be posted by a person.', status: 400 }
     for (const s of booked) {
+      if (!inPart({ kind: s.kind ?? 'charge' })) continue
+      if (opts.dates && !opts.dates.includes(s.date)) continue
       for (const id of [s.entryId, s.managerEntryId].filter(Boolean) as string[]) {
         const { data } = await (admin as any).from('journal_entries').select('status').eq('book', ACTUAL_BOOK).eq('id', id).eq('fund_id', fundId).maybeSingle()
         if (data?.status !== 'draft') continue
+        if (!opts.promote) return { error: 'Drafts can only be posted by a person.', status: 400 }
         const r = await opts.promote(id)
         if (r.error) return { error: `Entry ${id} could not be posted: ${r.error}`, status: 400 }
       }
@@ -708,13 +740,14 @@ export async function postFeePeriod(
   const today = opts.through ?? new Date().toISOString().slice(0, 10)
   const done = new Set(booked.map(bookingKey))
   const periodLabel = `${period.start} to ${addDays(period.end, -1)}`
-  for (const b of plan.filter(x => opts.all || x.date <= today)) {
+  const wanted = (x: FeeBooking) => inPart(x) && (opts.dates ? opts.dates.includes(x.date) : (opts.all || x.date <= today))
+  for (const b of plan.filter(wanted)) {
     if (done.has(bookingKey(b))) continue
     const net = periodTotal(b.lines)
     if (!(net > 0)) continue
     const sourceRef = `fee-period:${period.id}:${b.kind}:${b.date}`
     const memo = b.kind === 'bill' ? `Management fee ${periodLabel}, billed in advance`
-      : b.kind === 'recognize' ? `Management fee ${periodLabel}, recognized through ${b.date}`
+      : b.kind === 'recognize' ? `Management fee ${periodLabel}, ${MONTH_NAMES[Number(b.date.slice(5, 7)) - 1]} ${b.date.slice(0, 4)} share recognized`
       : `Management fee ${periodLabel}${monthly ? ` (accrued through ${b.date})` : ''}`
     let entry: JournalEntry | null
     if (b.kind === 'bill') {
@@ -760,14 +793,16 @@ export async function postFeePeriod(
   }
 
   const allSlices = plan.filter(b => periodTotal(b.lines) > 0)
-  const statusNow: FeePeriodStatus = booked.length === 0 ? 'scheduled' : opts.mode === 'post' ? 'posted' : 'drafted'
+  // The period's status follows its entries, whichever part booked them: a posted bill and a
+  // drafted month is still waiting on a person.
+  const statusNow = await statusOfSlices(admin, fundId, booked)
   const patch: Record<string, unknown> = { postings: booked, status: statusNow, last_error: null, updated_at: new Date().toISOString() }
-  if (statusNow === 'posted') patch.posted_at = new Date().toISOString()
+  if (statusNow === 'posted' && period.status !== 'posted') patch.posted_at = new Date().toISOString()
 
-  // The invoice: one per payment, on the due date, whatever the accrual.
+  // The invoice: one per payment, on the due date, whatever the accrual. The fee schedule's part.
   let invoice = period.invoice && period.invoice.status !== 'void' ? period.invoice : null
   const dueReached = opts.all || period.dueDate <= today
-  if (dueReached && period.total > 0) {
+  if (part === 'schedule' && dueReached && period.total > 0) {
     const invoiceStatus: 'draft' | 'issued' = opts.mode === 'post' ? 'issued' : 'draft'
     if (!invoice) {
       const seq = await currentSeq(admin, period.id)
@@ -779,8 +814,94 @@ export async function postFeePeriod(
   }
   const { error } = await (admin as any).from('management_fee_periods').update(patch).eq('id', period.id).eq('fund_id', fundId)
   if (error) return { error: error.message, status: 500 }
-  if (monthly && booked.length < allSlices.length) warnings.push(`${booked.length} of ${allSlices.length} entries for this period are booked; the rest book as each month ends.`)
+  if (monthly && part === 'schedule' && booked.length < allSlices.length) {
+    warnings.push(`${booked.length} of ${allSlices.length} entries for this period are booked; the monthly spread (a recurring journal entry) books the rest as each month comes due.`)
+  }
   return { periodId: period.id, status: statusNow, booked, invoice, warnings }
+}
+
+async function statusOfSlices(admin: SupabaseClient, fundId: string, booked: FeeSlice[]): Promise<FeePeriodStatus> {
+  if (booked.length === 0) return 'scheduled'
+  const { data } = await (admin as any).from('journal_entries').select('id, status').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('id', booked.map(s => s.entryId))
+  const rows = (data as any[]) ?? []
+  return rows.some(e => e.status === 'draft') ? 'drafted' : 'posted'
+}
+
+/** One month slice of the spread, with what is booked for it. */
+export interface FeeMonthSlice {
+  periodId: string
+  periodStart: string
+  periodEnd: string
+  kind: 'recognize' | 'charge'
+  date: string
+  amount: number
+  /** The fund side's entry, when booked. */
+  entryId: string | null
+  entryStatus: 'draft' | 'posted' | null
+  /** In advance: the period's bill is booked (recognizing before it would run prepaid fees negative). */
+  billBooked: boolean
+}
+
+/**
+ * Every month slice the vehicle's spread covers, period by period, booked or not. Empty when the
+ * spread is off or there are no periods. Waived periods are left out.
+ */
+export async function feeMonthSlices(admin: SupabaseClient, fundId: string, group: string): Promise<FeeMonthSlice[] | { error: string }> {
+  const view = await listFeePeriods(admin, fundId, group)
+  if ('error' in view) return view
+  if (!view.schedule?.monthlyAccrual) return []
+  const ids = view.periods.flatMap(p => p.postings.map(s => s.entryId))
+  const status = new Map<string, string>()
+  for (let i = 0; i < ids.length; i += 200) {
+    const { data } = await (admin as any).from('journal_entries').select('id, status').eq('book', ACTUAL_BOOK).eq('fund_id', fundId).in('id', ids.slice(i, i + 200))
+    for (const e of (data as any[]) ?? []) status.set(e.id, e.status)
+  }
+  const out: FeeMonthSlice[] = []
+  for (const p of view.periods) {
+    if (p.status === 'waived') continue
+    const byKey = new Map(p.postings.map(s => [bookingKey(s), s]))
+    const plan = feeBookings(p, true, view.schedule?.timing)
+    const billBooked = !plan.some(b => b.kind === 'bill') || p.postings.some(s => s.kind === 'bill')
+    for (const b of plan) {
+      if (b.kind === 'bill') continue
+      const amount = periodTotal(b.lines)
+      if (!(amount > 0)) continue
+      const s = byKey.get(bookingKey(b))
+      const st = s ? status.get(s.entryId) : undefined
+      out.push({
+        periodId: p.id, periodStart: p.start, periodEnd: p.end, kind: b.kind as 'recognize' | 'charge', date: b.date, amount,
+        entryId: s?.entryId ?? null, entryStatus: st === 'draft' || st === 'posted' ? st : null, billBooked,
+      })
+    }
+  }
+  return out.sort((a, b) => a.date.localeCompare(b.date))
+}
+
+/**
+ * Book the spread's month slices on these dates (the recurring entry's run, or a person choosing
+ * them). A drafted slice is posted when mode is post and `promote` is given.
+ */
+export async function bookFeeMonths(
+  admin: SupabaseClient, fundId: string, group: string, userId: string | null,
+  opts: { dates: string[]; mode: 'draft' | 'post'; promote?: (entryId: string) => Promise<{ error?: string }> },
+): Promise<{ booked: number; warnings: string[] } | { error: string; status: number }> {
+  const slices = await feeMonthSlices(admin, fundId, group)
+  if ('error' in slices) return { error: slices.error, status: 400 }
+  const byPeriod = new Map<string, string[]>()
+  for (const s of slices) {
+    if (!opts.dates.includes(s.date)) continue
+    if (s.entryStatus === 'posted' || (s.entryStatus === 'draft' && opts.mode === 'draft')) continue
+    byPeriod.set(s.periodId, [...(byPeriod.get(s.periodId) ?? []), s.date])
+  }
+  let booked = 0
+  const warnings: string[] = []
+  for (const [periodId, dates] of byPeriod) {
+    const r = await postFeePeriod(admin, fundId, group, userId, periodId, { mode: opts.mode, part: 'months', dates, all: true, promote: opts.promote })
+    if ('error' in r) return r
+    booked += dates.length
+    warnings.push(...r.warnings)
+  }
+  return { booked, warnings }
 }
 
 async function accountBySubtype(admin: SupabaseClient, fundId: string, group: string, subtype: string): Promise<string | null> {
@@ -862,12 +983,12 @@ export async function postDueFeePeriods(admin: SupabaseClient, today: string): P
     const monthly = !!view.schedule?.monthlyAccrual
     for (const p of view.periods) {
       if (p.status === 'waived') continue
-      const plan = feeBookings(p, monthly, view.schedule?.timing).filter(b => periodTotal(b.lines) > 0)
+      const plan = feeBookings(p, monthly, view.schedule?.timing).filter(b => periodTotal(b.lines) > 0 && bookingPart(b, monthly) === 'schedule')
       const have = new Set(p.postings.map(bookingKey))
       const due = plan.filter(b => b.date <= today && !have.has(bookingKey(b)))
       if (p.status === 'drafted' && !monthly) continue // waiting for a person to post the drafts
       if (due.length === 0 && (p.invoice || p.dueDate > today)) continue
-      const r = await postFeePeriod(admin, row.fund_id, group, null, p.id, { mode, through: today })
+      const r = await postFeePeriod(admin, row.fund_id, group, null, p.id, { mode, through: today, part: 'schedule' })
       if ('error' in r) errors.push(`${group} ${p.start}: ${r.error}`)
       else booked += r.booked.length - p.postings.length
     }
@@ -880,6 +1001,22 @@ export interface FeePeriodCaller {
   userId: string | null
   role: string
   mayTouchInvestments: () => Promise<boolean>
+}
+
+/**
+ * Posts a draft entry as `who`, through the journal's own state change (its checks and audit), on
+ * whichever vehicle's books the draft is: the manager's side lives on the manager's books.
+ */
+export async function entryPromoter(admin: SupabaseClient, who: FeePeriodCaller, group: string): Promise<(entryId: string) => Promise<{ error?: string }>> {
+  const { changeEntryState } = await import('./journal-state')
+  const vehicleId = await vehicleIdByName(admin, who.fundId, group)
+  return async (entryId: string) => {
+    const { data } = await (admin as any).from('journal_entries').select('vehicle_id').eq('book', ACTUAL_BOOK).eq('id', entryId).eq('fund_id', who.fundId).maybeSingle()
+    const entryVehicle = (data?.vehicle_id as string | undefined) ?? vehicleId
+    const entryGroup = entryVehicle === vehicleId ? group : (await vehicleNameById(admin, who.fundId, entryVehicle!)) ?? group
+    const out = await changeEntryState(admin, { fundId: who.fundId, role: who.role, userId: who.userId ?? '', mayTouchInvestments: who.mayTouchInvestments }, entryGroup, entryVehicle!, { id: entryId, action: 'post' })
+    return out.status >= 400 ? { error: String(out.body.error ?? 'could not post') } : {}
+  }
 }
 
 /**
@@ -906,15 +1043,7 @@ export async function runFeePeriodAction(
     return 'error' in r ? fail(r) : { status: 200, body: { ok: true } }
   }
   if (action === 'post' || action === 'draft') {
-    const { changeEntryState } = await import('./journal-state')
-    const vehicleId = await vehicleIdByName(admin, who.fundId, group)
-    const promote = async (entryId: string) => {
-      const { data } = await (admin as any).from('journal_entries').select('vehicle_id').eq('book', ACTUAL_BOOK).eq('id', entryId).eq('fund_id', who.fundId).maybeSingle()
-      const entryVehicle = (data?.vehicle_id as string | undefined) ?? vehicleId
-      const entryGroup = entryVehicle === vehicleId ? group : (await vehicleNameById(admin, who.fundId, entryVehicle!)) ?? group
-      const out = await changeEntryState(admin, { fundId: who.fundId, role: who.role, userId: who.userId ?? '', mayTouchInvestments: who.mayTouchInvestments }, entryGroup, entryVehicle!, { id: entryId, action: 'post' })
-      return out.status >= 400 ? { error: String(out.body.error ?? 'could not post') } : {}
-    }
+    const promote = await entryPromoter(admin, who, group)
     const r = await postFeePeriod(admin, who.fundId, group, who.userId, periodId, {
       mode: action, all: body?.all === true, ...(typeof body?.through === 'string' && DATE.test(body.through) ? { through: body.through } : {}), promote,
     })

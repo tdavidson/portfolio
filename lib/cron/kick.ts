@@ -16,6 +16,7 @@ export const CRON_WORKERS = [
   'ops-reminders',
   'deals-digest',
   'fee-periods',
+  'recurring-entries',
 ] as const
 
 export type CronWorker = typeof CRON_WORKERS[number]

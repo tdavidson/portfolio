@@ -67,7 +67,7 @@ function dueLine(item: ReminderItem, today: string): string {
     month: 'short', day: 'numeric', year: 'numeric', timeZone: 'UTC',
   })
   const until = daysBetween(today, item.dueDate)
-  const verb = item.source === 'asks_send' ? 'Send by' : item.source === 'calls_due' ? 'Wires due' : item.source === 'fees_due' ? 'Fee due' : item.source === 'onboarding' && item.keys[0]?.startsWith('ob:close') ? 'Closes' : 'Due'
+  const verb = item.source === 'asks_send' ? 'Send by' : item.source === 'calls_due' ? 'Wires due' : item.source === 'fees_due' ? 'Fee due' : item.source === 'recurring_due' ? 'Due' : item.source === 'onboarding' && item.keys[0]?.startsWith('ob:close') ? 'Closes' : 'Due'
   if (until < 0) return `${verb} ${date} · ${-until} day${until === -1 ? '' : 's'} overdue`
   if (until === 0) return `${verb} today`
   return `${verb} ${date} · in ${until} day${until === 1 ? '' : 's'}`

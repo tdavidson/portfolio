@@ -5,6 +5,7 @@
 
 import { feeSchedulePeriods, saveFeeSchedule } from './fee-schedule'
 import { listFeePeriods, runFeePeriodAction } from './fee-periods'
+import { listRecurringEntries, previewRecurring, runRecurringAction } from './recurring-entries'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { AGENT_TOOL_MANIFEST, type AgentToolMeta } from './agent-tools-manifest'
 import type { Domain } from '@/lib/access/domains'
@@ -363,8 +364,31 @@ const HANDLERS: Record<string, AgentToolHandler> = {
     return { vehicle: portfolioGroup, ...out.body }
   },
 
-  set_fee_schedule: async ({ admin, fundId, portfolioGroup }, input) => {
-    const saved = await saveFeeSchedule(admin, fundId, portfolioGroup, input?.schedule ?? null)
+  recurring_entries: async ({ admin, fundId, portfolioGroup }) => {
+    const out = await listRecurringEntries(admin, fundId, portfolioGroup)
+    if ('error' in out) throw new Error(out.error)
+    return out
+  },
+
+  preview_recurring_entry: async ({ admin, fundId, portfolioGroup }, input) => {
+    const dates = Array.isArray(input?.dates) ? input.dates.map(String) : []
+    if (!input?.id || dates.length === 0) throw new Error('id and dates are required.')
+    const out = await previewRecurring(admin, fundId, portfolioGroup, String(input.id), dates, input?.mode === 'post' ? 'post' : 'draft')
+    if ('error' in out) throw new Error(out.error)
+    return { vehicle: portfolioGroup, ...out }
+  },
+
+  update_recurring_entries: async ({ admin, fundId, portfolioGroup, userId, access }, input) => {
+    const out = await runRecurringAction(admin, {
+      fundId, userId: userId ?? null, role: access.role,
+      mayTouchInvestments: async () => mayTouchInvestments(access),
+    }, portfolioGroup, input ?? {})
+    if (out.status >= 400) throw new Error(String(out.body.error ?? 'The recurring entries could not be changed.'))
+    return { vehicle: portfolioGroup, ...out.body }
+  },
+
+  set_fee_schedule: async ({ admin, fundId, portfolioGroup, userId }, input) => {
+    const saved = await saveFeeSchedule(admin, fundId, portfolioGroup, input?.schedule ?? null, { userId: userId ?? null })
     if ('error' in saved) throw new Error(saved.error)
     return { vehicle: portfolioGroup, schedule: saved.schedule }
   },

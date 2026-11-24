@@ -113,6 +113,7 @@ export const ROUTE_DOMAINS: Record<string, RouteAccess> = {
   'api/accounting/fee-schedule': { domain: 'accounting' },
   'api/accounting/fee-periods': { domain: 'accounting' },
   'api/accounting/fee-periods/invoice': { domain: 'accounting' },
+  'api/accounting/recurring-entries': { domain: 'accounting' },
   'api/accounting/portfolio-fees': { domain: 'accounting' },
   // The account register: the same posted ledger the statements read, one account at a time.
   'api/accounting/ledger': { domain: 'accounting' },
@@ -694,6 +695,7 @@ export const UNGATED_ROUTES: Record<string, string> = {
   // Service-triggered: shared CRON_SECRET, fail-closed if unset.
   'api/cron/affinity-sync': 'Cron: CRON_SECRET.',
   'api/cron/fee-periods': 'Cron: CRON_SECRET.',
+  'api/cron/recurring-entries': 'Cron: CRON_SECRET.',
   'api/cron/deal-research': 'Cron: CRON_SECRET.',
   'api/cron/deals-digest': 'Cron: CRON_SECRET.',
   'api/cron/memo-agent-worker': 'Cron: CRON_SECRET.',
