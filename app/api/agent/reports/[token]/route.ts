@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { feeInvoiceDocument } from '@/lib/accounting/fee-invoice-pdf'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { agentApiEnabled } from '@/lib/oauth/enabled'
 import { hasAccess, loadAccessContext, type AccessContext } from '@/lib/access/effective'
@@ -339,6 +340,15 @@ async function fundDocument(admin: ReturnType<typeof createAdminClient>, claims:
           vehicle: a.vehicle, planId: a.plan ?? undefined, versionId: a.version ?? undefined,
           view: (a.view as 'actual' | 'plan' | 'combined' | null) ?? undefined, start: a.start, end: a.end, interval,
         })
+        break
+      }
+      // /api/accounting/fee-periods/invoice — accounting, and the vehicle's entity.
+      case 'fee_invoice': {
+        if (!hasAccess(access, 'accounting', 'read') || !a.id) return notFound()
+        const group = await resolveVehicle(admin, fundId, a.vehicle ?? undefined, { access })
+        const vehicleId = await vehicleIdByName(admin, fundId, group)
+        if (!vehicleId || !canSeeVehicle(access, vehicleId)) return notFound()
+        doc = await feeInvoiceDocument(admin, fundId, group, a.id)
         break
       }
       // /api/accounting/distributions/workbook — lp_capital, and the vehicle's entity.

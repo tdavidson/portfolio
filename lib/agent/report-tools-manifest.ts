@@ -15,6 +15,21 @@ const LINK_NOTE =
 
 export const REPORT_TOOL_MANIFEST: AgentToolMeta[] = [
   {
+    name: 'fee_invoice_pdf',
+    description:
+      'A download link to a management fee invoice as a PDF: the manager billing the fund for one fee period (rate, basis, ' +
+      'the capital it is calculated on, offsets, catch-ups, equalization fees and adjustments, and the amount due). periodId ' +
+      'is from fee_periods; the period must have been posted or drafted (update_fee_periods), which creates its invoice. ' + LINK_NOTE,
+    scope: 'read',
+    domain: 'portfolio',
+    accessDomain: 'accounting',
+    inputSchema: {
+      type: 'object',
+      required: ['periodId'],
+      properties: { vehicle: VEHICLE, periodId: { type: 'string', description: 'The fee period (fee_periods).' } },
+    },
+  },
+  {
     name: 'fund_performance_pdf',
     description:
       'A download link to the fund performance report as a PDF, the same document the app produces: contributions, ' +

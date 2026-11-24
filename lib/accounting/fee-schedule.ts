@@ -47,6 +47,19 @@ export interface StoredFeeSchedule {
   organizationalExpenseCap?: number
   /** Share (0 to 1) of each kind of portfolio-company fee that offsets the fee. Absent: none. */
   offsets?: Partial<Record<PortfolioFeeKind, number>>
+  /** When each period's fee falls due: its first day (advance, the default) or its last (arrears). */
+  timing?: 'advance' | 'arrears'
+  /**
+   * What happens on a period's due date (lib/accounting/fee-periods.ts): nothing (off, the default),
+   * draft entries and a draft invoice for an admin to post, or posted entries and an issued invoice.
+   */
+  postMode?: 'off' | 'draft' | 'post'
+  /** Book each period's fee month by month (at each month's end) rather than all on its due date. */
+  monthlyAccrual?: boolean
+  /** Book the management company's side too when one is linked to this fund. Default true. */
+  bookManagerSide?: boolean
+  /** Days before a due date that the reminder digest lists an unposted fee. Default 5. */
+  reminderDays?: number
 }
 
 const FREQUENCIES: FeeFrequency[] = ['quarterly', 'semiannual', 'annual']
@@ -86,6 +99,10 @@ export function parseFeeScheduleInput(raw: unknown): { ok: true; value: StoredFe
       if (share > 0) (offsets ??= {})[kind as PortfolioFeeKind] = share
     }
   }
+  if (s.timing != null && s.timing !== 'advance' && s.timing !== 'arrears') return { error: 'The fee is due in advance or in arrears.' }
+  if (s.postMode != null && !['off', 'draft', 'post'].includes(s.postMode as string)) return { error: 'postMode is off, draft or post.' }
+  const reminderDays = s.reminderDays == null || s.reminderDays === '' ? undefined : Number(s.reminderDays)
+  if (reminderDays !== undefined && !(Number.isInteger(reminderDays) && reminderDays >= 0 && reminderDays <= 60)) return { error: 'reminderDays is a whole number of days from 0 to 60.' }
   return {
     ok: true,
     value: {
@@ -95,6 +112,11 @@ export function parseFeeScheduleInput(raw: unknown): { ok: true; value: StoredFe
       steps,
       ...(cap !== undefined ? { organizationalExpenseCap: cap } : {}),
       ...(offsets ? { offsets } : {}),
+      ...(s.timing === 'arrears' ? { timing: 'arrears' as const } : {}),
+      ...(s.postMode === 'draft' || s.postMode === 'post' ? { postMode: s.postMode } : {}),
+      ...(s.monthlyAccrual === true ? { monthlyAccrual: true } : {}),
+      ...(s.bookManagerSide === false ? { bookManagerSide: false } : {}),
+      ...(reminderDays !== undefined ? { reminderDays } : {}),
     },
   }
 }
@@ -151,7 +173,7 @@ export async function scheduledFee(
 }
 
 /** What the schedule reads from the books: the fee-bearing partners and the dated facts. */
-async function loadScheduleInputs(
+export async function loadScheduleInputs(
   admin: SupabaseClient,
   fundId: string,
   group: string,

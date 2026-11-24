@@ -83,6 +83,12 @@ export const GATES: Gate[] = [
     due: admin => exists(admin.from('fund_settings').select('fund_id').eq('reminders_enabled', true).limit(1)),
   },
   {
+    // Only vehicles whose management fee schedule books its own periods on their due dates.
+    worker: 'fee-periods',
+    daily: true,
+    due: admin => exists(admin.from('vehicle_accounting_settings').select('vehicle_id').in('fee_schedule->>postMode', ['draft', 'post']).limit(1)),
+  },
+  {
     // Weekly: Mondays (UTC) only, for funds that screen inbound deals.
     worker: 'deals-digest',
     daily: true,

@@ -47,7 +47,7 @@ export const TERM_FIELDS = ['kind', 'carryRate', 'prefRate', 'prefCompounds', 'p
 export type TermField = typeof TERM_FIELDS[number]
 
 /** Read for the record only: the management fee is a forecast-plan rule and a per-close input, not a waterfall term. */
-export const INFO_FIELDS = ['managementFeeRate', 'managementFeeBasis'] as const
+export const INFO_FIELDS = ['managementFeeRate', 'managementFeeBasis', 'managementFeeSchedule'] as const
 export type InfoField = typeof INFO_FIELDS[number]
 
 export interface ProposedTerms {
@@ -64,6 +64,70 @@ export interface ProposedTerms {
 export interface ProposedInfo {
   managementFeeRate?: ProposedField<number>
   managementFeeBasis?: ProposedField<FeeBasis>
+  /** The whole fee as the LPA dates it, relative to the initial closing (lpaFeeScheduleToStored turns it into dates). */
+  managementFeeSchedule?: ProposedField<LpaFeeScheduleReading>
+}
+
+/** The management fee as an LPA states it: how often, in advance or arrears, and each rate from a number of years after the initial closing. */
+export interface LpaFeeScheduleReading {
+  frequency: 'quarterly' | 'semiannual' | 'annual'
+  timing: 'advance' | 'arrears'
+  /** Years from the initial closing until the fee stops (the term), when the LPA says. */
+  termYears: number | null
+  steps: { afterYears: number; rate: number; basis: FeeBasis }[]
+}
+
+const FEE_FREQUENCIES = ['quarterly', 'semiannual', 'annual'] as const
+
+/** Check a reader's fee schedule. Null when it is not usable. */
+export function coerceFeeScheduleReading(v: unknown): LpaFeeScheduleReading | null {
+  if (!v || typeof v !== 'object' || Array.isArray(v)) return null
+  const o = v as Record<string, unknown>
+  const frequency = (FEE_FREQUENCIES as readonly string[]).includes(o.frequency as string) ? o.frequency as LpaFeeScheduleReading['frequency'] : 'quarterly'
+  const timing = o.timing === 'arrears' ? 'arrears' : 'advance'
+  const termYears = o.termYears == null ? null : Number(o.termYears)
+  if (termYears != null && !(termYears > 0 && termYears <= 30)) return null
+  if (!Array.isArray(o.steps) || o.steps.length === 0) return null
+  const steps: LpaFeeScheduleReading['steps'] = []
+  for (const raw of o.steps as any[]) {
+    const afterYears = Number(raw?.afterYears ?? 0)
+    const rate = rateFraction(raw?.rate, 'managementFeeRate')
+    const basis = (BASES as string[]).includes(raw?.basis) ? raw.basis as FeeBasis : null
+    if (!(afterYears >= 0 && afterYears <= 30) || rate == null || !basis) return null
+    steps.push({ afterYears, rate, basis })
+  }
+  steps.sort((a, b) => a.afterYears - b.afterYears)
+  if (steps[0].afterYears !== 0) return null
+  return { frequency, timing, termYears, steps }
+}
+
+/**
+ * The reading as the dated schedule set_fee_schedule takes, from the initial closing. Without a term
+ * the fee runs ten years, and the warning says so.
+ */
+export function lpaFeeScheduleToStored(reading: LpaFeeScheduleReading, initialClosing: string): { schedule: { frequency: LpaFeeScheduleReading['frequency']; timing: LpaFeeScheduleReading['timing']; start: string; end: string; steps: { from: string; rate: number; basis: 'commitments' | 'invested' | 'nav' }[] }; warnings: string[] } {
+  const addYears = (d: string, years: number) => {
+    const months = Math.round(years * 12)
+    const [y, m, day] = d.split('-').map(Number)
+    const total = y * 12 + (m - 1) + months
+    const ny = Math.floor(total / 12), nm = total % 12
+    const last = new Date(Date.UTC(ny, nm + 1, 0)).getUTCDate()
+    return `${String(ny).padStart(4, '0')}-${String(nm + 1).padStart(2, '0')}-${String(Math.min(day, last)).padStart(2, '0')}`
+  }
+  const warnings: string[] = []
+  const termYears = reading.termYears ?? 10
+  if (reading.termYears == null) warnings.push('The LPA reading gives no term for the fee, so the schedule runs ten years from the initial closing. Set the end date the LPA states.')
+  const basis = (b: FeeBasis) => (b === 'committed' ? 'commitments' : b) as 'commitments' | 'invested' | 'nav'
+  return {
+    schedule: {
+      frequency: reading.frequency,
+      timing: reading.timing,
+      start: initialClosing,
+      end: addYears(initialClosing, termYears),
+      steps: reading.steps.filter(st => st.afterYears < termYears).map(st => ({ from: addYears(initialClosing, st.afterYears), rate: st.rate, basis: basis(st.basis) })),
+    },
+    warnings,
+  }
 }
 
 /** A provision the LPA has that the engine does not model (docs/spec/waterfall-terms.md §7). */
@@ -395,6 +459,12 @@ export function heuristicLpaTerms(text: string): LpaTermsProposal {
       if (/step[- ]?down|reduced to|thereafter[^.]{0,80}(\d+(?:\.\d+)?)\s*%/i.test(c.text)) {
         warnings.push('The management fee clause appears to step down or change basis after a period; only the first rate is proposed.')
       }
+      const frequency = /semi[- ]?annual|half[- ]year/i.test(c.text) ? 'semiannual' : /\bannual(?:ly)?\b/i.test(c.text) && !/quarter/i.test(c.text) ? 'annual' : 'quarterly'
+      const timing = /in arrears/i.test(c.text) ? 'arrears' : 'advance'
+      info.managementFeeSchedule = field<LpaFeeScheduleReading>(
+        { frequency, timing, termYears: null, steps: [{ afterYears: 0, rate: v / 100, basis: basis ?? 'committed' }] },
+        c, 'low', 'Read from the first fee clause only: check the step-downs, the term and when it is paid.',
+      )
       break
     }
   }
@@ -445,7 +515,8 @@ function finish(p: Omit<LpaTermsProposal, 'notFound'>): LpaTermsProposal {
   const notFound = [
     // Silence on the waterfall's scope is the whole fund, the usual reading.
     ...TERM_FIELDS.filter(f => p.terms[f] == null && f !== 'catchupSize' && f !== 'waterfallScope'),
-    ...INFO_FIELDS.filter(f => p.info[f] == null),
+    // The full fee schedule is extra detail: the rate and basis already say whether a fee was found.
+    ...INFO_FIELDS.filter(f => p.info[f] == null && f !== 'managementFeeSchedule'),
   ]
   // A straight carry needs no hurdle or catch-up: "not found" is the expected answer there.
   const straight = p.terms.kind?.value === 'straight' || p.terms.kind?.value === 'none'
@@ -469,6 +540,7 @@ export const LPA_TERMS_RESPONSE_SHAPE = `{
   "waterfallScope":     { "value": "fund" | "per_lp", ... } | null,
   "managementFeeRate":  { "value": 0.02, ... } | null,
   "managementFeeBasis": { "value": "committed" | "invested" | "nav", ... } | null,
+  "managementFeeSchedule": { "value": { "frequency": "quarterly" | "semiannual" | "annual", "timing": "advance" | "arrears", "termYears": 10 | null, "steps": [ { "afterYears": 0, "rate": 0.02, "basis": "committed" }, { "afterYears": 5, "rate": 0.015, "basis": "invested" } ] }, ... } | null,
   "unsupported": [ { "provision": "GP clawback", "quote": "...", "section": "...", "page": 40 } ],
   "notes": [ "..." ]
 }`
@@ -482,6 +554,7 @@ export const LPA_TERMS_RULES = `Rules:
 - waterfallScope: "per_lp" when the LPA first divides each distribution among the partners (usually in proportion to their capital contributions) and then runs EACH partner's share through the return of capital, preferred return, catch-up and split separately; "fund" when the tiers run on the partners' aggregate amounts; null when the text does not say.
 - kind "american" also covers a waterfall that returns the capital of realized investments (and write-offs) before carry, rather than all contributed capital.
 - managementFeeBasis: "committed" (on capital commitments), "invested" (on invested capital / cost of investments), "nav" (on net asset value).
+- managementFeeSchedule: the whole fee. steps: each rate and basis from a number of years after the initial closing (the first at 0); a step-down "after the investment period" uses the investment period's length in years. termYears: when the fee stops, in years from the initial closing, or null. timing: "advance" when paid at the start of each period, "arrears" at its end. Quote the clause that states the step-downs.
 - quote: copy the clause VERBATIM from the text (you may shorten with "..." but never reword). section: the section or article it sits under. page: from the nearest [Page N] marker before it, or null.
 - Use null for a term the text does not state. Never guess a market-standard value.
 - unsupported: list every provision that changes who gets what but is not one of the fields above: GP clawback, carry escrow/holdback, management fee offsets, multiple hurdles or tiered carry, tax distributions, step-downs.`
@@ -602,6 +675,8 @@ export function parseLpaTermsResponse(raw: unknown, documentText: string, method
   if (fee) info.managementFeeRate = fee
   const basis = read<FeeBasis>('managementFeeBasis', v => (typeof v === 'string' && (BASES as string[]).includes(v) ? v as FeeBasis : null))
   if (basis) info.managementFeeBasis = basis
+  const feeSchedule = read<LpaFeeScheduleReading>('managementFeeSchedule', v => coerceFeeScheduleReading(v))
+  if (feeSchedule) info.managementFeeSchedule = feeSchedule
 
   const unsupported: UnsupportedProvision[] = Array.isArray(obj.unsupported)
     ? obj.unsupported

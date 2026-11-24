@@ -15,6 +15,7 @@ import { loadIdentities, lpToolScope, resolveLp, resolveSnapshot } from '@/lib/a
 import { siteOrigin } from '@/lib/site-links'
 import { listPlans } from '@/lib/forecast/service'
 import { monthDiff } from '@/lib/forecast/months'
+import { listFeePeriods } from '@/lib/accounting/fee-periods'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const MONTH = /^\d{4}-(0[1-9]|1[0-2])$/
@@ -46,6 +47,22 @@ function link(ctx: AgentToolContext, userId: string, kind: ReportKind, args: Rec
 }
 
 export const REPORT_HANDLERS: Record<string, AgentToolHandler> = {
+  fee_invoice_pdf: async (ctx: AgentToolContext, input: any) => {
+    const userId = requireUser(ctx.userId)
+    const vehicle = await resolveVehicle(ctx.admin, ctx.fundId, input?.vehicle ? String(input.vehicle) : undefined, { access: ctx.access })
+    const periodId = String(input?.periodId ?? '')
+    if (!periodId) throw new Error('periodId is required (from fee_periods)')
+    const view = await listFeePeriods(ctx.admin, ctx.fundId, vehicle)
+    if ('error' in view) throw new Error(view.error)
+    const p = view.periods.find(x => x.id === periodId)
+    if (!p) throw new Error('That fee period is not on this vehicle.')
+    if (!p.invoice || p.invoice.status === 'void') throw new Error('That period has no invoice yet: post or draft it first (update_fee_periods).')
+    return {
+      document: `Management fee invoice ${p.invoice.number} (PDF)`, vehicle, invoice: p.invoice,
+      ...link(ctx, userId, 'fee_invoice', { vehicle, id: periodId }),
+    }
+  },
+
   fund_performance_pdf: async (ctx: AgentToolContext, input: any) => {
     const userId = requireUser(ctx.userId)
     const vehicle = await resolveVehicle(ctx.admin, ctx.fundId, input?.vehicle ? String(input.vehicle) : undefined, { access: ctx.access })

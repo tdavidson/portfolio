@@ -32,6 +32,9 @@
     "app/api/emails/*/accept-to-diligence/route.ts": {
       "maxDuration": 120
     },
+    "app/api/cron/fee-periods/route.ts": {
+      "maxDuration": 300
+    },
     "app/api/cron/affinity-sync/route.ts": {
       "maxDuration": 60
     },
