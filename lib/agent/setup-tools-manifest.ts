@@ -11,7 +11,7 @@ const ENTITY = {
   type: 'object',
   properties: {
     name: { type: 'string', description: 'e.g. "Fund I", "Acme SPV", "Hemrock Management".' },
-    kind: { type: 'string', enum: [...VEHICLE_KINDS], description: 'Default fund. manco needs the management_company product.' },
+    kind: { type: 'string', enum: [...VEHICLE_KINDS], description: 'Default fund. manco turns management company books (the management_company product) on for admins if they are off.' },
     vintageYear: { type: 'integer' },
   },
   required: ['name'],

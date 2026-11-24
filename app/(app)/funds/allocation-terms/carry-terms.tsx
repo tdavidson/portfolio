@@ -35,6 +35,8 @@ interface Terms {
   gpCommitBearsCarry?: boolean
   waterfallScope?: 'fund' | 'per_lp'
   perLpLiquidation?: 'contributions' | 'capital_account'
+  fundEndDate?: string
+  clawbackNetOfTaxRate?: number
   recipients: Recipient[]
 }
 
@@ -69,6 +71,8 @@ export function CarryTerms() {
   const [gpCommitBearsCarry, setGpCommitBearsCarry] = useState(false)
   const [waterfallScope, setWaterfallScope] = useState<'fund' | 'per_lp'>('fund')
   const [perLpLiquidation, setPerLpLiquidation] = useState<'contributions' | 'capital_account'>('contributions')
+  const [fundEndDate, setFundEndDate] = useState('')
+  const [clawbackTaxRate, setClawbackTaxRate] = useState('')
   const [recipients, setRecipients] = useState<Recipient[]>([])
   const [candidates, setCandidates] = useState<Candidate[]>([])
   const [vehicleName, setVehicleName] = useState('')
@@ -102,6 +106,8 @@ export function CarryTerms() {
     setGpCommitBearsCarry(t.gpCommitBearsCarry === true)
     setWaterfallScope(t.waterfallScope === 'per_lp' ? 'per_lp' : 'fund')
     setPerLpLiquidation(t.perLpLiquidation === 'capital_account' ? 'capital_account' : 'contributions')
+    setFundEndDate(t.fundEndDate ?? '')
+    setClawbackTaxRate(t.clawbackNetOfTaxRate != null ? pct(t.clawbackNetOfTaxRate) : '')
     setRecipients(t.recipients ?? [])
     setCandidates(d.candidates ?? [])
     setVehicleName(d.group ?? '')
@@ -151,6 +157,8 @@ export function CarryTerms() {
         // Per LP is European or straight only; American runs whole fund.
         waterfallScope: kind === 'american' ? 'fund' : waterfallScope,
         perLpLiquidation,
+        fundEndDate: fundEndDate || null,
+        clawbackNetOfTaxRate: clawbackTaxRate.trim() === '' ? null : frac(clawbackTaxRate),
         carryRecipients: recipients,
       }),
     })
@@ -419,6 +427,19 @@ export function CarryTerms() {
               />
             </Field>
           )}
+
+          <Field label="Fund end (GP clawback)" hint="The last accounting close. A close through this date books carry paid beyond the GP's entitlement as owed back">
+            <div className="flex flex-wrap items-center gap-2">
+              <input type="date" value={fundEndDate} onChange={e => setFundEndDate(e.target.value)}
+                className="h-9 rounded-md border border-input bg-background px-2 text-sm" aria-label="Fund end date" />
+              <label className="flex items-center gap-1 text-xs text-muted-foreground">
+                Net of tax at
+                <input value={clawbackTaxRate} onChange={e => setClawbackTaxRate(e.target.value)} inputMode="decimal" placeholder="none"
+                  className="h-9 w-20 rounded-md border border-input bg-background px-2 text-sm tabular-nums" aria-label="Clawback net-of-tax rate (%)" />
+                %
+              </label>
+            </div>
+          </Field>
 
           <Field label="Capital returned before carry" hint="Most LPAs return fees and expenses too">
             <Choice

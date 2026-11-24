@@ -53,6 +53,8 @@ export const SET_WATERFALL_TERMS_SCHEMA = {
       enum: ['contributions', 'capital_account'],
       description: "Per LP only: how the close's hypothetical liquidation is divided among the LPs. contributions (the default): by each LP's share of contributed capital. capital_account: each LP liquidates at its own capital account, gross of carry, the way many fund administrators accrue per-LP carry; it differs where LPs' accounts are not pro rata to contributions (close dates, fee terms, equalization).",
     },
+    fundEndDate: { type: ['string', 'null'], description: "YYYY-MM-DD: the fund's end, its last accounting close. A close through this date or later books the GP clawback (carry paid beyond the entitlement) as owed back by the recipients. Omit to leave it as it is; null clears it." },
+    clawbackNetOfTaxRate: { type: ['number', 'null'], description: 'Caps each recipient\'s clawback at the carry it was paid less tax at this rate, as a FRACTION (0.4 = 40%), for an LPA with a net-of-tax clawback. Omit to leave it as it is; null clears it.' },
     carryRecipients: {
       type: 'array',
       description: 'Who receives the carry, with percentages that total 100. Required when carry is on, unless gpEntityId is given.',

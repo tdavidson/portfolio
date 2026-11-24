@@ -35,6 +35,8 @@ export interface WaterfallTermsInput {
   perLpLiquidation?: unknown
   gpEntityId?: unknown
   carryRecipients?: unknown
+  fundEndDate?: unknown
+  clawbackNetOfTaxRate?: unknown
 }
 
 /** Validated terms, ready to store. Rates are fractions (0.2 = 20%). */
@@ -233,10 +235,29 @@ export async function saveWaterfallTerms(
   const { recipients } = terms
   const singleGp = recipients.length === 1 ? recipients[0].lpEntityId : recipients.length === 0 ? terms.gpEntityId : null
 
+  // The fund's end and the clawback cap are set only when sent: a terms update that leaves them out
+  // (the LPA reader, an older client) keeps them, and null clears them.
+  const extras: Record<string, unknown> = {}
+  const b = body
+  if (b.fundEndDate !== undefined) {
+    if (b.fundEndDate !== null && !(typeof b.fundEndDate === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(b.fundEndDate))) {
+      return { error: 'fundEndDate must be YYYY-MM-DD or null.', status: 400 }
+    }
+    extras.fund_end_date = b.fundEndDate
+  }
+  if (b.clawbackNetOfTaxRate !== undefined) {
+    const r = b.clawbackNetOfTaxRate
+    if (r !== null && !(typeof r === 'number' && Number.isFinite(r) && r >= 0 && r < 1)) {
+      return { error: 'clawbackNetOfTaxRate must be a fraction from 0 to below 1 (0.4 = 40%), or null.', status: 400 }
+    }
+    extras.clawback_net_of_tax_rate = r
+  }
+
   const { error } = await admin
     .from('vehicle_waterfall_terms' as any)
     .upsert(
       {
+        ...extras,
         fund_id: fundId,
         vehicle_id: vehicleId,
         kind: terms.kind,

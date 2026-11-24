@@ -183,6 +183,66 @@ export function buildDistributionSettlementEntry(
 }
 
 /**
+ * How much of each partner's payment SETTLES a declared distribution and how much is a new one.
+ *
+ * A declared distribution already reduced the partner's capital (Dr capital / Cr 2300). Paying it
+ * must clear the payable, not debit capital again: debiting capital a second time halves nobody's
+ * NAV on paper, double-counts the distribution on the statement and leaves the payable open.
+ * So each partner's amount goes to their open payable first, and only what exceeds it is a fresh
+ * distribution out of capital. `openPayable` is positive = still owed (lpPayableBalances).
+ */
+export function splitAgainstPayable(
+  perLp: Map<string, number>,
+  openPayable: Map<string, number>,
+): { settle: Map<string, number>; capital: Map<string, number> } {
+  const settle = new Map<string, number>()
+  const capital = new Map<string, number>()
+  for (const [lpEntityId, raw] of Array.from(perLp.entries())) {
+    const amt = roundCents(raw)
+    if (!(amt > 0)) continue
+    const open = Math.max(0, roundCents(openPayable.get(lpEntityId) ?? 0))
+    const s = roundCents(Math.min(amt, open))
+    const c = roundCents(amt - s)
+    if (s > 0) settle.set(lpEntityId, s)
+    if (c > 0) capital.set(lpEntityId, c)
+  }
+  return { settle, capital }
+}
+
+/**
+ * PAY a distribution in cash, per partner: what a partner was declared and has not been paid
+ * settles the payable (Dr 2300), anything beyond it reduces their capital (Dr capital), and cash
+ * goes out for the whole (Cr cash). An entry that only settles is a `distribution_settlement`
+ * (no capital effect); one that reduces capital is a `distribution`, and only its capital lines
+ * reach the roll-forward.
+ */
+export function buildDistributionPaymentEntry(
+  base: Base,
+  perLp: Map<string, number>,
+  openPayable: Map<string, number>,
+  capMap: CapitalAccountMap,
+  cashAccountId: string,
+  payableAccountId: string | null,
+  currency = 'USD'
+): JournalEntry {
+  const { settle, capital } = payableAccountId
+    ? splitAgainstPayable(perLp, openPayable)
+    : { settle: new Map<string, number>(), capital: new Map(Array.from(perLp.entries()).filter(([, v]) => roundCents(v) > 0)) }
+  const postings: Posting[] = []
+  let total = 0
+  for (const [lpEntityId, amt] of Array.from(settle.entries())) {
+    total = roundCents(total + amt)
+    postings.push({ accountId: payableAccountId!, amount: amt, currency, lpEntityId }) // Dr payable
+  }
+  for (const [lpEntityId, amt] of Array.from(capital.entries())) {
+    total = roundCents(total + amt)
+    postings.push(lpDebit(capMap, lpEntityId, amt, currency)) // Dr LP capital
+  }
+  postings.push({ accountId: cashAccountId, amount: roundCents(-total), currency, lpEntityId: null }) // Cr cash
+  return finalize(base, capital.size > 0 ? 'distribution' : 'distribution_settlement', postings)
+}
+
+/**
  * The two accounts a P&L entry touches.
  *
  * These source entries deliberately contain no LP-capital lines. Once posted,

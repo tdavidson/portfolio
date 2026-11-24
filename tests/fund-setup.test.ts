@@ -166,7 +166,7 @@ describe('applySetupPlan', () => {
     expect(tables.fund_members.filter(m => m.user_id === 'u-ir@firm.com')).toHaveLength(1)
   })
 
-  it('refuses someone who belongs to another fund, and a management company without its product', async () => {
+  it('refuses someone who belongs to another fund, and turns management company books on to create one', async () => {
     const { admin, tables } = setup({
       users: [{ id: 'u-other', email: 'other@elsewhere.com' }],
       seed: { fund_members: [{ fund_id: FUND, user_id: ACTOR, role: 'admin' }, { fund_id: 'fund-2', user_id: 'u-other', role: 'member' }] },
@@ -176,7 +176,9 @@ describe('applySetupPlan', () => {
     }))
     expect(r.team).toEqual([{ email: 'other@elsewhere.com', status: 'error', error: 'They already belong to another fund.' }])
     expect(tables.fund_members.find(m => m.user_id === 'u-other')!.fund_id).toBe('fund-2')
-    expect(r.entities[0]).toMatchObject({ status: 'error', error: expect.stringMatching(/management_company/) })
+    expect(r.entities[0]).toMatchObject({ name: 'Hemrock Management', status: 'created' })
+    expect(r.warnings.some(w => /management company books/.test(w))).toBe(true)
+    expect(tables.fund_settings[0].feature_visibility.management_company).toBe('admin')
   })
 
   it('only adds products to a fund that already finished setup', async () => {

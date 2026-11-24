@@ -219,6 +219,7 @@ export async function loadNoticeRegister(
   // entry that was voided after the fact — tells a partner to wire against something the fund
   // has no record of owing or being owed. A tracking vehicle keeps no entry; there the register
   // row is the record, and 'issued' / 'declared' is the check.
+  if (row.status === 'void') return { error: 'That distribution was voided, so there is nothing to notice.', status: 400 }
   let posted = false
   if (entryIds.length === 0) {
     posted = row.status === 'issued' || row.status === 'declared'

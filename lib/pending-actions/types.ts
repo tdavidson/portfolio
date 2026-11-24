@@ -8,6 +8,7 @@ export type ActionType =
   | 'record_investment'
   | 'issue_capital_call'
   | 'declare_distribution'
+  | 'void_distribution'
   | 'request_bank_details'
   | 'publish_call_notices'
   | 'publish_distribution_notices'

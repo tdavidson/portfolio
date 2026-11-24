@@ -11,6 +11,8 @@ import { declareDistribution, listDistributions, signOffDistribution } from '@/l
 import { previewWithChecks } from '@/lib/accounting/distribution-review'
 import { recordRegisterPayments } from '@/lib/accounting/register-import'
 import { postDistributionDeductions } from '@/lib/accounting/call-extras'
+import { voidDistribution } from '@/lib/accounting/distribution-void'
+import { loadMayTouchInvestments } from '@/lib/accounting/investment-access'
 
 // GET — declared distributions for the vehicle, newest first.
 export async function GET(req: NextRequest) {
@@ -25,7 +27,9 @@ export async function GET(req: NextRequest) {
   return NextResponse.json(await listDistributions(admin, gate.fundId, group))
 }
 
-// POST — { action: 'preview' | 'declare' | 'sign_off', … }
+// POST — { action: 'preview' | 'declare' | 'sign_off' | 'void', … }
+//   void: { distributionId, reason, reverseDate? } → void the declaration entries (or reverse them on
+//         reverseDate when the declaration is in a closed period) and mark the register row void
 //   sign_off: { distributionId, note?, clear? } → record (or withdraw) the caller's review of the calc
 //   preview: { total, asOf?, method?: 'waterfall' | 'pro_rata' }
 //            → the split, writing nothing. Through the waterfall when the vehicle has carry
@@ -137,7 +141,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json(out)
   }
 
-  return NextResponse.json({ error: "action must be 'preview', 'declare' or 'sign_off'" }, { status: 400 })
+  if (body?.action === 'void') {
+    // Admin-only in effect: the declaration entries are posted, and voiding or reversing a posted
+    // entry is (changeEntryState checks the role).
+    const out = await voidDistribution(admin, {
+      fundId: gate.fundId, role: gate.role, userId: user.id,
+      mayTouchInvestments: () => loadMayTouchInvestments(admin, gate, user.id),
+    }, group, {
+      distributionId: String(body?.distributionId ?? ''),
+      reason: String(body?.reason ?? ''),
+      reverseDate: typeof body?.reverseDate === 'string' && body.reverseDate ? body.reverseDate : null,
+    })
+    if ('error' in out) return NextResponse.json({ error: out.error }, { status: out.status })
+    return NextResponse.json(out)
+  }
+
+  return NextResponse.json({ error: "action must be 'preview', 'declare', 'sign_off' or 'void'" }, { status: 400 })
 }
 
 /** The register's own lines, per partner, for capping imported payments. */

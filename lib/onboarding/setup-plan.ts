@@ -273,9 +273,12 @@ export async function applySetupPlan(
 
   // 3. Entities, each with its chart seeded.
   for (const e of plan.entities ?? []) {
+    // Asking for a management company is asking for its books: turn the product on (admins only,
+    // as Settings does) rather than refusing and making the caller send the plan again with it.
     if (e.kind === 'manco' && (visibility.management_company === 'off' || visibility.management_company === 'hidden')) {
-      result.entities.push({ name: e.name, status: 'error', error: 'Turn on management_company to create a management company.' })
-      continue
+      visibility = addProducts(visibility, ['management_company'])
+      visibilityChanged = true
+      result.warnings.push(`Turned on management company books (admins only) to create ${e.name}. Open them to members in Settings, or with featureAccess.`)
     }
     const created = await createFirstEntity(admin, fundId, e)
     result.entities.push(created.ok

@@ -18,7 +18,7 @@ import { BASIS_LABELS, STATEMENT_BASES, type StatementBasis } from '@/lib/accoun
 import { PeriodPicker } from '@/components/accounting/period-picker'
 import { NoticeAction } from '@/components/accounting/notice-action'
 import { IlpaDownload } from '@/components/accounting/ilpa-download'
-import { DistributionWorkbookLink, DistributionSignOff, type SignOff } from '@/components/accounting/distribution-review'
+import { DistributionWorkbookLink, DistributionSignOff, DistributionVoid, type SignOff } from '@/components/accounting/distribution-review'
 import { PartnerBankDetails, DistributionPayoutLink } from '@/components/accounting/partner-bank-details'
 import { ReceiptAction } from '@/components/accounting/receipt-action'
 import { CallActivity } from '@/components/accounting/call-activity'
@@ -889,6 +889,7 @@ export function CapitalAccountsView() {
                   <DistributionWorkbookLink id={d.distributionId} />
                   {isAdmin && <DistributionPayoutLink id={d.distributionId} />}
                   <IlpaDownload kind="distribution" id={d.distributionId} />
+                  {isAdmin && <DistributionVoid id={d.distributionId} paid={d.lines.reduce((s, l) => s + l.settled, 0)} onChanged={load} />}
                 </div>
               </div>
             ))}

@@ -157,6 +157,7 @@ const ACTION_LABELS: Record<string, string> = {
   'close.approve': 'Approve Close',
   'capital_call.issue': 'Issue Capital Call',
   'distribution.declare': 'Declare Distribution',
+  'distribution.void': 'Void Distribution',
   'distribution.sign_off': 'Sign Off Distribution',
   'distribution.sign_off_cleared': 'Withdraw Distribution Sign-off',
   'distribution.payout_sheet': 'Export Distribution Payout Sheet',

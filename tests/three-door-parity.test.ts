@@ -98,6 +98,7 @@ const PAIRS: Pair[] = [
   { what: 'issue a capital call', route: 'api/accounting/capital-calls', method: 'POST', body: { action: 'issue' }, tool: 'issue_capital_call' },
   { what: 'declare a distribution', route: 'api/accounting/distributions', method: 'POST', body: { action: 'declare' }, tool: 'declare_distribution' },
   { what: 'sign off a distribution', route: 'api/accounting/distributions', method: 'POST', body: { action: 'sign_off' }, tool: 'distribution_sign_off' },
+  { what: 'void a distribution', route: 'api/accounting/distributions', method: 'POST', body: { action: 'void' }, tool: 'void_distribution' },
   { what: 'ask LPs for bank details', route: 'api/lps/wire-instructions/request', method: 'POST', tool: 'request_bank_details' },
   { what: 'add a commitment', route: 'api/accounting/commitments', method: 'POST', tool: 'lp_record_commitment' },
   { what: 'add an LP investor', route: 'api/lps/investors', method: 'POST', tool: 'lp_create_investor', handlerAdminOnly: true },

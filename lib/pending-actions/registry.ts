@@ -8,7 +8,7 @@ import { previewUpdateCompany, executeUpdateCompany } from './company-edit'
 import { UPDATE_COMPANY_DESCRIPTION, UPDATE_COMPANY_PROPERTIES } from '@/lib/agent/holding-tools-manifest'
 import { previewRecordInvestment, executeRecordInvestment } from './investment'
 import { previewIssueCapitalCall, executeIssueCapitalCall } from './capital-call'
-import { previewDeclareDistribution, executeDeclareDistribution } from './distribution'
+import { previewDeclareDistribution, executeDeclareDistribution, previewVoidDistribution, executeVoidDistribution } from './distribution'
 import { previewRequestBankDetails, executeRequestBankDetails } from './bank-details-request'
 import { previewPublishCallNotices, executePublishCallNoticesElsewhere } from './call-notices'
 import { previewPublishDistributionNotices, executePublishDistributionNoticesElsewhere } from './distribution-notices'
@@ -209,6 +209,25 @@ export const WRITE_ACTIONS: Record<ActionType, WriteAction> = {
     },
     preview: previewDeclareDistribution,
     execute: executeDeclareDistribution,
+  },
+  void_distribution: {
+    entity: 'required',
+    domain: 'lp_capital',
+    description:
+      'Void a declared distribution: void its declaration entries (or reverse them on reverseDate when they sit in a closed ' +
+      'period) and mark the register row void. Refused while anything has been paid against it.',
+    inputSchema: {
+      type: 'object',
+      required: ['distributionId', 'reason'],
+      properties: {
+        vehicle: { type: 'string', description: 'The vehicle (portfolio_group).' },
+        distributionId: { type: 'string', description: 'From list_distributions.' },
+        reason: { type: 'string', description: 'Why it is being voided.' },
+        reverseDate: { type: 'string', description: 'YYYY-MM-DD in an open period, for a declaration in a closed one.' },
+      },
+    },
+    preview: previewVoidDistribution,
+    execute: executeVoidDistribution,
   },
   request_bank_details: {
     entity: 'required',

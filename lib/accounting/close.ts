@@ -47,6 +47,7 @@ import { associateMembers, lookThroughAccount } from './look-through'
 import { loadCapitalPostings } from './capital-source'
 import { gpLinksFor, associatePosition, loadOwnershipBasis } from './gp-economics'
 import { loadCarryTerms, carryAccrual } from './carry'
+import { bookClawbackAtFundEnd } from './carry-clawback'
 import { carryAccrualInputs, runsPerLp } from '@portfolio/fund-engine'
 import { loadNotes, noteAccruals } from './note-interest'
 import { ensureInvestmentAccounts } from './investments'
@@ -1516,6 +1517,18 @@ async function closeOnePeriod(
     return { error: `Carry accrual failed: ${carryResult.error}` }
   }
   if (carryResult.entryId) entryIds.push(carryResult.entryId)
+
+  // 2c'. THE GP CLAWBACK, once this close reaches the fund's end (lib/accounting/carry-clawback.ts):
+  // carry paid beyond the entitlement the accrual just trued up to, booked as owed back.
+  if (preview.mode !== 'owner') {
+    const clawback = await bookClawbackAtFundEnd(admin, fundId, group, userId, periodEnd, sourceRef, await loadCarryTerms(admin, fundId, group))
+    if ('error' in clawback) {
+      await reopenPeriodWithReversal(admin, fundId, group, periodId)
+      await admin.from('fiscal_periods' as any).delete().eq('id', periodId).eq('fund_id', fundId)
+      return { error: `GP clawback failed: ${clawback.error}` }
+    }
+    if (clawback.entryId) entryIds.push(clawback.entryId)
+  }
 
   // 2d. ACCRUE FUND ECONOMICS EARNED — only if THIS vehicle is the GP/associate of another fund.
   // Marks its Investment in Fund (1500) to its fund-book position on its own books: BOTH the carry

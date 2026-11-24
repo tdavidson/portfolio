@@ -163,6 +163,8 @@ export async function previewSetWaterfallTerms(deps: ActionDeps, input: SetWater
       flags,
       effect: 'The next period close accrues carry on these terms (the accrual is recomputed from scratch, so earlier ' +
         'periods are not restated), and distributions declared afterwards are split through the waterfall on them.',
+      ...(input?.fundEndDate !== undefined ? { fundEndDate: input.fundEndDate, fundEndEffect: input.fundEndDate ? `A close through ${input.fundEndDate} or later books any GP clawback (carry paid beyond the entitlement) as owed back.` : 'No GP clawback will be booked.' } : {}),
+      ...(input?.clawbackNetOfTaxRate !== undefined ? { clawbackNetOfTaxRate: input.clawbackNetOfTaxRate } : {}),
       ...(input?.explanation ? { explanation: String(input.explanation).slice(0, 2000) } : {}),
     },
   }

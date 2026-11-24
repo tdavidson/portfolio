@@ -459,7 +459,8 @@ export async function listDistributions(
     loadSettlements(admin, fundId, group, 'payable'),
     loadSettlementReviews(admin, fundId, vehicleId, 'distribution'),
   ])
-  const all = ((rows as any[]) ?? []).filter(row => row.status !== 'draft')
+  // A draft never completed and a void was withdrawn: neither was distributed.
+  const all = ((rows as any[]) ?? []).filter(row => row.status !== 'draft' && row.status !== 'void')
   // Fees, tax withheld, a call netted off — taken from what each partner is owed. They settle the
   // line like a wire (they debit the payable), so they are listed here only to say why.
   const deductions = await distributionDeductions(admin, fundId, vehicleId, all.map(d => d.id as string))

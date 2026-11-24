@@ -3,6 +3,7 @@
 // dispatch through this list, so the tool surface is identical however an agent
 // connects. Client code that only needs the metadata imports the manifest.
 
+import { feeSchedulePeriods, saveFeeSchedule } from './fee-schedule'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { AGENT_TOOL_MANIFEST, type AgentToolMeta } from './agent-tools-manifest'
 import type { Domain } from '@/lib/access/domains'
@@ -338,6 +339,19 @@ const HANDLERS: Record<string, AgentToolHandler> = {
   run_waterfall: async (_ctx, input) => runWaterfall(Number(input.distributable), input.terms, input.state),
 
   list_periods: async ({ admin, fundId, portfolioGroup }) => listPeriods(admin, fundId, portfolioGroup),
+
+  // The Allocation terms page's fee schedule card, and the periods it charges with what is booked.
+  fee_schedule: async ({ admin, fundId, portfolioGroup }) => {
+    const out = await feeSchedulePeriods(admin, fundId, portfolioGroup)
+    if ('error' in out) throw new Error(out.error)
+    return { vehicle: portfolioGroup, ...out }
+  },
+
+  set_fee_schedule: async ({ admin, fundId, portfolioGroup }, input) => {
+    const saved = await saveFeeSchedule(admin, fundId, portfolioGroup, input?.schedule ?? null)
+    if ('error' in saved) throw new Error(saved.error)
+    return { vehicle: portfolioGroup, schedule: saved.schedule }
+  },
 
   // Closes THROUGH a date, allocating as it goes — the same single path the UI uses.
   //

@@ -87,3 +87,55 @@ export function DistributionSignOff({ id, signOff, onChanged }: { id: string; si
     </div>
   )
 }
+
+/**
+ * Void a declared distribution (admins): its declaration comes off the books and the register row
+ * is kept, marked void. Refused while anything has been paid against it. A declaration in a closed
+ * period is reversed on a date in an open one instead.
+ */
+export function DistributionVoid({ id, paid, onChanged }: { id: string; paid: number; onChanged: () => void }) {
+  const lf = useLedgerFetch()
+  const [open, setOpen] = useState(false)
+  const [reason, setReason] = useState('')
+  const [reverseDate, setReverseDate] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function send() {
+    setBusy(true); setError(null)
+    const res = await lf('/api/accounting/distributions', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action: 'void', distributionId: id, reason, reverseDate: reverseDate || null }),
+    })
+    const data = await res.json().catch(() => ({}))
+    setBusy(false)
+    if (!res.ok) { setError(data.error ?? 'Could not void the distribution'); return }
+    setOpen(false); setReason(''); setReverseDate('')
+    onChanged()
+  }
+
+  if (!open) {
+    return (
+      <button type="button" className="text-xs text-primary hover:underline" onClick={() => setOpen(true)}
+        title={paid > 0 ? 'Payments have been made against it: void or reverse those first' : 'Take the declaration off the books'}>
+        Void distribution
+      </button>
+    )
+  }
+  return (
+    <div className="mt-2 flex w-full flex-wrap items-center gap-2 text-xs">
+      <input value={reason} onChange={e => setReason(e.target.value)} placeholder="Reason (required)" maxLength={2000}
+        className="h-8 min-w-0 flex-1 rounded-md border border-input bg-background px-2 text-xs" />
+      <label className="flex items-center gap-1 text-muted-foreground" title="Only when the declaration is in a closed period: reverse it on this date instead">
+        Reverse on
+        <input type="date" value={reverseDate} onChange={e => setReverseDate(e.target.value)}
+          className="h-8 rounded-md border border-input bg-background px-2 text-xs" />
+      </label>
+      <Button size="sm" variant="destructive" onClick={send} disabled={busy || !reason.trim()}>
+        {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : 'Void'}
+      </Button>
+      <Button size="sm" variant="ghost" onClick={() => { setOpen(false); setError(null) }} disabled={busy}>Cancel</Button>
+      {error && <span className="w-full text-destructive">{error}</span>}
+    </div>
+  )
+}

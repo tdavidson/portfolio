@@ -331,6 +331,29 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
     },
   },
   {
+    name: 'void_distribution',
+    description:
+      'Ask for a declared distribution to be voided: its declaration entries come off the books (voided, or reversed and ' +
+      'posted on reverseDate when the declaration sits in a closed period) and the register row is kept, marked void, so it ' +
+      'no longer lists, notices or counts on a statement. Always staged for an admin to approve. Refused while anything has ' +
+      'been paid against it: void or reverse those payment entries first (capital_settlements, kind distribution, lists them; ' +
+      'void_entry or reverse_entry undoes one). A payment booked out of capital by mistake is undone the same way. Give a reason.',
+    scope: 'write',
+    domain: 'lp',
+    accessDomain: 'lp_capital',
+    stagesAs: 'void_distribution',
+    inputSchema: {
+      type: 'object',
+      required: ['vehicle', 'distributionId', 'reason'],
+      properties: {
+        vehicle: VEHICLE,
+        distributionId: { type: 'string', description: 'From list_distributions.' },
+        reason: { type: 'string', description: 'Why it is being voided. Recorded with who approved it.' },
+        reverseDate: { type: 'string', description: 'YYYY-MM-DD in an open period. Only when the declaration is in a closed period: reverse it on this date instead of voiding it.' },
+      },
+    },
+  },
+  {
     name: 'lp_bank_details',
     description:
       'Each partner\'s bank details for distributions in a vehicle, masked: beneficiary, bank, the last four digits of the ' +

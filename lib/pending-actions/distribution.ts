@@ -2,6 +2,8 @@ import type { ActionDeps, PreviewResult } from './types'
 import { resolveVehicle } from '@/lib/accounting/agent-tools'
 import { declareDistribution } from '@/lib/accounting/distributions'
 import { previewWithChecks, ISO_DATE } from '@/lib/accounting/distribution-review'
+import { voidDistribution, voidDistributionPlan } from '@/lib/accounting/distribution-void'
+import { mayTouchInvestments } from '@/lib/accounting/investment-access'
 
 export interface DeclareDistributionActionInput {
   vehicle?: string
@@ -79,4 +81,57 @@ export async function executeDeclareDistribution(deps: ActionDeps, input: Declar
   })
   if ('error' in result) throw new Error(result.error)
   return { distributionId: result.distributionId }
+}
+
+export interface VoidDistributionActionInput {
+  vehicle?: string
+  distributionId: string
+  reason: string
+  reverseDate?: string | null
+}
+
+function validateVoid(input: VoidDistributionActionInput) {
+  const distributionId = String(input?.distributionId ?? '').trim()
+  if (!distributionId) throw new Error('distributionId is required (list_distributions).')
+  const reason = String(input?.reason ?? '').trim()
+  if (!reason) throw new Error('A reason is required to void a distribution.')
+  const reverseDate = input?.reverseDate ? String(input.reverseDate) : null
+  if (reverseDate && !ISO_DATE.test(reverseDate)) throw new Error('reverseDate must be YYYY-MM-DD.')
+  return { distributionId, reason, reverseDate }
+}
+
+/** What voiding would take off the books, and whether it would be refused (a payment against it). */
+export async function previewVoidDistribution(deps: ActionDeps, input: VoidDistributionActionInput): Promise<PreviewResult> {
+  const { distributionId, reason, reverseDate } = validateVoid(input)
+  const group = await resolveVehicle(deps.admin, deps.fundId, input.vehicle, { access: deps.access })
+  const plan = await voidDistributionPlan(deps.admin, deps.fundId, group, distributionId)
+  if ('error' in plan) throw new Error(plan.error)
+  return {
+    summary: `${reverseDate ? `Reverse on ${reverseDate}` : 'Void'} the ${plan.total} distribution declared ${plan.date} in ${group}`,
+    details: {
+      vehicle: group,
+      distributionId,
+      date: plan.date,
+      description: plan.description,
+      total: plan.total,
+      reason,
+      mode: reverseDate ? 'reverse' : 'void',
+      reverseDate,
+      perPartner: plan.partners.map(p => ({ partner: p.name, amount: p.amount, paid: p.settled })),
+      noticesIssued: plan.noticesIssued,
+      ...(plan.noticesIssued > 0 ? { noticeWarning: `${plan.noticesIssued} partner notice(s) were issued for it; tell those partners it was withdrawn.` } : {}),
+      refused: plan.problem,
+    },
+  }
+}
+
+export async function executeVoidDistribution(deps: ActionDeps, input: VoidDistributionActionInput): Promise<{ distributionId: string; mode: 'void' | 'reverse' }> {
+  const { distributionId, reason, reverseDate } = validateVoid(input)
+  const group = await resolveVehicle(deps.admin, deps.fundId, input.vehicle, { access: deps.access })
+  const out = await voidDistribution(deps.admin, {
+    fundId: deps.fundId, userId: deps.userId, role: deps.access.role,
+    mayTouchInvestments: async () => mayTouchInvestments(deps.access),
+  }, group, { distributionId, reason, reverseDate })
+  if ('error' in out) throw new Error(out.error)
+  return { distributionId: out.distributionId, mode: out.mode }
 }

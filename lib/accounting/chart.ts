@@ -18,6 +18,8 @@ export interface ChartAccountSeed {
 export const RECEIVABLE_CODE = '1300'
 /** Distributions declared and not yet paid — the outbound mirror of RECEIVABLE_CODE. */
 export const DISTRIBUTION_PAYABLE_CODE = '2300'
+/** Carry paid beyond the GP's entitlement at fund end, owed back by the recipients (carry-clawback.ts). */
+export const CLAWBACK_RECEIVABLE_CODE = '1370'
 /** Money a partner sent before it was called: a liability until a call applies it (lib/accounting/call-extras.ts). */
 export const ADVANCE_CODE = '2350'
 
@@ -44,6 +46,9 @@ export const DEFAULT_CHART: ChartAccountSeed[] = [
   // Shares a buyer paid as consideration in an exit, on their way into the new holding. The exit
   // debits it and the purchase of those shares credits it on the same day, so it nets to zero.
   { code: '1360', name: 'Securities received in exits', type: 'asset', subtype: 'in_kind_consideration' },
+  // The GP clawback at fund end: carry the recipients were paid beyond their entitlement, owed back
+  // to the fund (lib/accounting/carry-clawback.ts). Cleared when the GP repays it.
+  { code: CLAWBACK_RECEIVABLE_CODE, name: 'Clawback receivable from GP', type: 'asset', subtype: 'clawback_receivable' },
   // TAX-BOOK ASSETS. These carry postings in the `tax` book only — they are where a
   // book-to-tax adjustment puts the debit when it reverses an expense book took and tax
   // capitalises. They sit in the shared chart because the chart is per VEHICLE, not per book,
