@@ -512,6 +512,11 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
     }
   },
 
+  // Always staged as the void_distribution pending action (its manifest's `stagesAs`).
+  void_distribution: async () => {
+    throw new Error('void_distribution is always staged for an admin to approve; it cannot run directly.')
+  },
+
   // Always staged as the declare_distribution pending action (its manifest's `stagesAs`).
   declare_distribution: async () => {
     throw new Error('declare_distribution is always staged for an admin to approve; it cannot run directly.')

@@ -19,13 +19,15 @@ import {
   buildManagementFeeEntry,
   buildExpenseEntry,
   buildGainEntry,
-  buildDistributionEntry,
+  buildDistributionPaymentEntry,
   buildCarryEntry,
   buildPeriodCloseEntry,
   type CapitalAccountMap,
   type PnlAccounts,
 } from './entries'
 import type { JournalEntry } from './types'
+import { lpPayableBalances } from './capital-calls'
+import { DISTRIBUTION_PAYABLE_CODE } from './chart'
 
 export const CODE = {
   cash: '1000',
@@ -154,8 +156,14 @@ export async function buildAllocationEntry(
     const capMap: CapitalAccountMap = await ensureCapitalAccounts(admin, fundId, group, Object.keys(body.perLp ?? {}))
 
     if (action === 'distribution') {
+      // A partner with a declared distribution outstanding is PAID from the payable: their capital
+      // came down when it was declared. Debiting capital again (what this did for every line)
+      // double-counted the distribution and left 2300 standing. Only an amount beyond what they
+      // are owed is a new distribution out of capital.
       const perLp = new Map<string, number>(Object.entries(body.perLp ?? {}).map(([k, v]) => [k, Number(v)]))
-      return { entry: buildDistributionEntry(base, perLp, capMap, need(CODE.cash)) }
+      const payableId = codes.get(DISTRIBUTION_PAYABLE_CODE) ?? null
+      const openPayable = payableId ? await lpPayableBalances(admin, fundId, group) : new Map<string, number>()
+      return { entry: buildDistributionPaymentEntry(base, perLp, openPayable, capMap, need(CODE.cash), payableId) }
     }
     if (action === 'carry') {
       const perLp = new Map<string, number>(Object.entries(body.perLp ?? {}).map(([k, v]) => [k, Number(v)]))

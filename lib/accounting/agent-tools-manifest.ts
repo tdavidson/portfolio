@@ -251,7 +251,7 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
         fromSchedule: { type: 'boolean', description: "management_fee: charge what the vehicle's dated fee schedule sets for the period entryDate falls in (rate, basis, step-downs, organizational expense cap), instead of annualRate × periodFraction on commitments." },
         amount: { type: 'number', description: 'expense / gain total' },
         overrides: { type: 'object', description: 'management_fee: per-LP { rateOverride, exempt }' },
-        perLp: { type: 'object', description: 'distribution / carry: { lpEntityId: amount }' },
+        perLp: { type: 'object', description: 'distribution / carry: { lpEntityId: amount }. distribution pays cash: a partner\'s amount settles their declared, unpaid distribution (Dr 2300 payable) first, and only the excess reduces capital.' },
         post: { type: 'boolean', description: 'default true; false returns a preview' },
       },
     },
@@ -472,7 +472,7 @@ export const AGENT_TOOL_MANIFEST: AgentToolMeta[] = [
   },
   {
     name: 'book_distribution_from_bank',
-    description: "Book a bank outflow as a distribution, replacing its draft (the bank page's Book as distribution). Name the partner who received the wire (lpEntityId): if they have a declared distribution outstanding the wire settles it (Dr the payable / Cr cash); otherwise it reduces their capital (Dr their capital / Cr cash). Or give perLp, explicit amounts by LP entity id that total the outflow (what a waterfall split supplies). There is no pro-rata fallback: declare a fund-wide distribution first, then the wires settle it. Writes a draft; post it with post_bank_transaction.",
+    description: "Book a bank outflow as a distribution, replacing its draft (the bank page's Book as distribution). Name the partner who received the wire (lpEntityId), or give perLp, explicit amounts by LP entity id that total the outflow (what a waterfall split supplies). Each partner's amount settles their declared, unpaid distribution first (Dr the payable / Cr cash); only what exceeds it reduces their capital (Dr their capital / Cr cash). There is no pro-rata fallback: declare a fund-wide distribution first, then the wires settle it. Writes a draft; post it with post_bank_transaction.",
     scope: 'write',
     accessDomain: 'lp_capital',
     inputSchema: {

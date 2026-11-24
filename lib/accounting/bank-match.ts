@@ -12,7 +12,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { loadOwnership, loadEntityNames } from './load'
 import { accountIdByCode, ensureCapitalAccounts, persistEntry } from './persist'
 import { vehicleIdByName } from './vehicle-id'
-import { buildCapitalCallEntry, buildFundingEntry, buildDistributionEntry, buildDistributionSettlementEntry } from './entries'
+import { buildCapitalCallEntry, buildFundingEntry, buildDistributionPaymentEntry, splitAgainstPayable } from './entries'
 import { computeCapitalAccounts } from './capital-account'
 import { allocateAmount } from './allocation'
 import { lpReceivableBalances, lpPayableBalances, RECEIVABLE_CODE } from './capital-calls'
@@ -238,50 +238,33 @@ export async function bookDistributionFromOutflow(
   const cashId = codes.get('1000')
   if (!cashId) return { error: "The chart is missing account 1000 Cash — add it under the entity's Admin → Chart of accounts." }
 
-  // A named partner with a DECLARED distribution outstanding settles it, rather than reducing
-  // their capital a second time. Exactly the shape `bookCapitalCallFromInflow` already uses for
-  // an open call: recognition happened at declaration, so settlement carries no capital effect.
-  if (lpEntityId) {
-    const openPayable = (await lpPayableBalances(admin, fundId, group)).get(lpEntityId) ?? 0
-    const payableId = codes.get(DISTRIBUTION_PAYABLE_CODE)
-    if (openPayable > 0.005 && payableId) {
-      const names = await loadEntityNames(admin, fundId, group)
-      const entry = buildDistributionSettlementEntry(
-        { fundId, entryDate: txn.txn_date, memo: `Distribution paid — ${names.get(lpEntityId) ?? ''}${txn.description ? ` — ${txn.description}` : ''}` },
-        lpEntityId, total, cashId, payableId,
-      )
-      const saved = await persistEntry(admin, fundId, group, userId, entry, 'draft')
-      if ('error' in saved) return { error: saved.error }
-      const prior = txn.journal_entry_id
-      await (admin as any).from('bank_transactions')
-        .update({ journal_entry_id: saved.entryId, suggested_account_code: DISTRIBUTION_PAYABLE_CODE })
-        .eq('id', txnId).eq('fund_id', fundId)
-      if (prior && prior !== saved.entryId) {
-        const retired = await retireEntry(admin, fundId, prior)
-        if ('error' in retired) return { error: retired.error }
-      }
-      return { entryId: saved.entryId }
-    }
-  }
-
+  // A partner with a DECLARED distribution outstanding is paid out of the payable, not out of
+  // capital a second time: recognition happened at declaration, so settling carries no capital
+  // effect, exactly as funding an open call does. That holds for a named partner AND for an
+  // explicit perLp split (the agent's per-LP path used to debit capital for every line, which
+  // double-counted the distribution and left the payable standing). Only what exceeds a
+  // partner's open payable is a new distribution out of capital.
   const split = resolveDistributionSplit(total, { lpEntityId, perLpOverride })
   if ('error' in split) return split
   const perLp = split.perLp
 
-  const capMap = await ensureCapitalAccounts(admin, fundId, group, Array.from(perLp.keys()))
-  const entry = buildDistributionEntry(
-    { fundId, entryDate: txn.txn_date, memo: `Distribution${txn.description ? ` — ${txn.description}` : ''}` },
-    perLp,
-    capMap,
-    cashId
-  )
+  const payableId = codes.get(DISTRIBUTION_PAYABLE_CODE) ?? null
+  const openPayable = payableId ? await lpPayableBalances(admin, fundId, group) : new Map<string, number>()
+  const { capital } = splitAgainstPayable(perLp, openPayable)
+  const capMap = capital.size > 0 ? await ensureCapitalAccounts(admin, fundId, group, Array.from(capital.keys())) : new Map<string, string>()
+  const settlesOnly = capital.size === 0 && !!payableId
+  const names = lpEntityId && settlesOnly ? await loadEntityNames(admin, fundId, group) : null
+  const memo = settlesOnly
+    ? `Distribution paid${names && lpEntityId ? ` — ${names.get(lpEntityId) ?? ''}` : ''}${txn.description ? ` — ${txn.description}` : ''}`
+    : `Distribution${txn.description ? ` — ${txn.description}` : ''}`
+  const entry = buildDistributionPaymentEntry({ fundId, entryDate: txn.txn_date, memo }, perLp, openPayable, capMap, cashId, payableId)
 
   const result = await persistEntry(admin, fundId, group, userId, entry, 'draft')
   if ('error' in result) return { error: result.error }
 
   const oldEntryId = txn.journal_entry_id
   await admin.from('bank_transactions' as any)
-    .update({ journal_entry_id: result.entryId, suggested_account_code: '3100' })
+    .update({ journal_entry_id: result.entryId, suggested_account_code: settlesOnly ? DISTRIBUTION_PAYABLE_CODE : '3100' })
     .eq('id', txnId).eq('fund_id', fundId)
   if (oldEntryId && oldEntryId !== result.entryId) {
     const retired = await retireEntry(admin, fundId, oldEntryId)

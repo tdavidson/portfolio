@@ -76,6 +76,12 @@ export interface VehicleCarryTerms {
    * clawbackAtFundEnd): the GP never gives back more than it kept after tax. Absent: no cap.
    */
   clawbackNetOfTaxRate?: number
+  /**
+   * The fund's end: its last accounting close. A close through this date or later books the GP
+   * clawback (carry paid beyond the entitlement) as a receivable from the recipients. Absent: no
+   * clawback is booked.
+   */
+  fundEndDate?: string
   /** Single-recipient legacy field; kept for back-compat and as the fallback source. */
   gpEntityId: string | null
   /** Who receives the carry and in what split. Resolved from `carry_recipients`, or
@@ -350,6 +356,8 @@ export function carryTermsFromRow(row: {
   gp_commit_bears_carry?: unknown
   waterfall_scope?: unknown
   per_lp_liquidation?: unknown
+  fund_end_date?: unknown
+  clawback_net_of_tax_rate?: unknown
 } | null | undefined): VehicleCarryTerms {
   if (!row) return NO_CARRY
   const kind: CarryKind =
@@ -374,6 +382,8 @@ export function carryTermsFromRow(row: {
     ...(row.gp_commit_bears_carry === true ? { gpCommitBearsCarry: true } : {}),
     ...(row.waterfall_scope === 'per_lp' ? { waterfallScope: 'per_lp' as const } : {}),
     ...(row.waterfall_scope === 'per_lp' && row.per_lp_liquidation === 'capital_account' ? { perLpLiquidation: 'capital_account' as const } : {}),
+    ...(typeof row.fund_end_date === 'string' && /^\d{4}-\d{2}-\d{2}/.test(row.fund_end_date) ? { fundEndDate: row.fund_end_date.slice(0, 10) } : {}),
+    ...(row.clawback_net_of_tax_rate != null && Number(row.clawback_net_of_tax_rate) >= 0 && Number(row.clawback_net_of_tax_rate) < 1 ? { clawbackNetOfTaxRate: Number(row.clawback_net_of_tax_rate) } : {}),
   }
 }
 

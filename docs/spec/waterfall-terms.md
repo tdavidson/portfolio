@@ -452,8 +452,17 @@ GP's carry on that view is its entitlement, and the clawback is `max(0, carry pa
 - The net is credited across the recipients by `pct`. The last recipient absorbs the rounding.
 - When NAV falls, the accrual reverses on its own; when nobody is in profit, every LP's charge is
   reversed.
-- Carry paid beyond the target is not clawed back by the close: it shows as a negative carry
-  balance on the recipients' capital accounts, which is what the GP owes back.
+- Carry paid beyond the target is not clawed back by an ordinary close: it shows as a negative
+  carry balance on the recipients' capital accounts, which is what the GP owes back.
+
+**Clawback at fund end, booked (`fundEndDate`).** A close through the vehicle's `fundEndDate` or
+later, after accruing carry, books what each recipient still owes back: its carry balance (carry
+credited, less carry paid, less any clawback already booked) when that is negative, capped at the
+carry it was paid less tax at `clawbackNetOfTaxRate` when the terms set one. The entry is
+`Dr 1370 Clawback receivable from GP / Cr the recipient's capital`, source type `carry_clawback`
+(the carried-interest line). It carries the close's source_ref, so reopening the period voids it,
+and a later close books only what is still owed. The GP's repayment clears 1370 against cash.
+Without a `fundEndDate` nothing is booked.
 
 **Deal-by-deal entitlement (`dealByDealCarry`).**
 - Fund expenses are allocated to deals by share of cost basis.
@@ -467,7 +476,7 @@ one it finds under `unsupported`.
 
 | Provision | What the engine does instead |
 |---|---|
-| GP clawback / give-back | Computed (`clawbackAtFundEnd`, §6) but not posted. The close's accrual marks the whole-fund entitlement, so carry paid early under `american` beyond it shows as accrued vs paid on the GP panel. |
+| GP clawback / give-back | Booked by the close once it reaches `fundEndDate` (§6), measured from the ledger against the close's whole-fund entitlement, with an optional net-of-tax cap. Carry escrow is not netted against it. |
 | Carry escrow / holdback | Not modelled. |
 | Multiple hurdles (a second pref) | One hurdle per vehicle. Carry that steps up at an LP multiple or IRR is supported (§3.3). |
 | Hurdle compounding other than annual (quarterly, daily) | Annual compounding or simple only. |

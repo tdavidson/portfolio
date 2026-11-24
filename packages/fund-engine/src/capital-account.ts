@@ -105,6 +105,10 @@ export function bucketForSourceType(sourceType: string | null | undefined, amoun
       // on the carriedInterest line (which then reads as carry accrued-but-unpaid), and the GP
       // panel reads it back by source_type to show carry paid on its own.
       return 'carriedInterest'
+    case 'carry_clawback':
+      // The GP's give-back at fund end: carry paid beyond the entitlement, booked back to the
+      // recipients' carry line against a receivable from them (lib/accounting/carry-clawback.ts).
+      return 'carriedInterest'
     default:
       // Catch-all for `manual` and any source_type we don't recognize. It should be
       // zero on clean books, and the UI only shows the line when it isn't — but the

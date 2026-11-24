@@ -62,6 +62,7 @@ export const ADMIN_ONLY_ROUTES: AdminOnlyRule[] = [
   // Drafting a call is an admin's job too; members with LP capital access can view proposals.
   { route: 'api/accounting/proposed-calls', method: 'POST', when: action('propose', 'revise', 'discard'), label: 'propose, revise or discard a capital call' },
   { route: 'api/accounting/distributions', method: 'POST', when: action('declare'), label: 'declare a distribution' },
+  { route: 'api/accounting/distributions', method: 'POST', when: action('void'), label: 'void a distribution' },
   // Partners' bank details: entering, verifying (by callback) and revealing the full numbers.
   { route: 'api/lps/wire-instructions', method: 'POST', label: 'enter, verify or reveal bank details' },
 
@@ -182,6 +183,8 @@ export const ADMIN_ONLY_ACTIONS: Record<string, string> = {
   issue_capital_call: 'issue a capital call',
   // As api/accounting/distributions POST action=declare (ADMIN_ONLY_ROUTES above).
   declare_distribution: 'declare a distribution',
+  // As api/accounting/distributions POST action=void (ADMIN_ONLY_ROUTES above).
+  void_distribution: 'void a distribution',
   request_bank_details: 'ask LPs for bank details',
   publish_call_notices: 'publish notices to LPs',
   publish_distribution_notices: 'publish notices to LPs',
