@@ -28,6 +28,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { addMonths, allocateAmount, feeSchedule, roundCents, type FeeFrequency, type FeeScheduleBasis, type FeeScheduleFacts, type FeeSchedulePeriod } from '@portfolio/fund-engine'
 import { computeCapitalAccounts } from './capital-account'
+import { feeSpreadActive, setFeeSpread } from './fee-spread-switch'
 import { loadOwnership, loadPostedLedger } from './load'
 import { loadPartnerTerms } from './terms'
 import { dealHistories } from './realized-capital'
@@ -54,7 +55,11 @@ export interface StoredFeeSchedule {
    * draft entries and a draft invoice for an admin to post, or posted entries and an issued invoice.
    */
   postMode?: 'off' | 'draft' | 'post'
-  /** Book each period's fee month by month (at each month's end) rather than all on its due date. */
+  /**
+   * Spread each period monthly (fee-periods.ts). NOT STORED here: it reports whether the vehicle has
+   * an active management fee spread recurring entry (fee-spread-switch.ts), and saving a schedule
+   * with it set turns that entry on or off.
+   */
   monthlyAccrual?: boolean
   /** Book the management company's side too when one is linked to this fund. Default true. */
   bookManagerSide?: boolean
@@ -126,7 +131,9 @@ export async function loadFeeSchedule(admin: SupabaseClient, fundId: string, gro
   if (!vehicleId) return null
   const { data } = await (admin as any).from('vehicle_accounting_settings').select('fee_schedule').eq('fund_id', fundId).eq('vehicle_id', vehicleId).maybeSingle()
   const parsed = parseFeeScheduleInput(data?.fee_schedule ?? null)
-  return 'ok' in parsed ? parsed.value : null
+  if (!('ok' in parsed) || !parsed.value) return null
+  const { monthlyAccrual: _stored, ...rest } = parsed.value
+  return (await feeSpreadActive(admin, fundId, vehicleId)) ? { ...rest, monthlyAccrual: true } : rest
 }
 
 export async function saveFeeSchedule(
@@ -134,16 +141,27 @@ export async function saveFeeSchedule(
   fundId: string,
   group: string,
   raw: unknown,
+  opts: { userId?: string | null } = {},
 ): Promise<{ ok: true; schedule: StoredFeeSchedule | null } | { error: string; status: number; dbError?: { message: string } }> {
   const vehicleId = await vehicleIdByName(admin, fundId, group)
   if (!vehicleId) return { error: `Unknown vehicle "${group}".`, status: 400 }
   const parsed = parseFeeScheduleInput(raw)
   if ('error' in parsed) return { error: parsed.error, status: 400 }
+  // The monthly spread is a recurring journal entry, not a field of the schedule.
+  const stored = parsed.value ? (({ monthlyAccrual: _m, ...rest }) => rest)(parsed.value) : null
   const { error } = await (admin as any)
     .from('vehicle_accounting_settings')
-    .upsert({ fund_id: fundId, vehicle_id: vehicleId, fee_schedule: parsed.value, updated_at: new Date().toISOString() }, { onConflict: 'fund_id,vehicle_id' })
+    .upsert({ fund_id: fundId, vehicle_id: vehicleId, fee_schedule: stored, updated_at: new Date().toISOString() }, { onConflict: 'fund_id,vehicle_id' })
   if (error) return { error: 'The fee schedule could not be saved.', status: 500, dbError: error }
-  return { ok: true, schedule: parsed.value }
+  const spreadAsked = raw && typeof raw === 'object' && typeof (raw as any).monthlyAccrual === 'boolean' ? (raw as any).monthlyAccrual as boolean : null
+  if (spreadAsked !== null || !stored) {
+    const on = !!stored && spreadAsked === true
+    const mode = stored?.postMode === 'draft' || stored?.postMode === 'post' ? stored.postMode : 'remind'
+    const sw = await setFeeSpread(admin, fundId, vehicleId, on, { userId: opts.userId ?? null, mode })
+    if ('error' in sw && on) return { error: `The fee schedule was saved, but the monthly spread could not be turned on: ${sw.error}`, status: 500 }
+  }
+  const spreading = await feeSpreadActive(admin, fundId, vehicleId)
+  return { ok: true, schedule: stored ? { ...stored, ...(spreading ? { monthlyAccrual: true } : {}) } : null }
 }
 
 export interface ScheduledFee {

@@ -19,6 +19,18 @@ export interface CloseEntrySuggestion {
 }
 
 const iso = (date: Date) => date.toISOString().slice(0, 10)
+/** Months between a recurring entry's due dates (recurring-entries.ts). */
+const CADENCE_MONTHS: Record<string, number> = { monthly: 1, quarterly: 3, semiannual: 6, annual: 12 }
+const MONTH_NAMES = ['January', 'February', 'March', 'April', 'May', 'June', 'July', 'August', 'September', 'October', 'November', 'December']
+/** A recurring entry's memo for one date: {month}, {quarter}, {year} and {date} filled in. */
+export function renderMemo(memo: string, date: string): string {
+  const y = date.slice(0, 4), m = Number(date.slice(5, 7))
+  return memo
+    .replace(/\{month\}/g, `${MONTH_NAMES[m - 1]} ${y}`)
+    .replace(/\{quarter\}/g, `Q${Math.ceil(m / 3)} ${y}`)
+    .replace(/\{year\}/g, y)
+    .replace(/\{date\}/g, date)
+}
 const monthKey = (value: string) => value.slice(0, 7)
 export function scheduledMonth(value: string, count: number, day: number): string {
   const source = new Date(`${value.slice(0, 7)}-01T00:00:00Z`)
@@ -76,26 +88,30 @@ export async function loadCloseEntrySuggestions(
   const existingSignatures = new Set(((existingRows as any[]) ?? []).map(row => `${row.entry_date}:${signature(row.journal_postings ?? [])}`))
 
   const { data: schedules } = await admin.from('accounting_schedules' as any)
-    .select('id, name, memo, source_type, start_date, end_date, day_of_month, required_for_close, accounting_schedule_lines(account_id, amount, lp_entity_id, sort_order)')
+    .select('id, name, memo, kind, frequency, source_type, start_date, end_date, day_of_month, required_for_close, accounting_schedule_lines(account_id, amount, lp_entity_id, sort_order)')
     .eq('fund_id', fundId).eq('vehicle_id', vehicleId).eq('active', true).lte('start_date', end)
   const out: CloseEntrySuggestion[] = []
   for (const schedule of ((schedules as any[]) ?? [])) {
+    // A management fee spread is booked from the fee schedule (recurring-entries.ts), not from lines.
+    if (schedule.kind && schedule.kind !== 'fixed') continue
+    const step = CADENCE_MONTHS[schedule.frequency as string] ?? 1
+    let k = 0
     let due = scheduledMonth(schedule.start_date, 0, schedule.day_of_month)
-    while (due < start) due = scheduledMonth(due, 1, schedule.day_of_month)
+    while (due < start || due < schedule.start_date) due = scheduledMonth(schedule.start_date, ++k * step, schedule.day_of_month)
     while (due <= end && (!schedule.end_date || due <= schedule.end_date)) {
       const sourceRef = `schedule:${schedule.id}:${due}`
       const lines = [...(schedule.accounting_schedule_lines ?? [])].sort((a, b) => a.sort_order - b.sort_order)
       if (!existingRefs.has(sourceRef) && !existingSignatures.has(`${due}:${signature(lines)}`)) {
         out.push({
           id: sourceRef, sourceRef, basis: 'schedule', title: schedule.name,
-          detail: `Expected from the monthly accounting schedule on ${due}.`, entryDate: due,
-          memo: schedule.memo || schedule.name, sourceType: schedule.source_type,
+          detail: `Expected from the recurring journal entry on ${due}.`, entryDate: due,
+          memo: renderMemo(schedule.memo || schedule.name, due), sourceType: schedule.source_type,
           required: schedule.required_for_close !== false,
           postings: lines.map((line: any) => ({ accountId: line.account_id, amount: Number(line.amount), currency: 'USD', lpEntityId: line.lp_entity_id })),
           evidence: { scheduleId: schedule.id },
         })
       }
-      due = scheduledMonth(due, 1, schedule.day_of_month)
+      due = scheduledMonth(schedule.start_date, ++k * step, schedule.day_of_month)
     }
   }
 

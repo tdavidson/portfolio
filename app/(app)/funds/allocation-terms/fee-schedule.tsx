@@ -9,7 +9,7 @@ import { useCallback, useEffect, useState } from 'react'
 import { Loader2, Check } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
-import { useLedgerFetch } from '@/components/accounting-vehicle'
+import { useLedgerFetch, useVehicleBase } from '@/components/accounting-vehicle'
 import { FEE_KIND_LABELS, PortfolioFeesList } from './portfolio-fees'
 import { FeePeriodsTable } from './fee-periods'
 
@@ -27,6 +27,7 @@ const frac = (percent: string) => {
 
 export function FeeScheduleCard() {
   const lf = useLedgerFetch()
+  const base = useVehicleBase()
   const [on, setOn] = useState(false)
   const [frequency, setFrequency] = useState<Frequency>('quarterly')
   const [start, setStart] = useState('')
@@ -172,8 +173,15 @@ export function FeeScheduleCard() {
             </div>
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={monthly} onChange={e => setMonthly(e.target.checked)} />
-              Spread the fee monthly: bill the period on its due date, then recognize each month&rsquo;s share at month end, whenever the cash arrives (in arrears, it accrues monthly instead)
+              Spread the fee monthly: bill the period on its due date, then recognize each month&rsquo;s share on the 1st of the month, whenever the cash arrives (in arrears, it accrues at each month end instead)
             </label>
+            {monthly && (
+              <p className="text-xs text-muted-foreground max-w-3xl pl-6">
+                The monthly entries are a recurring journal entry, with its own reminder, draft or post setting
+                {base ? <> and the months still to book, on the <a href={`${base}/journal?tab=recurring`} className="underline underline-offset-2 hover:text-foreground">Recurring tab of the journal</a></> : null}.
+                This schedule books the bill and the invoice.
+              </p>
+            )}
             <label className="flex items-center gap-2 text-sm">
               <input type="checkbox" checked={managerSide} onChange={e => setManagerSide(e.target.checked)} />
               Book the management company&rsquo;s receivable too, when one is linked to this fund

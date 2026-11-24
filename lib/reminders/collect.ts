@@ -4,6 +4,7 @@ import { asksFollowupReminders } from './sources/asks-followup'
 import { callsDueReminders, type CallsData } from './sources/calls'
 import { onboardingReminders, type OnboardingData } from './sources/onboarding'
 import { feeDueReminders, type FeesData } from './sources/fees'
+import { recurringDueReminders, type RecurringData } from './sources/recurring'
 import type { ReminderItem } from './types'
 
 export interface FundReminderData {
@@ -12,6 +13,8 @@ export interface FundReminderData {
   calls: CallsData
   /** Absent when no vehicle has a stored fee schedule. */
   fees?: FeesData
+  /** Absent when no recurring journal entry is due or drafted. */
+  recurring?: RecurringData
   /** Absent on a fund with the LP portal off. */
   onboarding?: OnboardingData
 }
@@ -24,6 +27,7 @@ export function collectReminders(data: FundReminderData, today: string): Reminde
     ...asksFollowupReminders(data.asks, today),
     ...callsDueReminders(data.calls, today),
     ...(data.fees ? feeDueReminders(data.fees, today) : []),
+    ...(data.recurring ? recurringDueReminders(data.recurring, today) : []),
     ...(data.onboarding ? onboardingReminders(data.onboarding, today) : []),
   ].sort((a, b) => a.dueDate.localeCompare(b.dueDate))
 }

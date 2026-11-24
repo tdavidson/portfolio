@@ -556,16 +556,28 @@ Paying the fee later is a separate plain entry: `Dr 2100 Due to GP / Cr 1000 Cas
 per-partner lines: the partners' fee, a later closer's catch-up (the fee for the periods before its
 closing, charged in the first period it is in), equalization fees and adjustments. Posting a period
 books this entry on its due date, each partner's capital debited with its own lines, tagged
-`fee-period:<id>:<kind>:<date>`. With `monthlyAccrual`, a period billed in advance is billed whole on
+`fee-period:<id>:<kind>:<date>`. With monthly spreading on, a period billed in advance is billed whole on
 its due date (`Dr 1500 Prepaid management fees / Cr payable`; the manager `Dr Due from <fund> / Cr 2400
-Deferred management fee revenue`) and each month end recognizes its share (`Dr 5000 / Cr 1500` with
+Deferred management fee revenue`) and the 1st of each month recognizes its share (`Dr 5000 / Cr 1500` with
 the partners' capital; the manager `Dr 2400 / Cr 4000`), whenever the cash arrives. A period billed
-in arrears accrues month by month instead. When a management company is linked
+in arrears accrues at each month end instead. The spread is a **recurring journal entry** (kind
+`management_fee_spread`, below): the fee schedule books the bill and the invoice, and the recurring
+entry books the months in its own mode; `monthlyAccrual` on a fee schedule reports and switches it. When a management company is linked
 to the fund (`manco_fee_links`), the credit is the fund's *Due to <manager>* account instead of
 2100, the manager books `Dr Due from <fund> / Cr 4000 Management fee income`, and an intercompany
 charge links the two so the manager's Intercompany tab settles the cash. Each payment gets an
 invoice from the manager to the fund (`fee-invoice-pdf.ts`). With `postMode` draft or post the
 daily tick does this on the due date; otherwise the reminder digest lists the fee as it comes due.
+
+**Recurring journal entries** (`lib/accounting/recurring-entries.ts`, table `accounting_schedules`).
+An entry that repeats: fixed lines (or a management fee spread) on a monthly, quarterly, semiannual or
+annual cadence, on a day of the month (31 = the last day), from its start month. Its mode says what
+each due date does: *remind* (the reminder digest lists it and the close suggests it), *draft* (the
+daily run saves a draft) or *post* (it posts). Each occurrence is tagged `schedule:<id>:<date>`, which
+is how it is known to be booked. The daily run books only dates from the day the mode was set to draft
+or post (`auto_from`); earlier dates are listed as missed for a person to preview and book. Fixed
+entries run in the `recurring-entries` worker; fee spreads run in the `fee-periods` worker right after
+the day's bills, so a month recognized on the 1st finds its quarter's bill booked.
 
 ### 5. Partnership expense — `source: partnership_expense` (compound, via bridge)
 Same shape as the fee, but paid from cash and allocated pro-rata. Line: **expenses**.

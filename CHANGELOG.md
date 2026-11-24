@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Recurring journal entries
+- **The journal's Recurring tab.** An entry with fixed lines repeats monthly, quarterly, every six months or yearly, on a day of the month (or its last day), from a start date until an optional end. On each due date it reminds (the reminder digest lists it and the close suggests it), saves a draft, or posts. Memos can carry `{month}`, `{quarter}`, `{year}` and `{date}`. Templates: accrue a recurring expense, release a prepaid expense, accrue loan interest, and the management fee spread.
+- **No unattended back-booking.** The daily run books only dates from the day an entry was set to draft or post. Earlier dates show as missed; pick them, review exactly what will be written (each date's memo and lines, or why it is skipped), then save drafts or post. Drafts waiting are listed the same way.
+- **The monthly management fee spread is now a recurring entry.** The fee schedule books the quarter's bill (prepaid fees and payable; the manager's receivable and deferred revenue) and the invoice; the spread recognizes each month's share on the 1st of the month, whenever the cash arrives, in its own mode. The fee schedule's *Spread the fee monthly* checkbox (and `monthlyAccrual` on `set_fee_schedule`) creates or pauses it. A month whose quarter's bill is not booked yet waits for it in the daily run.
+- **Daily tick.** A `recurring-entries` worker runs only when some fixed entry drafts or posts on its own; fee spreads run in the `fee-periods` worker after the day's bills.
+- **MCP:** `recurring_entries`, `preview_recurring_entry` and `update_recurring_entries` (create, update, pause, resume, delete, book).
+- Migration: `20261124060000_recurring_journal_entries.sql` (columns and checks on `accounting_schedules`). Until it is applied, the Recurring tab says to apply it and the fee spread stays off.
+
 ### Distribution notices from Claude and ChatGPT
 - **`preview_distribution_notices`** shows what publishing a declared distribution's notices would do, and with `email` who each would be emailed to: one notice per partner (the GP's distribution on capital and carried interest apart), whether it is already published, the recipient (portal account, or the contact or notice email with the PDF attached), a DRAFT PDF link per partner, and the flags (not signed off, no email provider, a portal link with the portal off, partners nobody can reach).
 - **`publish_distribution_notices`** stages it with the preview's token, which covers the figures and, when emailing, the recipients. An admin approves it in the app (confirming twice) or from their chat on an explicit yes; it runs on the Chromium route like capital call notices, and refuses a stale token or any blocker.

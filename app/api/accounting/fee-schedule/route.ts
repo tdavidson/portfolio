@@ -48,7 +48,7 @@ export async function PUT(req: NextRequest) {
   const group = await resolveGroupOr400(admin, gate, body?.group ?? req.nextUrl.searchParams.get('group'))
   if (group instanceof NextResponse) return group
 
-  const saved = await saveFeeSchedule(admin, gate.fundId, group, body?.schedule ?? null)
+  const saved = await saveFeeSchedule(admin, gate.fundId, group, body?.schedule ?? null, { userId: user.id })
   if ('error' in saved) {
     if (saved.dbError) return dbError(saved.dbError, 'fee-schedule-put')
     return NextResponse.json({ error: saved.error }, { status: saved.status })

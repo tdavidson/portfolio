@@ -35,6 +35,9 @@
     "app/api/cron/fee-periods/route.ts": {
       "maxDuration": 300
     },
+    "app/api/cron/recurring-entries/route.ts": {
+      "maxDuration": 300
+    },
     "app/api/cron/affinity-sync/route.ts": {
       "maxDuration": 60
     },

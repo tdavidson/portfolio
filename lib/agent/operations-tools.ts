@@ -59,6 +59,7 @@ const SOURCE_ACCESS: Record<ReminderSource, (ctx: AgentToolContext) => boolean> 
   asks_followup: ctx => hasAccess(ctx.access, 'portfolio', 'read', 'asks'),
   calls_due: ctx => hasAccess(ctx.access, 'lp_capital', 'read'),
   fees_due: ctx => hasAccess(ctx.access, 'accounting', 'read'),
+  recurring_due: ctx => hasAccess(ctx.access, 'accounting', 'read'),
   onboarding: ctx => hasAccess(ctx.access, 'lp_relations', 'read', 'lp_portal'),
 }
 
