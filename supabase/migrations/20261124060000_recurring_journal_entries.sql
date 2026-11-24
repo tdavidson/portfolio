@@ -7,9 +7,9 @@
 --                 day), counted from start_date's month;
 --   mode          what each due date does: remind (the reminder digest lists it and the close
 --                 suggests it), draft (the daily run saves a draft), or post (it posts it);
---   kind          fixed (the stored lines, the same every time) or management_fee_spread (each month
---                 end recognizes the share of the vehicle's management fee periods that month covers,
---                 out of prepaid fees and deferred revenue: lib/accounting/fee-periods.ts);
+--   kind          fixed (the stored lines, the same every time) or management_fee_spread (the 1st of
+--                 each month recognizes that month's share of a management fee billed in advance, out
+--                 of prepaid fees and deferred revenue: lib/accounting/fee-periods.ts);
 --   auto_from     the first date the daily run books on its own: the day the mode was last set to
 --                 draft or post. Earlier dates are never booked unattended; a person reviews them.
 --
