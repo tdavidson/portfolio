@@ -1,0 +1,11 @@
+{
+  "paragraphs": [
+    { "section": "Executive summary", "text": "Lumenfield sells soil-moisture sensors and an app that tells growers when to irrigate, and is raising a $1.5M pre-seed on a SAFE with a $9M cap. The company reports $85K in revenue over the last twelve months, unaudited. Financial statements, a customer list, founder backgrounds and market sizing have not been provided, so most of the case is still unknown.", "sources": ["claim:c1", "claim:c3", "claim:c2"] },
+    { "section": "Product", "text": "According to its one-pager, the product is soil-moisture sensors paired with an app that tells growers when to irrigate.", "sources": ["claim:c1"] },
+    { "section": "Traction", "text": "The company states revenue of $85K in the last twelve months; the figure is unaudited and there is no customer list to check it against.", "sources": ["claim:c2"] },
+    { "section": "Risks and open questions", "text": "Revenue is unverified, and the market, the customers and the founders' backgrounds are unknown: none of them is in the data room yet. The round is a $1.5M SAFE with a $9M cap.", "sources": ["claim:c2", "claim:c3"] }
+  ],
+  "attention": [
+    { "body": "Ask for financial statements, the customer list, founder backgrounds and any market sizing.", "urgency": "must_address" }
+  ]
+}

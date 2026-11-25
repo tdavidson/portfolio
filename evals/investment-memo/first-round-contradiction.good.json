@@ -1,0 +1,18 @@
+{
+  "paragraphs": [
+    { "section": "Executive summary", "text": "Quarry Software sells scheduling software to general contractors and is raising a $3M seed at a $15M post-money valuation. The company reports $1.2M in ARR and 40 paying customers, but the billing export shows 31 paying customers, with the other 9 in free pilots. The main open questions are the true customer count and the missing cap table and customer contracts.", "sources": ["claim:c4", "claim:c1", "claim:c2", "finding:f1"] },
+    { "section": "Recommendation", "text": "[Partner to complete]", "sources": [] },
+    { "section": "Traction", "text": "The company states ARR was $1.2M at September 30, 2026.", "sources": ["claim:c1"] },
+    { "section": "Traction", "text": "The deck counts 40 paying customers, but the billing export shows 31 at the same date; the other 9 are in free pilots. Until the company explains the gap, 31 is the verified figure.", "sources": ["claim:c2", "finding:f1"] },
+    { "section": "Traction", "text": "Management says gross margin was 72% over the last twelve months; the figure is unaudited.", "sources": ["qa:q1"] },
+    { "section": "Traction", "text": "The financial model projects ARR of $4M by the end of 2027, assuming three new sales hires; this is a projection, not a result.", "sources": ["claim:c3"] },
+    { "section": "Market", "text": "The company estimates its addressable market at $8B. An industry report puts spending on construction-site scheduling software at $2.5B in 2025, so the company's figure is far above the one outside estimate we have.", "sources": ["claim:c5", "finding:f2"] },
+    { "section": "Team", "text": "According to the deck, the CEO led product at a construction-management software company for six years.", "sources": ["claim:c6"] },
+    { "section": "Deal terms", "text": "The term sheet sets a $3M seed at a $15M post-money valuation. The fund would take $750K of the round.", "sources": ["claim:c4", "fact:k1"] },
+    { "section": "Risks and open questions", "text": "Customer count: the deck's 40 paying customers do not match the 31 in the billing export. The cap table and customer contracts are not in the data room, so ownership and contract terms are unknown.", "sources": ["claim:c2", "finding:f1"] }
+  ],
+  "attention": [
+    { "body": "The deck says 40 paying customers; the billing export shows 31. Ask the company to reconcile them.", "urgency": "must_address", "sources": ["claim:c2", "finding:f1"] },
+    { "body": "Request the cap table and customer contracts.", "urgency": "should_address" }
+  ]
+}

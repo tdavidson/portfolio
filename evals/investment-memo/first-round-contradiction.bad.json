@@ -1,0 +1,8 @@
+{
+  "paragraphs": [
+    { "section": "Executive summary", "text": "Quarry Software is a breakout seed company with $1.2M ARR and 40 customers. The founders are visionary and we recommend investing.", "sources": ["claim:c1"] },
+    { "section": "Recommendation", "text": "Invest $750K.", "sources": ["fact:k1"] },
+    { "section": "Traction", "text": "ARR is $1.2M and will reach $4M in 2027, with 40 paying customers and 25% month-over-month growth.", "sources": ["claim:c1", "claim:c2"] },
+    { "section": "Market", "text": "The market is $8B.", "sources": ["claim:c5"] }
+  ]
+}

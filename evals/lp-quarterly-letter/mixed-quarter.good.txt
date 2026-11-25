@@ -1,0 +1,45 @@
+## Example Fund II: Q2 2026 letter
+
+Dear partners,
+
+Example Fund II ended Q2 2026 with a gross IRR of 14.2% and a gross MOIC of 1.38x for the total portfolio. Two companies had hard quarters, and we start with them.
+
+## Fund performance
+
+Figure | Basis | Value | As of
+Gross IRR | Gross, performance report (total portfolio) | 14.2% | June 30, 2026
+Gross MOIC | Gross, performance report (total portfolio) | 1.38x | June 30, 2026
+Net DPI | Net, fund administrator | 0.12x | June 30, 2026
+Net IRR | Net, fund administrator | 9.6% | June 30, 2026
+Net TVPI | Net, fund administrator | [Net TVPI to come from the administrator] | June 30, 2026
+
+## Pinecrest Bio
+
+Pinecrest Bio was written off on May 31, 2026. The company wound down after its lead program failed a safety study. The fund invested $750,000, and the position is now carried at $0.
+
+## Saltmarsh Energy
+
+Saltmarsh had a down round in April: it raised a $6M Series A extension at a lower price per share than our Series A, and we marked the fund's position down from $1,500,000 to $900,000. Two pilot sites are now generating revenue, and the company reported Q2 2026 revenue of $310K. Management estimates the new funding gives it runway into the second half of 2027.
+
+## Lattice Freight
+
+Lattice had its strongest quarter. It added 11 new shipper customers, for 58 in total, and opened its second dispatch hub in the Midwest. The company is starting a search for a VP of Sales in August.
+
+- ARR: $4.1M at June 30, 2026, up from $3.2M at March 31
+- Customers: 58 at the end of Q2 2026
+- Gross margin: 61% for Q2 2026
+
+## Tidewater Labs
+
+Tidewater Labs sent no update this quarter.
+
+## Closing
+
+Thank you for your continued support. We are glad to talk through any of this.
+
+[Signatories]
+
+## Missing information
+
+- Net TVPI as of 2026-06-30: not recorded yet.
+- Signatories: not in the brief.

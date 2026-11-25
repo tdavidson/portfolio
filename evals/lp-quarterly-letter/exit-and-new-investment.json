@@ -1,0 +1,110 @@
+{
+  "id": "exit-and-new-investment",
+  "description": "A year-end quarter with an exit, a new investment with stored terms, an event after the quarter end, a company the firm holds only through another fund, and house rules with words to avoid.",
+  "brief": {
+    "fund": "Example Fund I",
+    "period": "Q4 2025",
+    "skill": { "name": "lp-quarterly-letter", "version": "2.5.0", "voice": "default", "voice_template": null },
+    "as_of": "2026-01-20",
+    "instructions": "Write the Q4 2025 letter for Example Fund I, which is also the year-end letter.",
+    "basis_notes": [
+      "Gross figures are the performance report's, for the total portfolio, as of 2025-12-31.",
+      "Net figures are the fund administrator's, as recorded in Hemrock, as of 2025-12-31."
+    ],
+    "fund_figures": [
+      { "label": "Gross IRR", "value": "21.5%", "basis": "gross", "source": "Performance report (total portfolio)", "as_of": "2025-12-31" },
+      { "label": "Gross MOIC", "value": "2.10x", "basis": "gross", "source": "Performance report (total portfolio)", "as_of": "2025-12-31" },
+      { "label": "Net TVPI", "value": "1.72x", "basis": "net", "source": "Fund administrator", "as_of": "2025-12-31" },
+      { "label": "Net DPI", "value": "0.64x", "basis": "net", "source": "Fund administrator", "as_of": "2025-12-31" },
+      { "label": "Net IRR", "value": "16.8%", "basis": "net", "source": "Fund administrator", "as_of": "2025-12-31" }
+    ],
+    "companies": [
+      {
+        "company_id": "c-harbor",
+        "company": "Harborview Payments",
+        "status": "exited",
+        "letter_status": "Acquired",
+        "stage": "Series B",
+        "figures": [
+          { "label": "Invested", "value": "$1,000,000", "basis": "cost" },
+          { "label": "Proceeds at close", "value": "$3,400,000", "basis": "cash" },
+          { "label": "Held in escrow", "value": "$400,000", "basis": "cash" }
+        ],
+        "events": ["Acquired on 2025-11-14 by a public payments company. The fund received $3,400,000 at close, with a further $400,000 held in escrow for 18 months."],
+        "updates_this_quarter": [],
+        "kpis_this_quarter": [],
+        "team_notes": [],
+        "stored_business_update": null,
+        "stored_business_update_at": null,
+        "stored_business_update_stale": null
+      },
+      {
+        "company_id": "c-quillon",
+        "company": "Quillon Health",
+        "status": "active",
+        "letter_status": "Active",
+        "stage": "Seed",
+        "figures": [
+          { "label": "Invested", "value": "$600,000", "basis": "cost" },
+          { "label": "Fair value", "value": "$600,000", "basis": "gross" }
+        ],
+        "events": [],
+        "updates_this_quarter": [],
+        "kpis_this_quarter": [],
+        "team_notes": [],
+        "stored_business_update": "Quillon Health builds scheduling software for physical therapy clinics.",
+        "stored_business_update_at": "2025-12-02",
+        "stored_business_update_stale": false,
+        "new_investments": ["2025-12-05: $600,000 in Quillon Health's $4M seed round at a $16M post-money valuation, founded by two former clinic operators."]
+      },
+      {
+        "company_id": "c-ridge",
+        "company": "Ridgeline Data",
+        "status": "active",
+        "letter_status": "Active",
+        "stage": "Series A",
+        "figures": [
+          { "label": "Invested", "value": "$1,200,000", "basis": "cost" },
+          { "label": "Fair value", "value": "$2,000,000", "basis": "gross" }
+        ],
+        "events": [],
+        "updates_this_quarter": [
+          {
+            "received": "2026-01-09",
+            "subject": "Ridgeline Q4 2025",
+            "period": "Q4 2025",
+            "text": "Revenue for 2025 was $5.6M, up from $3.0M in 2024. We ended the year with 120 employees. Our largest customer renewed for three years."
+          }
+        ],
+        "kpis_this_quarter": ["Revenue: $5.6M (FY 2025)", "Employees: 120 (Dec 2025)"],
+        "team_notes": [],
+        "stored_business_update": null,
+        "stored_business_update_at": null,
+        "stored_business_update_stale": null,
+        "after_quarter_end": ["2026-01-12: Ridgeline signed a term sheet for a Series B led by a growth fund; terms are not final and the round is not public."]
+      }
+    ],
+    "partner_notes": "Year in review: a strong year for the fund, with our first meaningful exit. Mention that the Series B at Ridgeline is not yet public.",
+    "missing_information": [],
+    "excluded": "Investor names and contact details are excluded."
+  },
+  "expect": {
+    "today": "2026-01-20",
+    "investor_names": ["Jane Doe Family Trust"],
+    "other_companies": ["Fernway Robotics", "Maple Grid"],
+    "avoid": ["excited", "thrilled", "unicorn"],
+    "allowed_flags": [],
+    "must_contain": [
+      { "text": "acquired|acquisition|sold", "section": "Harborview Payments" },
+      { "text": "escrow", "section": "Harborview Payments" },
+      { "text": "16M|\\$4M", "section": "Quillon Health" },
+      { "text": "not (?:yet )?public|not been announced|confidential", "section": "Ridgeline Data" },
+      { "text": "1\\.72x" },
+      { "text": "0\\.64x" },
+      { "text": "16\\.8%" }
+    ],
+    "must_not_contain": [
+      "Acme Robotics", "Birch Analytics", "Northwind Health"
+    ]
+  }
+}

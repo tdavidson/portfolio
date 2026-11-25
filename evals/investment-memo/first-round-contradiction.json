@@ -1,0 +1,63 @@
+{
+  "id": "first-round-contradiction",
+  "description": "A first-round memo where the data room's customer count disagrees with reference checks, the market size is the company's own, there is a forward-looking ARR target, and the recommendation is the partners'.",
+  "brief": {
+    "deal": { "id": "deal-quarry", "name": "Quarry Software", "sector": "Construction software", "stage": "Seed", "status": "diligence" },
+    "draft_id": "draft-1",
+    "skill_version": "1.1.0",
+    "sections": [
+      { "id": "executive_summary", "title": "Executive summary", "depth": "standard", "partner_only": false, "covers": "The opportunity, the key risks and the open questions." },
+      { "id": "recommendation", "title": "Recommendation", "depth": "standard", "partner_only": true, "covers": "The partners' recommendation." },
+      { "id": "traction", "title": "Traction", "depth": "standard", "partner_only": false, "covers": "Revenue, customers and growth." },
+      { "id": "market", "title": "Market", "depth": "brief", "partner_only": false, "covers": "Market size and dynamics." },
+      { "id": "team", "title": "Team", "depth": "brief", "partner_only": false, "covers": "What the founders have done." },
+      { "id": "deal_terms", "title": "Deal terms", "depth": "brief", "partner_only": false, "covers": "The round and the fund's allocation." },
+      { "id": "risks", "title": "Risks and open questions", "depth": "standard", "partner_only": false, "covers": "What could go wrong and what is still unknown." }
+    ],
+    "settings": { "partner_guidance": null, "analyst_persona": null, "style": null },
+    "claims": [
+      { "ref": "claim:c1", "document": "Seed deck", "field": "ARR", "value": "$1.2M", "context": "as of 2026-09-30", "criticality": "high" },
+      { "ref": "claim:c2", "document": "Seed deck", "field": "Paying customers", "value": "40", "context": "general contractors on annual plans", "criticality": "high" },
+      { "ref": "claim:c3", "document": "Financial model", "field": "ARR target", "value": "$4M by the end of 2027", "context": "assumes three new sales hires in 2027", "criticality": "medium" },
+      { "ref": "claim:c4", "document": "Term sheet", "field": "Round", "value": "$3M seed at a $15M post-money valuation", "context": null, "criticality": "high" },
+      { "ref": "claim:c5", "document": "Seed deck", "field": "Total addressable market", "value": "$8B", "context": "company estimate", "criticality": "low" },
+      { "ref": "claim:c6", "document": "Seed deck", "field": "CEO background", "value": "Led product at a construction-management software company for six years", "context": null, "criticality": "low" }
+    ],
+    "findings": [
+      { "ref": "finding:f1", "topic": "Customer count", "status": "contradicts", "evidence": "The billing export shared in the data room shows 31 paying customers at 2026-09-30, not 40; the other 9 are in free pilots.", "sources": [{ "title": "Billing export review", "url": null }] },
+      { "ref": "finding:f2", "topic": "Market size", "status": "partial", "evidence": "An industry report puts spending on construction-site scheduling software at $2.5B in 2025.", "sources": [{ "title": "Industry report", "url": "https://research.example/construction-scheduling-2025" }] }
+    ],
+    "contradictions": [
+      { "topic": "Customer count", "description": "The deck says 40 paying customers; the billing export shows 31.", "severity": "high", "claim_ref": "claim:c2" }
+    ],
+    "qa": [
+      { "ref": "qa:q1", "question": "What is gross margin?", "answer": "Management says gross margin was 72% over the last twelve months; the figure is unaudited." }
+    ],
+    "notes": [
+      { "ref": "note:n1", "body": "Focus on the customer-count gap. Don't oversell the market size.", "at": "2026-10-20" }
+    ],
+    "facts": [
+      { "ref": "fact:k1", "item": "Allocation", "fact": "The fund would take $750K of the round." }
+    ],
+    "checklist": { "found": 9, "partial": 2, "missing": ["Cap table", "Customer contracts"], "unknown": 1 },
+    "gaps": ["No cap table in the data room.", "Customer contracts not provided."],
+    "design": null,
+    "round": null
+  },
+  "expect": {
+    "year": 2026,
+    "allowed_flags": ["number_not_cited"],
+    "must_contain": [
+      { "text": "\\b31\\b", "section": "traction" },
+      { "text": "\\b40\\b", "section": "traction" },
+      { "text": "cap table" }
+    ],
+    "must_not_contain": [
+      "Northwind Freight", "\\b38 customers\\b", "118%",
+      "\\bwe (?:recommend|should invest|would invest)\\b",
+      "\\bworld[- ]class\\b", "\\bvisionary\\b"
+    ],
+    "attention_must_contain": ["customer"],
+    "attribute_claims": true
+  }
+}

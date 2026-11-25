@@ -16,6 +16,10 @@ describe('figures', () => {
   it('skips years and small bare counts', () => {
     expect(figuresIn('In 2025 it signed 3 customers').map(f => f.raw)).toEqual([])
   })
+  it('reads a year before a comma as a year, and a comma between digits as part of the figure', () => {
+    expect(figuresIn('By the end of 2027, it plans to hire.').map(f => f.raw)).toEqual([])
+    expect(figuresIn('It has 1,400 users, up from 900.').map(f => f.norm)).toEqual(['1400', '900'])
+  })
 })
 
 describe('reviewMemo', () => {

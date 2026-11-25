@@ -14,6 +14,7 @@
     "perf:check": "node scripts/check-page-speed.mjs",
     "generate:types": "node scripts/generate-memo-agent-types.mjs",
     "docs:mcp-tools": "npx tsx scripts/generate-mcp-tools-doc.ts",
+    "evals": "npx tsx --env-file-if-exists=.env.local scripts/skill-evals.ts",
     "demo:widget": "node demo-widget/build.mjs",
     "demo:check": "node scripts/demo-check.mjs",
     "demo:record": "node scripts/demo-record.mjs",
