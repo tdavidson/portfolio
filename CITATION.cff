@@ -1,0 +1,24 @@
+cff-version: 1.2.0
+message: If you use this software, please cite it as below.
+title: "Portfolio, by Hemrock"
+abstract: >-
+  Open-source fund administration, portfolio monitoring and LP reporting for small venture funds:
+  double-entry books for every entity, partner capital accounts, LP statements, letters and a portal,
+  diligence and memo drafting, and an MCP server so Claude, ChatGPT and other agents can work with a
+  fund's own data. Self-hosted on Supabase and Vercel or Netlify.
+type: software
+authors:
+  - given-names: Taylor
+    family-names: Davidson
+    affiliation: Hemrock
+repository-code: "https://github.com/tdavidson/portfolio"
+url: "https://www.hemrock.com/portfolio"
+license: Apache-2.0
+keywords:
+  - venture capital
+  - fund administration
+  - fund accounting
+  - LP reporting
+  - portfolio monitoring
+  - MCP
+  - self-hosted

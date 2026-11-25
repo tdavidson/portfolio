@@ -1,0 +1,57 @@
+name: Bug report
+description: Something in Portfolio doesn't work the way it should.
+labels: [bug]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for reporting. **Never paste real fund, LP, investor or company data**, in text or screenshots. Replace names and figures with invented ones (for example Acme, Example Fund I, 100,000).
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      description: What you did, what you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Go to …
+        2. Click …
+        3. See …
+  - type: dropdown
+    id: surface
+    attributes:
+      label: Where
+      options:
+        - Web app
+        - LP portal
+        - MCP (Claude, ChatGPT or another agent)
+        - REST API
+        - Setup or deployment
+        - Other
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: From the app's Updates page, or the release tag or commit you deployed.
+      placeholder: v0.9.7
+  - type: dropdown
+    id: hosting
+    attributes:
+      label: Hosting
+      options:
+        - Vercel
+        - Netlify
+        - Local development
+        - Other
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs or errors
+      description: Browser console, server logs or the tool's error message, with any secrets and real data removed.
+      render: text

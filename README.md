@@ -1,12 +1,32 @@
-![Next.js](https://img.shields.io/badge/Next.js-16-black?logo=next.js) ![Supabase](https://img.shields.io/badge/Supabase-PostgreSQL-3ECF8E?logo=supabase&logoColor=white) ![TypeScript](https://img.shields.io/badge/TypeScript-97.6%25-3178C6?logo=typescript&logoColor=white) ![GitHub Stars](https://img.shields.io/github/stars/tdavidson/portfolio?style=flat) ![License](https://img.shields.io/badge/license-Apache_2.0-blue)
+<p align="center">
+  <img src="public/brand/hemrock-mark.svg" alt="Hemrock" width="72">
+</p>
 
-# Portfolio, by Hemrock
+<h1 align="center">Portfolio, by Hemrock</h1>
+
+<p align="center">
+  Open-source fund administration, portfolio monitoring and LP reporting for small venture funds.<br>
+  Your books, your database, your AI.
+</p>
+
+<p align="center">
+  <a href="https://www.hemrock.com/demo"><img src="https://img.shields.io/badge/Try_the_demo-2f7d4f?style=flat" alt="Try the demo"></a>&nbsp;
+  <a href="./DOCS.md"><img src="https://img.shields.io/badge/Docs-2563eb?style=flat" alt="Docs"></a>&nbsp;
+  <a href="./MCP.md"><img src="https://img.shields.io/badge/Claude_%26_ChatGPT-MCP-6b4fbb?style=flat" alt="MCP"></a>&nbsp;
+  <a href="./ROADMAP.md"><img src="https://img.shields.io/badge/Roadmap-ee964b?style=flat" alt="Roadmap"></a>&nbsp;
+  <a href="./CHANGELOG.md"><img src="https://img.shields.io/github/v/release/tdavidson/portfolio?style=flat&label=Release" alt="Latest release"></a>&nbsp;
+  <a href="./LICENSE.md"><img src="https://img.shields.io/badge/License-Apache_2.0-blue?style=flat" alt="License: Apache 2.0"></a>&nbsp;
+  <a href="https://github.com/tdavidson/portfolio/stargazers"><img src="https://img.shields.io/github/stars/tdavidson/portfolio?style=flat" alt="GitHub stars"></a>
+</p>
+
+> [!TIP]
+> **Don't want to run it yourself?** Taylor offers paid **setup and support**: Portfolio deployed on your own infrastructure and accounts, with onboarding and ongoing help. Your data still lives in your database. [Get in touch →](https://www.hemrock.com/contact)
 
 Free, open source software for small venture funds: portfolio monitoring built from founder updates, LP letters and capital statements, deal flow and fund accounting. It runs on your own infrastructure with your own AI provider.
 
 Portfolio is an open-source operating platform for small and emerging venture funds, from solo GPs and SPVs to micro funds. Take a company from inbound screening and diligence through investment, portfolio monitoring, fund accounting, and LP reporting—all in one system. Turn on only the workflows you need, deploy on your own infrastructure, and use your own AI providers. Product site and documentation: [hemrock.com/portfolio](https://www.hemrock.com/portfolio).
 
-![Portfolio Dashboard](public/screenshots/dashboard.png)
+![Portfolio dashboard](public/screenshots/dashboard.png)
 
 ## What it does
 
@@ -18,7 +38,12 @@ Fund operations run on real double-entry books that keep themselves: every entit
 
 ## Who it's for
 
-Portfolio is built for small funds that carry the same reporting obligations as large ones without the headcount: [solo GPs](https://www.hemrock.com/portfolio/solo-gps), [micro VCs](https://www.hemrock.com/portfolio/micro-vc), [SPVs](https://www.hemrock.com/portfolio/spvs), and [angels and syndicates](https://www.hemrock.com/portfolio/angels-syndicates). It's free, with no per-seat fees, and your data stays in your own database. It works alongside your fund administrator, not in place of one.
+Portfolio is built for small funds that carry the same reporting obligations as large ones without the headcount. It's free, with no per-seat fees, and your data stays in your own database. It works alongside your fund administrator, not in place of one.
+
+- **[Solo GPs](https://www.hemrock.com/portfolio/solo-gps)** — the quarterly LP pack (statements, report cards, the letter) built from your own books instead of a week of spreadsheets.
+- **[Micro VCs](https://www.hemrock.com/portfolio/micro-vc)** — capital calls, distributions and notices, partner capital accounts, management fees and carry, with a close you can re-run and verify.
+- **[SPVs](https://www.hemrock.com/portfolio/spvs)** — one ledger per vehicle from day one, LP onboarding through a portal, and K-1 prep data at year end.
+- **[Angels and syndicates](https://www.hemrock.com/portfolio/angels-syndicates)** — founder updates forwarded by email turned into tracked metrics, marks and TVPI without data entry.
 
 ## How it works
 
@@ -41,7 +66,59 @@ Portfolio is built for small funds that carry the same reporting obligations as 
 > Setting up a fund from chat or a script, with no web app at [DOCS](./DOCS.md#setting-up-a-fund-with-claude-chatgpt-or-a-script)  
 > Bringing data in from QuickBooks, Carta and other systems with connectors at [DOCS](./DOCS.md#data-connectors)
 
-![LP Portal](public/screenshots/lp-portal.png)
+## Screenshots
+
+All screenshots show the demo's sample fund. [Try it yourself](https://www.hemrock.com/demo), no signup required.
+
+| Fund overview | Company |
+|---|---|
+| ![Fund overview with committed, called, NAV, net TVPI and net IRR above cash-flow and asset charts](public/screenshots/fund.png) | ![A portfolio company with its AI summary and KPI charts from forwarded updates](public/screenshots/company.png) |
+| **Capital accounts** | **LP report card** |
+| ![Partner capital roll-forward by LP with issued calls](public/screenshots/capital-accounts.png) | ![An investor's report card with commitments, paid-in, NAV and performance by fund](public/screenshots/report-card.png) |
+| **Investment memo** | **Quarterly letter** |
+| ![A diligence memo draft with flagged gaps and unverified claims above the executive summary](public/screenshots/diligence-memo.png) | ![A quarterly LP letter draft with partner notes, review flags and internal notes](public/screenshots/letter.png) |
+| **Forecast** | **Custom view** |
+| ![Fund forecast with projected TVPI, IRR and cash flows](public/screenshots/forecast.png) | ![A custom partner capital roll-forward view built from live fund data](public/screenshots/view.png) |
+
+## How the numbers are calculated
+
+Fund software is only as good as the trust you can put in its figures, so every number in Portfolio can be traced and re-derived.
+
+1. **Real double-entry books.** Every entity has its own ledger. Recording an investment, a mark, a call or a distribution posts a balanced entry (debits positive, credits negative, every entry sums to zero). Statements, capital accounts, TVPI, DPI and IRR are computed from those postings, not typed in.
+2. **Closes you can verify without the app.** Each period close keeps a reproducibility bundle: the ledger snapshot, the fund's terms, the statements and a manifest of SHA-256 hashes. The open fund engine in [`packages/fund-engine`](./packages/fund-engine) recomputes the statements from the ledger and checks they match exactly: `node packages/fund-engine/bin/fund-engine.mjs verify --bundle <dir>`.
+3. **A hash-chained audit trail.** Every change records who made it and where it came from (web, API or MCP), chained so that an edit to history shows up as a break.
+4. **People approve what assistants change.** A change proposed from Claude or ChatGPT waits for a person, and anything sent to LPs or moving money needs an admin.
+5. **Your administrator's figures, side by side.** A vehicle can report the administrator's figures as stated, and the app reconciles its own books against them.
+
+The full reference is in [ACCOUNTING](./ACCOUNTING.md), including [Verifying a close independently](./ACCOUNTING.md#verifying-a-close-independently).
+
+## Use it from Claude, ChatGPT and coding agents
+
+Every Portfolio install is an MCP server at `https://<your-domain>/api/mcp`. Sign in with OAuth from the client, or use an API key from **Settings → API and MCP** (a key can be read-only). An admin turns this on under **Settings → Agent access**.
+
+```bash
+# Every MCP client installed on this machine at once
+npx add-mcp https://<your-domain>/api/mcp --name portfolio
+
+# Claude Code (then run /mcp and choose Authenticate)
+claude mcp add --transport http portfolio https://<your-domain>/api/mcp
+
+# Codex
+codex mcp add portfolio --url https://<your-domain>/api/mcp
+
+# VS Code
+code --add-mcp '{"name":"portfolio","type":"http","url":"https://<your-domain>/api/mcp"}'
+```
+
+In Claude.ai and ChatGPT, add a custom connector with the same URL, or install the plugin your deployment builds for its own address. Ask "what can you do?" to start. Details: [MCP](./MCP.md), every tool: [MCP-TOOLS](./MCP-TOOLS.md).
+
+**Skills.** The repo ships agent skills for the jobs funds do every quarter: the LP letter, the investment memo, fund questions and dashboards. Install them into Claude Code, Cursor, Codex and other agents with one command:
+
+```bash
+npx skills add tdavidson/portfolio
+```
+
+Or pick one: `npx skills add tdavidson/portfolio --skill lp-quarterly-letter`. They live in [`plugin/skills`](./plugin/skills) and read your fund through the MCP connection.
 
 ## Why you should use this
 
@@ -62,18 +139,21 @@ Built by Taylor Davidson at [Hemrock](https://www.hemrock.com). Built by a fund 
 
 ## Get started
 
-Free and open source under the Apache 2.0 license — use it, modify it, and deploy it on your own infrastructure and domain, for your own fund or commercially. [Try the demo](https://www.hemrock.com/demo) with sample data, no signup required.
+Free and open source under the Apache 2.0 license: use it, modify it, and deploy it on your own infrastructure and domain, for your own fund or commercially. [Try the demo](https://www.hemrock.com/demo) with sample data, no signup required.
 
-Prefer not to run it yourself? Taylor offers paid **setup & support**: deployed on your own infrastructure and accounts, with onboarding and ongoing support. [Contact Taylor](https://www.hemrock.com/contact) to discuss.
+Deploy in one click, then follow the quick start below for the database and sign-in:
 
-See [LICENSE](./LICENSE.md) for full terms.
+[![Deploy with Vercel](https://vercel.com/button)](https://vercel.com/new/clone?repository-url=https%3A%2F%2Fgithub.com%2Ftdavidson%2Fportfolio&env=NEXT_PUBLIC_SUPABASE_URL,NEXT_PUBLIC_SUPABASE_ANON_KEY,SUPABASE_SERVICE_ROLE_KEY,ENCRYPTION_KEY,NEXT_PUBLIC_APP_URL&envDescription=Required%20environment%20variables%20for%20Portfolio&project-name=portfolio)
+[![Deploy to Netlify](https://www.netlify.com/img/deploy/button.svg)](https://app.netlify.com/start/deploy?repository=https://github.com/tdavidson/portfolio)
+
+Prefer not to run it yourself? Taylor offers paid **setup and support**: deployed on your own infrastructure and accounts, with onboarding and ongoing support. [Contact Taylor](https://www.hemrock.com/contact).
 
 ## Quick start
 
 - **Clone the repo** — `git clone https://github.com/tdavidson/portfolio.git && cd portfolio && npm install`
 - **Create a Supabase project** — Copy your project URL, anon key, and service role key
 - **Generate an encryption key** — openssl rand -hex 32
-- **Deploy to Netlify or Vercel** — One-click deploy buttons available in the full guide
+- **Deploy to Vercel or Netlify** — with the buttons above, or the steps in the full guide
 - **Configure auth and add your first user** — Set Supabase redirect URLs and whitelist your email
 - **Add an AI key, or skip it and use your own assistant, and forward your first email** — Anthropic, OpenAI or OpenRouter on the server, or Claude or ChatGPT over MCP with no key: [AI without a server key](./DOCS.md#ai-without-a-server-key)
 - **Set up your fund** — entity, LPs, investments, then open the books, with CSV templates: [Setting up a new fund](./DOCS.md#setting-up-a-new-fund)
@@ -85,3 +165,31 @@ Or set it up headless. After the database and deploy steps, `npm run bootstrap -
 Full deployment guide with detailed steps, optional services, and local development setup: [DOCS](./DOCS.md)
 
 For setup assistance or hosted deployments: [hemrock.com/contact](https://www.hemrock.com/contact). For bug reports and feature requests: [GitHub Issues](https://github.com/tdavidson/portfolio/issues).
+
+## Roadmap and changelog
+
+What shipped recently and what's next is in [ROADMAP](./ROADMAP.md); every release is in the [CHANGELOG](./CHANGELOG.md) and on [GitHub Releases](https://github.com/tdavidson/portfolio/releases). ![Commit activity](https://img.shields.io/github/commit-activity/m/tdavidson/portfolio?style=flat&label=commits) ![Last commit](https://img.shields.io/github/last-commit/tdavidson/portfolio?style=flat)
+
+Ideas and requests are welcome in [Discussions](https://github.com/tdavidson/portfolio/discussions) or [Issues](https://github.com/tdavidson/portfolio/issues).
+
+## Contributing
+
+See [CONTRIBUTING](./CONTRIBUTING.md) and the issues labeled [good first issue](https://github.com/tdavidson/portfolio/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22). Please follow the [Code of Conduct](./CODE_OF_CONDUCT.md).
+
+## Sponsor Portfolio
+
+Portfolio is free, and one person builds it. Sponsoring keeps it that way for every small fund that runs it:
+
+- **Fund-specific work stays current.** Tax forms, ILPA templates, filing calendars and accounting rules change every year; sponsorship pays for keeping up with them.
+- **Security reviews and dependency updates** for software that holds LP and fund data.
+- **More of the roadmap, sooner**, with sponsors' requests weighed first.
+
+If Portfolio saves your fund an administrator's hours or a software bill, consider [sponsoring on GitHub](https://github.com/sponsors/tdavidson).
+
+## Security
+
+Please report vulnerabilities privately, as described in [SECURITY](./SECURITY.md), not in a public issue.
+
+## License
+
+Portfolio is open source under the [Apache 2.0 license](./LICENSE.md). If you use it in research or writing, [CITATION.cff](./CITATION.cff) has the citation.

@@ -19,6 +19,7 @@ import { ENTITY_OPERATIONS_TOOL_MANIFEST, OPERATIONS_TOOL_MANIFEST } from '@/lib
 import { DASHBOARD_TOOL_MANIFEST } from '@/lib/agent/dashboard-tools-manifest'
 import { areasFor, DASHBOARD_TIPS, promptsFor } from '@/lib/agent/getting-started'
 import { useAccess } from '@/components/access-context'
+import { connectSteps } from '@/lib/agent/connect-commands'
 
 // One surface, one key, the whole firm — deal flow at the top of the funnel, the deals
 // under diligence, what the fund ended up owning, what the LPs hold, and what the books
@@ -189,22 +190,29 @@ export function LedgerAgentAccess({ isAdmin, section = 'keys' }: { isAdmin: bool
         </div>
       </div>
 
-      {/* How to actually connect. This was the missing piece: people pasted the MCP
-          URL into Claude's connector, hit the OAuth wall, and had nothing to go on. */}
+      {/* How to actually connect, for each client, with this deployment's URL already filled in.
+          People pasted the MCP URL into a connector, hit the OAuth wall, and had nothing to go on;
+          the same list feeds the Support page and MCP.md (lib/agent/connect-commands.ts). */}
       <div className="rounded-card border bg-muted/30 p-3 space-y-2">
-        <p className="text-xs font-medium">Connecting Claude</p>
-        <ul className="text-xs text-muted-foreground space-y-1.5 list-disc ml-4">
-          <li>
-            <strong>claude.ai / Claude Desktop</strong> — add the MCP URL above as a custom connector.
-            It signs you in through this app and asks you to approve the connection; no API key needed,
-            and nothing to paste into the &ldquo;OAuth Client ID&rdquo; box, which you can leave empty.
-          </li>
-          <li>
-            <strong>Claude Code / other CLI clients</strong> — these pass a key in a header instead:
-            <code className="block bg-background rounded px-2 py-1 mt-1 font-mono text-[11px] whitespace-pre-wrap break-all">
-              claude mcp add --transport http fund {mcpUrl} --header &quot;Authorization: Bearer YOUR_KEY&quot;
-            </code>
-          </li>
+        <p className="text-xs font-medium">Connect your assistant</p>
+        <p className="text-xs text-muted-foreground">
+          Claude and ChatGPT sign you in on this app&rsquo;s own consent screen, so no key is needed.
+          Coding agents can sign in the same way or use an API key from below.
+        </p>
+        <ul className="text-xs text-muted-foreground space-y-2">
+          {connectSteps(mcpUrl).map(step => (
+            <li key={step.client}>
+              <strong className="text-foreground">{step.client}</strong> — {step.how}
+              {step.command && (
+                <div className="flex items-start gap-2 mt-1">
+                  <code className="flex-1 bg-background rounded px-2 py-1 font-mono text-[11px] whitespace-pre-wrap break-all">{step.command}</code>
+                  <button onClick={() => copy(step.command!, step.client)} className="text-muted-foreground hover:text-foreground mt-1" aria-label={`Copy the ${step.client} command`}>
+                    {copied === step.client ? <Check className="h-3.5 w-3.5 text-success" /> : <Copy className="h-3.5 w-3.5" />}
+                  </button>
+                </div>
+              )}
+            </li>
+          ))}
         </ul>
       </div>
 

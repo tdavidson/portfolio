@@ -1,0 +1,33 @@
+# Checks that `npx skills add tdavidson/portfolio` still installs every skill in plugin/skills,
+# as the README promises: on changes to the skills, and weekly from GitHub itself.
+name: skill-install
+
+on:
+  pull_request:
+    paths:
+      - 'plugin/skills/**'
+      - 'scripts/check-skill-install.sh'
+      - '.github/workflows/skill-install.yml'
+  schedule:
+    - cron: '0 9 * * 1'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  install:
+    # Forks inherit the schedule; it only needs to run here.
+    if: github.repository == 'tdavidson/portfolio'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: .nvmrc
+      - name: Install from this checkout
+        run: scripts/check-skill-install.sh
+      - name: Install from GitHub
+        if: github.event_name != 'pull_request'
+        run: scripts/check-skill-install.sh tdavidson/portfolio
