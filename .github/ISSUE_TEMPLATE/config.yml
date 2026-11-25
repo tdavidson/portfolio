@@ -1,0 +1,11 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/tdavidson/portfolio/security/advisories/new
+    about: Please report vulnerabilities privately, never in a public issue.
+  - name: Ask a question or share an idea
+    url: https://github.com/tdavidson/portfolio/discussions
+    about: Questions about setup, how-tos and early ideas go in Discussions.
+  - name: Setup and support
+    url: https://www.hemrock.com/contact
+    about: Paid help deploying and running Portfolio on your own infrastructure.

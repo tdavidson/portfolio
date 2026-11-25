@@ -8,7 +8,12 @@ reporting platform for fund managers, and contributions are welcome.
 - **Report a bug or request a feature.** Open a [GitHub issue](https://github.com/tdavidson/portfolio/issues).
   Include your deployment setup (self-hosted, managed, hosted), steps to reproduce, and any relevant logs.
 - **Submit a fix or improvement.** Fork the repo, create a branch, and open a pull request.
+- **Ask a question or float an idea** in [Discussions](https://github.com/tdavidson/portfolio/discussions).
+- **Pick up a starter task.** Issues labeled [good first issue](https://github.com/tdavidson/portfolio/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22) are small and well scoped.
 - **Improve the docs,** Corrections and clarifications to the README, `DOCS.md`, or `FEATURES.md` are just as valuable as code.
+
+Everyone taking part is expected to follow the [Code of Conduct](./CODE_OF_CONDUCT.md). Report
+security problems privately, as [SECURITY](./SECURITY.md) describes, never in a public issue.
 
 ## Licensing of contributions
 

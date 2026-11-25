@@ -29,12 +29,20 @@ An admin switches on **Settings → Agent access**. It is off by default, and sw
 
 ## Connecting
 
+Settings → API and MCP lists every client below with your deployment's URL already filled in, ready to copy. `<MCP URL>` is `https://<your-domain>/api/mcp`.
+
 | Assistant | How |
 | --- | --- |
-| Claude | Download **Plugin for Claude** from Settings → API and MCP. In Claude, **Customize → Plugins → Add → Upload plugin**, choose the file, then open the plugin's **Connectors** tab, choose **Connect**, sign in to your fund and approve. |
+| Claude (claude.ai and Claude Desktop) | Download **Plugin for Claude** from Settings → API and MCP. In Claude, **Customize → Plugins → Add → Upload plugin**, choose the file, then open the plugin's **Connectors** tab, choose **Connect**, sign in to your fund and approve. Or add the MCP URL as a custom connector under **Settings → Connectors** and leave the OAuth Client ID empty. |
 | ChatGPT | Copy the **MCP URL**. In ChatGPT, **Plugins → + → Add custom MCP server**, paste the URL, upload the icon from Settings, create it, then connect, sign in and approve. For the skills in the ChatGPT desktop app or Codex, install **Plugin for ChatGPT** as [DOCS](./DOCS.md#dashboards-in-claude-and-chatgpt) describes. |
-| Claude Code | `claude mcp add --transport http fund <MCP URL>` and sign in when prompted, or add an API key header. |
+| Every MCP client on one computer | `npx add-mcp <MCP URL> --name portfolio` adds the connector to each coding agent and desktop app it finds. |
+| Claude Code | `claude mcp add --transport http portfolio <MCP URL>`, then `/mcp` and **Authenticate**; or add `--header "Authorization: Bearer <key>"` to use an API key. |
+| Codex | `codex mcp add portfolio --url <MCP URL> && codex mcp login portfolio` |
+| VS Code | `code --add-mcp '{"name":"portfolio","type":"http","url":"<MCP URL>"}'` |
+| Cursor | Add `{"mcpServers":{"portfolio":{"url":"<MCP URL>"}}}` to `~/.cursor/mcp.json`, then sign in from Cursor's MCP settings. |
 | A script or your own agent | An API key from Settings → API and MCP, sent as a bearer token to the MCP URL, or to `/api/agent` to run one tool per request. |
+
+**Check it works.** Ask "what can you do?". The assistant opens a home dashboard of what your access lets you open and ask. If a tool is refused, the [troubleshooting](#troubleshooting) table says why.
 
 **Sign-in or key.** Claude and ChatGPT sign in with OAuth: you sign in on your fund's own consent screen and choose what the connection may do. Access tokens last an hour and renew on their own for up to 30 days of use; revoking the connection or switching Agent access off stops it at once. Use an **API key** for scripts and Claude Code: it is yours, carries your access, can be read-only, and is revoked from the same Settings page. A key never waits for a chat to approve anything (see below).
 

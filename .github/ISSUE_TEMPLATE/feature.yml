@@ -1,0 +1,32 @@
+name: Feature request
+description: Suggest something Portfolio should do.
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Early or open-ended ideas can start in [Discussions](https://github.com/tdavidson/portfolio/discussions). Please use invented names and figures in examples.
+  - type: textarea
+    id: job
+    attributes:
+      label: The job to be done
+      description: What are you trying to get done for your fund, and how do you do it today?
+    validations:
+      required: true
+  - type: textarea
+    id: idea
+    attributes:
+      label: What would help
+      description: How you'd like Portfolio to handle it, in the app, over MCP, or both.
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      options:
+        - Portfolio monitoring
+        - Deals and diligence
+        - LP reporting and portal
+        - Fund accounting
+        - Claude, ChatGPT and MCP
+        - Setup and deployment
+        - Other

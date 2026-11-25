@@ -3,6 +3,7 @@
  * Walk every page of the built demo widget in a real browser and report what broke.
  *
  *   npm run demo:widget && node scripts/demo-check.mjs [--strict] [--only /deals] [--shots dir]
+ *     [--width 1280] [--height 900] [--scale 1] [--frame]
  *
  * Serves demo-widget/dist on a local port, mounts the widget with its own data files, visits
  * every URL the route table serves, and for each collects: uncaught errors (a page that crashed),
@@ -11,6 +12,9 @@
  * opened in a new tab). Exits non-zero on a crash; with --strict, on a miss or a dead link as well.
  * The workflow runs it before publishing, so a component that no longer renders on the snapshot
  * stops the publish rather than the site.
+ *
+ * --width, --height and --scale set the viewport and device scale factor; --frame crops each shot to
+ * the widget's own frame (no host padding), which is how scripts/screenshots.mjs takes the README's.
  *
  * CHROME_PATH points at a Chromium binary (the workflow sets it; locally the default below is
  * Playwright's).
@@ -27,6 +31,9 @@ const args = process.argv.slice(2)
 const strict = args.includes('--strict')
 const only = args.includes('--only') ? args[args.indexOf('--only') + 1] : null
 const shots = args.includes('--shots') ? path.resolve(args[args.indexOf('--shots') + 1]) : null
+const num = (flag, fallback) => (args.includes(flag) ? Number(args[args.indexOf(flag) + 1]) : fallback)
+const viewport = { width: num('--width', 1280), height: num('--height', 900), deviceScaleFactor: num('--scale', 1) }
+const frame = args.includes('--frame')
 const chrome = process.env.CHROME_PATH || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome'
 
 if (!fs.existsSync(path.join(dist, 'widget.js'))) {
@@ -36,7 +43,7 @@ if (!fs.existsSync(path.join(dist, 'widget.js'))) {
 
 const HOST = `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>demo check</title>
 <link rel="stylesheet" href="/widget.css">
-<style>:root{--font-sans-face:Inter,system-ui,sans-serif}body{margin:0;padding:24px;font-family:Inter,system-ui,sans-serif;background:#fff;color:#111}.dark body{background:#121316;color:#f2f2f4}</style>
+<style>:root{--font-sans-face:Inter,system-ui,sans-serif}body{margin:0;padding:${frame ? 0 : 24}px;font-family:Inter,system-ui,sans-serif;background:#fff;color:#111}.dark body{background:#121316;color:#f2f2f4}</style>
 </head><body><div id="demo"></div><script type="module" src="/widget.js"></script>
 <script type="module">
 window.__misses = []; window.__pending = 0;
@@ -65,7 +72,7 @@ const origin = `http://127.0.0.1:${server.address().port}`
 
 const browser = await puppeteer.launch({ executablePath: chrome, args: ['--no-sandbox', '--disable-dev-shm-usage'] })
 const page = await browser.newPage()
-await page.setViewport({ width: 1280, height: 900 })
+await page.setViewport(viewport)
 
 const report = { routes: [], crashes: 0, consoleErrors: 0, misses: new Set(), deadLinks: new Set() }
 let current = null
@@ -119,7 +126,9 @@ for (const href of routes) {
   current.chars = text
   if (shots) {
     fs.mkdirSync(shots, { recursive: true })
-    await page.screenshot({ path: path.join(shots, href.replace(/[^a-z0-9]+/gi, '_').replace(/^_/, '') + '.png') })
+    const file = path.join(shots, href.replace(/[^a-z0-9]+/gi, '_').replace(/^_/, '') + '.png')
+    const target = frame ? await page.$('.oa-demo') : null
+    await (target ?? page).screenshot({ path: file })
   }
   report.routes.push(current)
   const flag = current.errors.length ? 'CRASH' : current.console.length ? 'error' : current.deadLinks.length ? 'link ' : current.misses.length ? 'miss ' : 'ok   '

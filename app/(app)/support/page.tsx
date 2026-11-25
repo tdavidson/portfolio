@@ -1307,8 +1307,10 @@ export default function SupportPage() {
               <li>Open the plugin&rsquo;s <strong>Connectors</strong> tab, choose <strong>Connect</strong>, sign in to your fund and approve.</li>
             </ol>
             <p className="text-muted-foreground mt-1">
-              Claude Code: <code className="font-mono text-xs">claude mcp add --transport http fund &lt;MCP URL&gt;</code> 
-              and sign in when prompted, or add an API key header from the same Settings page.
+              Claude Code, Codex, Cursor, VS Code and other agents: Settings &rarr; API and MCP lists the
+              command for each with your MCP URL filled in, for example{' '}
+              <code className="font-mono text-xs">claude mcp add --transport http portfolio &lt;MCP URL&gt;</code>.
+              Sign in when prompted, or use an API key from the same page.
             </p>
           </div>
           <div className="pl-4 border-l-2 border-border mb-2">
