@@ -1,6 +1,6 @@
 # Code of conduct
 
-Portfolio is built for and with people who run small funds, and the people who help them. Everyone
+Portfolio is built for and with people who run venture funds, and the people who help them. Everyone
 taking part here (issues, discussions, pull requests, reviews) is expected to make it a place
 where people want to come back.
 

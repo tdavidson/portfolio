@@ -5,7 +5,7 @@
 <h1 align="center">Portfolio, by Hemrock</h1>
 
 <p align="center">
-  Open-source fund administration, portfolio monitoring and LP reporting for small venture funds.<br>
+  Open-source portfolio reporting, investment workflow, LP reporting and fund operations for venture funds.<br>
   Your books, your database, your AI.
 </p>
 
@@ -178,7 +178,7 @@ See [CONTRIBUTING](./CONTRIBUTING.md) and the issues labeled [good first issue](
 
 ## Sponsor Portfolio
 
-Portfolio is free, and one person builds it. Sponsoring keeps it that way for every small fund that runs it:
+Portfolio is free, and one person builds it. Sponsoring keeps it that way for every fund that runs it:
 
 - **Fund-specific work stays current.** Tax forms, ILPA templates, filing calendars and accounting rules change every year; sponsorship pays for keeping up with them.
 - **Security reviews and dependency updates** for software that holds LP and fund data.
