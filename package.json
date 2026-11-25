@@ -16,6 +16,8 @@
     "docs:mcp-tools": "npx tsx scripts/generate-mcp-tools-doc.ts",
     "demo:widget": "node demo-widget/build.mjs",
     "demo:check": "node scripts/demo-check.mjs",
+    "upgrade": "node scripts/upgrade.mjs",
+    "release:notes": "node scripts/release-notes.mjs",
     "demo:record": "node scripts/demo-record.mjs",
     "demo:snapshot": "npx tsx --env-file=.env.local scripts/demo-snapshot.ts",
     "demo:answers": "npx tsx --env-file-if-exists=.env.local scripts/demo-answers.ts",

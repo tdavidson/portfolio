@@ -844,6 +844,10 @@ The app includes a built-in update checker. It periodically compares your instal
 
 Non-admin users do not see the update indicator. The check runs against the public GitHub Releases API (no authentication required) and is cached for one hour.
 
+**Upgrading a self-hosted install.** From your fork's checkout, run `npm run upgrade`. It fetches the latest release from `tdavidson/portfolio`, shows how many commits it brings and lists the database migrations it adds, in the order they must run. It changes nothing until you run `npm run upgrade -- --apply`, which merges the release into your checkout and writes the migrations' SQL to one file, `upgrade-<version>.sql`, for you to paste into the Supabase SQL Editor (or run `supabase db push` if your checkout is linked to the project). Then run `npm install` and push to deploy. It never pushes or touches your database itself. Use `--to main` to follow the main branch instead of releases, and `--remote <name>` if your remote for this repository has another name. If your own changes conflict with the release, the merge stops and `git status` lists the files.
+
+**Release notes.** Each release's notes list its migrations first, then what changed, taken from CHANGELOG.md. `npm run release:notes -- 1.2.3 --since v1.2.2` prints them locally.
+
 Each installation has a unique **Installation ID** — a UUID automatically generated in your database when you run migrations. This ID is specific to your deployment and is displayed at the bottom of the Updates page. It lays the groundwork for future license key validation and is not shared externally.
 
 **Renumbered migrations (October 2026).** Four migrations used to share a version number with another file, which stopped a fresh `supabase db push` partway. They now have their own versions:

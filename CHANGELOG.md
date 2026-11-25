@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Upgrades and release notes for self-hosted installs
+- **`npm run upgrade`** shows what the latest release brings to your checkout: the commits and the database migrations it adds, in order. `--apply` merges it and writes those migrations to one `upgrade-<version>.sql` to paste into the SQL Editor. It never pushes or touches the database. `--to main` follows the main branch instead.
+- **Releases are created from the changelog.** Pushing a `v*` tag creates the GitHub release, which the in-app Updates page reads. Its notes list the migrations added since the previous tag first, then that version's CHANGELOG section. `npm run release:notes` prints the same notes locally.
+- No migration.
+
 ### Every LP is emailed, portal account or not, and every LP email can be tested first
 - **No portal account needed.** Announcements, statements, letters and documents now reach investors with no portal account at the contact email on their record (else an entity's notice email, with the others Cc'd), as notices already did. Their copy has no portal button and always carries the PDF or file. The review step marks them. An investor whose portal access an admin disabled is still not emailed, at any address; notices now follow that rule too.
 - **Notices with the portal off.** "Publish and email" on call and distribution notices works with the LP portal off, sending each partner the PDF attached.
