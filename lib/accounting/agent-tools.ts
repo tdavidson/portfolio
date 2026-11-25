@@ -151,6 +151,12 @@ export interface AgentToolContext {
    * approval, which only a chat assistant (MCP) stages.
    */
   channel?: 'mcp' | 'api'
+  /**
+   * The credential the call came in on, for tools that describe the connection itself (whoami):
+   * a chat assistant signed in over OAuth, or a static API key, and whether it may change things.
+   * Set by the dispatcher on direct calls; absent on a staged call applied on approval.
+   */
+  credential?: { kind: 'assistant' | 'key'; canWrite: boolean }
 }
 
 export type AgentToolHandler = (ctx: AgentToolContext, input: any) => Promise<any>

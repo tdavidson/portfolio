@@ -302,14 +302,15 @@ export class AgentCallError extends Error {
  * grants for this call (authorizeToolUse / authorizeMcpTool); this adds what every write needs.
  */
 export async function runAgentTool(call: AgentCall): Promise<unknown> {
-  const { admin, tool, input, auth, access, origin } = call
+  const { admin, tool, input, auth, access, origin, channel } = call
   // Destructive tools exist only where the deployment turned them on (AGENT_DESTRUCTIVE_ACTIONS).
   // Every door reaches here: a direct MCP call, call_tool, and POST /api/agent.
   const disabled = destructiveRefusal(tool)
   if (disabled) throw new AgentCallError(disabled, 'DESTRUCTIVE_DISABLED')
   if (tool.scope === 'read') {
     const portfolioGroup = await resolveVehicleForTool(tool, admin, auth.fundId, input.vehicle as string | undefined, access)
-    return tool.handler({ admin, fundId: auth.fundId, portfolioGroup, userId: auth.userId, access, origin }, input)
+    const credential = { kind: isAssistantCredential(auth) ? 'assistant' as const : 'key' as const, canWrite: auth.scopes.includes('write') }
+    return tool.handler({ admin, fundId: auth.fundId, portfolioGroup, userId: auth.userId, access, origin, channel, credential }, input)
   }
 
   const refusal = adminOnlyRefusal(tool, input, auth)

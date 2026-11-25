@@ -38,13 +38,14 @@ An admin switches on **Settings → Agent access**. It is off by default, and sw
 
 **Sign-in or key.** Claude and ChatGPT sign in with OAuth: you sign in on your fund's own consent screen and choose what the connection may do. Access tokens last an hour and renew on their own for up to 30 days of use; revoking the connection or switching Agent access off stops it at once. Use an **API key** for scripts and Claude Code: it is yours, carries your access, can be read-only, and is revoked from the same Settings page. A key never waits for a chat to approve anything (see below).
 
-The plugin is built for your deployment's own address. It holds the connector and two skills (dashboards and analysis) that tell the assistant which tool answers which question; it contains no key and no fund data.
+The plugin is built for your deployment's own address. It holds the connector and the skills in `plugin/skills` (dashboards, fund questions, fund operations, the LP letter and the investment memo) that tell the assistant which tool answers which question; it contains no key and no fund data.
 
 **No fund yet?** Someone whose account belongs to no fund can connect anyway: the consent screen asks them to name a fund, and the **Set up this fund** prompt walks through the rest. See [DOCS](./DOCS.md#setting-up-a-fund-with-claude-chatgpt-or-a-script).
 
 ## Getting started and help
 
 - **"What can you do?"** opens the **home dashboard**: tiles for the dashboards your access allows, the dashboards and views you and your colleagues saved, and example questions for each area you can read.
+- **"Who am I signed in as?"** The `whoami` tool says which fund and deployment the connection reaches, the member's role and access in each area, which entities they see, and whether the credential is a chat assistant or an API key and may change anything. Assistants call it when unsure, or after a refusal.
 - **How-to questions** ("how do I build a view?", "how do approvals work?", "can I get this as a PDF?", "what charts are there?") are answered by the connector's `help` tool, limited to your access. Topics include views, starter views, dashboards, charts, exports, approvals, funds and each area of the app.
 - **Prompts.** The assistant's prompt menu (the + menu in Claude, `/` in Claude Code) lists ready-made requests: Get started, Portfolio review, Company check-in, Quarter-end review, LP capital status, Draft a forecast, Budget variance, and Process my inbox when the fund has no server AI key. You see only the ones your access covers.
 - **Starter views.** Ask for a starter view (portfolio overview, positions below cost, company KPIs by period, LP capital, capital calls outstanding, fund performance, income and cash, deal flow, diligence pipeline) to preview it on your own figures and save it to the app's Views.

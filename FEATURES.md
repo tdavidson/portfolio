@@ -324,7 +324,7 @@ Everything runs against your own deployment, signed in as you. Setup is in [DOCS
 
 Your deployment is an **MCP server** (`/api/mcp`) and a REST API, so Claude, ChatGPT, Claude Code, Codex or your own agent can work with the fund directly — and nothing goes anywhere but your own database and the assistant you chose.
 
-**A plugin built for your address.** Settings → API and MCP offers **Plugin for Claude** and **Plugin for ChatGPT**: the connector for this deployment plus two skills — one for dashboards, one for analysis — that tell the assistant which tool answers which question. Both assistants fix a connector's address inside the package, so each deployment builds its own; it holds no key and no fund data. Step-by-step install for each assistant is in [DOCS](./DOCS.md#dashboards-in-claude-and-chatgpt).
+**A plugin built for your address.** Settings → API and MCP offers **Plugin for Claude** and **Plugin for ChatGPT**: the connector for this deployment plus skills for dashboards, fund questions, fund operations, the LP letter and the investment memo, which tell the assistant which tool answers which question. Both assistants fix a connector's address inside the package, so each deployment builds its own; it holds no key and no fund data. Step-by-step install for each assistant is in [DOCS](./DOCS.md#dashboards-in-claude-and-chatgpt).
 
 **Sign in, no keys to copy.** Claude and ChatGPT connect with OAuth 2.1: the assistant registers itself, you sign in on your fund's own branded consent screen, and choose read, or read and change. Tokens last an hour and renew; revoking one, or switching Agent access off, cuts it off at once. Claude Code and scripts can use a personal **API key** instead (Settings → API and MCP, read or read & write).
 

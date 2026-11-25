@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+### Who am I connected as, and a fund-ops skill for any agent
+- **`whoami`** (MCP and `/api/agent`): which fund and deployment a connection reaches, the member's role, their access in each area (read, propose or edit), the entities they can see, and whether the credential is a chat assistant or an API key and may change anything. Every member may call it. Tools now receive the credential type on direct calls (`credential` on the tool context).
+- **`fund-ops` skill** in `plugin/skills`: capital calls and distributions with the waterfall, management fees and offsets, TVPI, DPI, RVPI and IRR, capital account roll-forwards, the quarter-end close, LP reporting and the yearly calendar. It works without a Portfolio install, from figures the person gives, and reads the fund's books through the connector when one is connected. Ships in the Claude and ChatGPT plugins and installs with `npx skills add tdavidson/portfolio --skill fund-ops`.
+- No migration.
+
 ### Every LP is emailed, portal account or not, and every LP email can be tested first
 - **No portal account needed.** Announcements, statements, letters and documents now reach investors with no portal account at the contact email on their record (else an entity's notice email, with the others Cc'd), as notices already did. Their copy has no portal button and always carries the PDF or file. The review step marks them. An investor whose portal access an admin disabled is still not emailed, at any address; notices now follow that rule too.
 - **Notices with the portal off.** "Publish and email" on call and distribution notices works with the LP portal off, sending each partner the PDF attached.
