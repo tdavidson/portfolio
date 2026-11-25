@@ -47,7 +47,7 @@ European (whole-fund) waterfall:
 4. **Carried interest split**: the rest, e.g. 80% LPs / 20% GP.
 
 An American (deal-by-deal) waterfall runs the same steps per investment, usually with a clawback at
-fund end. Many small funds have no preferred return and no catch-up: then it is simply capital
+fund end. Many venture funds have no preferred return and no catch-up: then it is simply capital
 back first, then 80/20.
 
 Show the waterfall as a table with the running balance at each tier, then allocate the LP share

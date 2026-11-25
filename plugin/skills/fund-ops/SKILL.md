@@ -1,7 +1,7 @@
 ---
 name: fund-ops
 description: >
-  Fund operations for small venture funds, with or without a Portfolio install. Use when someone
+  Fund operations for venture funds, with or without a Portfolio install. Use when someone
   asks how to run or check the back office of a fund, SPV or syndicate: sizing and allocating a
   capital call, management fees and fee offsets, a distribution waterfall with carry, TVPI, DPI,
   RVPI and IRR (gross or net), a partner capital account roll-forward, a quarter-end close, what
