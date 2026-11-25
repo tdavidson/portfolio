@@ -71,3 +71,6 @@ scripts/*.local.json
 
 # The fund engine builds to dist/ for publishing; the app consumes its source.
 /packages/*/dist/
+
+# Written by npm run upgrade -- --apply; paste it into the SQL editor, then delete it.
+upgrade-*.sql
