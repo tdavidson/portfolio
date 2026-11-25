@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { Loader2, Send, CheckCircle2, ArrowLeft, Paperclip, Users, FileText } from 'lucide-react'
+import { Loader2, Send, CheckCircle2, ArrowLeft, Paperclip, Users, FileText, FlaskConical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 import { useLedgerFetch } from '@/components/accounting-vehicle'
@@ -73,6 +73,7 @@ export function NoticeAction({ kind, id, lines: registerLines, fmt }: {
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<Result | null>(null)
+  const [testNote, setTestNote] = useState<string | null>(null)
   // The last-sent state per partner, loaded on open so the compose step can say "sent 3 Mar".
   const [status, setStatus] = useState<Map<string, Recipient> | null>(null)
 
@@ -80,9 +81,11 @@ export function NoticeAction({ kind, id, lines: registerLines, fmt }: {
 
   function start() {
     setSelected(new Set(lines.map(l => l.lpEntityId)))
-    setStage('compose'); setPreview(null); setResult(null); setError(null)
+    setStage('compose'); setPreview(null); setResult(null); setError(null); setTestNote(null)
     setSubject(''); setMessage(''); setRegenerate(false)
-    setMode(lpPortalEnabled ? 'email' : 'publish')
+    // Email works with the portal off too: the notice goes as a PDF attachment.
+    setMode('email')
+    setDelivery(lpPortalEnabled ? 'both' : 'attachment')
     setStatus(null)
     setOpen(true)
     lf('/api/accounting/notices/publish', {
@@ -112,6 +115,22 @@ export function NoticeAction({ kind, id, lines: registerLines, fmt }: {
       if (!res.ok) { setError(d.error ?? 'Could not prepare the preview.'); return }
       setPreview(d as Preview)
       setStage('review')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  // One partner's email, DRAFT notice attached, to the sender only. Publishes nothing.
+  async function sendTest() {
+    setBusy(true); setError(null); setTestNote(null)
+    try {
+      const res = await lf('/api/accounting/notices/publish', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body(), test: true }),
+      })
+      const d = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(d.error ?? 'Could not send the test.'); return }
+      setTestNote(`Test sent to ${d.sentTo}${d.sampleOf ? `, showing ${d.sampleOf}'s notice (marked DRAFT)` : ''}. Nothing was published or sent to any partner.`)
     } finally {
       setBusy(false)
     }
@@ -222,20 +241,26 @@ export function NoticeAction({ kind, id, lines: registerLines, fmt }: {
                 <p className="text-[11px] text-muted-foreground">Each partner&rsquo;s email shows their own amount.</p>
               </div>
               {error && <div className="text-sm rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-2 text-destructive">{error}</div>}
+              {testNote && <div className="text-sm rounded-md border border-success/50 bg-success-subtle dark:bg-success-subtle/30 px-2.5 py-2 text-success">{testNote}</div>}
               <div className="flex items-center justify-between gap-2">
-                <Button variant="ghost" size="sm" onClick={() => { setStage('compose'); setError(null) }} disabled={busy}>
+                <Button variant="ghost" size="sm" onClick={() => { setStage('compose'); setError(null); setTestNote(null) }} disabled={busy}>
                   <ArrowLeft className="h-4 w-4 mr-1" /> Edit
                 </Button>
-                <Button size="sm" onClick={run} disabled={busy || willSend.length === 0}>
-                  {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
-                  Publish and email {willSend.length}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={sendTest} disabled={busy}>
+                    <FlaskConical className="h-4 w-4 mr-1" /> Send a test to me
+                  </Button>
+                  <Button size="sm" onClick={run} disabled={busy || willSend.length === 0}>
+                    {busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
+                    Publish and email {willSend.length}
+                  </Button>
+                </div>
               </div>
             </div>
           ) : (
             <div className="space-y-4 min-w-0">
               <div className="inline-flex rounded border border-input overflow-hidden text-xs">
-                <button type="button" onClick={() => setMode('email')} disabled={!lpPortalEnabled} className={`px-2.5 py-1.5 ${mode === 'email' ? 'bg-accent text-foreground' : 'text-muted-foreground'} disabled:opacity-50`}>Publish and email</button>
+                <button type="button" onClick={() => setMode('email')} className={`px-2.5 py-1.5 ${mode === 'email' ? 'bg-accent text-foreground' : 'text-muted-foreground'}`}>Publish and email</button>
                 <button type="button" onClick={() => setMode('publish')} className={`px-2.5 py-1.5 border-l border-input ${mode === 'publish' ? 'bg-accent text-foreground' : 'text-muted-foreground'}`}>Publish to portal only</button>
               </div>
 
@@ -274,13 +299,14 @@ export function NoticeAction({ kind, id, lines: registerLines, fmt }: {
                     <label className="text-xs font-medium text-muted-foreground">Delivery</label>
                     <div className="space-y-1">
                       {DELIVERY_OPTIONS.map(o => (
-                        <label key={o.value} className="flex items-center gap-2 text-sm cursor-pointer">
-                          <input type="radio" name="notice-delivery" checked={delivery === o.value} onChange={() => setDelivery(o.value)} className="h-3.5 w-3.5" />
+                        <label key={o.value} className={`flex items-center gap-2 text-sm ${!lpPortalEnabled && o.value !== 'attachment' ? 'opacity-50' : 'cursor-pointer'}`}>
+                          <input type="radio" name="notice-delivery" checked={delivery === o.value} disabled={!lpPortalEnabled && o.value !== 'attachment'} onChange={() => setDelivery(o.value)} className="h-3.5 w-3.5" />
                           <span>{o.label}</span>
                           <span className="text-xs text-muted-foreground">{o.hint}</span>
                         </label>
                       ))}
                     </div>
+                    {!lpPortalEnabled && <p className="text-[11px] text-muted-foreground">The LP portal is off, so each partner gets the PDF attached.</p>}
                   </div>
                   <div className="space-y-1.5">
                     <label className="text-xs font-medium text-muted-foreground">Subject</label>

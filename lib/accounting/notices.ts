@@ -19,7 +19,8 @@ import { buildLpEmailHtml, siteUrl } from '@/lib/lp-email'
 import { logDelivery, listDeliveries, lastSentByItem, type DeliveryKind } from '@/lib/lp-deliveries'
 import { roundCents } from './ledger'
 import { lpCapitalSummary, listCapitalCalls } from './capital-calls'
-import { resolveContactRecipients, resolveLpRecipients } from '@/lib/lp-recipients'
+import { resolveLpEmailRecipients } from '@/lib/lp-recipients'
+import { testRecipientEmail, testSubject, withTestBanner, NO_TEST_RECIPIENT, type TestSendResult } from '@/lib/lp-test-email'
 import { displayFontOf } from '@/lib/theme'
 import { documentLetterhead, contactBlock } from '@/lib/vehicle-letterhead'
 import {
@@ -185,12 +186,11 @@ export async function emailDocuments(
   const wantsAttachment = opts.delivery !== 'link'
 
   const investorIds = Array.from(new Set(items.map(p => p.investorId).filter(Boolean) as string[]))
-  const groups = await resolveLpRecipients(admin, fundId, investorIds)
+  // Portal account where there is one; else the contact or notice email on their record, with the
+  // PDF attached. An LP whose portal access was disabled gets nothing.
+  const groups = await resolveLpEmailRecipients(admin, fundId, investorIds)
   const groupByInvestor = new Map<string, { to: string; cc: string[]; viaContact?: boolean }>()
-  for (const g of groups) for (const inv of g.investorIds) groupByInvestor.set(inv, { to: g.primaryEmail, cc: g.ccEmails })
-  // No portal account: the contact or notice email on their record, with the PDF attached.
-  const contacts = await resolveContactRecipients(admin, fundId, investorIds.filter(id => !groupByInvestor.has(id)))
-  for (const [inv, c] of Array.from(contacts.entries())) groupByInvestor.set(inv, { ...c, viaContact: true })
+  for (const g of groups) for (const inv of g.investorIds) groupByInvestor.set(inv, { to: g.primaryEmail, cc: g.ccEmails, viaContact: g.viaContact })
 
   const result: NoticeSendResult = { sent: 0, failures: [], skipped: [] }
 
@@ -250,6 +250,62 @@ export async function emailNotices(
       ...(reg.dueDate ? [{ label: 'Due', value: reg.dueDate }] : []),
     ],
   })), { ...opts, logKind: 'notice', title: noticeTitle(reg), linkPath: '/portal/notices', linkLabel: 'View the notice' })
+}
+
+/**
+ * A test of the notice email: one partner's notice, rendered as publishing would but marked DRAFT
+ * and filed nowhere, emailed once to the sender. Nothing is published, shared or logged, so it can
+ * be pressed before the notices exist. The partner is the first one selected.
+ */
+export async function testNoticeEmail(
+  admin: SupabaseClient,
+  ctx: PublishContext,
+  reg: NoticeRegister,
+  lpEntityIds: string[] | undefined,
+  opts: NoticeEmailOptions,
+): Promise<TestSendResult | { error: string }> {
+  const requested = lpEntityIds ?? []
+  const line = (requested.length > 0 ? reg.lines.filter(l => requested.includes(l.lpEntityId)) : reg.lines)[0]
+  if (!line) return { error: 'No partners selected' }
+  const [config, me, fundRes, settings] = await Promise.all([
+    getOutboundConfig(admin, ctx.fundId),
+    testRecipientEmail(admin, ctx.userId),
+    admin.from('funds' as any).select('name').eq('id', ctx.fundId).maybeSingle(),
+    admin.from('fund_settings' as any).select('currency').eq('fund_id', ctx.fundId).maybeSingle(),
+  ])
+  if (!config) return { error: 'No outbound email provider is configured for this fund.' }
+  if (!me) return { error: NO_TEST_RECIPIENT }
+
+  const [notice] = await noticeDataFor(admin, ctx, reg, [line])
+  if (!notice) return { error: 'Could not build that partner\u2019s notice.' }
+  const pdf = await generateNoticePdf({ ...notice.data, draft: true })
+
+  const fundName = (await documentLetterhead(admin, ctx.fundId, (fundRes as any).data, [ctx.group])).name || 'Your fund'
+  const title = noticeTitle(reg)
+  const subject = opts.subject?.trim() || `${fundName}: ${title}`
+  const fmt = moneyFmt(((settings as any)?.data?.currency as string | undefined) || 'USD')
+
+  // Where this partner's real notice would go, for the banner.
+  const groups = notice.investorId ? await resolveLpEmailRecipients(admin, ctx.fundId, [notice.investorId]) : []
+  const g = groups[0]
+  const viaContact = !!g?.viaContact
+  const html = buildLpEmailHtml({
+    fundName, itemTitle: title, message: opts.message ?? '',
+    link: opts.delivery === 'attachment' || viaContact ? null : `${siteUrl()}/portal/notices`,
+    linkLabel: 'View the notice',
+    facts: [
+      { label: reg.kind === 'capital_call' ? 'Amount due' : 'Amount payable', value: fmt(line.amount) },
+      ...(reg.dueDate ? [{ label: 'Due', value: reg.dueDate }] : []),
+    ],
+  })
+  const safe = (x: string) => x.replace(/[^a-zA-Z0-9 ._-]/g, '_')
+  await sendOutboundEmail(config, {
+    to: me,
+    subject: testSubject(subject),
+    html: withTestBanner(html, g ? { to: g.primaryEmail, cc: g.ccEmails, viaContact } : null),
+    attachments: [{ filename: `DRAFT ${safe(title)} — ${safe(notice.partnerName)}.pdf`, content: pdf, contentType: 'application/pdf' }],
+  })
+  return { ok: true, test: true, sentTo: me, sampleOf: notice.partnerName }
 }
 
 function moneyFmt(currency: string) {

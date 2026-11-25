@@ -14,7 +14,8 @@ import { announceToLps } from '@/lib/lps/outreach'
 // message: a close, a change of address, a heads-up before a call. It goes out through the same
 // recipient resolution (the investor's account To, their authorized users Cc), is recorded as an
 // outbound message per investor so the portal shows it, and is logged per send. `preview`
-// returns the exact addresses without sending. (lib/lps/outreach.ts, shared with lp_announce.)
+// returns the exact addresses without sending; `test` sends it to the sender only. LPs with no portal
+// account get it at the contact or notice email on file. (lib/lps/outreach.ts, shared with lp_announce.)
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

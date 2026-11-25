@@ -4,13 +4,13 @@ import { useEffect, useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { useLpPortalEnabled } from '@/components/feature-visibility-context'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
-import { Loader2, Send, CheckCircle2, ArrowLeft, Paperclip, Users } from 'lucide-react'
+import { Loader2, Send, CheckCircle2, ArrowLeft, Paperclip, Users, FlaskConical } from 'lucide-react'
 
 interface Investor { id: string; name: string }
 
 type Delivery = 'link' | 'attachment' | 'both'
 type SendResult = { sent: number; primaryRecipients: number; ccRecipients: number; failures: string[] }
-type Recipient = { to: string; name: string | null; cc: string[]; investorCount: number }
+type Recipient = { to: string; name: string | null; cc: string[]; investorCount: number; via?: 'portal' | 'contact' }
 type PreviewData = { subject: string; itemTitle: string; fromName: string; html: string; attachment: boolean; recipients: Recipient[] }
 
 const DELIVERY_OPTIONS: { value: Delivery; label: string; hint: string }[] = [
@@ -30,6 +30,10 @@ const KIND_LABEL: Record<'snapshot' | 'letter' | 'document', string> = {
  * (recipients, delivery, subject, message), then REVIEW — a no-send preview that shows the exact
  * addresses each email goes To and Cc (authorized users are Cc'd automatically), and renders the
  * email itself — before a final Send. Nothing goes out until the review step is confirmed.
+ * "Send a test to me" on the review step sends the first recipient's copy to the sender only.
+ *
+ * LPs with no portal account are emailed too, at the contact or notice email on their record, and
+ * their copy always carries the PDF: the review marks them.
  */
 export function LpSendControl({ kind, id, itemTitle }: {
   kind: 'snapshot' | 'letter' | 'document'; id: string; itemTitle?: string
@@ -51,6 +55,8 @@ export function LpSendControl({ kind, id, itemTitle }: {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [result, setResult] = useState<SendResult | null>(null)
+  const [testing, setTesting] = useState(false)
+  const [testNote, setTestNote] = useState<string | null>(null)
 
   const kindLabel = KIND_LABEL[kind]
 
@@ -89,7 +95,7 @@ export function LpSendControl({ kind, id, itemTitle }: {
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { setError(data.error || 'Could not prepare the preview.'); return }
       if (!data.recipients || data.recipients.length === 0) {
-        setError('None of the selected LPs have a portal account to email yet. Invite them from Settings → LP access.')
+        setError('None of the selected LPs has a portal account, contact email or notice email. Add an email on the investor or entity profile.')
         return
       }
       setPreview(data as PreviewData)
@@ -98,6 +104,23 @@ export function LpSendControl({ kind, id, itemTitle }: {
       setError('Could not prepare the preview.')
     } finally {
       setPreviewing(false)
+    }
+  }
+
+  async function sendTest() {
+    setTesting(true); setError(null); setTestNote(null)
+    try {
+      const res = await fetch('/api/lps/send', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ...body(), test: true }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.error || 'Could not send the test.'); return }
+      setTestNote(`Test sent to ${data.sentTo}${data.sampleOf ? `, showing ${data.sampleOf}'s copy` : ''}. Nothing went to any LP.`)
+    } catch {
+      setError('Could not send the test.')
+    } finally {
+      setTesting(false)
     }
   }
 
@@ -120,7 +143,7 @@ export function LpSendControl({ kind, id, itemTitle }: {
   }
 
   function reset() {
-    setStage('compose'); setResult(null); setPreview(null); setError(null)
+    setStage('compose'); setResult(null); setPreview(null); setError(null); setTestNote(null)
     setSubject(''); setMessage(''); setDelivery('link')
   }
 
@@ -185,6 +208,9 @@ export function LpSendControl({ kind, id, itemTitle }: {
                         <span className="font-mono text-xs truncate">{r.to}</span>
                         {r.name && <span className="text-xs text-muted-foreground truncate">({r.name})</span>}
                       </div>
+                      {r.via === 'contact' && (
+                        <div className="text-[11px] text-muted-foreground mt-0.5 pl-8">No portal account: contact email on file, PDF attached</div>
+                      )}
                       {r.cc.map((c, j) => (
                         <div key={j} className="flex items-baseline gap-2 min-w-0 mt-0.5">
                           <span className="text-[10px] uppercase tracking-wide text-muted-foreground shrink-0 w-6">Cc</span>
@@ -211,15 +237,22 @@ export function LpSendControl({ kind, id, itemTitle }: {
               </div>
 
               {error && <div className="text-sm rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-2 text-destructive">{error}</div>}
+              {testNote && <div className="text-sm rounded-md border border-success/50 bg-success-subtle dark:bg-success-subtle/30 px-2.5 py-2 text-success">{testNote}</div>}
 
               <div className="flex items-center justify-between gap-2">
-                <Button variant="ghost" size="sm" onClick={() => { setStage('compose'); setError(null) }} disabled={sending}>
+                <Button variant="ghost" size="sm" onClick={() => { setStage('compose'); setError(null); setTestNote(null) }} disabled={sending || testing}>
                   <ArrowLeft className="h-4 w-4 mr-1" /> Edit
                 </Button>
-                <Button size="sm" onClick={send} disabled={sending}>
-                  {sending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
-                  Send to {totalTo} LP{totalTo === 1 ? '' : 's'}
-                </Button>
+                <div className="flex items-center gap-2">
+                  <Button variant="outline" size="sm" onClick={sendTest} disabled={sending || testing}>
+                    {testing ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <FlaskConical className="h-4 w-4 mr-1" />}
+                    Send a test to me
+                  </Button>
+                  <Button size="sm" onClick={send} disabled={sending || testing}>
+                    {sending ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />}
+                    Send to {totalTo} LP{totalTo === 1 ? '' : 's'}
+                  </Button>
+                </div>
               </div>
             </div>
 

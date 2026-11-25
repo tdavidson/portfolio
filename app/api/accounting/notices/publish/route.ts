@@ -6,7 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { assertWriteAccess } from '@/lib/api-helpers'
 import { resolveGroupOr400 } from '@/lib/accounting/http-vehicle'
 import { type NoticeKind } from '@/lib/accounting/notice-pdf'
-import { loadNoticeRegister, publishNotices, previewNoticeRecipients, emailNotices, type NoticeDelivery } from '@/lib/accounting/notices'
+import { loadNoticeRegister, publishNotices, previewNoticeRecipients, emailNotices, testNoticeEmail, type NoticeDelivery } from '@/lib/accounting/notices'
 import { listDeliveries, lastSentByItem } from '@/lib/lp-deliveries'
 
 export const runtime = 'nodejs'
@@ -18,7 +18,9 @@ export const maxDuration = 300
 //   { kind: 'capital_call' | 'distribution', id, group?, lpEntityIds?,
 //     regenerate?: boolean,                       — render fresh PDFs even where one exists
 //     email?: { subject?, message?, delivery: 'link' | 'attachment' | 'both' },
-//     preview?: boolean }                         — with email: who would be emailed, no send
+//     preview?: boolean,                          — with email: who would be emailed, no send
+//     test?: boolean }                            — with email: send one partner's email, DRAFT
+//                                                   notice attached, to the sender only; publishes nothing
 //
 // Without `email`: publish only — one PDF per partner in their portal (idempotent). With it:
 // publish, then email each partner their notice, logging every send. `preview` answers the
@@ -67,6 +69,14 @@ export async function POST(req: NextRequest) {
   }
 
   const ctx = { fundId: gate.fundId, group, userId: user.id }
+
+  if (body?.test === true) {
+    if (!email) return NextResponse.json({ error: 'A test needs the email settings' }, { status: 400 })
+    const t = await testNoticeEmail(admin, ctx, reg, lpEntityIds, email)
+    if ('error' in t) return NextResponse.json({ error: t.error }, { status: 400 })
+    return NextResponse.json(t)
+  }
+
   const { published, errors } = await publishNotices(admin, ctx, reg, { lpEntityIds, regenerate: body?.regenerate === true })
 
   if (!email) return NextResponse.json({ count: published.length, published, errors })

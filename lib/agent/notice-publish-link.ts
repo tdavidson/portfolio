@@ -44,11 +44,14 @@ export type NoticePublishClaims =
   | (Base & { mode: 'staged'; lpEntityIds: string[] | null; previewToken: string; exp: number })
   | (Base & { mode: 'proposed_call'; proposedCallId: string; exp: number })
   | (Base & { mode: 'staged_distribution'; lpEntityIds: string[] | null; previewToken: string; email: DistributionNoticeEmailClaim | null; exp: number })
+  // A test of the notice email: one partner's DRAFT notice emailed to the member only. Publishes nothing.
+  | (Base & { mode: 'test_email'; noticeKind: 'capital_call' | 'distribution'; lpEntityIds: string[] | null; email: DistributionNoticeEmailClaim; exp: number })
 
 export type NoticePublishRequest =
   | Omit<Extract<NoticePublishClaims, { mode: 'staged' }>, 'exp'>
   | Omit<Extract<NoticePublishClaims, { mode: 'proposed_call' }>, 'exp'>
   | Omit<Extract<NoticePublishClaims, { mode: 'staged_distribution' }>, 'exp'>
+  | Omit<Extract<NoticePublishClaims, { mode: 'test_email' }>, 'exp'>
 
 /** What the route returns: as executePublishCallNotices does. */
 export interface NoticePublishResult {
@@ -98,6 +101,12 @@ export function verifyNoticePublish(token: string, now = Date.now()): NoticePubl
     if (c.email !== null && !(c.email && ['link', 'attachment', 'both'].includes(c.email.delivery))) return null
     return c
   }
+  if (c.mode === 'test_email') {
+    if (c.noticeKind !== 'capital_call' && c.noticeKind !== 'distribution') return null
+    if (c.lpEntityIds !== null && !(Array.isArray(c.lpEntityIds) && c.lpEntityIds.every(str))) return null
+    if (!(c.email && ['link', 'attachment', 'both'].includes(c.email.delivery))) return null
+    return c
+  }
   return null
 }
 
@@ -132,6 +141,35 @@ export async function publishNoticesRemotely(
   if (!body?.result || typeof body.result.published !== 'number') {
     throw new Error('The notice publisher answered without a result. Check the call\'s notices in the app before retrying.')
   }
+  return body.result
+}
+
+/** What a notice test returns: where it went and whose notice it was. */
+export interface NoticeTestResult { ok: true; test: true; sentTo: string; sampleOf: string | null }
+
+/**
+ * Ask the Chromium-bundled route to email one partner's DRAFT notice to the member as a test, and
+ * wait for it. Nothing is published. Throws with the route's own words on any refusal.
+ */
+export async function testNoticeEmailRemotely(
+  req: Omit<Extract<NoticePublishClaims, { mode: 'test_email' }>, 'exp'>, opts: { origin?: string; fetch?: FetchLike } = {},
+): Promise<NoticeTestResult> {
+  const doFetch: FetchLike = opts.fetch ?? ((input, init) => fetch(input, init))
+  const token = signNoticePublish({ ...req, source: req.source ?? currentChangeSource() })
+  let res: Response
+  try {
+    res = await doFetch(`${selfOrigin(opts.origin)}${NOTICE_PUBLISH_PATH}`, {
+      method: 'POST',
+      headers: selfRequestHeaders({ authorization: `Bearer ${token}`, 'content-type': 'application/json' }),
+      body: '{}',
+      cache: 'no-store',
+    })
+  } catch (e) {
+    throw new Error(`Could not reach the notice service: ${(e as Error)?.message ?? 'network error'}.`)
+  }
+  if (!res.ok) throw new Error(`The test was not sent (${await responseError(res)}).`)
+  const body = await res.json().catch(() => null) as { result?: NoticeTestResult } | null
+  if (!body?.result?.sentTo) throw new Error('The notice service answered without a result.')
   return body.result
 }
 

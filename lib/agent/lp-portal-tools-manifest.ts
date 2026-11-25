@@ -21,6 +21,12 @@ const VEHICLE = { type: 'string', description: 'The vehicle (portfolio_group). O
 const PREVIEW_FIRST =
   'Call it first with preview: true, show the person the recipients and the email, and only after they explicitly say yes call it again without preview.'
 
+const TEST_SEND =
+  'test: true sends the exact email (the first recipient\'s copy, attachment included) once to the person\'s own sign-in ' +
+  'email instead of the LPs, with a banner saying who the real one goes to. Nothing reaches an LP and nothing is logged, so it needs no confirmation.'
+
+const TEST_PARAM = { type: 'boolean', description: 'Send this email once to the person\'s own address instead of the LPs. Nothing goes to any LP.' }
+
 const PROPOSAL_FIELDS = {
   total: { type: 'number', description: 'The amount called, in the vehicle\'s currency.' },
   purposes: {
@@ -207,7 +213,8 @@ export const LP_PORTAL_TOOL_MANIFEST: AgentToolMeta[] = [
     description:
       'Email an announcement to chosen LPs, or all of them: a plain message with nothing attached (a close, a change of address, ' +
       'a heads-up before a call). Each investor\'s portal login is To, their authorized users Cc; it also appears in each ' +
-      'investor\'s portal messages. Only LPs with a portal account can be reached. Admin only. ' + PREVIEW_FIRST +
+      'investor\'s portal messages. An LP with no portal account gets it at the contact or notice email on their record. ' +
+      'Admin only. ' + PREVIEW_FIRST + ' ' + TEST_SEND +
       ' The preview returns the exact To and Cc addresses, the subject as sent, and the rendered HTML.',
     scope: 'write',
     ...PORTAL,
@@ -221,6 +228,7 @@ export const LP_PORTAL_TOOL_MANIFEST: AgentToolMeta[] = [
           oneOf: [{ type: 'string', enum: ['all'] }, { type: 'array', items: { type: 'string' } }],
         },
         preview: { type: 'boolean', description: 'Return the recipients and the email, and send nothing.' },
+        test: TEST_PARAM,
       },
       required: ['subject', 'body'],
       additionalProperties: false,
@@ -246,7 +254,8 @@ export const LP_PORTAL_TOOL_MANIFEST: AgentToolMeta[] = [
       'Email a portal item (a snapshot, a letter, or an uploaded document) to LPs it is shared with, as a secure portal link, ' +
       'as an attachment, or both. A snapshot is attached as each recipient\'s own statement PDF (only their investors), a letter ' +
       'as its PDF, a document as the uploaded file, exactly as the LP Portal page sends them. Authorized users are Cc\'d. Only ' +
-      'investors the item is shared with are emailed. Admin only. ' + PREVIEW_FIRST +
+      'investors the item is shared with are emailed. An LP with no portal account gets it at the contact or notice email on ' +
+      'their record, always with the PDF attached. Admin only. ' + PREVIEW_FIRST + ' ' + TEST_SEND +
       ' The preview returns the exact To and Cc addresses, the subject, the rendered HTML and the attachment\'s file name. ' +
       'A recipient whose PDF could not be rendered is not emailed (never sent without it): the result lists them in failures ' +
       'and why in attachment_errors.',
@@ -262,6 +271,7 @@ export const LP_PORTAL_TOOL_MANIFEST: AgentToolMeta[] = [
         message: { type: 'string', description: 'A note above the link.' },
         delivery: { type: 'string', enum: ['link', 'attachment', 'both'], description: 'Default link. attachment: the PDF or file only (works with the portal off); both: link and attachment.' },
         preview: { type: 'boolean', description: 'Return the recipients and the email, and send nothing.' },
+        test: TEST_PARAM,
       },
       required: ['kind', 'id'],
       additionalProperties: false,

@@ -15,7 +15,7 @@ import { loadEntityNames } from './load'
 import { vehicleIdByName } from './vehicle-id'
 import { displayFontOf } from '@/lib/theme'
 import { ACTUAL_BOOK } from './books'
-import { resolveContactRecipients, resolveLpRecipients } from '@/lib/lp-recipients'
+import { resolveLpEmailRecipients } from '@/lib/lp-recipients'
 import { getOutboundConfig } from '@/lib/email'
 import { buildLpEmailHtml, siteUrl } from '@/lib/lp-email'
 import { roundCents } from './ledger'
@@ -434,24 +434,23 @@ export async function previewNoticeRecipients(
     (((entityRows as any).data as any[]) ?? []).map(e => [e.id as string, (e.investor_id ?? null) as string | null])
   )
   const investorIds = Array.from(new Set(Array.from(investorByEntity.values()).filter(Boolean) as string[]))
-  const groups = await resolveLpRecipients(admin, fundId, investorIds)
-  const groupByInvestor = new Map<string, { to: string; cc: string[] }>()
-  for (const g of groups) for (const inv of g.investorIds) groupByInvestor.set(inv, { to: g.primaryEmail, cc: g.ccEmails })
-  const contacts = await resolveContactRecipients(admin, fundId, investorIds.filter(id => !groupByInvestor.has(id)))
+  // The same resolution the send uses: portal account, else the contact or notice email on file.
+  const groups = await resolveLpEmailRecipients(admin, fundId, investorIds)
+  const groupByInvestor = new Map<string, { to: string; cc: string[]; viaContact: boolean }>()
+  for (const g of groups) for (const inv of g.investorIds) groupByInvestor.set(inv, { to: g.primaryEmail, cc: g.ccEmails, viaContact: g.viaContact })
 
   const recipients: NoticeRecipientPreview[] = targets.map(line => {
     const investorId = investorByEntity.get(line.lpEntityId) ?? null
     const g = investorId ? groupByInvestor.get(investorId) : undefined
-    const c = !g && investorId ? contacts.get(investorId) : undefined
     return {
       lpEntityId: line.lpEntityId,
       name: names.get(line.lpEntityId) ?? line.lpEntityId,
       amount: line.amount,
-      to: g?.to ?? c?.to ?? null,
-      cc: g?.cc ?? c?.cc ?? [],
-      via: g ? 'portal' : c ? 'contact' : null,
+      to: g?.to ?? null,
+      cc: g?.cc ?? [],
+      via: g ? (g.viaContact ? 'contact' : 'portal') : null,
       skipped: !investorId ? 'No linked LP investor'
-        : !g && !c ? 'No portal account, contact email or notice email. Add one on the entity profile, or invite them from LP Portal → Access.'
+        : !g ? 'No portal account, contact email or notice email (or their portal access is disabled). Add an email on the entity profile.'
         : null,
     }
   })

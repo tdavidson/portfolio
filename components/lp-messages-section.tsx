@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { Loader2, Check, Send, Megaphone, CornerDownRight, ArrowLeft, Users, CheckCircle2 } from 'lucide-react'
+import { Loader2, Check, Send, Megaphone, CornerDownRight, ArrowLeft, Users, CheckCircle2, FlaskConical } from 'lucide-react'
 import { Button } from '@/components/ui/button'
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } from '@/components/ui/dialog'
 
@@ -184,7 +184,7 @@ export function LpMessagesSection() {
   )
 }
 
-type PreviewData = { subject: string; html: string; recipients: { to: string; name: string | null; cc: string[]; investorCount: number }[]; unreachable: number }
+type PreviewData = { subject: string; html: string; recipients: { to: string; name: string | null; cc: string[]; investorCount: number; via?: 'portal' | 'contact' }[]; unreachable: number }
 
 function AnnouncementDialog({ open, onClose, onSent }: { open: boolean; onClose: () => void; onSent: () => void }) {
   const [stage, setStage] = useState<'compose' | 'review' | 'result'>('compose')
@@ -196,6 +196,7 @@ function AnnouncementDialog({ open, onClose, onSent }: { open: boolean; onClose:
   const [error, setError] = useState<string | null>(null)
   const [preview, setPreview] = useState<PreviewData | null>(null)
   const [result, setResult] = useState<{ sent: number; ccRecipients: number; failures: string[] } | null>(null)
+  const [testNote, setTestNote] = useState<string | null>(null)
 
   useEffect(() => {
     if (!open) return
@@ -209,7 +210,7 @@ function AnnouncementDialog({ open, onClose, onSent }: { open: boolean; onClose:
       .catch(() => {})
   }, [open])
 
-  function reset() { setStage('compose'); setSubject(''); setBody(''); setError(null); setPreview(null); setResult(null) }
+  function reset() { setStage('compose'); setSubject(''); setBody(''); setError(null); setPreview(null); setResult(null); setTestNote(null) }
   const allSelected = investors.length > 0 && investors.every(i => selected.has(i.id))
   const payload = () => ({ subject, body, lp_investor_ids: allSelected ? 'all' : Array.from(selected) })
 
@@ -220,6 +221,16 @@ function AnnouncementDialog({ open, onClose, onSent }: { open: boolean; onClose:
       const d = await r.json().catch(() => ({}))
       if (!r.ok) { setError(d.error ?? 'Could not prepare the preview.'); return }
       setPreview(d as PreviewData); setStage('review')
+    } finally { setBusy(false) }
+  }
+  // The exact email, once, to the sender only. Nothing reaches an LP or their portal.
+  async function sendTest() {
+    setBusy(true); setError(null); setTestNote(null)
+    try {
+      const r = await fetch('/api/lps/announce', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload(), test: true }) })
+      const d = await r.json().catch(() => ({}))
+      if (!r.ok) { setError(d.error ?? 'Could not send the test.'); return }
+      setTestNote(`Test sent to ${d.sentTo}. Nothing went to any LP.`)
     } finally { setBusy(false) }
   }
   async function send() {
@@ -262,20 +273,25 @@ function AnnouncementDialog({ open, onClose, onSent }: { open: boolean; onClose:
                 {preview.recipients.map((r, i) => (
                   <div key={i} className="px-3 py-2 min-w-0">
                     <div className="flex items-baseline gap-2 min-w-0"><span className="text-[10px] uppercase tracking-wide text-muted-foreground w-6 shrink-0">To</span><span className="font-mono text-xs truncate">{r.to}</span>{r.name && <span className="text-xs text-muted-foreground truncate">({r.name})</span>}</div>
+                    {r.via === 'contact' && <div className="text-[11px] text-muted-foreground mt-0.5 pl-8">No portal account: contact email on file</div>}
                     {r.cc.map((c, j) => <div key={j} className="flex items-baseline gap-2 min-w-0 mt-0.5"><span className="text-[10px] uppercase tracking-wide text-muted-foreground w-6 shrink-0">Cc</span><span className="font-mono text-xs truncate text-muted-foreground">{c}</span></div>)}
                   </div>
                 ))}
               </div>
-              {preview.unreachable > 0 && <p className="text-sm text-warning">{preview.unreachable} selected investor{preview.unreachable === 1 ? ' has' : 's have'} no portal account and will not receive it.</p>}
+              {preview.unreachable > 0 && <p className="text-sm text-warning">{preview.unreachable} selected investor{preview.unreachable === 1 ? ' has' : 's have'} no portal account, contact email or notice email (or portal access disabled) and will not receive it.</p>}
             </div>
             <div className="rounded-md border overflow-hidden">
               <div className="px-3 py-2 border-b bg-muted/40 text-xs"><span className="text-muted-foreground">Subject:</span> <span className="font-medium">{preview.subject}</span></div>
               <iframe title="Email preview" srcDoc={preview.html} className="w-full h-56 bg-white" sandbox="" />
             </div>
             {error && <div className="text-sm rounded-md border border-destructive/40 bg-destructive/5 px-2.5 py-2 text-destructive">{error}</div>}
+            {testNote && <div className="text-sm rounded-md border border-success/50 bg-success-subtle dark:bg-success-subtle/30 px-2.5 py-2 text-success">{testNote}</div>}
             <div className="flex items-center justify-between gap-2">
-              <Button variant="ghost" size="sm" onClick={() => setStage('compose')} disabled={busy}><ArrowLeft className="h-4 w-4 mr-1" /> Edit</Button>
+              <Button variant="ghost" size="sm" onClick={() => { setStage('compose'); setTestNote(null) }} disabled={busy}><ArrowLeft className="h-4 w-4 mr-1" /> Edit</Button>
+              <div className="flex items-center gap-2">
+              <Button variant="outline" size="sm" onClick={sendTest} disabled={busy}><FlaskConical className="h-4 w-4 mr-1" /> Send a test to me</Button>
               <Button size="sm" onClick={send} disabled={busy}>{busy ? <Loader2 className="h-4 w-4 mr-1 animate-spin" /> : <Send className="h-4 w-4 mr-1" />} Send to {preview.recipients.length} LP{preview.recipients.length === 1 ? '' : 's'}</Button>
+              </div>
             </div>
           </div>
         ) : (

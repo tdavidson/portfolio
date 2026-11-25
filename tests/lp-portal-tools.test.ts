@@ -9,7 +9,6 @@ const mocks = vi.hoisted(() => ({
   sendLpInvite: vi.fn(),
   sendOutboundEmail: vi.fn(),
   getOutboundConfig: vi.fn(),
-  resolveLpRecipients: vi.fn(),
 }))
 vi.mock('@/lib/lp-invites', async importOriginal => ({
   ...(await importOriginal<typeof import('@/lib/lp-invites')>()),
@@ -20,7 +19,6 @@ vi.mock('@/lib/email', async importOriginal => ({
   getOutboundConfig: mocks.getOutboundConfig,
   sendOutboundEmail: mocks.sendOutboundEmail,
 }))
-vi.mock('@/lib/lp-recipients', () => ({ resolveLpRecipients: mocks.resolveLpRecipients }))
 vi.mock('@/lib/access/lp-scope', async importOriginal => ({
   ...(await importOriginal<typeof import('@/lib/access/lp-scope')>()),
   loadLpScope: async () => ({ scope: null, entityIds: null, investorIds: null }),
@@ -163,31 +161,99 @@ describe('the portal switches', () => {
 })
 
 describe('email to LPs', () => {
-  const group = { primaryAccountId: 'acctB', primaryEmail: 'b@beta.example', primaryName: 'Bea', investorIds: ['iB'], ccEmails: ['adv@cpa.example'] }
+  // Who is reachable in seed(): Beta through its portal account; Alpha, Gamma and Epsilon at the
+  // contact or notice email on file (no account); Delta not at all (its contact field is not an address).
+  const withAuth = (admin: any, email: string | null = 'gp@fund.example') => {
+    admin.auth = { admin: { getUserById: async () => ({ data: { user: email ? { email } : null } }) } }
+    return admin
+  }
 
-  it('an announcement preview returns the addresses and the email, and sends nothing', async () => {
+  it('an announcement preview lists every LP with an address, portal account or not, and sends nothing', async () => {
     const { admin, tables } = memoryAdmin(seed())
-    mocks.resolveLpRecipients.mockResolvedValue([group])
     const out = await announceToLps(admin, { ...actor, role: 'admin' }, { subject: 'Closing', body: 'We closed.', preview: true })
     expect(out).toMatchObject({ ok: true, value: {
       preview: true, subject: 'Hemrock Fund I: Closing',
-      recipients: [{ to: 'b@beta.example', name: 'Bea', cc: ['adv@cpa.example'], investorCount: 1 }],
-      unreachable: 4,
+      recipients: [
+        { to: 'b@beta.example', cc: [], investorCount: 1, via: 'portal' },
+        { to: 'ann@alpha.example', name: 'Alpha Family', cc: [], via: 'contact' },
+        { to: 'notices@gamma.example', name: 'Gamma Trust', cc: [], via: 'contact' },
+        { to: 'one@eps.example', name: 'Epsilon', cc: ['two@eps.example'], via: 'contact' },
+      ],
+      unreachable: 1,
     } })
     expect(out.ok && 'html' in out.value && out.value.html).toContain('We closed.')
     expect(mocks.sendOutboundEmail).not.toHaveBeenCalled()
     expect(tables.lp_messages ?? []).toHaveLength(0)
   })
 
-  it('a send records the message in the portal and the email per investor', async () => {
+  it('a send reaches LPs without a portal account too, records the message and the email per investor', async () => {
     const { admin, tables } = memoryAdmin(seed())
-    mocks.resolveLpRecipients.mockResolvedValue([group])
     mocks.getOutboundConfig.mockResolvedValue({ provider: 'resend' })
     mocks.sendOutboundEmail.mockResolvedValue({ id: 'm1' })
-    const out = await announceToLps(admin, { ...actor, role: 'admin' }, { subject: 'Closing', body: 'We closed.', lp_investor_ids: ['iB'] })
-    expect(out).toMatchObject({ ok: true, value: { ok: true, sent: 1, primaryRecipients: 1, ccRecipients: 1, failures: [] } })
-    expect(tables.lp_messages).toHaveLength(1)
-    expect(tables.lp_deliveries).toHaveLength(1)
+    const out = await announceToLps(admin, { ...actor, role: 'admin' }, { subject: 'Closing', body: 'We closed.', lp_investor_ids: ['iA', 'iB'] })
+    expect(out).toMatchObject({ ok: true, value: { ok: true, sent: 2, primaryRecipients: 2, failures: [] } })
+    const to = mocks.sendOutboundEmail.mock.calls.map(c => c[1].to).sort()
+    expect(to).toEqual(['ann@alpha.example', 'b@beta.example'])
+    // The LP with no account gets no "reply in your portal" button.
+    const alpha = mocks.sendOutboundEmail.mock.calls.find(c => c[1].to === 'ann@alpha.example')![1]
+    const beta = mocks.sendOutboundEmail.mock.calls.find(c => c[1].to === 'b@beta.example')![1]
+    expect(alpha.html).not.toContain('/portal/contact')
+    expect(beta.html).toContain('/portal/contact')
+    expect(tables.lp_messages).toHaveLength(2)
+    expect(tables.lp_deliveries).toHaveLength(2)
+  })
+
+  it('an LP whose portal access was disabled is not emailed at their contact address instead', async () => {
+    const data = seed()
+    data.lp_account_links[0].disabled_at = '2026-01-01T00:00:00Z'
+    const { admin } = memoryAdmin(data)
+    const out = await announceToLps(admin, { ...actor, role: 'admin' }, { subject: 'Closing', body: 'We closed.', lp_investor_ids: ['iB'], preview: true })
+    expect(out).toMatchObject({ ok: false, status: 400 })
+  })
+
+  it('a test sends the exact email once, to the sender only, and records nothing', async () => {
+    const { admin, tables } = memoryAdmin(seed())
+    withAuth(admin)
+    mocks.getOutboundConfig.mockResolvedValue({ provider: 'resend' })
+    mocks.sendOutboundEmail.mockResolvedValue({ id: 'm1' })
+    const out = await announceToLps(admin, { ...actor, role: 'admin' }, { subject: 'Closing', body: 'We closed.', lp_investor_ids: ['iA', 'iB'], test: true })
+    expect(out).toMatchObject({ ok: true, value: { ok: true, test: true, sentTo: 'gp@fund.example' } })
+    expect(mocks.sendOutboundEmail).toHaveBeenCalledTimes(1)
+    const sent = mocks.sendOutboundEmail.mock.calls[0][1]
+    expect(sent.to).toBe('gp@fund.example')
+    expect(sent.cc).toBeUndefined()
+    expect(sent.subject).toBe('[Test] Hemrock Fund I: Closing')
+    expect(sent.html).toContain('Test send. Nothing went to any LP.')
+    expect(sent.html).toContain('We closed.')
+    expect(tables.lp_messages ?? []).toHaveLength(0)
+    expect(tables.lp_deliveries ?? []).toHaveLength(0)
+  })
+
+  it('a test with no sign-in email to send to is refused', async () => {
+    const { admin } = memoryAdmin(seed())
+    withAuth(admin, null)
+    mocks.getOutboundConfig.mockResolvedValue({ provider: 'resend' })
+    const out = await announceToLps(admin, { ...actor, role: 'admin' }, { subject: 'Closing', body: 'We closed.', test: true })
+    expect(out).toMatchObject({ ok: false, status: 400 })
+    expect(mocks.sendOutboundEmail).not.toHaveBeenCalled()
+  })
+
+  it('a document goes to an LP with no portal account as an attachment, with no portal link', async () => {
+    const data = seed()
+    data.lp_documents = [{ id: 'd1', fund_id: FUND, title: 'Side letter', file_name: 'side.pdf', storage_path: 'p/side.pdf', mime_type: 'application/pdf', scope: 'investor' }]
+    data.lp_document_shares = [{ id: 's1', document_id: 'd1', lp_investor_id: 'iA', fund_id: FUND }, { id: 's2', document_id: 'd1', lp_investor_id: 'iB', fund_id: FUND }]
+    const { admin } = memoryAdmin(data)
+    admin.storage = { from: () => ({ download: async () => ({ data: new Blob([new Uint8Array([1, 2, 3])]) }) }) }
+    mocks.getOutboundConfig.mockResolvedValue({ provider: 'resend' })
+    mocks.sendOutboundEmail.mockResolvedValue({ id: 'm1' })
+    const out = await sendPortalItem(admin, actor, { kind: 'document', id: 'd1', lp_investor_ids: ['iA', 'iB'], delivery: 'link' }, null)
+    expect(out).toMatchObject({ ok: true, value: { sent: 2, failures: [] } })
+    const alpha = mocks.sendOutboundEmail.mock.calls.find(c => c[1].to === 'ann@alpha.example')![1]
+    const beta = mocks.sendOutboundEmail.mock.calls.find(c => c[1].to === 'b@beta.example')![1]
+    expect(alpha.attachments).toHaveLength(1)
+    expect(alpha.html).not.toContain('/portal/')
+    expect(beta.attachments).toBeUndefined()
+    expect(beta.html).toContain('/portal/')
   })
 
   it('sending a statement or letter as a rendered attachment needs a renderer (the tool passes remote ones: agent-remote-pdf.test.ts)', async () => {
@@ -230,7 +296,9 @@ describe('the tools', () => {
     const chat = { keyId: 'oauth:c1' }
     for (const [name, preview, real] of [
       ['lp_announce', { preview: true }, {}],
+      ['lp_announce', { test: true }, {}],
       ['lp_send_item', { preview: true }, { preview: false }],
+      ['lp_send_item', { test: true }, { test: false }],
       ['lp_portal_invite', { preview: true }, {}],
       ['lp_portal_resend_invite', { preview: true }, {}],
       ['lp_authorized_user_add', { preview: true }, {}],

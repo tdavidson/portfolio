@@ -11,6 +11,7 @@ import { bearerToken, verifyNoticePublish, type NoticePublishClaims, type Notice
 import { executePublishCallNotices } from '@/lib/pending-actions/call-notices-publish'
 import { executePublishDistributionNotices } from '@/lib/pending-actions/distribution-notices-publish'
 import { publishCallNotices } from '@/lib/accounting/proposed-call-publish'
+import { loadNoticeRegister, testNoticeEmail } from '@/lib/accounting/notices'
 
 export const runtime = 'nodejs'
 export const maxDuration = 300
@@ -45,20 +46,29 @@ async function publish(claims: NoticePublishClaims) {
   if (!(await agentApiEnabled(admin, fundId))) return refuse('Agent access is off for this fund.')
   const role = (membership as { role: string }).role
   const label = claims.mode === 'staged' ? ADMIN_ONLY_ACTIONS.publish_call_notices
-    : claims.mode === 'staged_distribution' ? ADMIN_ONLY_ACTIONS.publish_distribution_notices
+    : claims.mode === 'staged_distribution' || claims.mode === 'test_email' ? ADMIN_ONLY_ACTIONS.publish_distribution_notices
     : ADMIN_ONLY_TOOLS.lp_proposed_call_approve.label
   if (role !== 'admin') return refuse(adminOnlyMessage(label))
 
   const access = await loadAccessContext(admin, fundId, userId, role)
   // The gate each door answers to in the app: the staged action's (lp_relations, lp_portal), and
   // the proposed-calls route's (lp_capital).
-  const allowed = claims.mode === 'staged' || claims.mode === 'staged_distribution'
+  const allowed = claims.mode === 'staged' || claims.mode === 'staged_distribution' || claims.mode === 'test_email'
     ? hasAccess(access, 'lp_relations', 'write', 'lp_portal')
     : hasAccess(access, 'lp_capital', 'write')
   if (!allowed) return refuse('You no longer have the access publishing these notices needs.')
 
   try {
     let result: NoticePublishResult
+    if (claims.mode === 'test_email') {
+      // A test: one partner's DRAFT notice to the member only. Publishes, shares and logs nothing.
+      const group = await resolveVehicle(admin, fundId, claims.vehicle, { access })
+      const reg = await loadNoticeRegister(admin, fundId, group, claims.noticeKind, claims.callId)
+      if ('error' in reg) return NextResponse.json({ error: reg.error }, { status: reg.status })
+      const out = await testNoticeEmail(admin, { fundId, group, userId }, reg, claims.lpEntityIds ?? undefined, claims.email)
+      if ('error' in out) return NextResponse.json({ error: out.error }, { status: 400 })
+      return NextResponse.json({ ok: true, result: out })
+    }
     if (claims.mode === 'staged_distribution') {
       // The distribution twin: re-reads the review (recipients included), refuses a stale token or a blocker.
       const out = await executePublishDistributionNotices({ admin, fundId, userId, access }, {
