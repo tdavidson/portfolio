@@ -1,0 +1,246 @@
+{
+  "id": "mixed-quarter",
+  "description": "A quarter with one full update, a write-off, a down round, a company with nothing new (and an old stored update), a confidential update, and a net figure the administrator has not reported yet.",
+  "brief": {
+    "fund": "Example Fund II",
+    "period": "Q2 2026",
+    "skill": {
+      "name": "lp-quarterly-letter",
+      "version": "2.5.0",
+      "voice": "default",
+      "voice_template": null
+    },
+    "as_of": "2026-07-15",
+    "instructions": "Write the Q2 2026 letter for Example Fund II in the general voice.",
+    "basis_notes": [
+      "Gross figures are the performance report's, for the total portfolio, as of 2026-06-30.",
+      "Net figures are the fund administrator's, as recorded in Hemrock, as of 2026-06-30."
+    ],
+    "fund_figures": [
+      {
+        "label": "Gross IRR",
+        "value": "14.2%",
+        "basis": "gross",
+        "source": "Performance report (total portfolio)",
+        "as_of": "2026-06-30"
+      },
+      {
+        "label": "Gross MOIC",
+        "value": "1.38x",
+        "basis": "gross",
+        "source": "Performance report (total portfolio)",
+        "as_of": "2026-06-30"
+      },
+      {
+        "label": "Net DPI",
+        "value": "0.12x",
+        "basis": "net",
+        "source": "Fund administrator",
+        "as_of": "2026-06-30"
+      },
+      {
+        "label": "Net IRR",
+        "value": "9.6%",
+        "basis": "net",
+        "source": "Fund administrator",
+        "as_of": "2026-06-30"
+      }
+    ],
+    "companies": [
+      {
+        "company_id": "c-lattice",
+        "company": "Lattice Freight",
+        "status": "active",
+        "letter_status": "Active",
+        "stage": "Series A",
+        "figures": [
+          {
+            "label": "Invested",
+            "value": "$2,000,000",
+            "basis": "cost"
+          },
+          {
+            "label": "Fair value",
+            "value": "$3,100,000",
+            "basis": "gross"
+          }
+        ],
+        "events": [],
+        "updates_this_quarter": [
+          {
+            "received": "2026-07-08",
+            "subject": "Lattice Freight Q2 2026 update",
+            "period": "Q2 2026",
+            "text": "Q2 was our strongest quarter. ARR reached $4.1M at June 30, up from $3.2M at March 31. We added 11 new shipper customers, for 58 in total, and opened our second dispatch hub in the Midwest. Gross margin was 61% for the quarter. We are hiring a VP of Sales and expect to start the search in August."
+          },
+          {
+            "received": "2026-07-10",
+            "subject": "CONFIDENTIAL - Lattice board pipeline notes",
+            "period": "Q2 2026",
+            "text": "Confidential, not for distribution. We are in late-stage talks with a national grocery chain on a three-year contract worth roughly $1.8M a year, and pricing is set at a 14 percent discount to our list rate to win it.",
+            "confidential": true
+          }
+        ],
+        "kpis_this_quarter": [
+          "ARR: $4.1M (Q2 2026)",
+          "Customers: 58 (Q2 2026)",
+          "Gross margin: 61% (Q2 2026)"
+        ],
+        "team_notes": [],
+        "stored_business_update": "Lattice Freight runs a dispatch network for regional shippers.",
+        "stored_business_update_at": "2026-04-20",
+        "stored_business_update_stale": false
+      },
+      {
+        "company_id": "c-pinecrest",
+        "company": "Pinecrest Bio",
+        "status": "written_off",
+        "letter_status": "Written Off",
+        "stage": "Seed",
+        "figures": [
+          {
+            "label": "Invested",
+            "value": "$750,000",
+            "basis": "cost"
+          },
+          {
+            "label": "Fair value",
+            "value": "$0",
+            "basis": "gross"
+          }
+        ],
+        "events": [
+          "Written off on 2026-05-31: the company wound down after its lead program failed a safety study. The fund's $750,000 investment is now carried at $0."
+        ],
+        "updates_this_quarter": [],
+        "kpis_this_quarter": [],
+        "team_notes": [],
+        "stored_business_update": null,
+        "stored_business_update_at": null,
+        "stored_business_update_stale": null
+      },
+      {
+        "company_id": "c-saltmarsh",
+        "company": "Saltmarsh Energy",
+        "status": "active",
+        "letter_status": "Active",
+        "stage": "Series A",
+        "figures": [
+          {
+            "label": "Invested",
+            "value": "$1,500,000",
+            "basis": "cost"
+          },
+          {
+            "label": "Fair value",
+            "value": "$900,000",
+            "basis": "gross"
+          }
+        ],
+        "events": [
+          "Down round on 2026-04-22: Saltmarsh raised a $6M Series A extension at a lower price per share than the fund's Series A. The fund's position was marked down from $1,500,000 to $900,000."
+        ],
+        "updates_this_quarter": [
+          {
+            "received": "2026-07-02",
+            "subject": "Saltmarsh Q2 update",
+            "period": "Q2 2026",
+            "text": "We closed the $6M extension in April. Two pilot sites are now generating revenue, and Q2 revenue was $310K. The new funding gives us runway into the second half of 2027 by our estimate."
+          }
+        ],
+        "kpis_this_quarter": [
+          "Revenue: $310K (Q2 2026)"
+        ],
+        "team_notes": [],
+        "stored_business_update": null,
+        "stored_business_update_at": null,
+        "stored_business_update_stale": null
+      },
+      {
+        "company_id": "c-tidewater",
+        "company": "Tidewater Labs",
+        "status": "active",
+        "letter_status": "Active",
+        "stage": "Seed",
+        "figures": [
+          {
+            "label": "Invested",
+            "value": "$500,000",
+            "basis": "cost"
+          },
+          {
+            "label": "Fair value",
+            "value": "$500,000",
+            "basis": "gross"
+          }
+        ],
+        "events": [],
+        "updates_this_quarter": [],
+        "kpis_this_quarter": [],
+        "team_notes": [],
+        "stored_business_update": "Tidewater plans to launch its marine sensor network commercially in Q1 2026 and expects to sign its first three port authorities before the end of 2025.",
+        "stored_business_update_at": "2025-09-12",
+        "stored_business_update_stale": true
+      }
+    ],
+    "partner_notes": "Lead with the write-off and the down round; don't bury them. We are comfortable with how the rest of the portfolio is tracking. No market commentary this quarter.",
+    "missing_information": [
+      "Net TVPI as of 2026-06-30: not recorded yet."
+    ],
+    "excluded": "Investor names and contact details are excluded."
+  },
+  "expect": {
+    "today": "2026-07-15",
+    "investor_names": [
+      "Jane Doe Family Trust",
+      "Example Pension Plan"
+    ],
+    "other_companies": [
+      "Fernway Robotics"
+    ],
+    "allowed_flags": [],
+    "must_contain": [
+      {
+        "text": "written off|write-off|wound down",
+        "section": "Pinecrest Bio"
+      },
+      {
+        "text": "down round",
+        "section": "Saltmarsh Energy"
+      },
+      {
+        "text": "4\\.1M",
+        "section": "Lattice Freight"
+      },
+      {
+        "text": "14\\.2%"
+      },
+      {
+        "text": "1\\.38x"
+      },
+      {
+        "text": "0\\.12x"
+      },
+      {
+        "text": "9\\.6%"
+      }
+    ],
+    "must_not_contain": [
+      "grocery",
+      "1\\.8M",
+      "14 percent",
+      "port authorit",
+      "Q1 2026",
+      "Acme Robotics",
+      "Birch Analytics",
+      "Northwind Health",
+      "TVPI[^\\n]{0,20}\\d+(\\.\\d+)?x"
+    ],
+    "internal_must_contain": [
+      "TVPI"
+    ],
+    "max_words": {
+      "Tidewater Labs": 50
+    }
+  }
+}

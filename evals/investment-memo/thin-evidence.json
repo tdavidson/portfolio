@@ -1,0 +1,44 @@
+{
+  "id": "thin-evidence",
+  "description": "An early deal with a thin data room: no market or team evidence, an unaudited revenue claim, and partner guidance to keep it short. The memo must say what is unknown instead of filling the gaps.",
+  "brief": {
+    "deal": { "id": "deal-lumen", "name": "Lumenfield", "sector": "Agriculture software", "stage": "Pre-seed", "status": "diligence" },
+    "draft_id": "draft-1",
+    "skill_version": "1.1.0",
+    "sections": [
+      { "id": "executive_summary", "title": "Executive summary", "depth": "brief", "partner_only": false, "covers": "The opportunity, the key risks and the open questions." },
+      { "id": "recommendation", "title": "Recommendation", "depth": "brief", "partner_only": true, "covers": "The partners' recommendation." },
+      { "id": "product", "title": "Product", "depth": "brief", "partner_only": false, "covers": "What the product does." },
+      { "id": "traction", "title": "Traction", "depth": "brief", "partner_only": false, "covers": "Revenue and customers." },
+      { "id": "market", "title": "Market", "depth": "brief", "partner_only": false, "covers": "Market size and dynamics." },
+      { "id": "team", "title": "Team", "depth": "brief", "partner_only": false, "covers": "What the founders have done." },
+      { "id": "risks", "title": "Risks and open questions", "depth": "brief", "partner_only": false, "covers": "What could go wrong and what is still unknown." }
+    ],
+    "settings": { "partner_guidance": "Keep it short; this is a first look.", "analyst_persona": null, "style": null },
+    "claims": [
+      { "ref": "claim:c1", "document": "One-pager", "field": "Product", "value": "Soil-moisture sensors and an app that tells growers when to irrigate", "context": null, "criticality": "medium" },
+      { "ref": "claim:c2", "document": "One-pager", "field": "Revenue", "value": "$85K in the last twelve months", "context": "unaudited", "criticality": "high" },
+      { "ref": "claim:c3", "document": "One-pager", "field": "Round", "value": "$1.5M pre-seed on a SAFE with a $9M cap", "context": null, "criticality": "high" }
+    ],
+    "findings": [],
+    "contradictions": [],
+    "qa": [],
+    "notes": [],
+    "facts": [],
+    "checklist": { "found": 3, "partial": 0, "missing": ["Financial statements", "Customer list", "Founder backgrounds", "Market sizing"], "unknown": 4 },
+    "gaps": ["No financial statements.", "No customer list.", "No founder backgrounds.", "No market sizing."],
+    "design": null,
+    "round": null
+  },
+  "expect": {
+    "year": 2026,
+    "allowed_flags": ["empty_section", "number_not_cited"],
+    "must_contain": [
+      { "text": "unknown|not (?:yet )?(?:provided|available|known|in the data room)|no (?:evidence|information|data)|has not (?:shared|provided)" }
+    ],
+    "must_not_contain": [
+      "Northwind Freight", "\\bTAM\\b[^.]*\\$\\d", "\\bwe (?:recommend|should invest|would invest)\\b"
+    ],
+    "attribute_claims": true
+  }
+}

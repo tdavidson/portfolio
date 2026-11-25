@@ -38,8 +38,11 @@ export interface ReviewInput {
   year?: number
 }
 
-/** Figures worth checking: amounts, percentages, multiples and counts of 2+ digits. Years and ordinals are not. */
-const FIGURE = /(?:[$€£]\s?)?\d[\d,]*(?:\.\d+)?\s?(?:%|x\b|[kKmMbB]\b|bn\b|mm\b|million\b|billion\b|thousand\b)?/g
+/**
+ * Figures worth checking: amounts, percentages, multiples and counts of 2+ digits. Years and ordinals
+ * are not. A comma belongs to a figure only between digits, so "by 2027, the company…" is a year.
+ */
+const FIGURE = /(?:[$€£]\s?)?\d(?:\d|,(?=\d))*(?:\.\d+)?\s?(?:%|x\b|[kKmMbB]\b|bn\b|mm\b|million\b|billion\b|thousand\b)?/g
 
 /** A figure in a canonical form, so "1,400,000", "1.4M" and "1.4 million" compare equal. */
 export function normalizeFigure(raw: string): string | null {

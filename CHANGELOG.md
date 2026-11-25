@@ -2,6 +2,13 @@
 
 ## Unreleased
 
+### Evals for the letter and memo skills
+- **`npm run evals`** runs the letter and memo skills on invented cases (`evals/`) and grades each reply with the same review a saved draft gets, plus each case's own expectations. Use it before changing a skill or moving the skills to another model. `--grade` grades a reply written elsewhere without calling a model. See `evals/README.md`.
+- Four cases to start: a quarter with a write-off, a down round and a confidential update; a year-end letter with an exit and a new investment; a memo where the data room and research disagree; and a memo with a thin data room.
+- CI checks that each case's good reply passes and its bad reply fails. It calls no model.
+- **Memo review fixes found by the evals.** A year followed by a comma ("by the end of 2027, …") was read as a figure missing from the sources. A writer that left `[Partner to complete]` in the recommendation, as the skill says to, was told it had written a recommendation.
+- No migration.
+
 ### Every LP is emailed, portal account or not, and every LP email can be tested first
 - **No portal account needed.** Announcements, statements, letters and documents now reach investors with no portal account at the contact email on their record (else an entity's notice email, with the others Cc'd), as notices already did. Their copy has no portal button and always carries the PDF or file. The review step marks them. An investor whose portal access an admin disabled is still not emailed, at any address; notices now follow that rule too.
 - **Notices with the portal off.** "Publish and email" on call and distribution notices works with the LP portal off, sending each partner the PDF attached.

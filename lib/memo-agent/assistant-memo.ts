@@ -70,6 +70,8 @@ export function buildParagraphs(sections: BriefSection[], input: ParagraphInput[
     const sectionId = section?.id ?? (norm(String(p.section ?? 'other')).replace(/ /g, '_') || 'other')
     if (!section) problems.push({ kind: 'unknown_section', severity: 'check', message: `"${p.section}" is not one of the memo's sections, so it was kept as its own section.`, section: sectionId })
     if (section?.partner_only && !partnerWrites) {
+      // The skill tells the writer to leave the placeholder there, and that is what it did.
+      if (text === PARTNER_PLACEHOLDER) continue
       problems.push({ kind: 'recommendation_outside_section', severity: 'must_fix', message: `"${section.title}" is the partners' to write, so what was given for it was left out and the placeholder kept.`, section: section.id })
       continue
     }

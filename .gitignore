@@ -71,3 +71,6 @@ scripts/*.local.json
 
 # The fund engine builds to dist/ for publishing; the app consumes its source.
 /packages/*/dist/
+
+# Replies and summaries from npm run evals.
+evals/results/
