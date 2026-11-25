@@ -88,6 +88,19 @@ export const DASHBOARD_TOOL_MANIFEST: DashboardToolMeta[] = [
     inputSchema: { type: 'object', properties: {}, additionalProperties: false },
   },
   {
+    name: 'whoami',
+    description:
+      'What this connection is and what it can reach: the fund and deployment, the signed-in member and their role, ' +
+      'their access in each area (read, propose or edit), which entities they can see, and whether this credential is a ' +
+      'chat assistant or an API key and may change anything. Call it first when you are unsure what you can do here, ' +
+      'when a call is refused, or when the person asks who they are signed in as.',
+    scope: 'read',
+    domain: 'portfolio',
+    // Every member may ask what their own connection can do.
+    personal: true,
+    inputSchema: { type: 'object', properties: {}, additionalProperties: false },
+  },
+  {
     name: 'help',
     description:
       'Answer a request for help as text, limited to what this user may open. With no topic: what this connection can do, ' +

@@ -38,6 +38,7 @@ import {
   deleteDashboard, listDashboards, parseSave, resolveDashboard, sanitizeArguments, saveDashboard,
 } from '@/lib/mcp-apps/saved-dashboards'
 import { listVehicles } from '@/lib/accounting/load'
+import { whoami } from './whoami'
 import { areasFor, DASHBOARD_TIPS, helpText, type CanRead } from './getting-started'
 import type { ChartData, ChartPayload, HomePayload } from '@/lib/mcp-apps/payload'
 import { CHART_KINDS, CHART_MAX_POINTS, CHART_UNITS } from '@/lib/mcp-apps/payload'
@@ -622,6 +623,7 @@ async function chartView(ctx: AgentToolContext, input: any): Promise<ChartPayloa
 export const DASHBOARD_HANDLERS: Record<string, AgentToolHandler> = {
   show_home: homeView,
   help: helpAnswer,
+  whoami,
   show_chart: chartView,
   show_portfolio_dashboard: portfolioView,
   show_company_dashboard: companyView,

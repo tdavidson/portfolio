@@ -192,7 +192,7 @@ describe('the dashboard tool registry', () => {
     expect(DASHBOARD_TOOLS.filter(t => t.personal).map(t => t.name).sort())
       .toEqual([
         'delete_custom_view', 'delete_dashboard', 'export_custom_view', 'get_custom_view_spec', 'help', 'list_custom_views', 'list_dashboards',
-        'open_custom_view', 'open_dashboard', 'preview_custom_view', 'save_custom_view', 'save_dashboard', 'show_chart', 'show_home',
+        'open_custom_view', 'open_dashboard', 'preview_custom_view', 'save_custom_view', 'save_dashboard', 'show_chart', 'show_home', 'whoami',
       ])
     expect(DASHBOARD_TOOLS.filter(t => t.scope === 'write').map(t => t.name).sort())
       .toEqual(['delete_custom_view', 'delete_dashboard', 'save_custom_view', 'save_dashboard'])

@@ -103,7 +103,7 @@ export function toolCatalogueGroups(): Group[] {
 }
 
 /** Dashboard-family tools that are neither drawn nor personal (help, the custom-view tools). */
-const DASHBOARD_NAMES = new Set(['help'])
+const DASHBOARD_NAMES = new Set(['help', 'whoami'])
 
 export function renderToolCatalogue(): string {
   const groups = toolCatalogueGroups()
