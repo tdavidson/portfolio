@@ -118,6 +118,8 @@ export async function resolveLpRecipients(
   return Array.from(groups.values())
 }
 
+const looksLikeEmail = (s: string) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s)
+
 /**
  * Where to email investors who have no portal account: the relationship contact on their record,
  * else an entity's notice email, with the entities' other notice emails Cc'd. Only for the
@@ -144,11 +146,60 @@ export async function resolveContactRecipients(
     notices.set(e.investor_id, list)
   }
   for (const inv of (investors ?? []) as { id: string; contact_email: string | null }[]) {
-    const list = notices.get(inv.id) ?? []
-    const contact = (inv.contact_email ?? '').trim().toLowerCase()
+    const list = (notices.get(inv.id) ?? []).filter(looksLikeEmail)
+    const raw = (inv.contact_email ?? '').trim().toLowerCase()
+    // A contact field holding a note rather than an address is passed over for the notice email.
+    const contact = looksLikeEmail(raw) ? raw : ''
     const to = contact || list[0]
     if (!to) continue
     out.set(inv.id, { to, cc: list.filter(e => e !== to) })
+  }
+  return out
+}
+
+/** One email to send: a portal account (To, its authorized users Cc), or a contact with no account. */
+export interface LpEmailGroup {
+  /** The portal account this goes to; null when it goes to the contact or notice email instead. */
+  primaryAccountId: string | null
+  primaryEmail: string
+  primaryName: string | null
+  investorIds: string[]
+  ccEmails: string[]
+  /** No portal account: the address came from the investor's record. Send the document itself. */
+  viaContact: boolean
+}
+
+/**
+ * Everyone an LP email can reach for these investors: the portal account where the investor has
+ * one, else the contact or notice email on their record (one email per investor, so a notice
+ * address Cc'd on one investor never sees another's figures). An investor whose portal access an
+ * admin disabled gets nothing: disabling an LP stops their LP email too.
+ */
+export async function resolveLpEmailRecipients(
+  admin: SupabaseClient,
+  fundId: string,
+  investorIds: string[],
+): Promise<LpEmailGroup[]> {
+  if (investorIds.length === 0) return []
+  const groups = await resolveLpRecipients(admin, fundId, investorIds)
+  const out: LpEmailGroup[] = groups.map(g => ({ ...g, viaContact: false }))
+  const reached = new Set(groups.flatMap(g => g.investorIds))
+
+  // Investors with any portal link at all (disabled included) are not contact recipients: a
+  // disabled link or account was switched off on purpose.
+  const { data: links } = await (admin as any)
+    .from('lp_account_links').select('lp_investor_id').eq('fund_id', fundId).in('lp_investor_id', investorIds)
+  const linked = new Set(((links ?? []) as { lp_investor_id: string }[]).map(l => l.lp_investor_id))
+
+  const rest = investorIds.filter(id => !reached.has(id) && !linked.has(id))
+  if (rest.length === 0) return out
+  const { data: names } = await (admin as any).from('lp_investors').select('id, name').eq('fund_id', fundId).in('id', rest)
+  const nameById = new Map<string, string>(((names ?? []) as { id: string; name: string }[]).map(n => [n.id, n.name]))
+  const contacts = await resolveContactRecipients(admin, fundId, rest)
+  for (const id of rest) {
+    const c = contacts.get(id)
+    if (!c) continue
+    out.push({ primaryAccountId: null, primaryEmail: c.to, primaryName: nameById.get(id) ?? null, investorIds: [id], ccEmails: c.cc, viaContact: true })
   }
   return out
 }

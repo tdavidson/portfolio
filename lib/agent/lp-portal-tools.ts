@@ -245,7 +245,7 @@ export const LP_PORTAL_HANDLERS: Record<string, AgentToolHandler> = {
     const refs = input?.investors
     const lpInvestorIds = refs == null || refs === 'all' ? 'all' : await investorIds(ctx.admin, ctx.fundId, refs)
     const out = unwrap(await announceToLps(ctx.admin, { ...actor, role: ctx.access.role }, {
-      subject: input?.subject, body: input?.body, lp_investor_ids: lpInvestorIds, preview: input?.preview === true,
+      subject: input?.subject, body: input?.body, lp_investor_ids: lpInvestorIds, preview: input?.preview === true, test: input?.test === true,
     }))
     return 'preview' in out ? { ...out, next: NEXT_AFTER_PREVIEW } : out
   },
@@ -268,7 +268,7 @@ export const LP_PORTAL_HANDLERS: Record<string, AgentToolHandler> = {
     const renderers = remotePdfRenderers({ userId: actor.userId, origin: ctx.origin })
     const sent = await sendPortalItem(ctx.admin, actor, {
       kind: input?.kind, id: str(input?.id), lp_investor_ids: ids, subject: input?.subject, message: input?.message,
-      delivery: input?.delivery, preview: input?.preview === true,
+      delivery: input?.delivery, preview: input?.preview === true, test: input?.test === true,
     }, renderers)
     // A letter that could not be rendered refuses the whole send; say why, not only that it failed.
     if (!sent.ok && renderers.errors.length) throw new Error(`${sent.error} ${renderers.errors[0]}`)

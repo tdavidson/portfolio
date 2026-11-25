@@ -468,6 +468,31 @@ export const LP_TOOL_MANIFEST: AgentToolMeta[] = [
     },
   },
   {
+    name: 'test_notice_email',
+    description:
+      "Send a test of a capital call's or declared distribution's notice email to the person's own sign-in email: one partner's " +
+      'email exactly as it would go out, with that partner\'s notice attached as a DRAFT PDF and a banner naming who the real ' +
+      'one goes to. Nothing is published, shared, logged or sent to any LP, so it needs no confirmation. Use it before ' +
+      'publish_call_notices or publish_distribution_notices when the person wants to see the email. Admin only.',
+    scope: 'write',
+    domain: 'lp',
+    accessDomain: 'lp_relations',
+    accessFeature: 'lp_portal',
+    inputSchema: {
+      type: 'object',
+      required: ['vehicle', 'kind', 'id'],
+      properties: {
+        vehicle: VEHICLE,
+        kind: { type: 'string', enum: ['capital_call', 'distribution'] },
+        id: { type: 'string', description: 'The issued capital call or declared distribution.' },
+        lpEntityIds: { type: 'array', items: { type: 'string' }, description: 'The test uses the first of these partners. Default: the first partner.' },
+        delivery: { type: 'string', enum: ['link', 'attachment', 'both'], description: 'As the real send. Default attachment.' },
+        subject: { type: 'string' },
+        message: { type: 'string' },
+      },
+    },
+  },
+  {
     name: 'preview_call_notices',
     description:
       "What publishing an issued capital call's notices would do, before anything goes out: each partner's amount and share " +

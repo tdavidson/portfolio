@@ -3,7 +3,12 @@
 // app/api/lps/send and the lp_announce / lp_send_item agent tools (lib/agent/lp-portal-tools.ts).
 //
 // Both have a preview that returns the exact addresses (To, and the authorized users Cc'd) and the
-// rendered email without sending: the review step before anything goes out.
+// rendered email without sending: the review step before anything goes out. Both also take
+// `test: true`, which sends that exact email once to the sender's own address instead of the LPs.
+//
+// Every LP is emailed whether or not they have a portal account. An LP with one gets it at their
+// account (authorized users Cc'd); an LP without one gets it at the contact or notice email on their
+// record, with the document attached since a portal link would mean nothing to them.
 //
 // Rendering a statement or letter as a PDF attachment launches headless Chromium, which only some
 // routes ship (lib/pdf-routes.mjs). So this module never imports the PDF renderer: the caller passes
@@ -14,7 +19,8 @@
 import { randomUUID } from 'node:crypto'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getOutboundConfig, sendOutboundEmail, type EmailAttachment } from '@/lib/email'
-import { resolveLpRecipients, type LpRecipientGroup } from '@/lib/lp-recipients'
+import { resolveLpEmailRecipients, type LpEmailGroup } from '@/lib/lp-recipients'
+import { testRecipientEmail, testSubject, withTestBanner, NO_TEST_RECIPIENT, type TestSendResult } from '@/lib/lp-test-email'
 import { buildLpEmailHtml, siteUrl } from '@/lib/lp-email'
 import { logDelivery } from '@/lib/lp-deliveries'
 import { runPool } from '@/lib/async-pool'
@@ -28,8 +34,19 @@ export interface OutreachActor {
   role: string
 }
 
-const recipientsOf = (groups: LpRecipientGroup[]) =>
-  groups.map(g => ({ to: g.primaryEmail, name: g.primaryName, cc: g.ccEmails, investorCount: g.investorIds.length }))
+export interface PreviewRecipient {
+  to: string
+  name: string | null
+  cc: string[]
+  investorCount: number
+  /** portal: their portal account. contact: the contact or notice email on file (no portal account). */
+  via: 'portal' | 'contact'
+}
+
+const recipientsOf = (groups: LpEmailGroup[]): PreviewRecipient[] =>
+  groups.map(g => ({ to: g.primaryEmail, name: g.primaryName, cc: g.ccEmails, investorCount: g.investorIds.length, via: g.viaContact ? 'contact' : 'portal' }))
+
+const NOBODY_TO_EMAIL = 'None of the selected LPs has a portal account, contact email or notice email. Add one on the investor or entity profile.'
 
 // ── Announcements ──────────────────────────────────────────────────────────────────────────
 
@@ -37,7 +54,7 @@ export interface AnnouncePreview {
   preview: true
   subject: string
   html: string
-  recipients: { to: string; name: string | null; cc: string[]; investorCount: number }[]
+  recipients: PreviewRecipient[]
   /** Investors selected but with nobody to email. */
   unreachable: number
 }
@@ -53,15 +70,16 @@ export interface SendSummary {
 /**
  * An announcement: a message to chosen LPs (or all of them) with nothing attached to it.
  *
- *   { subject, body, lp_investor_ids?: string[] | 'all', preview?: boolean }
+ *   { subject, body, lp_investor_ids?: string[] | 'all', preview?: boolean, test?: boolean }
  *
  * It goes out through the same recipient resolution as every LP email (the investor's account To,
- * their authorized users Cc), is recorded as an outbound message per investor so the portal shows
- * it, and is logged per send. `preview` returns the exact addresses without sending.
+ * their authorized users Cc; the contact or notice email for an LP with no account), is recorded as
+ * an outbound message per investor so the portal shows it, and is logged per send. `preview`
+ * returns the exact addresses without sending; `test` sends it once to the sender only.
  */
 export async function announceToLps(
   admin: SupabaseClient, actor: OutreachActor, body: any,
-): Promise<Outcome<AnnouncePreview | (SendSummary & { announcementId: string })>> {
+): Promise<Outcome<AnnouncePreview | TestSendResult | (SendSummary & { announcementId: string })>> {
   const a = admin as any
   const { fundId } = actor
   const subject = typeof body?.subject === 'string' ? body.subject.trim().slice(0, 200) : ''
@@ -85,17 +103,17 @@ export async function announceToLps(
   investorIds = investorIds.filter(id => lpVisible(lp.investorIds, id))
   if (investorIds.length === 0) return fail(400, 'No investors selected')
 
-  const groups = await resolveLpRecipients(admin, fundId, investorIds)
-  if (groups.length === 0) {
-    return fail(400, 'None of the selected LPs have portal accounts yet. Invite them from LP Portal → Access.')
-  }
+  const groups = await resolveLpEmailRecipients(admin, fundId, investorIds)
+  if (groups.length === 0 && body.test !== true) return fail(400, NOBODY_TO_EMAIL)
   const { data: fund } = await a.from('funds').select('name').eq('id', fundId).maybeSingle()
   const fundName = (fund?.name as string | undefined) || 'Your fund'
   const { data: fs } = await a.from('fund_settings').select('lp_portal_enabled').eq('fund_id', fundId).maybeSingle()
-  const html = buildLpEmailHtml({
+  // An LP with no portal account can't reply in one, so their copy carries no button.
+  const htmlFor = (viaContact: boolean) => buildLpEmailHtml({
     fundName, itemTitle: subject, message: text,
-    link: fs?.lp_portal_enabled ? `${siteUrl()}/portal/contact` : null, linkLabel: 'Reply in your portal',
+    link: fs?.lp_portal_enabled && !viaContact ? `${siteUrl()}/portal/contact` : null, linkLabel: 'Reply in your portal',
   })
+  const html = htmlFor(false)
   const fullSubject = `${fundName}: ${subject}`
 
   if (body.preview === true) {
@@ -108,6 +126,18 @@ export async function announceToLps(
 
   const config = await getOutboundConfig(a, fundId)
   if (!config) return fail(400, 'No outbound email provider is configured for this fund.')
+
+  if (body.test === true) {
+    const me = await testRecipientEmail(admin, actor.userId)
+    if (!me) return fail(400, NO_TEST_RECIPIENT)
+    const sample = groups[0] ?? null
+    await sendOutboundEmail(config, {
+      to: me,
+      subject: testSubject(fullSubject),
+      html: withTestBanner(htmlFor(!!sample?.viaContact), sample && { to: sample.primaryEmail, cc: sample.ccEmails, viaContact: sample.viaContact }),
+    })
+    return done({ ok: true, test: true, sentTo: me, sampleOf: sample?.primaryName ?? sample?.primaryEmail ?? null })
+  }
 
   const announcementId = randomUUID()
   const summary: SendSummary = { ok: true, sent: 0, primaryRecipients: groups.length, ccRecipients: groups.reduce((n, g) => n + g.ccEmails.length, 0), failures: [] }
@@ -122,7 +152,7 @@ export async function announceToLps(
     const itemIdByInvestor = new Map<string, string>(((inserted ?? []) as any[]).map(r => [r.lp_investor_id, r.id]))
     const log = { fundId, kind: 'announcement' as const, toEmail: g.primaryEmail, ccEmails: g.ccEmails, subject: fullSubject, provider: config.provider, sentBy: actor.userId }
     try {
-      const sent = await sendOutboundEmail(config, { to: g.primaryEmail, cc: g.ccEmails.length ? g.ccEmails.join(', ') : undefined, subject: fullSubject, html })
+      const sent = await sendOutboundEmail(config, { to: g.primaryEmail, cc: g.ccEmails.length ? g.ccEmails.join(', ') : undefined, subject: fullSubject, html: htmlFor(g.viaContact) })
       summary.sent += 1
       for (const investorId of g.investorIds) {
         await logDelivery(a, { ...log, itemId: itemIdByInvestor.get(investorId) ?? null, lpInvestorId: investorId, providerMessageId: sent.id ?? null })
@@ -235,19 +265,20 @@ export interface SendPreview {
   fromName: string
   html: string
   attachment: boolean
-  recipients: { to: string; name: string | null; cc: string[]; investorCount: number }[]
+  recipients: PreviewRecipient[]
 }
 
 /**
  * Email an LP-portal item to selected LPs. Authorized users delegated under each LP are Cc'd
  * automatically. Recipients are restricted to investors the item is actually shared with, so we
- * never email someone a link they can't open.
+ * never email someone a document that isn't theirs. An LP with no portal account gets it at the
+ * contact or notice email on their record, always with the PDF attached (a link would not open).
  *
- *   { kind, id, lp_investor_ids: string[], subject?, message?, delivery?, preview? }
+ *   { kind, id, lp_investor_ids: string[], subject?, message?, delivery?, preview?, test? }
  */
 export async function sendPortalItem(
   admin: SupabaseClient, actor: Pick<OutreachActor, 'fundId' | 'userId'>, body: any, renderers: SendPdfRenderers | null,
-): Promise<Outcome<SendPreview | SendSummary>> {
+): Promise<Outcome<SendPreview | SendSummary | TestSendResult>> {
   const a = admin as any
   const { fundId } = actor
   const kind = body?.kind
@@ -257,9 +288,10 @@ export async function sendPortalItem(
     ? body.lp_investor_ids.filter((x: unknown): x is string => typeof x === 'string')
     : []
   const message = typeof body?.message === 'string' ? body.message : ''
+  const isTest = body?.test === true
   let subject = typeof body?.subject === 'string' && body.subject.trim() ? body.subject.trim() : ''
   if (!validKind(kind) || !id) return fail(400, 'Invalid request')
-  if (requested.length === 0) return fail(400, 'Select at least one LP')
+  if (requested.length === 0 && !isTest) return fail(400, 'Select at least one LP')
   const wantsAttachment = delivery === 'attachment' || delivery === 'both'
   if (wantsAttachment && kind !== 'document' && !renderers) return fail(400, NO_PDF_RENDERER_MESSAGE)
 
@@ -279,21 +311,28 @@ export async function sendPortalItem(
   if (!portalEnabled && delivery !== 'attachment') {
     return fail(400, 'The LP portal is off, so portal links won\'t work. Enable it in Settings, or send as a PDF attachment instead.')
   }
-  if (sharedInvestorIds.length === 0) {
+  if (sharedInvestorIds.length === 0 && !isTest) {
     return fail(400, 'None of the selected LPs have access to this item. Share it with them first.')
   }
 
-  const groups = await resolveLpRecipients(admin, fundId, sharedInvestorIds)
-  if (groups.length === 0) {
-    return fail(400, 'The selected LPs don\'t have portal accounts yet. Invite them from Settings → LP access.')
+  const groups = await resolveLpEmailRecipients(admin, fundId, sharedInvestorIds)
+  if (groups.length === 0 && !isTest) return fail(400, NOBODY_TO_EMAIL)
+
+  // A test shows the first recipient's copy, so it needs what that copy needs.
+  const sendingTo = isTest ? groups.slice(0, 1) : groups
+  const needsAttachment = wantsAttachment || sendingTo.some(g => g.viaContact)
+  if (needsAttachment && kind !== 'document' && !renderers) {
+    return fail(400, 'Some of these LPs have no portal account, so their copy has to carry the PDF, which this caller cannot render. Send from the LP Portal page instead.')
   }
 
   const config = await getOutboundConfig(a, fundId)
   if (!config) return fail(400, 'No outbound email provider is configured for this fund.')
 
   if (!subject) subject = `${fundName}: ${itemTitle}`
-  const emailLink = delivery === 'attachment' ? null : link
-  const html = buildLpEmailHtml({ fundName, message, link: emailLink, itemTitle })
+  // An LP with no portal account gets no portal button: the PDF is the email.
+  const htmlFor = (viaContact: boolean) =>
+    buildLpEmailHtml({ fundName, message, link: delivery === 'attachment' || viaContact ? null : link, itemTitle })
+  const html = htmlFor(false)
 
   // Preview: exactly who would be emailed (To + auto-Cc addresses) and the rendered email,
   // WITHOUT sending. The review step confirmed before anything goes out.
@@ -305,7 +344,7 @@ export async function sendPortalItem(
   // are built per recipient, scoped to that recipient's investors.) A failure here would otherwise
   // fail the whole batch, so report it as a clear error instead.
   let sharedAttachment: EmailAttachment | null = null
-  if (wantsAttachment && (kind === 'letter' || kind === 'document')) {
+  if (needsAttachment && (kind === 'letter' || kind === 'document')) {
     try {
       if (kind === 'letter') {
         const pdf = await renderers!.letterPdf(admin, { fundId, letterId: id })
@@ -323,6 +362,44 @@ export async function sendPortalItem(
     if (!sharedAttachment) return fail(502, 'Could not prepare the attachment. Try again, or send a secure link instead.')
   }
 
+  /** One recipient's attachments, or null when their copy must carry one and none could be made. */
+  const attachmentsFor = async (g: LpEmailGroup): Promise<EmailAttachment[] | null> => {
+    const attach = wantsAttachment || g.viaContact
+    if (!attach) return []
+    const out: EmailAttachment[] = []
+    if (kind === 'snapshot') {
+      // Snapshot PDFs are scoped to each recipient's own investor slice.
+      const pdf = await renderers!.snapshotPdf(admin, { fundId, snapshotId: id, investorIds: g.investorIds })
+      if (pdf) out.push({ filename: pdf.fileName, content: pdf.pdf, contentType: 'application/pdf' })
+    } else if (sharedAttachment) {
+      out.push(sharedAttachment)
+    }
+    // An email that is supposed to carry the document but has nothing to attach is not sent.
+    if (out.length === 0 && (delivery === 'attachment' || g.viaContact)) return null
+    return out
+  }
+
+  if (isTest) {
+    const me = await testRecipientEmail(admin, actor.userId)
+    if (!me) return fail(400, NO_TEST_RECIPIENT)
+    const sample = groups[0] ?? null
+    let attachments: EmailAttachment[] = []
+    if (sample) {
+      const got = await attachmentsFor(sample)
+      if (!got) return fail(502, 'Could not prepare the attachment for the test.')
+      attachments = got
+    } else if (sharedAttachment && wantsAttachment) {
+      attachments = [sharedAttachment]
+    }
+    await sendOutboundEmail(config, {
+      to: me,
+      subject: testSubject(subject),
+      html: withTestBanner(htmlFor(!!sample?.viaContact), sample && { to: sample.primaryEmail, cc: sample.ccEmails, viaContact: sample.viaContact }),
+      attachments: attachments.length ? attachments : undefined,
+    })
+    return done({ ok: true, test: true, sentTo: me, sampleOf: sample?.primaryName ?? sample?.primaryEmail ?? null })
+  }
+
   const summary: SendSummary = {
     ok: true,
     sent: 0,
@@ -334,27 +411,19 @@ export async function sendPortalItem(
   await runPool(groups, SEND_CONCURRENCY, async (g) => {
     const log = { fundId, kind, itemId: id, toEmail: g.primaryEmail, ccEmails: g.ccEmails, subject, provider: config.provider, sentBy: actor.userId }
     try {
-      const attachments: EmailAttachment[] = []
-      if (wantsAttachment) {
-        if (kind === 'snapshot') {
-          // Snapshot PDFs are scoped to each recipient's own investor slice.
-          const pdf = await renderers!.snapshotPdf(admin, { fundId, snapshotId: id, investorIds: g.investorIds })
-          if (pdf) attachments.push({ filename: pdf.fileName, content: pdf.pdf, contentType: 'application/pdf' })
-        } else if (sharedAttachment) {
-          attachments.push(sharedAttachment)
+      const attachments = await attachmentsFor(g)
+      if (!attachments) {
+        summary.failures.push(g.primaryEmail)
+        for (const investorId of g.investorIds) {
+          await logDelivery(a, { ...log, lpInvestorId: investorId, status: 'failed', error: 'could not prepare the attachment' })
         }
-        // Attachment-only delivery with nothing to attach would be an empty email — skip it and
-        // report the recipient as a failure instead.
-        if (delivery === 'attachment' && attachments.length === 0) {
-          summary.failures.push(g.primaryEmail)
-          return
-        }
+        return
       }
       const sent = await sendOutboundEmail(config, {
         to: g.primaryEmail,
         cc: g.ccEmails.length ? g.ccEmails.join(', ') : undefined,
         subject,
-        html,
+        html: htmlFor(g.viaContact),
         attachments: attachments.length ? attachments : undefined,
       })
       summary.sent += 1

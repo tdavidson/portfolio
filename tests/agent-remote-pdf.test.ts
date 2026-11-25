@@ -70,7 +70,12 @@ vi.mock('@/lib/email', async importOriginal => ({
   getOutboundConfig: m.getOutboundConfig,
   sendOutboundEmail: m.sendOutboundEmail,
 }))
-vi.mock('@/lib/lp-recipients', () => ({ resolveLpRecipients: m.resolveLpRecipients }))
+vi.mock('@/lib/lp-recipients', () => ({
+  resolveLpRecipients: m.resolveLpRecipients,
+  // These recipients all have portal accounts; the contact fallback is covered in lp-portal-tools.test.ts.
+  resolveLpEmailRecipients: async (...args: unknown[]) =>
+    ((await m.resolveLpRecipients(...args)) ?? []).map((g: object) => ({ ...g, viaContact: false })),
+}))
 
 import { GET } from '@/app/api/agent/reports/[token]/route'
 import { verifyReportLink } from '@/lib/agent/report-links'

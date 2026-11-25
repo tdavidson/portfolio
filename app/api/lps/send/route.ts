@@ -45,7 +45,9 @@ export async function GET(req: NextRequest) {
  * Recipients are restricted to investors the item is actually shared with, so we
  * never email someone a link they can't open.
  *
- * POST { kind, id, lp_investor_ids: string[], subject, message, delivery, preview? }
+ * POST { kind, id, lp_investor_ids: string[], subject, message, delivery, preview?, test? }
+ * LPs with no portal account get it at the contact or notice email on file, PDF attached.
+ * `test` sends the first recipient's copy to the sender only.
  */
 export async function POST(req: NextRequest) {
   const ctx = await adminGate()

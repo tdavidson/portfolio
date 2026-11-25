@@ -39,6 +39,7 @@ import { loadWireSummaries } from '@/lib/lps/wire-instructions'
 import { normalizeNoticeEmail, reviewDistributionNotices } from '@/lib/accounting/distribution-notice-review'
 import { adminOnlyDenial, HANDLER_CHECKED } from '@/lib/access/admin-only'
 import { vehicleIdByName } from '@/lib/accounting/vehicle-id'
+import { testNoticeEmailRemotely } from '@/lib/agent/notice-publish-link'
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/
 const STATEMENT_PRESETS: PeriodPreset[] = ['this_quarter', 'last_quarter', 'ytd', 'prior_year', 'itd']
@@ -637,6 +638,25 @@ export const LP_HANDLERS: Record<string, AgentToolHandler> = {
           'with this vehicle, distributionId, the same lpEntityIds and email, and this previewToken. That stages it; an admin then ' +
           'approves it (approve_action on their explicit yes, or in the app). The draftPdf links open for an hour.',
     }
+  },
+
+  // A test of the notice email, to the member only. The DRAFT PDF needs Chromium, so the
+  // Chromium-bundled notice route renders and sends it (lib/agent/notice-publish-link.ts).
+  test_notice_email: async ({ admin, fundId, access, userId, origin }: AgentToolContext, input: any) => {
+    const denied = adminOnlyDenial(access.role, 'send a test notice email')
+    if (denied) throw new Error(denied)
+    if (!userId) throw new Error('A test goes to the member who asked; this credential names none.')
+    const vehicle = await resolveVehicle(admin, fundId, String(input?.vehicle ?? ''), access)
+    const kind = input?.kind === 'distribution' ? 'distribution' : 'capital_call'
+    const id = String(input?.id ?? '')
+    if (!id) throw new Error('id is required: the capital call or distribution.')
+    const lpEntityIds = Array.isArray(input?.lpEntityIds) && input.lpEntityIds.length ? input.lpEntityIds.map(String) : null
+    const delivery = ['link', 'attachment', 'both'].includes(input?.delivery) ? input.delivery : 'attachment'
+    const out = await testNoticeEmailRemotely({
+      mode: 'test_email', fundId, userId, vehicle, callId: id, noticeKind: kind, lpEntityIds,
+      email: { delivery, subject: typeof input?.subject === 'string' ? input.subject : null, message: typeof input?.message === 'string' ? input.message : null },
+    }, { origin })
+    return { ...out, note: `A test of ${out.sampleOf ?? 'one partner'}'s notice email went to ${out.sentTo} only. Nothing was published or sent to any LP.` }
   },
 
   // Always staged as the publish_distribution_notices pending action (its manifest's `stagesAs`).

@@ -2,6 +2,14 @@
 
 ## Unreleased
 
+### Every LP is emailed, portal account or not, and every LP email can be tested first
+- **No portal account needed.** Announcements, statements, letters and documents now reach investors with no portal account at the contact email on their record (else an entity's notice email, with the others Cc'd), as notices already did. Their copy has no portal button and always carries the PDF or file. The review step marks them. An investor whose portal access an admin disabled is still not emailed, at any address; notices now follow that rule too.
+- **Notices with the portal off.** "Publish and email" on call and distribution notices works with the LP portal off, sending each partner the PDF attached.
+- **Send a test to me.** The review step of every LP email (announcements, Send to LPs, call and distribution notices) has "Send a test to me": the exact email, attachment included, sent once to your own sign-in email with a banner naming who the real one goes to. A notice test attaches that partner's notice marked DRAFT and publishes nothing. Tests are not logged as deliveries and never appear in a portal.
+- A contact email field holding something that is not an address is passed over for the notice email.
+- **MCP:** `lp_announce` and `lp_send_item` take `test: true` (runs without staging, since nothing reaches an LP); new `test_notice_email` does the same for a call's or distribution's notice.
+- No migration.
+
 ### Recurring journal entries
 - **The journal's Recurring tab.** An entry with fixed lines repeats monthly, quarterly, every six months or yearly, on a day of the month (or its last day), from a start date until an optional end. On each due date it reminds (the reminder digest lists it and the close suggests it), saves a draft, or posts. Memos can carry `{month}`, `{quarter}`, `{year}` and `{date}`. Templates: accrue a recurring expense, release a prepaid expense, accrue loan interest, and the management fee spread.
 - **No unattended back-booking.** The daily run books only dates from the day an entry was set to draft or post. Earlier dates show as missed; pick them, review exactly what will be written (each date's memo and lines, or why it is skipped), then save drafts or post. Drafts waiting are listed the same way.

@@ -124,8 +124,10 @@ const DRAFT_ONLY: Record<string, (input: Record<string, unknown>) => boolean> = 
   lp_portal_invite: input => input.preview === true,
   lp_portal_resend_invite: input => input.preview === true,
   lp_authorized_user_add: input => input.preview === true,
-  lp_announce: input => input.preview === true,
-  lp_send_item: input => input.preview === true,
+  // A test send goes only to the person's own address, never to an LP, and is not logged.
+  lp_announce: input => input.preview === true || input.test === true,
+  lp_send_item: input => input.preview === true || input.test === true,
+  test_notice_email: () => true,
   lp_portal_invite_bulk: input => input.commit !== true,
 }
 
